@@ -854,10 +854,7 @@ async function handleRequest(req, res) {
       return await handleRevokeApiSubtoken(req, res, decodeURIComponent(accessSubtokenMatch[1]));
     }
 
-    if (req.method === "GET" && url.pathname === "/api/pay/paypal/config") {
-      return await handlePayPalConfig(req, res);
-    }
-
+    if (req.method === "GET" && url.pathname === "/api/pay/paypal/config") return await handlePayPalConfig(req, res);
     if (req.method === "POST" && url.pathname === "/api/pay/airwallex/checkout-sessions") {
       return await createAirwallexCheckoutSession(req, res);
     }
@@ -877,16 +874,7 @@ async function handleRequest(req, res) {
       return await handleMulerouterWebhook(req, res);
     }
 
-    if (req.method === "GET" && url.pathname === "/api/pay/stripe/config") {
-      return sendJson(res, 200, { ok: true, stripe: stripePublicConfig(req) });
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/promo/double-topup") {
-      return await handleDoubleTopupPromoStatus(req, res);
-    }
-    if (req.method === "POST" && url.pathname === "/api/promo/double-topup/checkout") {
-      return await createDoubleTopupCheckout(req, res);
-    }
+    if (await handlePromotionPaymentRoutes(req, res, url)) return;
     if (req.method === "POST" && url.pathname === "/api/pay/stripe/checkout-sessions") {
       return await createStripeCheckoutSession(req, res);
     }

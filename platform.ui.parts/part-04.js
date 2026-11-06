@@ -868,6 +868,12 @@ async function requestJson(url, options = {}) {
   return payload;
 }
 
+const WORKFLOW_CANVAS_BASE_WIDTH = 3200;
+const WORKFLOW_CANVAS_BASE_HEIGHT = 720;
+const WORKFLOW_CANVAS_PADDING = 140;
+const WORKFLOW_CANVAS_MAX_WIDTH = 12000;
+const WORKFLOW_CANVAS_MAX_HEIGHT = 3200;
+
 function cloneWorkflowDefault() {
   return {
     nodes: WORKFLOW_DEFAULT_NODES.map((node) => ({ ...node, data: { ...(node.data || {}) } })),
@@ -952,6 +958,11 @@ function workflowNodeById(nodeId = "") {
   return ensureWorkflowState().nodes.find((node) => node.id === nodeId) || null;
 }
 
+window.refreshIcons = refreshIcons;
+window.ensureWorkflowState = ensureWorkflowState;
+window.persistWorkflowState = persistWorkflowState;
+window.workflowNodeById = workflowNodeById;
+
 function normalizeWorkflowZoom(value = 1) {
   const numeric = Number(value || 1);
   if (!Number.isFinite(numeric)) return 1;
@@ -963,12 +974,6 @@ function workflowZoom() {
   workflow.zoom = normalizeWorkflowZoom(workflow.zoom);
   return workflow.zoom;
 }
-
-const WORKFLOW_CANVAS_BASE_WIDTH = 3200;
-const WORKFLOW_CANVAS_BASE_HEIGHT = 720;
-const WORKFLOW_CANVAS_PADDING = 140;
-const WORKFLOW_CANVAS_MAX_WIDTH = 12000;
-const WORKFLOW_CANVAS_MAX_HEIGHT = 3200;
 
 function workflowCanvasLogicalSize() {
   const canvas = els.workflowRoot?.querySelector(".workflow-canvas");
@@ -1095,6 +1100,9 @@ function workflowOutgoingEdges(nodeId = "") {
 function workflowIncomingEdges(nodeId = "") {
   return ensureWorkflowState().edges.filter((edge) => edge.to === nodeId);
 }
+
+window.workflowIncomingEdges = workflowIncomingEdges;
+window.workflowOutgoingEdges = workflowOutgoingEdges;
 
 function workflowDownstreamGenerationNodes(nodeId = "") {
   const workflow = ensureWorkflowState();

@@ -125,6 +125,8 @@ function updateWorkflowCanvasSaveStatus() {
   if (element) element.textContent = state.workflowCanvasMessage || (state.user ? "Saved" : "Local only");
 }
 
+window.updateWorkflowCanvasSaveStatus = updateWorkflowCanvasSaveStatus;
+
 function setActiveWorkflowCanvas(canvas = {}) {
   window.clearTimeout(state.workflowCanvasSaveTimer);
   state.workflowCanvasSaveTimer = 0;

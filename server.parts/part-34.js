@@ -953,8 +953,20 @@ async function startStripeCheckoutForOrder(order, config, { requestOrigin = "", 
   const params = new URLSearchParams();
   const origin = String(order.sourceOrigin || requestOrigin || "https://123vips.com").replace(/\/+$/, "");
   params.set("mode", "payment");
-  params.set("success_url", `${origin}/?stripe_session_id={CHECKOUT_SESSION_ID}#topups`);
-  params.set("cancel_url", `${origin}/#topups`);
+  const promoQuery = new URLSearchParams();
+  if (order.promoCampaignId === "eleven-eleven-2026") {
+    promoQuery.set("promo", "1111");
+    if (order.promoCampaignSku) promoQuery.set("promo_sku", order.promoCampaignSku);
+  }
+  promoQuery.set("stripe_session_id", "{CHECKOUT_SESSION_ID}");
+  params.set("success_url", `${origin}/?${promoQuery.toString()}#topups`);
+  const cancelQuery = new URLSearchParams();
+  if (order.promoCampaignId === "eleven-eleven-2026") {
+    cancelQuery.set("promo", "1111");
+    cancelQuery.set("promo_cancelled", "1");
+    if (order.promoCampaignSku) cancelQuery.set("promo_sku", order.promoCampaignSku);
+  }
+  params.set("cancel_url", `${origin}/?${cancelQuery.toString()}#topups`);
   params.set("client_reference_id", order.id);
   params.set("expires_at", String(Math.floor(Date.now() / 1000) + STRIPE_CHECKOUT_SESSION_TTL_SECONDS));
   params.set("line_items[0][price_data][currency]", STRIPE_CURRENCY);
@@ -1246,6 +1258,13 @@ async function handleStripeWebhook(req, res) {
     const failure = order.stripeFailureMessage || order.stripeFailureCode || (event.type === "checkout.session.expired" ? "Checkout session expired." : "Stripe payment failed.");
     order.note = String(failure).slice(0, 200);
     await updateWalletOrderInDb(order);
+    if (order.promoCampaignId === "eleven-eleven-2026") {
+      await markPromotionPurchaseFailedInDb({
+        campaignId: order.promoCampaignId,
+        orderId: order.id,
+        status: event.type === "checkout.session.expired" ? "expired" : "failed",
+      }).catch(() => {});
+    }
     return sendJson(res, 200, { ok: true, failed: true });
   }
   const amountTotal = Number(session?.amount_total || 0);

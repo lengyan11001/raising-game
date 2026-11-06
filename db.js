@@ -235,6 +235,22 @@ async function ensureSchemaInner() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_wallet_orders_user_created_idx ON app_wallet_orders (user_id, created_at DESC);`);
   await query(`CREATE INDEX IF NOT EXISTS app_wallet_orders_status_idx ON app_wallet_orders (status, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_promotion_purchases (
+      campaign_id TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      order_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      reserved_until TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (campaign_id, sku, user_id)
+    );
+  `);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_order_uidx ON app_promotion_purchases (order_id) WHERE order_id <> '';`);
+  await query(`CREATE INDEX IF NOT EXISTS app_promotion_purchases_campaign_status_idx ON app_promotion_purchases (campaign_id, sku, status, reserved_until);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_promotion_purchases_user_idx ON app_promotion_purchases (user_id, campaign_id);`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_wallet_orders_chain_tx_uidx
       ON app_wallet_orders (chain, transaction_hash)
@@ -1533,6 +1549,7 @@ async function replaceAppDbTables(db = {}, options = {}) {
       await client.query("DELETE FROM app_user_assets");
       await client.query("DELETE FROM app_credit_ledger");
       await client.query("DELETE FROM app_wallet_orders");
+      await client.query("DELETE FROM app_promotion_purchases");
       await client.query("DELETE FROM app_referral_withdrawals");
       await client.query("DELETE FROM app_sessions");
       await client.query("DELETE FROM app_users");
@@ -2840,6 +2857,184 @@ async function redeemMembershipActivationCodeInDb({ tenantId = DEFAULT_TENANT_ID
   } finally {
     client.release();
   }
+}
+
+function promotionPurchaseFromRow(row = {}) {
+  return {
+    campaignId: String(row.campaign_id || ""),
+    sku: String(row.sku || ""),
+    userId: String(row.user_id || ""),
+    orderId: String(row.order_id || ""),
+    status: String(row.status || "pending"),
+    reservedUntil: row.reserved_until ? new Date(row.reserved_until).toISOString() : "",
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+async function getPromotionPurchaseStateInDb(campaignId = "", userId = "", skus = []) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
+  const cleanCampaignId = String(campaignId || "").trim();
+  if (!cleanCampaignId) throw new Error("campaignId is required");
+  const cleanUserId = String(userId || "").trim();
+  const cleanSkus = [...new Set((Array.isArray(skus) ? skus : []).map((sku) => String(sku || "").trim()).filter(Boolean))];
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`
+      UPDATE app_promotion_purchases
+      SET status = 'expired', updated_at = NOW()
+      WHERE campaign_id = $1
+        AND status = 'pending'
+        AND reserved_until IS NOT NULL
+        AND reserved_until <= NOW()
+    `, [cleanCampaignId]);
+    const inventory = await client.query(`
+      SELECT sku,
+        COUNT(*) FILTER (WHERE status = 'paid')::int AS paid,
+        COUNT(*) FILTER (WHERE status = 'pending' AND reserved_until > NOW())::int AS pending
+      FROM app_promotion_purchases
+      WHERE campaign_id = $1
+        AND ($2::text[] = '{}'::text[] OR sku = ANY($2::text[]))
+      GROUP BY sku
+    `, [cleanCampaignId, cleanSkus]);
+    let purchases = [];
+    if (cleanUserId) {
+      const result = await client.query(`
+        SELECT * FROM app_promotion_purchases
+        WHERE campaign_id = $1 AND user_id = $2
+          AND ($3::text[] = '{}'::text[] OR sku = ANY($3::text[]))
+        ORDER BY created_at ASC
+      `, [cleanCampaignId, cleanUserId, cleanSkus]);
+      purchases = result.rows.map(promotionPurchaseFromRow);
+    }
+    await client.query("COMMIT");
+    return {
+      inventory: inventory.rows.map((row) => ({
+        sku: String(row.sku || ""),
+        paid: Number(row.paid || 0),
+        pending: Number(row.pending || 0),
+      })),
+      purchases,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function reservePromotionPurchaseInDb({ campaignId = "", sku = "", userId = "", orderId = "", capacity = 0, reservationSeconds = 1500 } = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
+  const cleanCampaignId = String(campaignId || "").trim();
+  const cleanSku = String(sku || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  const maxInventory = Math.max(0, Math.trunc(Number(capacity || 0) || 0));
+  const holdSeconds = Math.max(60, Math.min(3600, Math.trunc(Number(reservationSeconds || 1500) || 1500)));
+  if (!cleanCampaignId || !cleanSku || !cleanUserId || !cleanOrderId) throw new Error("campaignId, sku, userId and orderId are required");
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`promotion-purchase:${cleanCampaignId}:${cleanSku}`]);
+    await client.query(`
+      UPDATE app_promotion_purchases
+      SET status = 'expired', updated_at = NOW()
+      WHERE campaign_id = $1 AND sku = $2
+        AND status = 'pending' AND reserved_until IS NOT NULL AND reserved_until <= NOW()
+    `, [cleanCampaignId, cleanSku]);
+    const existingResult = await client.query(
+      `SELECT * FROM app_promotion_purchases WHERE campaign_id = $1 AND sku = $2 AND user_id = $3 FOR UPDATE`,
+      [cleanCampaignId, cleanSku, cleanUserId],
+    );
+    const existing = existingResult.rows[0] ? promotionPurchaseFromRow(existingResult.rows[0]) : null;
+    if (existing?.status === "paid") {
+      await client.query("COMMIT");
+      return { status: "purchased", purchase: existing };
+    }
+    if (existing?.status === "pending" && Date.parse(existing.reservedUntil || "") > Date.now()) {
+      await client.query("COMMIT");
+      return { status: "pending", purchase: existing };
+    }
+    const countResult = await client.query(`
+      SELECT COUNT(*)::int AS used
+      FROM app_promotion_purchases
+      WHERE campaign_id = $1 AND sku = $2
+        AND (status = 'paid' OR (status = 'pending' AND reserved_until > NOW()))
+    `, [cleanCampaignId, cleanSku]);
+    if (Number(countResult.rows[0]?.used || 0) >= maxInventory) {
+      await client.query("COMMIT");
+      return { status: "sold_out", purchase: existing };
+    }
+    const reservedUntil = new Date(Date.now() + holdSeconds * 1000).toISOString();
+    const saved = await client.query(`
+      INSERT INTO app_promotion_purchases(campaign_id, sku, user_id, order_id, status, reserved_until, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'pending', $5::timestamptz, NOW(), NOW())
+      ON CONFLICT (campaign_id, sku, user_id) DO UPDATE SET
+        order_id = EXCLUDED.order_id,
+        status = 'pending',
+        reserved_until = EXCLUDED.reserved_until,
+        updated_at = NOW()
+      WHERE app_promotion_purchases.status <> 'paid'
+      RETURNING *
+    `, [cleanCampaignId, cleanSku, cleanUserId, cleanOrderId, reservedUntil]);
+    await client.query("COMMIT");
+    return saved.rows[0]
+      ? { status: "reserved", purchase: promotionPurchaseFromRow(saved.rows[0]) }
+      : { status: "purchased", purchase: existing };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function markPromotionPurchasePaidInDb({ campaignId = "", orderId = "" } = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
+  const cleanCampaignId = String(campaignId || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  if (!cleanCampaignId || !cleanOrderId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    UPDATE app_promotion_purchases
+    SET status = 'paid', reserved_until = NULL, updated_at = NOW()
+    WHERE campaign_id = $1 AND order_id = $2 AND status <> 'paid'
+    RETURNING *
+  `, [cleanCampaignId, cleanOrderId]);
+  return rows[0] ? promotionPurchaseFromRow(rows[0]) : null;
+}
+
+async function markPromotionPurchaseFailedInDb({ campaignId = "", orderId = "", status = "failed" } = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
+  const cleanCampaignId = String(campaignId || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  const cleanStatus = ["failed", "cancelled", "expired"].includes(String(status || "")) ? String(status) : "failed";
+  if (!cleanCampaignId || !cleanOrderId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    UPDATE app_promotion_purchases
+    SET status = $3, reserved_until = NULL, updated_at = NOW()
+    WHERE campaign_id = $1 AND order_id = $2 AND status = 'pending'
+    RETURNING *
+  `, [cleanCampaignId, cleanOrderId, cleanStatus]);
+  return rows[0] ? promotionPurchaseFromRow(rows[0]) : null;
+}
+
+async function getPromotionPurchaseByOrderInDb(campaignId = "", orderId = "") {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
+  const cleanCampaignId = String(campaignId || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  if (!cleanCampaignId || !cleanOrderId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_promotion_purchases WHERE campaign_id = $1 AND order_id = $2 LIMIT 1`,
+    [cleanCampaignId, cleanOrderId],
+  );
+  return rows[0] ? promotionPurchaseFromRow(rows[0]) : null;
 }
 
 async function updateWalletOrderInDb(order = {}) {
@@ -7237,6 +7432,11 @@ module.exports = {
   createSessionInDb,
   getSessionByTokenInDb,
   getWalletOrderByIdInDb,
+  getPromotionPurchaseStateInDb,
+  reservePromotionPurchaseInDb,
+  markPromotionPurchasePaidInDb,
+  markPromotionPurchaseFailedInDb,
+  getPromotionPurchaseByOrderInDb,
   getWalletOrderByPaypalIdInDb,
   createReferralWithdrawalInDb,
   updateReferralWithdrawalInDb,

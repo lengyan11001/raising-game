@@ -261,12 +261,12 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(css, /\.history-undress-result-actions[\s\S]*?border-radius: 10px/);
   assert.match(css, /\.history-undress-result-actions button[\s\S]*?width: 34px[\s\S]*?border-radius: 8px/);
   assert.match(css, /\.history-panel \.history-list[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
-  assert.match(server, /r2KeyFromPublicDownloadUrl\(target\.objectStorageUrl\)/);
+  assert.match(server, /objectStorageDownloadKey\(target\)/);
   assert.match(server, /left\[0\] < right\[0\] \? -1 : 1/);
   assert.doesNotMatch(server, /left\[0\]\.localeCompare\(right\[0\]\)/);
-  assert.match(server, /source: signedUrl \? "r2_signed" : "authenticated_proxy"/);
+  assert.ok(server.includes("${storage.provider}_signed"));
   assert.match(ui, /href = payload\.url/);
-  assert.match(ui, /download-url\?quality=r2/);
+  assert.match(ui, /download-url\?\$\{query\}/);
   assert.match(ui, /triggerBrowserDownload\(href, fileName\)/);
   assert.match(history, /setAdvancedDownloadButtonState\(button, "transferring"\)/);
   assert.match(history, /setAdvancedDownloadButtonState\(button, ok \? "ready" : "failed"\)/);

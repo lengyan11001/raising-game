@@ -1,3 +1,28 @@
+## Account menu email binding (2026-11-06)
+
+- User goal: keep the Price list entry, show the bound email in the top-right avatar menu for email-login accounts, and let username/password accounts bind an email so they can later use verification-code login.
+- `platform.html`: added the conditional “绑定邮箱” avatar-menu entry and account email status elements. `platform.ui.parts/part-01.js`: avatar label prefers the bound email. `platform.ui.parts/part-02.js`: binding entry is visible only for logged-in users when email auth is enabled and no email is bound.
+- `platform.create.parts/part-06.js`: account dialog focuses email from the menu entry, shows the bound email read-only, hides binding controls after binding, and refreshes the user after successful verification. `platform.main.js`: wires the menu entry to the account dialog.
+- Regression test added to `test/email-auth.test.js`; email auth/SMTP tests pass 9/9, syntax checks and `git diff --check` pass.
+- Release: `old-site` `e2cfe4a`, `platform-release` `99957e4`. Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; `/api/health` returned `200 {"ok":true}`. Production HTML and JS contain the binding menu, email-preferred avatar label, conditional visibility, and focused binding dialog. Live was not deployed.
+
+## Direct React Flow canvas adoption with existing business core (2026-11-06)
+
+- User goal: adopt the canvas interaction/architecture from `/Users/x042/Desktop/canvas_web.zip` directly, while retaining this site's node definitions, models, uploads/generation, execution, PostgreSQL persistence, and canvas ownership/CRUD. Do not incrementally extend the old canvas logic, import the reference project's nodes/models, or deploy.
+- Implemented vendored React Flow 12.11.3 under `workflow-react/vendor/`; `platform.workflow-react.js` adapts it to existing business functions (`ensureWorkflowState`, `createWorkflowNode`, `workflowCanConnectNodes`, `removeWorkflowNode`, `selectWorkflowNode`, `persistWorkflowState`, `renderWorkflowNode`, `deleteSelectedWorkflowNodes`). The business graph remains authoritative for edges, deletion bridging, and persistence.
+- React Flow owns dragging, selection, handles, palette drop, empty-canvas double-click creation, zoom/pan, minimap, and controls. Fixed real-mouse connection validation by normalizing React Flow endpoint objects/IDs and fixed palette dragstart binding in `platform.main.js`.
+- Fixed wrapper measurement, handle hit area/layering, node dragging coordinates, delete bridging, and actual rendered node styling. Final scoped dark-glass overrides cover all node types, headers, result/empty areas, footer, editor fields, reference dropzones, output boxes, and hide legacy connector dots inside React Flow. MiniMap/controls use the site dark/pink palette.
+- Verification: `node --check` for adapter/main/UI parts, `git diff --check`, and `node --require ./test/source-compat.js --test test/workflow-access.test.js test/workflow-canvases.test.js` pass 19/19. Real Chrome verification passes mouse connection (business edge = DOM edge), palette drag creation (business nodes = DOM nodes), node drag `(520,60) -> (754,191)` with persisted coordinates, zoom, delete and chain bridge (`input -> generation -> output` becomes `input -> output`), computed styles `whiteCards: 0`, dark node/header/result/footer values, and `consoleErrors: []`. Screenshot: `/tmp/workflow-react-verify/canvas-final-dark.png`; final probe outputs: `/tmp/workflow-react-verify/style-final-v9.out`, `/tmp/workflow-react-verify/final-real-v9.out`. Final `whiteSurfaces` contains only the hidden legacy connector elements, not visible white UI.
+- Deployment: not deployed.
+
+## Sidebar navigation spacing and More removal (2026-11-06)
+
+- User goal: increase the main sidebar navigation row spacing, preserve compact capsule height, and remove the More entry.
+- Desktop-only final correction: increased left sidebar `.top-tabs` row gap from `1px` to `8px` while keeping each navigation capsule at `38px`; mobile spacing and utility-nav spacing are unchanged. Removed the More button/menu markup, overflow cloning logic, post-selection menu closing logic, and related CSS/mobile overrides.
+- Updated `test/side-navigation-overflow.test.js` to assert desktop left-nav gap `8px`, desktop capsule height `38px`, and no More implementation.
+- Verification: targeted navigation test passes 3/3; `git diff --check` passes.
+- Deployment: `old-site` `33b05d8`; `platform-release` `710d3df`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returns `200 {"ok":true}`; production CSS contains the desktop `.top-tabs { gap: 8px; }` rule and preserves `min-height: 38px` capsules. Live was not deployed.
+
 ## Unified pink tabs across navigation and sub-tabs (2026-11-06)
 
 - User goal: unify the top navigation, page-level tabs and secondary tabs with the Character page's pink selected style.
@@ -989,3 +1014,14 @@ CODEX_TASK_STATE.md
 - Changed this step: `oss-storage.js`, `.env.example`, `DEPLOY.md`, `scripts/deploy_site.py`, `test/oss-storage.test.js`, `CODEX_TASK_STATE.md`.
 - Verification: `node --test test/oss-storage.test.js` passes 6/6; `node --check oss-storage.js`; `node --check server.parts/part-01.js`; `python3 -m py_compile scripts/deploy_site.py`; `git diff --check` all pass.
 - Alibaba credentials were already verified as `403 UserDisable` for OSS and `CdnServiceNotFound` for CDN. Real overseas OSS/CDN provisioning remains blocked until the account is enabled and an overseas CDN domain is available. No production OSS cutover has been claimed or deployed.
+
+## 11.11 top-bar campaign and checkout dialog (2026-11-06)
+
+- User goal: integrate the designed 11.11 campaign from `/Users/x042/Desktop/双11活动位与购买弹窗_交互原型(2).html` into the platform header, with desktop/mobile entries, purchase dialog, countdown, inventory, sold-out/purchased states, Stripe checkout, payment return/cancel handling, and PostgreSQL-backed purchase state. Do not deploy unless explicitly requested.
+- Campaign `eleven-eleven-2026`: default `2026-11-10T00:00:00+07:00` through `2026-11-12T00:00:00+07:00`, overridable with `ELEVEN_ELEVEN_STARTS_AT` / `ELEVEN_ELEVEN_ENDS_AT`. SKU `member`: $29.9 (original $99), capacity 1,111, lifetime membership. SKU `credits`: $66 (original $90), capacity 1,111, 9,000 credits. One purchase per user per SKU; server owns prices, credits, dates, and inventory.
+- Backend: `db.js` adds `app_promotion_purchases` plus state/reservation/paid/failed/order lookup helpers and an advisory-lock reservation path. `server.parts/part-44.js` defines campaign status and checkout endpoints; `server.parts/part-13.js` marks promotions paid before the existing paid-order early return; `server.parts/part-34.js` adds promo-aware Stripe success/cancel URLs and releases reservations on failure/expiry.
+- Frontend: `platform.html` adds desktop and mobile header entries and the full dialog; `platform.css` adds entry/dialog/cards/success/ended/responsive styling; `platform.ui.parts/part-07.js` adds countdown, pre-start/ended states, selection, inventory, purchased/sold-out overlays, duplicate-submit prevention, Stripe return/cancel handling, settlement polling, and close/backdrop behavior.
+- Existing Creator Members are treated as already owning the `member` SKU: status returns `owned`, the card is disabled with an “已拥有” overlay, and checkout returns `MEMBERSHIP_ALREADY_ACTIVE` before reserving inventory or creating another Stripe order. Credits remain separately purchasable.
+- Verification: `node --require ./test/source-compat.js --test test/eleven-eleven-promo.test.js` passes 8/8; `node --check db.js`, `node --check server.js`, `node --check platform.ui.parts/part-07.js`, and `git diff --check` pass. The full source-split test remains blocked by pre-existing oversized parts `server.parts/part-29.js`, `server.parts/part-41.js`, `platform.ui.parts/part-02.js`, `platform.create.parts/part-02.js`, and `platform.create.parts/part-04.js`.
+- Unrelated existing failure observed in `test/stripe-cashier.test.js`: it expects the older exact `pay.js` provider assignment, while the current working tree includes concurrent Airwallex changes. Do not revert those wallet changes as part of the 11.11 work.
+- Deployment status: not committed and not deployed.

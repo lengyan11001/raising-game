@@ -8,7 +8,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=email-menu-20261106-1" />
+    <link rel="stylesheet" href="./platform.css?v=react-flow-dark-20261106-9" />
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
     <script>
       (function () {
@@ -67,6 +67,10 @@
       <button class="topup-trigger tool-download-trigger mobile-tool-download-trigger" id="mobileToolDownloadBtn" type="button" hidden aria-label="Download" data-i18n-aria="install.download">
         <i data-lucide="download"></i>
         <span data-i18n="install.download">Download</span>
+      </button>
+      <button class="eleven-eleven-entry eleven-eleven-entry-mobile" type="button" aria-label="11.11 限时活动" hidden>
+        <span class="eleven-eleven-badge">11.11</span>
+        <span class="eleven-eleven-mobile-time"><strong id="elevenElevenMobileCountdown">--:--:--</strong></span>
       </button>
       <button class="topup-trigger mobile-topup-trigger" id="mobileDrawerTopupBtn" type="button">
         <i data-lucide="coins"></i>
@@ -174,6 +178,17 @@
           <i data-lucide="download"></i>
           <span data-i18n="install.download">Download</span>
         </button>
+        <button class="eleven-eleven-entry eleven-eleven-entry-desktop" type="button" aria-label="11.11 限时活动" hidden>
+          <span class="eleven-eleven-badge">11.11</span>
+          <span class="eleven-eleven-message" aria-hidden="true">
+            <span class="eleven-eleven-roll">
+              <span><b>$29.9</b> 开通 $99 终身会员</span>
+              <span><b>$66</b> 到账 9,000 积分</span>
+            </span>
+          </span>
+          <span class="eleven-eleven-time"><span data-eleven-time-label>距结束</span><strong id="elevenElevenCountdown">--:--:--</strong></span>
+          <span class="eleven-eleven-go">立即抢</span>
+        </button>
         <button class="topup-trigger topup-head-trigger" id="topupHeadBtn" type="button" hidden>
           <i data-lucide="coins"></i>
           <span data-i18n="topup.buyCoins">Buy credits</span>
@@ -245,6 +260,72 @@
           <button id="doubleTopupPayBtn" class="double-topup-pay" type="button">去充值</button>
           <small>重复下单不会再次赠送，多出的订单按原来的充值比例到账。</small>
         </form>
+      </dialog>
+      <dialog id="elevenElevenDialog" class="eleven-eleven-dialog">
+        <div id="elevenElevenMain" class="eleven-eleven-view">
+          <header class="eleven-eleven-head">
+            <div>
+              <span class="eleven-eleven-kicker">11.11 限时 48 小时</span>
+              <h2>限量发售，售完即止</h2>
+              <p><span data-eleven-time-label>距结束</span> <strong class="eleven-eleven-modal-time">--:--:--</strong></p>
+            </div>
+            <button class="eleven-eleven-close" id="elevenElevenCloseBtn" type="button" aria-label="关闭">×</button>
+          </header>
+          <div class="eleven-eleven-cards">
+            <article class="eleven-eleven-card" data-eleven-sku="member" tabindex="0" role="button" aria-label="选择创作者终身权益">
+              <span class="eleven-eleven-card-tag">🔥 限量 1,111 份</span>
+              <div class="eleven-eleven-rib" hidden>已购买</div>
+              <h3>创作者终身权益</h3>
+              <div class="eleven-eleven-price"><s>$99</s><strong>$29.9</strong></div>
+              <p class="eleven-eleven-desc">一次购买，<b>终身有效</b>。包含案例库与 Explore 全部权益。</p>
+              <ul class="eleven-eleven-list">
+                <li>Explore 视频免费看、免费下载</li>
+                <li>案例库提示词与素材全解锁</li>
+                <li>付费邀请奖励 100 积分/人</li>
+              </ul>
+              <div class="eleven-eleven-bonus">
+                <div><span>⚡ 开通后充值加赠</span><strong>最高 20%</strong><em>核心权益</em></div>
+                <p>日常 $100 档　<b>10,000 → 12,000 积分</b>　<span>多拿 2,000</span></p>
+                <small>活动档位不参与，活动结束后自动生效</small>
+              </div>
+              <div class="eleven-eleven-stock"><span data-eleven-sold>已售 0 / 1,111</span><span data-eleven-left>剩 1,111 份</span></div>
+              <div class="eleven-eleven-bar"><i data-eleven-bar></i></div>
+            </article>
+            <article class="eleven-eleven-card eleven-eleven-card-credits" data-eleven-sku="credits" tabindex="0" role="button" aria-label="选择 11.11 积分档">
+              <span class="eleven-eleven-card-tag">🔥 限量 1,111 份</span>
+              <div class="eleven-eleven-rib" hidden>已购买</div>
+              <h3>$66 充值档</h3>
+              <div class="eleven-eleven-price"><strong>$66</strong><s>$90</s></div>
+              <div class="eleven-eleven-credits"><strong>9,000</strong><span>积分到账</span><em>多拿 80%</em></div>
+              <p class="eleven-eleven-desc">面值 $90　·　比 $50 档多 4,000 积分</p>
+              <ul class="eleven-eleven-list">
+                <li>9,000 积分即时到账</li>
+                <li>积分永不过期</li>
+              </ul>
+              <div class="eleven-eleven-stock"><span data-eleven-sold>已售 0 / 1,111</span><span data-eleven-left>剩 1,111 份</span></div>
+              <div class="eleven-eleven-bar"><i data-eleven-bar></i></div>
+            </article>
+          </div>
+          <div class="eleven-eleven-foot">
+            <div class="eleven-eleven-pay-info"><span>支持支付方式</span><b>微信支付</b><b>支付宝</b><b>银行卡</b></div>
+            <button id="elevenElevenBuyBtn" class="eleven-eleven-buy" type="button" disabled>选择一档立即购买</button>
+            <p id="elevenElevenError" class="eleven-eleven-error" role="alert" hidden></p>
+            <small class="eleven-eleven-fine">活动档为限时特价，不与会员充值奖励及其它优惠叠加</small>
+          </div>
+        </div>
+        <div id="elevenElevenDone" class="eleven-eleven-view eleven-eleven-done" hidden>
+          <span class="eleven-eleven-tick">✓</span>
+          <h2 id="elevenElevenDoneTitle">支付成功</h2>
+          <p id="elevenElevenDoneBody">9,000 积分已到账</p>
+          <div id="elevenElevenDoneBalance" class="eleven-eleven-balance">当前积分余额　<b>0</b></div>
+          <button id="elevenElevenDoneBtn" class="eleven-eleven-buy" type="button">完成</button>
+        </div>
+        <div id="elevenElevenEnded" class="eleven-eleven-view eleven-eleven-ended" hidden>
+          <span class="eleven-eleven-ended-icon">11.11</span>
+          <h2>本次活动已结束</h2>
+          <p>下一场活动见。</p>
+          <button id="elevenElevenEndedBtn" class="eleven-eleven-buy" type="button">关闭</button>
+        </div>
       </dialog>
       <section class="home-panel" data-panel="home" hidden>
         <div class="w-bg" aria-hidden="true">
@@ -1434,6 +1515,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=email-menu-20261106-1"></script>
+    <script src="./platform.js?v=react-flow-dark-20261106-9"></script>
   </body>
 </html>

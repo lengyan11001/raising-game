@@ -708,6 +708,7 @@ els.advancedMobileTabs?.querySelectorAll("[data-advanced-mobile-tab]").forEach((
 });
 els.refreshAdvancedResultBtn?.addEventListener("click", () => refreshAdvancedResultRecord());
 els.workflowRoot?.addEventListener("click", handleWorkflowClick);
+els.workflowRoot?.addEventListener("dragstart", handleWorkflowPaletteDragStart);
 els.workflowRoot?.addEventListener("pointerdown", handleWorkflowPointerDown);
 els.workflowRoot?.addEventListener("wheel", handleWorkflowWheel, { passive: false });
 els.workflowRoot?.addEventListener("dragover", (event) => {

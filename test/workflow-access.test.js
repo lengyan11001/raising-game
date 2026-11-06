@@ -40,8 +40,8 @@ test("workflow source, prompt, generation, and output nodes have separate roles"
   assert.match(ui, /data-workflow-action="add-video-reference"/);
   assert.match(ui, /data-workflow-action="add-prompt"/);
   assert.match(ui, /data-workflow-action="add-output"/);
-  assert.match(ui, /if \(action === "add-image"\) addWorkflowImageNode\(\);/);
+  assert.match(ui, /if \(action === "add-image"\) addWorkflowNodeAt\("add-image"\);/);
   assert.match(ui, /function workflowVideoReferenceNodes\(\)/);
-  assert.match(ui, /if \(action === "add-video"\) addWorkflowVideoNode\(\);/);
+  assert.match(ui, /if \(action === "add-video"\) addWorkflowNodeAt\("add-video"\);/);
   assert.match(ui, /function workflowGenerationNodes\(\)/);
 });

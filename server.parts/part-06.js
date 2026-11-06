@@ -198,10 +198,20 @@ function normalizeChatLiveCharacterPayload(body = {}, existing = null) {
 function isManagedChatLiveAssetUrl(url = "") {
   try {
     const parsed = new URL(String(url || "").trim());
-    const base = new URL(String(R2.publicDomain || "").trim());
-    if (parsed.protocol !== "https:" || parsed.origin !== base.origin) return false;
+    const baseUrls = [R2.publicDomain, OSS.cdnBaseUrl].map((value) => String(value || "").trim()).filter(Boolean);
+    const managed = baseUrls.some((baseUrl) => {
+      const base = new URL(baseUrl);
+      if (parsed.protocol !== "https:" || parsed.origin !== base.origin) return false;
+      const basePath = base.pathname.replace(/\/+$/, "");
+      return !basePath || parsed.pathname === basePath || parsed.pathname.startsWith(`${basePath}/`);
+    });
+    if (!managed) return false;
     const prefix = `/${String(OBJECT_STORAGE_KEY_PREFIX || "").replace(/^\/+|\/+$/g, "")}/chat-live/`;
-    return parsed.pathname.startsWith(prefix);
+    return baseUrls.some((baseUrl) => {
+      const basePath = new URL(baseUrl).pathname.replace(/\/+$/, "");
+      const objectPath = `/${parsed.pathname.slice(basePath.length).replace(/^\/+/, "")}`;
+      return objectPath.startsWith(prefix);
+    });
   } catch {
     return false;
   }

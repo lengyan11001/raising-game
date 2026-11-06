@@ -108,7 +108,7 @@ test("workflow canvas UI supports selection, create, save and delete", () => {
   assert.match(manager, /button\.disabled/);
   assert.match(manager, /data-workflow-canvas-select/);
   assert.match(ui, /scheduleWorkflowCanvasSave\(\);/);
-  assert.match(explore, /loadWorkflowCanvases\(\);/);
+  assert.match(explore, /loadWorkflowCanvases\(\)/);
 });
 
 test("workflow uploads store asset references instead of embedded media", () => {
@@ -167,6 +167,71 @@ test("workflow toolbar exposes only real controls", () => {
   assert.doesNotMatch(ui, /data-workflow-action="physics"/);
 });
 
+test("workflow React Flow adapter owns creation, connection, and business deletion", () => {
+  const ui = read("platform.ui.js");
+  const adapter = read("platform.workflow-react.js");
+  const css = read("platform.css");
+
+  assert.match(adapter, /function CanvasInner\(props\)/);
+  assert.match(adapter, /flow\.screenToFlowPosition/);
+  assert.match(adapter, /function onDrop\(event\)/);
+  assert.match(adapter, /function connectionEndpointId\(value\)/);
+  assert.match(adapter, /window\.workflowCanConnectNodes\(sourceId, targetId\)/);
+  assert.match(adapter, /deleteKeyCode: null/);
+  assert.match(adapter, /addEventListener\("keydown", handleWorkflowDeleteKeyDown, true\)/);
+  assert.match(adapter, /window\.deleteSelectedWorkflowNodes/);
+  assert.match(adapter, /function deleteBusinessElements\(elements\)/);
+  assert.match(adapter, /if \(typeof window\.removeWorkflowNode === "function"\) window\.removeWorkflowNode\(nodeId\)/);
+  assert.match(adapter, /mounted\.deleteElements = deleteBusinessElements/);
+  assert.match(ui, /function workflowAvailableNodePosition\(position = null\)/);
+  assert.match(ui, /function workflowNodePositionIsFree\(candidate = \{\}/);
+  assert.match(ui, /const point = position \? workflowAvailableNodePosition\(position\) : workflowNewNodePosition\(\)/);
+  assert.match(ui, /function syncWorkflowStatusText\(\)/);
+  assert.match(css, /\.workflow-react-host \.workflow-react-node-content > \.workflow-node[\s\S]*?position: relative/);
+  assert.match(css, /\.workflow-react-host \.react-flow__background[\s\S]*?pointer-events: none/);
+  assert.match(css, /\.workflow-react-host \.react-flow__handle\.workflow-react-handle[\s\S]*?pointer-events: all/);
+  assert.match(css, /\.workflow-react-host \.workflow-react-node-shell[\s\S]*?min-height: 368px/);
+});
+
+test("workflow palette supports click, drag, and empty-canvas prompt creation", () => {
+  const ui = read("platform.ui.js");
+  const adapter = read("platform.workflow-react.js");
+  const main = read("platform.main.js");
+  const css = read("platform.css");
+
+  assert.match(ui, /function workflowNodePaletteItem\(action = ""\)/);
+  assert.match(ui, /function createWorkflowNode\(action = "", position = null\)/);
+  assert.match(ui, /function addWorkflowNodeAt\(action = "", position = null\)/);
+  assert.match(ui, /data-workflow-palette="add-image-reference"/);
+  assert.match(ui, /data-workflow-palette="add-video-reference"/);
+  assert.match(ui, /data-workflow-palette="add-prompt"/);
+  assert.match(ui, /data-workflow-palette="add-image"/);
+  assert.match(ui, /data-workflow-palette="add-video"/);
+  assert.match(ui, /data-workflow-palette="add-output"/);
+  assert.match(ui, /function handleWorkflowPaletteDragStart\(event\)/);
+  assert.match(ui, /application\/x-workflow-node/);
+  assert.match(ui, /function handleWorkflowCanvasDoubleClick\(event\)/);
+  assert.match(ui, /addWorkflowNodeAt\("add-prompt", workflowCanvasPointFromEvent\(event\)\)/);
+  assert.match(adapter, /onDoubleClick: onDoubleClick/);
+  assert.match(adapter, /createWorkflowNode\("add-prompt", normalizePosition\(position\)\)/);
+  assert.match(main, /workflowRoot\?\.addEventListener\("dragstart", handleWorkflowPaletteDragStart\)/);
+  assert.match(css, /\.workflow-node-palette \{/);
+  assert.match(css, /\.workflow-toolbar \[data-workflow-palette\]/);
+});
+
+test("workflow connection types and empty input handles are validated", () => {
+  const ui = read("platform.ui.js");
+
+  assert.match(ui, /function workflowConnectionRuleMatches\(from = \{\}, to = \{\}\)/);
+  assert.match(ui, /function workflowCanConnectNodes\(fromId = "", toId = "", ignoredEdge = null\)/);
+  assert.match(ui, /function workflowGraphReachesWithoutEdge\(startId = "", targetId = "", ignoredEdge = null\)/);
+  assert.match(ui, /if \(!workflowConnectionRuleMatches\(from, to\)\) return false/);
+  assert.match(ui, /if \(workflowGraphReachesWithoutEdge\(toId, fromId, ignoredEdge\)\) return false/);
+  assert.match(ui, /function workflowAutoInputAction\(target = \{\}\)/);
+  assert.match(ui, /function createWorkflowInputNodeAndConnect\(targetId = ""\)/);
+  assert.match(ui, /createWorkflowInputNodeAndConnect\(inputNodeId\)/);
+});
+
 test("workflow nodes separate sources, generation, and output", () => {
   const ui = read("platform.ui.js");
   assert.match(ui, /function addWorkflowImageNode\(\)/);
@@ -202,8 +267,8 @@ test("workflow graph supports fan-in, rejects loops, and migrates embedded refer
   const manager = read("platform.workflow-canvases.js");
 
   assert.doesNotMatch(ui, /workflow\.edges = workflow\.edges\.filter\(\(edge\) => edge\.to !== toId\)/);
-  assert.match(ui, /function workflowGraphReaches\(startId = "", targetId = ""\)/);
-  assert.match(ui, /if \(workflowGraphReaches\(toId, fromId\)\) return false/);
+  assert.match(ui, /function workflowGraphReachesWithoutEdge\(startId = "", targetId = "", ignoredEdge = null\)/);
+  assert.match(ui, /if \(workflowGraphReachesWithoutEdge\(toId, fromId, ignoredEdge\)\) return false/);
   assert.match(manager, /\["referenceImages", "imageReference", "imageUrl", "Image input"\]/);
   assert.match(manager, /delete generation\.data\[field\]/);
 });

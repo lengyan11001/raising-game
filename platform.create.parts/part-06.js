@@ -785,8 +785,9 @@ async function verifyAccountEmail() {
       setUser(payload.user);
       openAccount();
     }
+  } catch (error) {
+    if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = error.message;
   }
-  catch (error) { if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = error.message; }
 }
 
 async function loadMe() {

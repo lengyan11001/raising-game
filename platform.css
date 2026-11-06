@@ -6717,6 +6717,33 @@ select option:checked {
   text-align: right;
 }
 
+.workflow-node-palette {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,.035);
+}
+
+.workflow-palette-label {
+  padding: 0 9px;
+  color: rgba(255,255,255,.48);
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.workflow-toolbar-divider {
+  width: 1px;
+  height: 26px;
+  background: rgba(255,255,255,.1);
+}
+
 .workflow-toolbar {
   position: relative;
   z-index: 4;
@@ -6738,6 +6765,21 @@ select option:checked {
   border: 1px dashed rgba(17,24,39,.22);
   color: #111827;
   background: rgba(255,255,255,.82);
+}
+
+.workflow-toolbar [data-workflow-palette] {
+  min-height: 32px;
+  padding: 6px 11px;
+  border-color: rgba(255,255,255,.08);
+  background: rgba(255,255,255,.055);
+  color: rgba(255,255,255,.82);
+  font-size: .78rem;
+}
+
+.workflow-toolbar [data-workflow-palette]:hover {
+  border-color: rgba(255,79,163,.58);
+  background: rgba(255,79,163,.13);
+  color: #fff;
 }
 
 .workflow-toolbar button,
@@ -13290,4 +13332,559 @@ body.wan30-launch-visible .site-head { top: 0; }
     min-height: 34px;
     padding-inline: 10px;
   }
+}
+
+/* React Flow handles: fixed visual dots with a usable pointer hit area. */
+.workflow-react-host .react-flow__handle.workflow-react-handle {
+  width: 12px;
+  height: 12px;
+  min-width: 12px;
+  min-height: 12px;
+  box-sizing: border-box;
+  border: 2px solid rgba(255, 255, 255, .88);
+  background: #ff47ad;
+  pointer-events: all;
+  cursor: crosshair;
+}
+
+.workflow-react-host .react-flow__handle.workflow-react-handle::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 999px;
+}
+
+.workflow-react-host .react-flow__handle.workflow-react-handle:hover,
+.workflow-react-host .react-flow__handle.workflow-react-handle.connectingfrom,
+.workflow-react-host .react-flow__handle.workflow-react-handle.connectingto {
+  border-color: #fff;
+  background: #ff79bd;
+  filter: drop-shadow(0 0 8px rgba(255, 71, 173, .9));
+}
+
+/* React Flow measures the wrapper, not the absolutely positioned legacy card. */
+.workflow-react-host .react-flow__node {
+  width: 520px;
+  min-width: 520px;
+}
+
+.workflow-react-host .workflow-react-node-shell {
+  position: relative;
+  width: 100%;
+  min-height: 368px;
+}
+
+.workflow-react-host .workflow-react-node-content > .workflow-node {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  min-height: 368px;
+}
+
+.workflow-react-host .react-flow__node:has(.workflow-node-prompt) {
+  width: 360px;
+  min-width: 360px;
+}
+
+.workflow-react-host .react-flow__node:has(.workflow-node-output) {
+  width: 360px;
+  min-width: 360px;
+}
+
+/* Keep the canvas background behind interactive nodes and handles. */
+.workflow-react-host .react-flow__background {
+  pointer-events: none;
+  z-index: 0;
+}
+
+.workflow-react-host .react-flow__nodes,
+.workflow-react-host .react-flow__edges {
+  z-index: 2;
+}
+
+.workflow-react-host .react-flow__node,
+.workflow-react-host .react-flow__handle {
+  position: absolute;
+}
+
+/* 11.11 limited campaign */
+.eleven-eleven-entry {
+  --ee-pink: #ff3d6e;
+  --ee-orange: #ff8a3d;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  height: 44px;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 90, 120, .38);
+  border-radius: 22px;
+  color: #ffd9c2;
+  background: linear-gradient(90deg, rgba(255, 61, 110, .16), rgba(255, 138, 61, .10));
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s;
+}
+.eleven-eleven-entry::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 35%, rgba(255,255,255,.16) 50%, transparent 65%);
+  transform: translateX(-120%);
+}
+.eleven-eleven-entry:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255,110,140,.75);
+  box-shadow: 0 6px 22px rgba(240,68,150,.28);
+}
+.eleven-eleven-entry:hover::after { animation: eleven-eleven-shine 1.1s ease; }
+@keyframes eleven-eleven-shine { to { transform: translateX(120%); } }
+.eleven-eleven-entry-desktop {
+  flex: 0 1 440px;
+  width: 440px;
+  max-width: 38vw;
+  min-width: 310px;
+}
+.eleven-eleven-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 16px;
+  color: #fff;
+  background: linear-gradient(135deg, #ff3d6e, #ff8a3d);
+  box-shadow: 0 2px 10px rgba(255,61,110,.45);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .3px;
+}
+.eleven-eleven-message {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 18px;
+  overflow: hidden;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.eleven-eleven-roll {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  animation: eleven-eleven-roll 6s infinite;
+}
+.eleven-eleven-roll > span { height: 18px; line-height: 18px; }
+.eleven-eleven-roll b { color: #fff; font-weight: 700; }
+@keyframes eleven-eleven-roll {
+  0%, 42% { transform: translateY(0); }
+  50%, 92% { transform: translateY(-18px); }
+  100% { transform: translateY(-18px); }
+}
+.eleven-eleven-time {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border-left: 1px solid rgba(255,255,255,.14);
+  color: #ffb4ce;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.eleven-eleven-time > span { color: rgba(255,180,206,.72); font-size: 10px; font-weight: 600; }
+.eleven-eleven-time strong { font-weight: 800; }
+.eleven-eleven-go {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 16px;
+  color: #fff;
+  background: linear-gradient(135deg, #ff3d6e, #ff8a3d);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.eleven-eleven-entry-mobile {
+  display: none;
+  gap: 7px;
+  min-height: 38px;
+  height: 38px;
+  padding: 0 8px 0 4px;
+  border-radius: 10px;
+}
+.eleven-eleven-entry-mobile .eleven-eleven-badge {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.eleven-eleven-mobile-time {
+  color: #ffb4ce;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.eleven-eleven-dialog {
+  width: min(780px, calc(100vw - 28px));
+  max-height: min(860px, calc(100dvh - 28px));
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 18px;
+  color: #f7f7fb;
+  background: #101013;
+  box-shadow: 0 28px 90px rgba(0,0,0,.58);
+}
+.eleven-eleven-dialog::backdrop { background: rgba(5,5,7,.72); backdrop-filter: blur(6px); }
+.eleven-eleven-view { padding: 22px 24px 20px; }
+.eleven-eleven-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.eleven-eleven-kicker { color: #ff7a9a; font-size: .78rem; font-weight: 800; letter-spacing: .04em; }
+.eleven-eleven-head h2 { margin: 5px 0 0; font-size: 1.45rem; letter-spacing: -.02em; }
+.eleven-eleven-head p { margin: 7px 0 0; color: #8f8f9a; font-size: .78rem; }
+.eleven-eleven-modal-time { color: #ffb4ce; font-variant-numeric: tabular-nums; }
+.eleven-eleven-close {
+  display: grid;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(255,255,255,.08);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+.eleven-eleven-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.eleven-eleven-card {
+  position: relative;
+  min-width: 0;
+  padding: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(255,255,255,.045), rgba(255,255,255,.015));
+  cursor: pointer;
+  transition: border-color .16s, box-shadow .16s, background .16s;
+}
+.eleven-eleven-card:hover:not(.is-disabled) { border-color: rgba(255,79,163,.5); }
+.eleven-eleven-card.is-selected {
+  border-color: rgba(255,79,163,.88);
+  background: linear-gradient(160deg, rgba(255,61,110,.11), rgba(255,138,61,.035));
+  box-shadow: 0 0 0 1px rgba(255,79,163,.16), 0 12px 34px rgba(240,68,150,.14);
+}
+.eleven-eleven-card.is-selected::after {
+  content: "✓";
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #ff4fa3;
+  font-size: 12px;
+  font-weight: 900;
+}
+.eleven-eleven-card.is-disabled { cursor: not-allowed; }
+.eleven-eleven-card.is-disabled > :not(.eleven-eleven-rib) { opacity: .45; }
+.eleven-eleven-rib {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: rgba(10,10,12,.62);
+  color: #d8d8de;
+  font-size: .9rem;
+  font-weight: 800;
+  pointer-events: none;
+}
+.eleven-eleven-card-tag {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 11px;
+  color: #fff;
+  background: linear-gradient(135deg, #ff3d6e, #ff8a3d);
+  font-size: 11px;
+  font-weight: 800;
+}
+.eleven-eleven-card h3 { margin: 10px 0 0; color: #d6d6dd; font-size: .9rem; }
+.eleven-eleven-price { display: flex; align-items: baseline; gap: 8px; margin-top: 8px; }
+.eleven-eleven-price strong { color: #fff; font-size: 1.85rem; font-weight: 900; letter-spacing: -.04em; }
+.eleven-eleven-price s { color: #6e6e78; font-size: .8rem; }
+.eleven-eleven-desc { min-height: 38px; margin: 6px 0 0; color: #a8a8b3; font-size: .78rem; line-height: 1.55; }
+.eleven-eleven-desc b { color: #ffc08a; }
+.eleven-eleven-list { display: grid; gap: 4px; margin: 10px 0 0; padding: 0; color: #b4b4be; font-size: .78rem; list-style: none; }
+.eleven-eleven-list li::before { content: "✓"; margin-right: 7px; color: #f04496; font-weight: 900; }
+.eleven-eleven-bonus {
+  position: relative;
+  margin-top: 12px;
+  padding: 11px 12px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255,168,61,.45);
+  border-radius: 12px;
+  background: linear-gradient(120deg, rgba(255,168,61,.15), rgba(255,61,110,.10));
+}
+.eleven-eleven-bonus > div { display: flex; align-items: center; gap: 6px; }
+.eleven-eleven-bonus span { color: #ffcfa0; font-size: .75rem; }
+.eleven-eleven-bonus strong { color: #ffb03d; font-size: 1.1rem; font-weight: 900; text-shadow: 0 0 14px rgba(255,176,61,.45); }
+.eleven-eleven-bonus em { margin-left: auto; padding: 2px 7px; border-radius: 9px; color: #3a1d00; background: linear-gradient(135deg, #ffc24d, #ff8a3d); font-size: 10px; font-style: normal; font-weight: 900; }
+.eleven-eleven-bonus p { margin: 7px 0 0; color: #c9c9d2; font-size: .75rem; }
+.eleven-eleven-bonus p b { color: #fff; }
+.eleven-eleven-bonus p span { color: #ffb03d; font-weight: 800; }
+.eleven-eleven-bonus small { display: block; margin-top: 4px; color: #7e7e88; font-size: 10.5px; }
+.eleven-eleven-credits { display: flex; align-items: baseline; gap: 7px; margin-top: 9px; }
+.eleven-eleven-credits strong { color: transparent; background: linear-gradient(92deg, #fff, #ffd0a0); background-clip: text; -webkit-background-clip: text; font-size: 1.7rem; font-weight: 900; letter-spacing: -.04em; }
+.eleven-eleven-credits span { color: #a8a8b3; font-size: .75rem; }
+.eleven-eleven-credits em { margin-left: auto; padding: 2px 8px; border-radius: 9px; color: #3a1d00; background: linear-gradient(135deg, #ffc24d, #ff8a3d); font-size: 11px; font-style: normal; font-weight: 900; }
+.eleven-eleven-stock { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; color: #7e7e88; font-size: 11.5px; }
+.eleven-eleven-bar { height: 4px; margin-top: 5px; overflow: hidden; border-radius: 2px; background: rgba(255,255,255,.08); }
+.eleven-eleven-bar i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ff3d6e, #ff8a3d); transition: width .25s ease; }
+.eleven-eleven-foot { padding-top: 16px; }
+.eleven-eleven-pay-info { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; color: #8f8f9a; font-size: .74rem; }
+.eleven-eleven-pay-info > span { color: #63636d; }
+.eleven-eleven-pay-info b { font-weight: 600; }
+.eleven-eleven-buy {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #ff3d6e, #ff8a3d);
+  box-shadow: 0 8px 24px rgba(255,61,110,.3);
+  cursor: pointer;
+  font: inherit;
+  font-size: .95rem;
+  font-weight: 900;
+}
+.eleven-eleven-buy:disabled { opacity: .55; box-shadow: none; cursor: not-allowed; }
+.eleven-eleven-error { margin: 8px 0 0; color: #ff7b8c; font-size: .78rem; text-align: center; }
+.eleven-eleven-fine { display: block; margin-top: 10px; color: #6e6e78; font-size: 11.5px; line-height: 1.6; text-align: center; }
+.eleven-eleven-done, .eleven-eleven-ended { display: grid; justify-items: center; padding: 46px 24px 38px; text-align: center; }
+.eleven-eleven-tick { display: grid; width: 64px; height: 64px; margin-bottom: 16px; place-items: center; border: 3px solid rgba(240,68,150,.3); border-radius: 50%; color: #f04496; font-size: 2rem; font-weight: 900; }
+.eleven-eleven-done h2, .eleven-eleven-ended h2 { margin: 0 0 8px; font-size: 1.35rem; }
+.eleven-eleven-done p, .eleven-eleven-ended p { margin: 0; color: #9c9ca6; font-size: .88rem; line-height: 1.7; }
+.eleven-eleven-balance { display: inline-flex; margin: 16px 0 22px; padding: 10px 18px; border: 1px solid rgba(255,255,255,.1); border-radius: 12px; color: #cfcfd8; background: rgba(255,255,255,.04); font-size: .84rem; }
+.eleven-eleven-balance b { margin-left: 4px; color: #fff; font-size: .95rem; }
+.eleven-eleven-done .eleven-eleven-buy, .eleven-eleven-ended .eleven-eleven-buy { width: min(240px, 100%); }
+.eleven-eleven-ended-icon { display: grid; width: 64px; height: 64px; margin-bottom: 16px; place-items: center; border-radius: 18px; color: #fff; background: linear-gradient(135deg, #ff3d6e, #ff8a3d); font-size: .95rem; font-weight: 900; box-shadow: 0 12px 32px rgba(255,61,110,.28); }
+
+@media (max-width: 980px) {
+  .eleven-eleven-entry-desktop { width: 360px; min-width: 280px; max-width: 42vw; }
+  .eleven-eleven-roll > span { font-size: 12px; }
+  .eleven-eleven-time > span { display: none; }
+}
+@media (max-width: 768px) {
+  .eleven-eleven-entry-desktop { display: none !important; }
+  .eleven-eleven-entry-mobile { display: inline-flex; }
+  .eleven-eleven-dialog { width: min(560px, calc(100vw - 20px)); max-height: calc(100dvh - 20px); overflow-y: auto; }
+  .eleven-eleven-view { padding: 18px 16px; }
+  .eleven-eleven-cards { grid-template-columns: 1fr; }
+  .eleven-eleven-card { padding: 14px; }
+  .eleven-eleven-desc { min-height: 0; }
+}
+@media (min-width: 721px) and (max-width: 768px) {
+  .site-head { padding-right: 154px; }
+  .topup-head-trigger { display: none !important; }
+  .mobile-header-actions { position: fixed; top: 13px; right: 14px; z-index: 46; display: flex; max-width: none; }
+}
+
+/* Final React Flow node theme: use the site dark glass surface, never legacy white cards. */
+.workflow-react-host .workflow-react-node-shell {
+  background: transparent;
+}
+
+.workflow-react-host .workflow-react-node-content > .workflow-node {
+  color: #f8f8fb !important;
+  background: linear-gradient(160deg, rgba(30, 30, 36, .97), rgba(16, 16, 20, .97)) !important;
+  border-color: rgba(255, 255, 255, .1) !important;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, .34) !important;
+}
+
+.workflow-react-host .workflow-react-node-content > .workflow-node.is-selected {
+  border-color: rgba(255, 71, 173, .92) !important;
+  box-shadow: 0 0 0 1px rgba(139, 65, 255, .46), 0 24px 58px rgba(86, 52, 205, .24) !important;
+}
+
+.workflow-react-host .workflow-react-node-content > .workflow-node > header {
+  color: #f8f8fb !important;
+  background: rgba(255, 255, 255, .045) !important;
+  border-color: rgba(255, 255, 255, .09) !important;
+}
+
+.workflow-react-host .workflow-react-node-content > .workflow-node > header strong {
+  color: #f8f8fb !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-node-model-label {
+  color: #a3a3ad !important;
+}
+
+.workflow-react-host .workflow-react-node-content > .workflow-node > header > button {
+  color: #b7b7c2 !important;
+  background: transparent !important;
+}
+
+.workflow-react-host .workflow-react-node-content > .workflow-node > header > button:hover {
+  color: #fff !important;
+  background: rgba(255, 71, 173, .16) !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-node-result,
+.workflow-react-host .workflow-react-node-content .workflow-node-result-media,
+.workflow-react-host .workflow-react-node-content .workflow-node-preview-button {
+  color: #a3a3ad !important;
+  background: rgba(10, 10, 13, .72) !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-node-empty-result {
+  color: #a3a3ad !important;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 71, 173, .08), transparent 42%),
+    rgba(10, 10, 13, .72) !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-node-empty-result svg {
+  color: #ff65b8 !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-node-editor {
+  color: #d7d7df !important;
+  background: rgba(17, 17, 21, .96) !important;
+  border-color: rgba(255, 255, 255, .09) !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-editor-reference-note,
+.workflow-react-host .workflow-react-node-content .workflow-editor-input-summary,
+.workflow-react-host .workflow-react-node-content .workflow-editor-fields label,
+.workflow-react-host .workflow-react-node-content .workflow-editor-check,
+.workflow-react-host .workflow-react-node-content .workflow-editor-cost {
+  color: #a3a3ad !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-editor-prompt textarea,
+.workflow-react-host .workflow-react-node-content .workflow-editor-fields select {
+  color: #f8f8fb !important;
+  background: rgba(8, 8, 11, .82) !important;
+  border-color: rgba(255, 255, 255, .12) !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-editor-prompt textarea::placeholder {
+  color: #71717c !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-editor-prompt textarea:focus,
+.workflow-react-host .workflow-react-node-content .workflow-editor-fields select:focus {
+  border-color: rgba(255, 71, 173, .72) !important;
+  box-shadow: 0 0 0 3px rgba(255, 71, 173, .12) !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-reference-picker,
+.workflow-react-host .workflow-react-node-content .workflow-reference-chip {
+  color: #d7d7df !important;
+  background: rgba(255, 255, 255, .05) !important;
+  border-color: rgba(255, 255, 255, .12) !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-reference-picker:hover {
+  color: #fff !important;
+  background: rgba(255, 71, 173, .12) !important;
+  border-color: rgba(255, 71, 173, .58) !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-reference-dropzone,
+.workflow-react-host .workflow-react-node-content .workflow-output-box,
+.workflow-react-host .workflow-react-node-content .workflow-node-media {
+  color: #a3a3ad !important;
+  background: rgba(10, 10, 13, .72) !important;
+  border-color: rgba(255, 255, 255, .12) !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-reference-dropzone:hover,
+.workflow-react-host .workflow-react-node-content .workflow-reference-dropzone:focus-within {
+  color: #fff !important;
+  background: rgba(255, 71, 173, .1) !important;
+  border-color: rgba(255, 71, 173, .62) !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-node-prompt .workflow-field,
+.workflow-react-host .workflow-react-node-content .workflow-node-prompt .workflow-field span {
+  color: #a3a3ad !important;
+}
+
+.workflow-react-host .workflow-react-node-content .workflow-node-prompt .workflow-field textarea {
+  color: #f8f8fb !important;
+  background: rgba(8, 8, 11, .8) !important;
+  border-color: rgba(255, 255, 255, .12) !important;
+}
+
+.workflow-react-host .workflow-react-node-content > .workflow-node > footer {
+  color: #a3a3ad !important;
+  background: rgba(255, 255, 255, .045) !important;
+  border-color: rgba(255, 255, 255, .09) !important;
+  border-radius: 0 0 10px 10px !important;
+}
+
+.workflow-react-host .workflow-react-node-content > .workflow-node > footer strong {
+  color: #ff5fbd !important;
+}
+
+/* React Flow supplies the real handles; hide legacy connector dots inside its host. */
+.workflow-react-host .workflow-react-node-content .workflow-node-connect {
+  display: none !important;
+}
+
+/* React Flow chrome in the site palette: quiet minimap and controls. */
+.workflow-react-host .react-flow__minimap {
+  width: 168px;
+  height: 112px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 12px;
+  background: rgba(8, 8, 11, .88) !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .34);
+}
+
+.workflow-react-host .react-flow__minimap-mask {
+  fill: rgba(3, 3, 5, .48);
+}
+
+.workflow-react-host .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .3);
+}
+
+.workflow-react-host .react-flow__controls-button {
+  color: #d8d8df;
+  background: rgba(15, 15, 19, .94);
+  border-color: rgba(255, 255, 255, .08);
+}
+
+.workflow-react-host .react-flow__controls-button:hover {
+  color: #fff;
+  background: rgba(255, 71, 173, .16);
 }

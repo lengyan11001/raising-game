@@ -26,6 +26,14 @@
   // These modules are only needed after the user opens a non-gallery tool.
   // Downloading and parsing them during initial paint made refresh feel slow.
   const deferredChunkFiles = [
+    // React Flow canvas runtime. These must execute in order: React/ReactDOM,
+    // the jsx-runtime bridge expected by the UMD bundle, React Flow, then our
+    // workflow adapter before the legacy canvas helpers.
+    "workflow-react/vendor/react.production.min.js",
+    "workflow-react/vendor/react-dom.production.min.js",
+    "workflow-react/vendor/react-jsx-runtime-shim.js",
+    "workflow-react/vendor/react-flow-12.11.3.umd.js",
+    "platform.workflow-react.js",
     "platform.workflow-canvases.js",
     "platform.video-tools.js",
     "platform.undress-tool.js",

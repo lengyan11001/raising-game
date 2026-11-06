@@ -520,6 +520,9 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
     throw error;
   }
   const now = new Date().toISOString();
+  if (order.promoCampaignId === ELEVEN_ELEVEN_PROMO.id) {
+    await markPromotionPurchasePaidInDb({ campaignId: ELEVEN_ELEVEN_PROMO.id, orderId: order.id });
+  }
   if (order.status === "paid") {
     return { settled: false, user: (db.users || []).find((u) => u.id === order.userId) || null };
   }
@@ -969,7 +972,7 @@ function userAssetHasObjectStorageMirror(asset = {}) {
 }
 
 function configuredObjectStoragePublicDomain() {
-  return r2Enabled() ? String(R2.publicDomain || "").trim() : "";
+  return String(objectStoragePublicDomain() || "").trim();
 }
 
 function userAssetHasConfiguredObjectStorageMirror(asset = {}) {

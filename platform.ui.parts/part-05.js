@@ -802,7 +802,7 @@ function renderWorkflowImageEditor(node = {}) {
   return `
     <div class="workflow-node-editor workflow-image-editor">
       <div class="workflow-editor-reference-row">
-        <span class="workflow-editor-reference-note">${references.length ? `${references.length} connected image input${references.length === 1 ? "" : "s"}` : "Connect an image input node"}</span>
+        <span class="workflow-editor-reference-note">${references.length ? `已连接 ${references.length} 个图片输入` : "连接图片输入节点；点击左侧空接口可自动补节点"}</span>
       </div>
       <label class="workflow-editor-prompt"><span>提示词</span><textarea rows="3" data-workflow-image-prompt="${escapeHtml(node.id)}" placeholder="描述你想生成的图片...">${escapeHtml(node.data?.prompt || "")}</textarea></label>
       <div class="workflow-editor-fields">
@@ -840,7 +840,7 @@ function renderWorkflowVideoEditor(node = {}) {
   return `
     <div class="workflow-node-editor workflow-video-editor">
       <div class="workflow-editor-reference-row">
-        <span class="workflow-editor-reference-note">Connect image or video input nodes</span>
+        <span class="workflow-editor-reference-note">连接图片/视频输入节点；点击左侧空接口可自动补节点</span>
       </div>
       <div class="workflow-editor-input-summary"><span>${imageCount} 图片</span><span>${videoCount} 视频</span><span>${audioCount} 音频</span></div>
       <label class="workflow-editor-prompt"><span>提示词</span><textarea rows="3" data-workflow-video-prompt="${escapeHtml(node.id)}" placeholder="描述你想生成的视频...">${escapeHtml(node.data?.prompt || "")}</textarea></label>
@@ -1003,6 +1003,17 @@ function renderWorkflowPickerCards(presets = [], selectedModel = {}) {
   }).join("");
 }
 
+function workflowStatusText() {
+  return state.workflowMessage || `${workflowSourceNodes().length} inputs / ${workflowGenerationNodes().length} generation nodes`;
+}
+
+function syncWorkflowStatusText() {
+  const element = els.workflowRoot?.querySelector(".workflow-status");
+  if (element) element.textContent = workflowStatusText();
+}
+
+window.syncWorkflowStatusText = syncWorkflowStatusText;
+
 function renderWorkflowPanel({ focusNodeId = "" } = {}) {
   if (!els.workflowRoot) return;
   const viewport = captureWorkflowCanvasViewport();
@@ -1011,36 +1022,41 @@ function renderWorkflowPanel({ focusNodeId = "" } = {}) {
     ${typeof renderWorkflowCanvasManager === "function" ? renderWorkflowCanvasManager() : ""}
       <div class="workflow-controls">
       <div class="workflow-toolbar">
-        <button type="button" data-workflow-action="add-image-reference"><i data-lucide="image-plus"></i>Image input</button>
-        <button type="button" data-workflow-action="add-video-reference"><i data-lucide="file-video"></i>Video input</button>
-        <button type="button" data-workflow-action="add-prompt"><i data-lucide="notebook-pen"></i>Prompt</button>
-        <button type="button" data-workflow-action="add-image"><i data-lucide="wand-sparkles"></i>Image generation</button>
-        <button type="button" data-workflow-action="add-video"><i data-lucide="clapperboard"></i>Video generation</button>
-        <button type="button" data-workflow-action="add-output"><i data-lucide="panel-top"></i>Output</button>
+        <div class="workflow-node-palette" aria-label="添加节点">
+          <span class="workflow-palette-label">节点</span>
+          <button type="button" draggable="true" data-workflow-palette="add-image-reference" data-workflow-action="add-image-reference" title="点击添加，或拖到画布"><i data-lucide="image-plus"></i><span>图片输入</span></button>
+          <button type="button" draggable="true" data-workflow-palette="add-video-reference" data-workflow-action="add-video-reference" title="点击添加，或拖到画布"><i data-lucide="file-video"></i><span>视频输入</span></button>
+          <button type="button" draggable="true" data-workflow-palette="add-prompt" data-workflow-action="add-prompt" title="点击添加，或拖到画布"><i data-lucide="notebook-pen"></i><span>提示词</span></button>
+          <button type="button" draggable="true" data-workflow-palette="add-image" data-workflow-action="add-image" title="点击添加，或拖到画布"><i data-lucide="wand-sparkles"></i><span>图片生成</span></button>
+          <button type="button" draggable="true" data-workflow-palette="add-video" data-workflow-action="add-video" title="点击添加，或拖到画布"><i data-lucide="clapperboard"></i><span>视频生成</span></button>
+          <button type="button" draggable="true" data-workflow-palette="add-output" data-workflow-action="add-output" title="点击添加，或拖到画布"><i data-lucide="panel-top"></i><span>输出</span></button>
+        </div>
+        <span class="workflow-toolbar-divider" aria-hidden="true"></span>
         <button class="workflow-run ${state.workflowRunning ? "is-cancel" : ""}" type="button" data-workflow-action="${state.workflowRunning ? "cancel" : "run"}"><i data-lucide="${state.workflowRunning ? "square" : "play"}"></i>${state.workflowRunning ? "Cancel" : "Run workflow"}</button>
-        <span class="workflow-status">${escapeHtml(state.workflowMessage || `${workflowSourceNodes().length} inputs / ${workflowGenerationNodes().length} generation nodes`)}</span>
+        <span class="workflow-status">${escapeHtml(workflowStatusText())}</span>
       </div>
     </div>
     <div class="workflow-layout">
-      <section class="workflow-canvas" aria-label="Workflow canvas">
-        <div class="workflow-canvas-stage" style="${workflowCanvasStageStyle()}">
-          <svg class="workflow-edges" viewBox="0 0 ${workflowCanvasLogicalSize().width} ${workflowCanvasLogicalSize().height}" preserveAspectRatio="none">
-            ${renderWorkflowEdges()}
-            <path class="workflow-edge-draft" data-workflow-draft-edge hidden />
-          </svg>
-          ${workflow.nodes.map(renderWorkflowNode).join("")}
-        </div>
-        <div class="workflow-minimap">
-          ${workflow.nodes.map((node) => `<span style="left:${Math.max(0, Number(node.x || 0) / 14)}px;top:${Math.max(0, Number(node.y || 0) / 12)}px"></span>`).join("")}
-        </div>
-      </section>
+      <section class="workflow-canvas workflow-react-host" aria-label="Workflow canvas"></section>
     </div>
     ${renderWorkflowPicker()}
   `;
   refreshIcons();
-  restoreWorkflowCanvasViewport(viewport);
-  if (focusNodeId) revealWorkflowNode(focusNodeId);
+  const reactHost = els.workflowRoot.querySelector(".workflow-react-host");
+  if (reactHost && window.WorkflowReactCanvas?.mount) {
+    window.WorkflowReactCanvas.mount(reactHost);
+    if (focusNodeId) window.WorkflowReactCanvas.selectNode(focusNodeId);
+  } else {
+    restoreWorkflowCanvasViewport(viewport);
+    if (focusNodeId) revealWorkflowNode(focusNodeId);
+  }
 }
+
+window.renderWorkflowNode = renderWorkflowNode;
+window.workflowNodeAcceptsInput = workflowNodeAcceptsInput;
+window.workflowNodeAcceptsOutput = workflowNodeAcceptsOutput;
+window.selectedWorkflowNode = selectedWorkflowNode;
+window.workflowNodeModel = workflowNodeModel;
 
 function updateWorkflowNodeFromControl(control) {
   const nodeId = control.dataset.workflowPrompt
@@ -1095,7 +1111,7 @@ function updateWorkflowNodeFromControl(control) {
     node.data[control.dataset.workflowToggle] = Boolean(control.checked);
   }
   persistWorkflowState();
-  renderWorkflowPanel({ focusNodeId: node.id });
+  if (!window.WorkflowReactCanvas?.sync?.()) renderWorkflowPanel({ focusNodeId: node.id });
 }
 
 async function uploadWorkflowMediaDataUrl(dataUrl = "", { name = "Workflow media", fileName = "workflow-media" } = {}) {
