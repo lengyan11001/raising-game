@@ -198,7 +198,10 @@ function canonicalOssQuery(params = {}) {
     .filter(([, value]) => value !== undefined && value !== null)
     .map(([key, value]) => [String(key), String(value)])
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-    .map(([key, value]) => `${encodeRfc3986(key)}=${encodeRfc3986(value)}`)
+    // OSS V1 canonicalization represents an empty subresource such as
+    // `?uploads` without a trailing equals sign. The same serialization is
+    // used for the request URL, so both signing and transport stay aligned.
+    .map(([key, value]) => (value === "" ? encodeRfc3986(key) : `${encodeRfc3986(key)}=${encodeRfc3986(value)}`))
     .join("&");
 }
 
@@ -539,5 +542,6 @@ module.exports = {
   headObject,
   deleteObject,
   signedRequestOptions,
+  canonicalOssQuery,
   encodeRfc3986,
 };

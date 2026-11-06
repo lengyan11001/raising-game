@@ -13,6 +13,8 @@ const {
   publicUrlForKey,
   signedDownloadUrl,
   signedCdnUrl,
+  signedRequestOptions,
+  canonicalOssQuery,
 } = require("../oss-storage");
 const { readServerSource } = require("../server-source");
 
@@ -34,6 +36,23 @@ function ossEnv(overrides = {}) {
     ...overrides,
   };
 }
+
+test("OSS V1 multipart query canonicalization omits empty-value equals signs", () => {
+  assert.equal(canonicalOssQuery({ uploads: "" }), "uploads");
+  assert.equal(
+    canonicalOssQuery({ uploadId: "upload+id/1", partNumber: "2" }),
+    "partNumber=2&uploadId=upload%2Bid%2F1",
+  );
+  const request = signedRequestOptions({
+    method: "POST",
+    key: "generated/videos/demo.mp4",
+    contentType: "video/mp4",
+    query: { uploads: "" },
+    config: ossConfig(ossEnv()),
+  });
+  assert.match(request.url, /\?uploads$/);
+  assert.doesNotMatch(request.url, /\?uploads=$/);
+});
 
 test("OSS large-file upload streams bounded parts instead of buffering the whole file", () => {
   assert.match(fs.readFileSync(path.join(root, "oss-storage.js"), "utf8"), /async function uploadFileObject\(/);
