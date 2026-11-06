@@ -108,6 +108,25 @@ test("membership top-up bonuses are capped at 20 percent", () => {
   assert.doesNotMatch(server, /id:\s*"usd-500", amount: 500, credits: 65000/);
 });
 
+test("membership checkout never falls through from zero included credits to wallet credits", () => {
+  const html = read("platform.html");
+  const explore = read("platform.explore.js");
+  const copy = read("platform.copy.js");
+  const css = read("platform.css");
+
+  assert.match(explore, /selectedProduct\?\.includedCredits \?\? selectedPlan\?\.includedCredits \?\? selectedPackage\?\.credits \?\? walletCreditsForAmount/);
+  assert.match(explore, /const membershipPlan = isMembershipBillingPlan\(selectedPlan\)/);
+  assert.match(explore, /membershipPlan[\s\S]{0,80}\? 0[\s\S]{0,180}walletCreditsForAmount/);
+  assert.match(explore, /membershipOrder[\s\S]{0,120}membership\.checkoutPrice/);
+  assert.match(html, /id="topupMembershipCheckout"/);
+  assert.match(html, /data-i18n="membership\.checkoutNoCredits"/);
+  assert.match(html, /data-i18n="membership\.noCredits"/);
+  assert.match(copy, /"membership\.noCredits": "不包含积分"/);
+  assert.match(copy, /"membership\.checkoutPrice": "\$99 终身权益"/);
+  assert.match(copy, /"membership\.checkoutNoCredits": "本次购买不包含积分/);
+  assert.match(css, /\.topup-membership-checkout/);
+});
+
 test("membership top-up package credits and pink bonus badges match requested rates", () => {
   const server = read("server.js");
   const config = read("platform.config.js");

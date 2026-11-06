@@ -1128,3 +1128,14 @@ CODEX_TASK_STATE.md
 - Integration: `old-site` `04ac8df`. Releases: `platform-release` `26e1eb9`; `live-release` `149a3fc`.
 - Deployment: deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; service active and health returned `200 {"ok":true}`.
 - Production verification: served `platform.workflow-canvases.js` contains the load-sequence/local-merge/save-after-merge fix; served `platform.workflow-react.js` contains live node lookup, upload canvas guard, and viewport APIs.
+
+## $99 lifetime membership checkout correction (2026-11-06)
+
+- User report: the $99 Creator Membership checkout showed 9,900 credits instead of the no-credits lifetime offer in `/Users/x042/Desktop/会员权益页_优化稿.html`.
+- Root cause: `platform.explore.js` used the falsy `||` fallback for `includedCredits`. The backend plan correctly has `includedCredits: 0`, but zero fell through to `$99 x 100 = 9,900` wallet credits.
+- Fix: membership billing plans now explicitly calculate zero credits, and product/plan/package credit selection uses nullish fallbacks so zero-credit products cannot fall through in future.
+- Membership checkout now shows the dark/gold lifetime benefit design with `$99 终身权益`, `$99 / 终身 / 不包含积分`, Explore unlocked without credits, up to 20% future top-up bonus, case-library access, and 100 credits per paid referral. The ordinary credit expiry note is hidden.
+- Changed files: `platform.config.js`, `platform.copy.js`, `platform.css`, `platform.explore.js`, `platform.html`, `test/membership-entitlements.test.js`.
+- Browser verification: desktop checkout measured 720 x 694.9 with no vertical overflow; mobile 390 x 844 checkout measured 354 x 808 with no horizontal/content overflow. `9,900` is absent; screenshots are `/tmp/membership-checkout-desktop.png` and `/tmp/membership-checkout-mobile.png`.
+- Tests: `node --check` for the three changed scripts, `git diff --check`, and `node --require ./test/source-compat.js --test test/membership-entitlements.test.js test/cases-membership.test.js` (12/12 pass).
+- Deployment: not deployed yet; awaiting explicit deployment request.

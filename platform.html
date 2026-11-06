@@ -8,8 +8,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./workflow-react/vendor/react-flow-12.11.3.css?v=react-flow-12.11.3" />
-    <link rel="stylesheet" href="./platform.css?v=media-transfer-status-20261106-1" />
+    <link rel="stylesheet" href="./platform.css?v=membership-checkout-20261106-1" />
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
     <script>
       (function () {
@@ -908,36 +907,43 @@
         <section class="membership-card" id="membershipCard">
           <div class="membership-card-head">
             <div class="membership-card-icon"><i data-lucide="crown"></i></div>
-            <div>
+            <div class="membership-card-title">
               <span data-i18n="membership.eyebrow">Creator Membership</span>
-              <strong data-i18n="membership.lifetime">$99 lifetime benefits</strong>
+              <strong><b>$99</b> <span data-i18n="membership.lifetime">lifetime benefits</span></strong>
             </div>
             <span class="membership-state" id="membershipState" data-i18n="membership.notActive">Not active</span>
           </div>
+          <div class="membership-intro">
+            <span data-i18n="membership.onceOnly">One-time purchase. Lifetime access.</span>
+            <strong data-i18n="membership.noCredits">No credits included</strong>
+            <p data-i18n="membership.noCreditsHint">Membership unlocks site benefits only. Your credits balance is not changed by this purchase.</p>
+          </div>
           <div class="membership-benefits">
-            <span class="membership-benefit">
-              <em class="membership-benefit-badge" data-i18n="membership.badgeExplore">Free</em>
-              <i data-lucide="play"></i>
+            <span class="membership-benefit membership-benefit-primary">
+              <span class="membership-benefit-icon"><i data-lucide="play"></i></span>
+              <strong data-i18n="membership.benefitExploreTitle">Explore, unlocked</strong>
               <span class="membership-benefit-copy" data-i18n="membership.benefitExplore">Watch and download Explore videos</span>
+              <em class="membership-benefit-badge" data-i18n="membership.badgeExplore">Free</em>
             </span>
-            <span class="membership-benefit">
-              <em class="membership-benefit-badge" data-i18n="membership.badgeCases">All cases</em>
-              <i data-lucide="layout-grid"></i>
-              <span class="membership-benefit-copy" data-i18n="membership.benefitCases">Unlock every prompt and asset in the Case Library</span>
-            </span>
-            <span class="membership-benefit">
-              <em class="membership-benefit-badge" data-i18n="membership.badgeReferral">100 credits each</em>
-              <i data-lucide="users-round"></i>
-              <span class="membership-benefit-copy" data-i18n="membership.benefitReferral">Earn paid-referral rewards</span>
-            </span>
-            <span class="membership-benefit">
-              <em class="membership-benefit-badge" data-i18n="membership.badgeTopup">Up to 20%</em>
-              <i data-lucide="gift"></i>
+            <span class="membership-benefit membership-benefit-primary is-hot">
+              <span class="membership-benefit-icon"><i data-lucide="gift"></i></span>
+              <strong data-i18n="membership.benefitTopupTitle">Permanent top-up bonus</strong>
               <span class="membership-benefit-copy" data-i18n="membership.benefitTopup">Receive top-up package bonuses</span>
+              <em class="membership-benefit-badge" data-i18n="membership.badgeTopup">Up to 20%</em>
+            </span>
+            <span class="membership-benefit membership-benefit-compact">
+              <span class="membership-benefit-icon"><i data-lucide="layout-grid"></i></span>
+              <span class="membership-benefit-text"><strong data-i18n="membership.benefitCasesTitle">Case library</strong><span class="membership-benefit-copy" data-i18n="membership.benefitCases">Unlock every prompt and asset in the Case Library</span></span>
+              <em class="membership-benefit-badge" data-i18n="membership.badgeCases">All cases</em>
+            </span>
+            <span class="membership-benefit membership-benefit-compact">
+              <span class="membership-benefit-icon"><i data-lucide="users-round"></i></span>
+              <span class="membership-benefit-text"><strong data-i18n="membership.benefitReferralTitle">Referral rewards</strong><span class="membership-benefit-copy" data-i18n="membership.benefitReferral">Earn paid-referral rewards</span></span>
+              <em class="membership-benefit-badge" data-i18n="membership.badgeReferral">100 credits each</em>
             </span>
           </div>
           <div class="membership-actions">
-            <button class="copy-btn" id="buyMembershipBtn" type="button"><i data-lucide="crown"></i><span data-i18n="membership.buy">Unlock benefits</span></button>
+            <button class="copy-btn" id="buyMembershipBtn" type="button"><i data-lucide="crown"></i><span data-i18n="membership.buy">Get lifetime benefits · $99</span></button>
             <form class="membership-code-form" id="membershipCodeForm">
               <input id="membershipCodeInput" type="text" placeholder="Activation code" data-i18n-placeholder="membership.activationCode" autocomplete="off" />
               <button class="ghost-button" id="redeemMembershipCodeBtn" type="submit" data-i18n="membership.redeem">Redeem</button>
@@ -1204,7 +1210,7 @@
                 <span data-i18n="topup.title">Top Up</span>
                 <strong id="topupCredits">0 credits</strong>
                 <small id="topupRate">Login to create a payment order.</small>
-                <small class="topup-expiry-note">积分永不过期 · Credits never expire.</small>
+                <small class="topup-expiry-note" id="topupExpiryNote">积分永不过期 · Credits never expire.</small>
               </div>
             </div>
             <div class="topup-stage topup-package-stage" id="topupPackageStage">
@@ -1223,8 +1229,20 @@
               <div class="topup-package-grid" id="topupPackageGrid"></div>
             </div>
             <div class="topup-stage topup-payment-stage" id="topupPaymentStage" hidden>
+              <section class="topup-membership-checkout" id="topupMembershipCheckout" hidden>
+                <div class="topup-membership-checkout-head">
+                  <span><i data-lucide="crown"></i><b data-i18n="membership.checkoutEyebrow">Lifetime creator benefits</b></span>
+                  <em data-i18n="membership.checkoutLifetime">Lifetime</em>
+                </div>
+                <div class="topup-membership-checkout-grid">
+                  <div><i data-lucide="play"></i><span><strong data-i18n="membership.checkoutExplore">Explore unlocked</strong><small data-i18n="membership.checkoutExploreHint">No credits used</small></span></div>
+                  <div><i data-lucide="gift"></i><span><strong data-i18n="membership.checkoutTopup">Up to +20% on top-ups</strong><small data-i18n="membership.checkoutTopupHint">Applied to future purchases</small></span></div>
+                  <div><i data-lucide="users-round"></i><span><strong data-i18n="membership.checkoutReferral">100 credits per paid invite</strong><small data-i18n="membership.checkoutReferralHint">While benefits are active</small></span></div>
+                </div>
+                <p><i data-lucide="info"></i><span data-i18n="membership.checkoutNoCredits">This purchase includes no credits. It unlocks lifetime membership benefits.</span></p>
+              </section>
               <div class="topup-selected-package">
-                <span data-i18n="topup.selectedPackage">Selected package</span>
+                <span id="topupSelectedLabel" data-i18n="topup.selectedPackage">Selected package</span>
                 <div class="topup-selected-amount">
                   <strong id="topupSelectedPackage">0 credits</strong>
                   <p class="stripe-payment-method-note pay-channel-marks" role="note" aria-label="Payment methods">
@@ -1514,6 +1532,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=media-transfer-status-20261106-1"></script>
+    <script src="./platform.js?v=membership-checkout-20261106-1"></script>
   </body>
 </html>

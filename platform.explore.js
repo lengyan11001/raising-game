@@ -4295,6 +4295,18 @@ function selectedBillingProduct() {
   return products.find((item) => item.id === state.selectedProductId) || null;
 }
 
+function isMembershipBillingPlan(plan = {}) {
+  return Boolean(plan && (
+    plan.id === "plan-main-creator" ||
+    String(plan.intervalUnit || "").toLowerCase() === "lifetime" ||
+    (Array.isArray(plan.benefits) && plan.benefits.includes("topup-bonus"))
+  ));
+}
+
+function membershipBenefitCopy(key, fallback = "") {
+  return t(key, {}, fallback);
+}
+
 function selectBillingPlan(planId = "") {
   const plan = billingPlans().find((item) => item.id === planId) || billingPlans()[0];
   if (!plan) return;
@@ -4548,14 +4560,31 @@ function renderTopupSummary() {
   const selectedPlan = selectedBillingPlan();
   const selectedProduct = selectedBillingProduct();
   const selectedPackage = selectedTopupPackage();
+  const membershipPlan = isMembershipBillingPlan(selectedPlan) ? selectedPlan : null;
   const amount = selectedProduct?.amount || selectedPlan?.amount || selectedPackage?.amount || DEFAULT_TOPUP_AMOUNT;
-  const credits = selectedProduct?.includedCredits || selectedPlan?.includedCredits || selectedPackage?.credits || walletCreditsForAmount(amount);
+  const credits = membershipPlan
+    ? 0
+    : Number(selectedProduct?.includedCredits ?? selectedPlan?.includedCredits ?? selectedPackage?.credits ?? walletCreditsForAmount(amount));
   const asset = state.wallet?.asset || "USDT";
   const selected = ensureSelectedWalletOption();
   const network = selected?.network || state.wallet?.network || "TRC20";
-  if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits });
+  els.topupPanel.classList.toggle("is-membership-checkout", Boolean(membershipPlan));
+  if (els.topupMembershipCheckout) els.topupMembershipCheckout.hidden = !membershipPlan;
+  if (els.topupExpiryNote) els.topupExpiryNote.hidden = Boolean(membershipPlan);
+  if (els.topupCredits) {
+    els.topupCredits.textContent = membershipPlan
+      ? membershipBenefitCopy("membership.checkoutPrice", "$99 lifetime benefits")
+      : t("cost.credits", { credits });
+  }
+  if (els.topupSelectedLabel) {
+    els.topupSelectedLabel.textContent = membershipPlan
+      ? membershipBenefitCopy("membership.checkoutSelected", "One-time membership")
+      : t("topup.selectedPackage");
+  }
   if (els.topupSelectedPackage) {
-    els.topupSelectedPackage.textContent = selectedProduct
+    els.topupSelectedPackage.textContent = membershipPlan
+      ? `$${formatCredits(membershipPlan.amount)} / ${membershipBenefitCopy("membership.checkoutLifetime", "Lifetime")} / ${membershipBenefitCopy("membership.checkoutNoCreditsShort", "No credits included")}`
+      : selectedProduct
       ? `${selectedProduct.name || "Billing product"} / $${formatCredits(selectedProduct.amount)} / ${formatCredits(selectedProduct.includedCredits)} ${t("common.credits")}`
       : selectedPlan
       ? `${selectedPlan.name || "Pro"} / $${formatCredits(selectedPlan.amount)} / ${formatCredits(selectedPlan.includedCredits)} ${t("common.credits")}`
@@ -4568,7 +4597,9 @@ function renderTopupSummary() {
   syncTopupBackButtons();
   if (els.topupRate) {
     els.topupRate.textContent = state.user
-      ? state.topupStep === "packages"
+      ? membershipPlan
+        ? membershipBenefitCopy("membership.checkoutRate", "One-time payment. Lifetime access. No credits included.")
+        : state.topupStep === "packages"
         ? t("topup.packages")
         : state.topupMethod === "stripe"
         ? t("topup.stripeReady", {}, "Continue on the secure payment page.")
@@ -4627,7 +4658,15 @@ function handleTopupBack() {
 function renderTopupOrder(order) {
   if (!order) return;
   const isStripe = order.paymentProvider === "stripe" || order.network === "Stripe";
-  if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits: order.creditAmount || 0 });
+  const membershipOrder = order.orderKind === "subscription" && (
+    order.billingPlanId === "plan-main-creator" ||
+    String(order.billingIntervalUnit || "").toLowerCase() === "lifetime"
+  );
+  if (els.topupCredits) {
+    els.topupCredits.textContent = membershipOrder
+      ? membershipBenefitCopy("membership.checkoutPrice", "$99 lifetime benefits")
+      : t("cost.credits", { credits: order.creditAmount || 0 });
+  }
   if (isStripe) {
     if (els.topupRate) {
       els.topupRate.textContent = `${t("topup.stripeOrder", {}, "Stripe order")}: ${order.stripeCheckoutSessionId || order.id || ""}`;

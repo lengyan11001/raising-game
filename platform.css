@@ -2978,6 +2978,32 @@ dialog.tool-download-modal {
   font-size: .95rem;
   text-align: right;
 }
+.topup-membership-checkout {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(255, 194, 77, .26);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(255, 194, 77, .12), transparent 42%),
+    rgba(255, 255, 255, .035);
+}
+.topup-membership-checkout[hidden] { display: none; }
+.topup-membership-checkout-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.topup-membership-checkout-head > span { display: inline-flex; align-items: center; gap: 7px; color: #ffd18a; font-size: .82rem; font-weight: 900; letter-spacing: .02em; }
+.topup-membership-checkout-head svg { width: 17px; height: 17px; }
+.topup-membership-checkout-head em { padding: 4px 8px; border-radius: 999px; color: #ffd18a; background: rgba(255, 194, 77, .1); font-size: .7rem; font-style: normal; font-weight: 800; }
+.topup-membership-checkout-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.topup-membership-checkout-grid > div { display: flex; align-items: flex-start; gap: 7px; min-width: 0; padding: 9px; border-radius: 9px; background: rgba(0, 0, 0, .15); }
+.topup-membership-checkout-grid svg { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 2px; color: #ffd18a; }
+.topup-membership-checkout-grid span { display: grid; gap: 2px; min-width: 0; }
+.topup-membership-checkout-grid strong { color: #f5f5f7; font-size: .73rem; line-height: 1.35; }
+.topup-membership-checkout-grid small { color: #8f8f99; font-size: .66rem; line-height: 1.35; }
+.topup-membership-checkout > p { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .08); color: #a9a9b2; font-size: .72rem; line-height: 1.5; }
+.topup-membership-checkout > p svg { width: 14px; height: 14px; flex: 0 0 auto; margin-top: 1px; color: #ffd18a; }
+.topup-panel.is-membership-checkout .topup-headline { align-items: start; }
+.topup-panel.is-membership-checkout .topup-headline strong { color: #ffd18a; font-size: 1.35rem; letter-spacing: -.02em; }
+.topup-panel.is-membership-checkout .topup-selected-package { border-color: rgba(255, 194, 77, .22); background: rgba(255, 194, 77, .055); }
 .topup-method-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3900,6 +3926,13 @@ dialog.tool-download-modal {
   color: #101316;
   box-shadow: 0 16px 38px rgba(0, 0, 0, .2);
 }
+.membership-card {
+  background:
+    radial-gradient(circle at 92% 0%, rgba(255, 194, 77, .13), transparent 38%),
+    radial-gradient(circle at 0% 100%, rgba(240, 68, 150, .08), transparent 42%),
+    #141419;
+  border-color: rgba(255, 194, 77, .22);
+}
 .membership-card-head {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -3907,7 +3940,29 @@ dialog.tool-download-modal {
   gap: 14px;
 }
 .membership-card-head > div:nth-child(2) { display: grid; gap: 4px; }
-.membership-card-head > div:nth-child(2) > strong { font-size: 1.15rem; }
+.membership-card-head > div:nth-child(2) > strong { font-size: 1.3rem; letter-spacing: -.03em; }
+.membership-card-head > div:nth-child(2) > strong b { color: #ffd18a; font-size: 1.65rem; }
+.membership-card-head > div:nth-child(2) > strong span { color: #c9c9d2; font-size: 1rem; }
+.membership-intro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .035);
+}
+.membership-intro > span { color: #a3a3ad; font-size: .78rem; }
+.membership-intro > strong {
+  justify-self: end;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: #ffd18a;
+  background: rgba(255, 194, 77, .1);
+  font-size: .74rem;
+}
+.membership-intro > p { grid-column: 1 / -1; margin: 0; color: #8f8f99; font-size: .75rem; line-height: 1.5; }
 .membership-state {
   padding: 7px 10px;
   border: 1px solid #d5ddd9;
@@ -3921,27 +3976,33 @@ dialog.tool-download-modal {
   background: rgba(10, 122, 96, .1);
   color: #087659;
 }
-.membership-benefits {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
+.membership-benefits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .membership-benefits > .membership-benefit {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 76px;
-  padding: 34px 12px 12px;
-  border: 1px solid #dfe7e3;
-  border-radius: 8px;
-  background: #fff;
-  color: #34413d;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  min-height: 122px;
+  padding: 15px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .04);
+  color: #e9e9ee;
   font-size: .82rem;
   font-weight: 700;
   line-height: 1.35;
 }
-.membership-benefit-copy { min-width: 0; }
+.membership-benefit-primary { grid-template-columns: auto minmax(0, 1fr) auto; }
+.membership-benefit-primary > strong { font-size: .98rem; align-self: center; }
+.membership-benefit-primary > .membership-benefit-copy { grid-column: 2 / -1; color: #9898a3; font-weight: 500; line-height: 1.55; }
+.membership-benefit-primary.is-hot { border-color: rgba(255, 194, 77, .28); background: linear-gradient(145deg, rgba(255, 194, 77, .09), rgba(255, 255, 255, .035)); }
+.membership-benefit-icon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: rgba(255, 255, 255, .07); color: #ffd18a; }
+.membership-benefit-text { display: grid; gap: 4px; min-width: 0; }
+.membership-benefit-text > strong { font-size: .9rem; }
+.membership-benefit-compact { align-items: center; min-height: 74px; }
+.membership-benefit-compact .membership-benefit-badge { top: 50%; transform: translateY(-50%); }
+.membership-benefit-copy { min-width: 0; color: #9898a3; font-weight: 500; line-height: 1.45; }
 .membership-benefit-badge {
   position: absolute;
   top: 9px;
@@ -3949,19 +4010,19 @@ dialog.tool-download-modal {
   max-width: calc(100% - 18px);
   overflow: hidden;
   padding: 3px 7px;
-  border: 1px solid rgba(255, 255, 255, .18);
-  border-radius: 4px;
-  background: #f50087;
-  color: #fff;
+  border: 1px solid rgba(255, 194, 77, .24);
+  border-radius: 999px;
+  background: rgba(255, 194, 77, .1);
+  color: #ffd18a;
   font-size: .7rem;
   font-style: normal;
   font-weight: 900;
   line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
-  box-shadow: 0 5px 14px rgba(245, 0, 135, .24);
+  box-shadow: none;
 }
-.membership-benefits svg { width: 17px; height: 17px; flex: 0 0 auto; color: #0b8d6d; }
+.membership-benefits svg { width: 17px; height: 17px; flex: 0 0 auto; }
 .membership-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .membership-code-form { display: flex; gap: 8px; flex: 1 1 320px; min-width: 0; }
 .membership-code-form input {
@@ -11172,6 +11233,11 @@ select:focus,
     padding: 10px 12px 26px;
   }
   .membership-benefits { grid-template-columns: 1fr; }
+  .membership-intro { grid-template-columns: 1fr; }
+  .membership-intro > strong { justify-self: start; grid-row: 2; }
+  .membership-intro > p { grid-column: 1; }
+  .membership-benefit-primary { min-height: 112px; }
+  .topup-membership-checkout-grid { grid-template-columns: 1fr; }
   .character-page-tabs {
     justify-content: flex-start;
   }
