@@ -4,7 +4,8 @@
 - Changed `platform.create.parts/part-04.js` so user-asset resolution hydrates both `mediaAssets` and matching `params` preview fields (`referenceImages`, video/audio lists, URL arrays, and first/last-frame URLs). Fresh delivery/local HTTP URLs replace stale signed URLs while `assetUri` remains available for generation.
 - Preview URL ranking now records `assetUrls` before copied `dataUrl` values, preventing a stale duplicate in `dataUrl` from shadowing the fresh delivery URL.
 - Added production-shaped regressions in `test/vega-regeneration-media.test.js`: expired parameters are replaced by a fresh delivery URL, and local HTTP remains the fallback when signing is unavailable.
-- Verification: `node --test test/vega-regeneration-media.test.js` passes 10/10; targeted Vega tests pass 3/3; OSS tests pass 9/9; syntax and `git diff --check` pass. Not yet committed or deployed.
+- Verification: `node --test test/vega-regeneration-media.test.js` passes 10/10; targeted Vega tests pass 3/3; OSS tests pass 9/9; syntax and `git diff --check` pass.
+- Deployment: old-site `c9e7c06`; platform-release `f2f4065`, built from it and pushed with lease protection after fetching the concurrently advanced remote release. Deployed only to `123vips.com` with `scripts/deploy_local.sh --site old`; health returned `200 {"ok":true}` and production `platform.create.parts/part-04.js` contains the parameter-preview hydration and URL-ranking fixes. Live was not deployed.
 
 ## Seedance regenerated-record black duplicate media fix (2026-11-06)
 
