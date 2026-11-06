@@ -537,6 +537,9 @@ test("Regeneration clicks are serialized and failed previews do not remain black
   assert.match(previewSource, /reliableAssetUrlCandidates\(refs\[Number\(media\.dataset\.previewIndex/);
   assert.match(previewSource, /candidates\[candidateIndex\]/);
   assert.match(previewSource, /kind === "video"[\s\S]*?url[\s\S]*?data-advanced-preview-media/);
+  assert.match(previewSource, /advanced-video-fallback/);
+  assert.match(previewSource, /is-video-ready/);
+  assert.match(previewSource, /preload="auto"/);
   assert.match(previewSource, /素材不可用/);
   assert.match(exploreSource, /recordImageAssets\(detailRecord\)/);
   assert.match(exploreSource, /referenceImages: \[\], referenceVideos: \[\], referenceAudios: \[\]/);

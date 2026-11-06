@@ -293,7 +293,7 @@ function renderAdvancedReferencePreviews() {
         ? `<div class="advanced-reference-pending"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div>`
       : kind === "video"
       ? (url
-        ? `<video src="${escapeHtml(url)}" muted playsinline controls preload="metadata" data-advanced-preview-media data-preview-index="${previewIndex}"></video>`
+        ? `<div class="advanced-video-preview"><div class="advanced-video-fallback"><i data-lucide="film"></i><span>Video</span></div><video src="${escapeHtml(url)}" muted playsinline controls preload="auto" data-advanced-preview-media data-preview-index="${previewIndex}"></video></div>`
         : `<div class="advanced-reference-unavailable">${escapeHtml(state.lang === "zh" ? "素材不可用" : "Media unavailable")}</div>`)
       : kind === "audio"
         ? `<div class="advanced-audio-ref"><i data-lucide="audio-lines"></i></div>`
@@ -313,11 +313,22 @@ function renderAdvancedReferencePreviews() {
     const candidates = reliableAssetUrlCandidates(refs[Number(media.dataset.previewIndex || 0)]?.item || {});
     let candidateIndex = Math.max(0, candidates.indexOf(media.getAttribute("src")));
     if (media.tagName === "VIDEO") {
-      media.addEventListener("loadedmetadata", () => {
-        if (Number(media.currentTime || 0) === 0 && Number(media.duration || 0) > 0.05) {
-          try { media.currentTime = 0.01; } catch (_error) {}
+      const revealVideoFrame = () => {
+        if (Number(media.duration || 0) > 0.05) {
+          try { media.currentTime = Math.min(0.12, media.duration / 3); } catch (_error) {}
         }
-      }, { once: true });
+        if (Number(media.readyState || 0) >= 2) figure?.classList.add("is-video-ready");
+      };
+      media.addEventListener("loadeddata", revealVideoFrame);
+      media.addEventListener("canplay", revealVideoFrame);
+      media.addEventListener("loadedmetadata", revealVideoFrame, { once: true });
+      if (Number(media.readyState || 0) >= 2) revealVideoFrame();
+      try { media.load(); } catch (_error) {}
+      window.setTimeout(() => {
+        if (Number(media.readyState || 0) < 2 && media.isConnected) {
+          try { media.load(); } catch (_error) {}
+        }
+      }, 600);
     }
     media.addEventListener("error", () => {
       if (!figure || figure.querySelector(".advanced-reference-unavailable")) return;
