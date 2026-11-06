@@ -34,6 +34,10 @@ test("same-style navigation groups Cases, Video, Anime, and Image behind a colla
   const group = html.match(/<div class="top-nav-group"[^>]*data-nav-group="same-style">([\s\S]*?)<\/div>\s*<button class="top-tab" data-tab="advanced"/)?.[1] || "";
   assert.ok(group, "same-style group should wrap the four child entries");
   assert.match(group, /data-nav-group-toggle[^>]*aria-expanded="false"/);
+  assert.doesNotMatch(group, /data-i18n="nav\.sameStyle"/);
+  assert.match(group, /class="i18n-en">Same style<\/span>/);
+  assert.match(group, /class="i18n-zh">同款<\/span>/);
+  assert.match(html, /document\.documentElement\.classList\.add\(`i18n-\$\{lang\}`\)/);
   assert.match(group, /class="top-nav-group-children" hidden/);
   const caseIndex = group.indexOf('data-tab="cases"');
   const videoIndex = group.indexOf('data-gallery-shortcut="playflux-video"');

@@ -1103,6 +1103,14 @@ body.tenant-tool-shell .launch-banner + .site-head {
   border-color: rgba(255, 79, 163, 0.62);
   background: rgba(255, 79, 163, 0.16);
 }
+.i18n-zh .i18n-en,
+html:not(.i18n-zh) .i18n-zh {
+  display: none;
+}
+.i18n-zh .i18n-zh,
+html:not(.i18n-zh) .i18n-en {
+  display: inline;
+}
 .top-nav-group {
   display: grid;
   gap: 3px;

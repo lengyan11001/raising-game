@@ -10,6 +10,15 @@
     <link rel="dns-prefetch" href="https://media.123vips.com" />
     <link rel="stylesheet" href="./platform.css?v=completion-poll-20261105-1" />
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
+    <script>
+      (function () {
+        const lang = (() => {
+          try { return localStorage.getItem("raisingGameLanguage") || "en"; } catch (error) { return "en"; }
+        })();
+        document.documentElement.lang = lang;
+        document.documentElement.classList.add(`i18n-${lang}`);
+      })();
+    </script>
   </head>
   <body class="age-gate-locked">
     <div id="generationCompletionNotices" class="generation-completion-notices" aria-live="polite" aria-atomic="false"></div>
@@ -90,7 +99,7 @@
         <div class="top-nav-group" data-nav-group="same-style">
           <button class="top-tab top-nav-group-toggle" data-nav-group-toggle type="button" aria-expanded="false">
             <i data-lucide="shapes"></i>
-            <span data-i18n="nav.sameStyle">同款</span>
+            <span><span class="i18n-en">Same style</span><span class="i18n-zh">同款</span></span>
             <i class="top-nav-group-chevron" data-lucide="chevron-down"></i>
           </button>
           <div class="top-nav-group-children" hidden>
