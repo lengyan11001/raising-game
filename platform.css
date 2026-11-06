@@ -12377,7 +12377,10 @@ body.wan30-launch-visible .site-head { top: 0; }
     color: rgba(255,255,255,.92);
   }
 
-  .top-tabs,
+  .top-tabs {
+    gap: 8px;
+  }
+
   .side-utility-nav {
     gap: 1px;
   }

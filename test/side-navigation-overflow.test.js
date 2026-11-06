@@ -16,6 +16,7 @@ test("side navigation keeps full-size buttons and no longer renders a More entry
   assert.match(css, /\.top-tabs \{[\s\S]*?gap:\s*10px;[\s\S]*?overflow-y:\s*auto;/);
   assert.match(css, /\.top-tab \{[\s\S]*?min-height:\s*44px;/);
   assert.match(css, /\.top-tab \{[\s\S]*?min-height:\s*44px;[\s\S]*?color: rgba\(247,247,251,\.82\);/);
+  assert.match(css, /@media \(min-width: 1081px\) \{[\s\S]*?\.side-rail \{\s*width: 216px;[\s\S]*?\.top-tabs \{\s*gap: 8px;\s*\}[\s\S]*?\.top-tab \{[\s\S]*?min-height: 38px;/);
   assert.match(css, /\.top-tab svg \{\s*width:\s*15px;\s*height:\s*15px;/);
   assert.doesNotMatch(css, /top-tab-more|side-nav-more-menu|is-nav-overflowing/);
   assert.doesNotMatch(explore, /syncSideNavigationMore|sideNavMoreBtn|sideNavMoreMenu/);
