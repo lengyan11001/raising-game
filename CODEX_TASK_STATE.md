@@ -1,5 +1,9 @@
 ## Seedance regenerated-record black duplicate media fix (2026-11-06)
 
+- Asset fallback follow-up: `publicUserAsset()` now returns `assetUrls` plus local/public/CDN/delivery preview variants, and the record-restore preview path ranks fresh HTTP URLs above relative `/assets/...` paths while excluding internal `asset://`, `javascript:`, and `file:` sources. Internal `assetUri` remains available only for regeneration.
+- Asset fallback verification: `node --test test/vega-regeneration-media.test.js test/oss-storage.test.js` passes 17/17; targeted Vega resolve/regeneration/mirror tests pass 4/4 under `test/source-compat.js`; syntax and `git diff --check` pass. Committed as `4c6be24` on `old-site`.
+- Asset fallback deployment status: not yet deployed.
+
 - Follow-up finding: this production record stores only `userAssetId` values in `mediaAssets`; it has no public preview URLs. The earlier fix still fed internal `asset://` generation identities into preview fields, producing one unavailable image and two black videos.
 - Follow-up fix: regeneration now batch-resolves all record asset IDs through `POST /api/user-assets/resolve` before restoring the editor. Preview fields accept only non-`asset://` URLs; internal `assetUri` remains separate for regeneration. Missing previews render the explicit unavailable placeholder, and Vega `sourceUrl` no longer falls back to `asset://`.
 - Follow-up regression: production-shaped fixture now has ID-only `mediaAssets`, stubbed resolved HTTP previews, and asserts 3 restored items, HTTP image/video previews, internal `asset://` only in `assetUri`, plus no `asset://` preview fallback when resolution is empty. `node --test test/vega-regeneration-media.test.js` passes 6/6; syntax and targeted `git diff --check` pass.
