@@ -1,3 +1,11 @@
+## Same-style active tab label white fill removed (2026-11-06)
+
+- User clarified the selected Same-style tab still had a white label background because generic `.gallery-mode-tab.is-active span` rules overrode the outer transparent state.
+- Added scoped `.gallery-top-tabs .gallery-mode-tab.is-active span` override: `color: inherit; background: transparent;`.
+- Cache suffix bumped to `advanced-parameters-20261106-18`; production runtime resource key is `mw4tnw3i`.
+- `test/side-navigation-overflow.test.js` passes 3/3 and `git diff --check` is clean.
+- Deployment: old-site `05a71b8`; platform-release `4b4d2ae`; deployed only to `123vips.com` via `scripts/deploy_local.sh --site old`. Health is `200 {"ok":true}`. Production CSS confirms both active button and active label are transparent.
+
 ## Same-style active tab fill removed (2026-11-06)
 
 - User confirmed the selected Same-style tab still showed the dark pink pill in a new screenshot.
