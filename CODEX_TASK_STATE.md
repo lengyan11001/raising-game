@@ -6,7 +6,7 @@
 - Updated `test/advanced-custom-ui.test.js` to guard the wider columns, viewport-height dialog structure, and non-nested editor scrolling.
 - Verification: syntax and `git diff --check` pass; focused tests pass except 6 pre-existing Wan/pricing failures. Headless Chrome verified 1440x1000, 1280x900, 756x469, and 390x844: dialogs stay in viewport, use 972/872/441/816px respectively, and only the modal body scrolls when populated content exceeds available height.
 - Concurrent same-style navigation work was moved to `/tmp/codex-concurrent-same-style-20261106.patch` and is not part of this change.
-- Deployment: pending.
+- Deployment: `old-site` `c32d631`; `platform-release` `1badaa4`, built from `c32d631` and pushed. Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; service active, `/api/health` returned `200 {"ok":true}`. Production serves asset version `mw4macpv` and the deployed CSS contains the wider Generate columns and viewport-height dialog rules.
 
 ## Generate parameter capsules and adaptive popover (2026-11-06)
 
