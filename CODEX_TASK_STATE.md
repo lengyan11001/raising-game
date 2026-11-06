@@ -9,7 +9,7 @@
 - Required DNS cutover after a valid Zone -> DNS -> Edit token is supplied: CNAME `assets-cdn` to `assets-cdn.123vips.com.queniuaa.com`, Proxy **DNS only**, TTL Auto. Do not touch `media.123vips.com`.
 - Compatibility fix: a historical `media.123vips.com` R2 URL is no longer re-signed as an OSS CDN URL when a record-level storage key is present. OSS-origin and `assets-cdn` URLs still sign normally.
 - Verification: OSS-focused suite passes 120/120; syntax checks pass; `git diff --check` passes.
-- Deployment: old-site `482c2a6`; platform-release `a02ba20`; deployed only `123vips.com`. Production env now selects Singapore OSS while retaining R2 values, and `/api/health` is `200 {"ok":true}`.
+- Deployment: old-site `482c2a6`; platform-release `a02ba20`, preserved in tag `oss-prod-a02ba20`; deployed only `123vips.com`. Production env now selects Singapore OSS while retaining R2 values, and `/api/health` is `200 {"ok":true}`.
 - Production OSS smoke test passed after final deployment: upload succeeded; signed CDN GET `200`; signed Range GET `206`; unsigned GET `403`; test object deleted. Historical R2 URLs remain on `media.123vips.com` after compatibility fix.
 
 ## Same-style selected tab white text only (2026-11-06)
