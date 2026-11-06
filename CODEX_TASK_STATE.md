@@ -10,7 +10,8 @@
 - Found and fixed an OSS V1 multipart signing defect: `uploads` is an empty subresource and must be signed/serialized as `?uploads`, not `?uploads=`. A real 9MB multipart upload to Singapore OSS now succeeds, HEAD verifies the exact byte count, and the test object is deleted.
 - Verification: targeted generation/media/OSS suite passes all tests; syntax checks and `git diff --check` pass.
 - Deployment: `old-site` `447de7e`, `platform-release` `c27e618`; deployed only `123vips.com` with `scripts/deploy_local.sh --site old`. Health returned `200 {"ok":true}`. Production is 4 vCPU / 7GB RAM / 49GB disk; at check time load was about 2.4, 5.5GB RAM available, disk 51% used.
-- Live queue observation: 4 processing exceeded the configured 2 while old rollout workers drained; 13 queued and several expired source URLs were retrying with 403. After deployment, verify only two new workers remain and purge/expire stale retry jobs so old failures do not consume slots.
+- Live queue observation after restart: exactly 4 processing remained, so the global cap is not yet authoritative. Root cause: `mediaIngestRunning` is per-process, but the old service instance was draining while the new instance started. Ensure a single production Node process before treating the live count as the global cap; also expire stale 403 retries so they do not consume slots.
+- Production host signal at queue sample: load average 3.67/2.27/2.30, 5.5GB RAM available, disk 51% used. Queue p50 completion 12.8s and p95 15.8s; queue wait p50 66.1s and p95 363.1s, dominated by retries of expired historical provider URLs after mass enqueue. Active stale-403 retries should be capped or aged out separately from fresh jobs.
 
 ## Account menu email binding (2026-11-06)
 
