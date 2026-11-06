@@ -1116,17 +1116,22 @@ function renderAdvancedParameterPanel(kind = "") {
     const max = numeric.length ? Math.max(...numeric) : 0;
     const selectedNumber = Number(current);
     const hasAuto = options.some((item) => Number(item.value) === -1);
-    const sliderValue = Number.isFinite(selectedNumber) && selectedNumber >= min && selectedNumber <= max ? selectedNumber : min;
+    const sliderMin = hasAuto ? -1 : min;
+    const sliderValue = hasAuto && selectedNumber === -1
+      ? -1
+      : Number.isFinite(selectedNumber) && selectedNumber >= min && selectedNumber <= max
+        ? selectedNumber
+        : min;
     body = `
       <div class="advanced-parameter-duration">
         <div class="advanced-parameter-duration-readout">
           <strong data-advanced-parameter-duration-value>${escapeHtml(advancedParameterValueLabel(kind, select))}</strong>
           <span>${escapeHtml(advancedParameterChipLabel(kind))}</span>
         </div>
-        ${max > min ? `<input class="advanced-parameter-range" type="range" min="${min}" max="${max}" step="1" value="${sliderValue}" data-advanced-parameter-duration-range aria-label="${escapeHtml(advancedParameterChipLabel(kind))}" />` : ""}
-        <div class="advanced-parameter-duration-shortcuts">
-          ${hasAuto ? `<button class="advanced-video-choice ${current === "-1" ? "is-active" : ""}" type="button" data-advanced-parameter-option-kind="duration" data-advanced-parameter-option-value="-1">Auto</button>` : ""}
-          ${numeric.map((value) => `<button class="advanced-video-choice ${String(value) === current ? "is-active" : ""}" type="button" data-advanced-parameter-option-kind="duration" data-advanced-parameter-option-value="${value}">${value}s</button>`).join("")}
+        <input class="advanced-parameter-range" type="range" min="${sliderMin}" max="${max}" step="1" value="${sliderValue}" data-advanced-parameter-duration-range aria-label="${escapeHtml(advancedParameterChipLabel(kind))}" />
+        <div class="advanced-parameter-range-labels" aria-hidden="true">
+          <span>${hasAuto ? "Auto" : `${min}s`}</span>
+          <span>${max}s</span>
         </div>
       </div>
     `;
@@ -1162,12 +1167,10 @@ function openAdvancedParameterPanel(kind = "") {
 function setAdvancedParameterValue(kind = "", value = "") {
   const select = advancedParameterNativeSelect(kind);
   if (!select) return;
-  const keepPanelOpen = !["model", "mode"].includes(kind);
   select.value = String(value);
-  if (!keepPanelOpen) closeAdvancedParameterPanel();
+  closeAdvancedParameterPanel();
   select.dispatchEvent(new Event("change", { bubbles: true }));
   syncAdvancedParameterChips();
-  if (keepPanelOpen && state.advancedParameterOpen === kind) renderAdvancedParameterPanel(kind);
 }
 
 function handleAdvancedParameterTriggerClick(event) {
@@ -1204,16 +1207,20 @@ function handleAdvancedParameterPanelInput(event) {
   const range = event.target.closest("[data-advanced-parameter-duration-range]");
   if (!range || !els.advancedDuration) return;
   els.advancedDuration.value = range.value;
+  const label = range.value === "-1" ? "Auto" : `${range.value}s`;
   const readout = els.advancedParameterPanel?.querySelector("[data-advanced-parameter-duration-value]");
-  if (readout) readout.textContent = `${range.value}s`;
+  if (readout) readout.textContent = label;
   const chipValue = els.advancedParameterChips?.querySelector('[data-advanced-parameter-open="duration"] .advanced-parameter-chip-value');
-  if (chipValue) chipValue.textContent = `${range.value}s`;
+  if (chipValue) chipValue.textContent = label;
 }
 
 function handleAdvancedParameterPanelChange(event) {
   const range = event.target.closest("[data-advanced-parameter-duration-range]");
   if (!range || !els.advancedDuration) return;
   els.advancedDuration.value = range.value;
+  // Close first so the native select's change handler cannot briefly reopen
+  // the picker while syncing the estimate and parameter chips.
+  closeAdvancedParameterPanel();
   els.advancedDuration.dispatchEvent(new Event("change", { bubbles: true }));
   syncAdvancedParameterChips();
 }

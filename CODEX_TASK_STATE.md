@@ -1,3 +1,12 @@
+## Generate picker auto-close and duration slider (2026-11-06)
+
+- Goal: parameter option selection closes the picker, and the duration picker uses one range slider instead of shortcut buttons.
+- Changed `platform.create.parts/part-02.js`: all parameter options close the picker on selection; the duration panel renders only the current value, range input, and min/max labels. Dragging updates the readout/chip; release closes the picker before the native select change handler runs.
+- Changed `platform.css`: replaced duration shortcut styling with slider and endpoint label styling.
+- Added regression coverage in `test/platform-site-profile.test.js`.
+- Verification: targeted platform/Vega tests pass (76/76); syntax and `git diff --check` pass. Headless Chrome verified ratio selection closes the picker, the duration picker renders one slider with zero duration buttons, drag updates readout/chip, release saves the native value and closes the picker.
+- Deployment: pending.
+
 ## 123vip.fans Generate parity guard (2026-11-06)
 
 - Confirmed `123vip.fans` and `www.123vip.fans` resolve to the shared `/platform.html`; they do not have a separate Generate implementation.

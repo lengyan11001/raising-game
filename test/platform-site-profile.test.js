@@ -63,6 +63,24 @@ test("123vip.fans reuses the shared Generate surface without profile overrides",
   }
 });
 
+test("Generate parameter pickers close after selection and duration uses a slider", () => {
+  const createSource = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.parts", "part-02.js"), "utf8");
+  const start = createSource.indexOf("function renderAdvancedParameterPanel(");
+  const end = createSource.indexOf("function openAdvancedParameterPanel(", start);
+  assert.ok(start >= 0 && end > start);
+  const picker = createSource.slice(start, end);
+  assert.match(picker, /data-advanced-parameter-duration-range/);
+  assert.doesNotMatch(picker, /advanced-parameter-duration-shortcuts/);
+  assert.doesNotMatch(picker, /data-advanced-parameter-option-kind="duration"/);
+
+  const setter = createSource.slice(
+    createSource.indexOf("function setAdvancedParameterValue("),
+    createSource.indexOf("function handleAdvancedParameterTriggerClick("),
+  );
+  assert.match(setter, /select\.value = String\(value\);\s*closeAdvancedParameterPanel\(\);/);
+  assert.doesNotMatch(setter, /keepPanelOpen/);
+});
+
 test("the www host serves the same site profile as the apex", () => {
   const lookup = tenantRuntime.platformSiteProfileForHostname;
   const profile = tenantRuntime.PLATFORM_SITE_PROFILE;
