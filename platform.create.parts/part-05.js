@@ -281,6 +281,7 @@ function renderAdvancedReferencePreviews() {
   els.advancedUploadPreview.innerHTML = refs.map(({ kind, index, label, item }, previewIndex) => {
     const pending = Boolean(item.isPending || item.pendingId);
     const url = reliableAssetUrl(item);
+    const posterUrl = kind === "video" ? reliableAssetPosterUrl(item) : "";
     const removeAttr = kind === "image"
       ? `data-remove-advanced-ref="${index}"`
       : kind === "document"
@@ -293,7 +294,7 @@ function renderAdvancedReferencePreviews() {
         ? `<div class="advanced-reference-pending"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div>`
       : kind === "video"
       ? (url
-        ? `<div class="advanced-video-preview"><div class="advanced-video-fallback"><i data-lucide="film"></i><span>Video</span></div><video src="${escapeHtml(url)}" muted playsinline controls preload="auto" data-advanced-preview-media data-preview-index="${previewIndex}"></video></div>`
+        ? `<div class="advanced-video-preview"><div class="advanced-video-fallback"><i data-lucide="film"></i><span>Video</span></div>${posterUrl ? `<img class="advanced-video-poster" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" data-advanced-video-poster />` : ""}<video src="${escapeHtml(url)}"${posterUrl ? ` poster="${escapeHtml(posterUrl)}"` : ""} muted playsinline controls preload="auto" data-advanced-preview-media data-preview-index="${previewIndex}"></video></div>`
         : `<div class="advanced-reference-unavailable">${escapeHtml(state.lang === "zh" ? "素材不可用" : "Media unavailable")}</div>`)
       : kind === "audio"
         ? `<div class="advanced-audio-ref"><i data-lucide="audio-lines"></i></div>`
@@ -308,6 +309,9 @@ function renderAdvancedReferencePreviews() {
       </figure>
     `;
   }).join("");
+  els.advancedUploadPreview.querySelectorAll("[data-advanced-video-poster]").forEach((poster) => {
+    poster.addEventListener("error", () => poster.remove(), { once: true });
+  });
   els.advancedUploadPreview.querySelectorAll("[data-advanced-preview-media]").forEach((media) => {
     const figure = media.closest(".advanced-reference-chip");
     const candidates = reliableAssetUrlCandidates(refs[Number(media.dataset.previewIndex || 0)]?.item || {});

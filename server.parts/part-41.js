@@ -252,6 +252,8 @@ function hydratedGenerationRecordMediaAsset(item = {}, resolvedAsset = null) {
   const publicAsset = publicUserAsset(resolvedAsset);
   const previewUrl = String(publicAsset.previewUrl || publicAsset.publicUrl || "").trim();
   const safePreviewUrl = previewUrl && !previewUrl.startsWith("asset://") ? previewUrl : "";
+  const posterUrl = String(publicAsset.posterUrl || publicAsset.thumbnailUrl || publicAsset.coverUrl || "").trim();
+  const safePosterUrl = posterUrl && !posterUrl.startsWith("asset://") ? posterUrl : "";
   const type = String(item.type || item.key || "").toLowerCase();
   const kind = String(publicAsset.kind || "").toLowerCase();
   const isVideo = type.includes("video") || kind === "video";
@@ -266,6 +268,11 @@ function hydratedGenerationRecordMediaAsset(item = {}, resolvedAsset = null) {
       publicUrl: safePreviewUrl,
       cdnUrl: safePreviewUrl,
       previewUrl: safePreviewUrl,
+      ...(safePosterUrl ? {
+        posterUrl: safePosterUrl,
+        thumbnailUrl: safePosterUrl,
+        coverUrl: safePosterUrl,
+      } : {}),
     } : {}),
     ...(Array.isArray(publicAsset.assetUrls) && publicAsset.assetUrls.length ? { assetUrls: publicAsset.assetUrls } : {}),
     ...(assetUri ? { assetUri, referenceAssetUri: item.referenceAssetUri || assetUri } : {}),

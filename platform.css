@@ -6432,13 +6432,28 @@ select option:checked {
   opacity: 0;
   transition: opacity .16s ease;
 }
+.advanced-video-poster {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 104px;
+  object-fit: cover;
+  opacity: 1;
+  transition: opacity .16s ease;
+}
+.advanced-reference-chip.is-video-ready .advanced-video-preview .advanced-video-poster {
+  opacity: 0;
+}
 .advanced-reference-chip.is-video-ready .advanced-video-preview video {
   opacity: 1;
 }
 .advanced-video-fallback {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 0;
   display: grid;
   place-content: center;
   justify-items: center;

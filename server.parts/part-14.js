@@ -209,6 +209,71 @@ function decodeWanMediaDataUrl(dataUrl = "") {
   };
 }
 
+function userAssetPosterFileName(asset = {}) {
+  return `${storagePathSegment(asset.id, "asset")}.poster.jpg`;
+}
+
+async function attachUserAssetVideoPoster(asset = {}, videoPath = "") {
+  if (!asset || !String(asset.mime || "").startsWith("video/") || !videoPath) return asset;
+  const posterFileName = userAssetPosterFileName(asset);
+  const posterPath = path.join(USER_UPLOAD_DIR, String(asset.userId || ""), posterFileName);
+  const localPosterUrl = `/assets/user-uploads/${asset.userId}/${posterFileName}`;
+  try {
+    await fs.mkdir(path.dirname(posterPath), { recursive: true });
+    const captured = await captureVideoPosterFrame(videoPath, posterPath);
+    if (!captured) return asset;
+    const posterBytes = await fs.readFile(posterPath);
+    const posterStorage = await uploadLocalAssetMirrorToObjectStorage({
+      localUrl: localPosterUrl,
+      bytes: posterBytes,
+      mime: "image/jpeg",
+    }).catch((error) => {
+      console.warn("[user-asset-poster-upload-failed]", asset.id, error.message || error);
+      return { publicUrl: "", key: "" };
+    });
+    const posterUrl = posterStorage.publicUrl || publicUrlForAssetPath(localPosterUrl);
+    asset.localPosterUrl = localPosterUrl;
+    asset.posterUrl = posterUrl;
+    asset.thumbnailUrl = posterUrl;
+    asset.coverUrl = posterUrl;
+    asset.posterStorageKey = posterStorage.key || "";
+    asset.posterObjectStorageKey = posterStorage.key || "";
+    asset.posterUpdatedAt = new Date().toISOString();
+  } catch (error) {
+    console.warn("[user-asset-poster-capture-failed]", asset.id, error.message || error);
+  }
+  return asset;
+}
+
+async function ensureUserAssetVideoPoster(db, asset = {}) {
+  if (!asset || !String(asset.mime || "").startsWith("video/")) return asset;
+  const localPosterUrl = String(asset.localPosterUrl || "").trim();
+  if (localPosterUrl) {
+    const localPosterPath = path.resolve(ROOT, localPosterUrl.replace(/^\/+/, ""));
+    const stat = await fs.stat(localPosterPath).catch(() => null);
+    if (stat?.isFile() && stat.size > 0) return asset;
+  }
+  let videoPath = "";
+  try {
+    videoPath = await ensureLocalUserAssetFile(db, asset, {
+      label: "Video thumbnail source",
+      maxBytes: VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES,
+      requireFile: false,
+    });
+  } catch (error) {
+    console.warn("[user-asset-poster-source-unavailable]", asset.id, error.message || error);
+    return asset;
+  }
+  if (!videoPath) return asset;
+  await attachUserAssetVideoPoster(asset, videoPath);
+  if (!asset.localPosterUrl) return asset;
+  asset.updatedAt = new Date().toISOString();
+  db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(db);
+  return asset;
+}
+
 async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Upload", fileName = "", maxBytes = 8 * 1024 * 1024, durationSeconds = 0 } = {}) {
   if (bytes.byteLength > maxBytes) {
     const label = mime.startsWith("image/") ? "Image" : mime.startsWith("audio/") ? "Audio" : "Media";
@@ -263,6 +328,7 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     updatedAt: new Date().toISOString(),
     deletedAt: "",
   };
+  if (mime.startsWith("video/")) await attachUserAssetVideoPoster(userAsset, localPath);
   db.userAssets.unshift(userAsset);
   if (dbEnabled()) await upsertUserAssetInDb(userAsset);
   else await writeDb(db);

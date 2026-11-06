@@ -280,6 +280,19 @@ function reliableAssetUrl(item = {}) {
   return reliableAssetUrlCandidates(item)[0] || "";
 }
 
+function reliableAssetPosterUrl(item = {}) {
+  if (!item || typeof item !== "object") return "";
+  const listed = Array.isArray(item.posterUrls) ? item.posterUrls : [];
+  const candidates = [
+    ...listed.map((entry) => typeof entry === "string" ? entry : entry?.url || entry?.href || entry?.src),
+    item.posterUrl,
+    item.localPosterUrl,
+    item.thumbnailUrl,
+    item.coverUrl,
+  ];
+  return candidates.map(previewableAssetUrl).find(Boolean) || "";
+}
+
 function restoreMediaUrl(item = {}) {
   if (!item || typeof item !== "object") return "";
   return reliableAssetUrl(item) || "";
@@ -360,6 +373,11 @@ function hydrateRecordMediaItemPreview(item = {}, asset = {}) {
       sourceUrl: previewUrl,
       dataUrl: previewUrl,
       ...(isVideo ? { videoUrl: previewUrl } : isAudio ? { audioUrl: previewUrl } : { imageUrl: previewUrl, sourceImageUrl: previewUrl }),
+      ...(isVideo && asset.posterUrl ? {
+        posterUrl: asset.posterUrl,
+        thumbnailUrl: asset.thumbnailUrl || asset.posterUrl,
+        coverUrl: asset.coverUrl || asset.posterUrl,
+      } : {}),
       localUrl: asset.localUrl || "",
       localHttpUrl: asset.localHttpUrl || "",
       assetUrls: Array.isArray(asset.assetUrls) ? asset.assetUrls : [],

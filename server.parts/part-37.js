@@ -643,7 +643,8 @@ async function handleResolveUserAssets(req, res) {
   const requirePublicUrl = Boolean(body.requirePublicUrl) || isVegaProvider(body.provider);
   const resolvedAssets = [];
   for (const asset of assets) {
-    resolvedAssets.push(requirePublicUrl ? await ensureVegaPublicUrlForUserAsset(auth.db, asset) : asset);
+    const resolved = requirePublicUrl ? await ensureVegaPublicUrlForUserAsset(auth.db, asset) : asset;
+    resolvedAssets.push(await ensureUserAssetVideoPoster(auth.db, resolved));
   }
   const foundIds = new Set(assets.map((asset) => asset.id));
   return sendJson(res, 200, {

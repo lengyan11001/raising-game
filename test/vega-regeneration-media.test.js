@@ -86,6 +86,9 @@ function generationMediaRuntime(assetsById = new Map(), overrides = {}) {
     id: asset.id,
     kind: asset.kind || (String(asset.mime || "").startsWith("video/") ? "video" : "image"),
     previewUrl: asset.previewUrl || asset.publicUrl || asset.cdnUrl || asset.localHttpUrl || "",
+    posterUrl: asset.posterUrl || "",
+    thumbnailUrl: asset.thumbnailUrl || asset.posterUrl || "",
+    coverUrl: asset.coverUrl || asset.posterUrl || "",
     publicUrl: asset.publicUrl || "",
     cdnUrl: asset.cdnUrl || "",
     assetUri: asset.assetUri || "",
@@ -120,6 +123,7 @@ function frontendRuntime() {
     "assetUrlCandidateRank",
     "reliableAssetUrlCandidates",
     "reliableAssetUrl",
+    "reliableAssetPosterUrl",
     "restoreMediaUrl",
     "restoreMediaPreviewUrl",
     "restoreMediaAssetUri",
@@ -432,6 +436,7 @@ test("Generation record hydration plans one stable preview and full address set 
     id: item.userAssetId,
     kind: item.type === "reference_video" ? "video" : "image",
     previewUrl: `https://assets-cdn.example.com/asset-${index + 1}?signature=fresh`,
+    posterUrl: item.type === "reference_video" ? `https://assets-cdn.example.com/poster-${index + 1}.jpg` : "",
     assetUri: `asset://internal-${index + 1}`,
     assetUrls: [
       { source: "delivery", url: `https://assets-cdn.example.com/asset-${index + 1}?signature=fresh` },
@@ -442,10 +447,10 @@ test("Generation record hydration plans one stable preview and full address set 
   assert.deepEqual(generationRecordMediaAssetIds(record), record.mediaAssets.map((item) => item.userAssetId));
   const hydrated = await hydrateGenerationRecordMediaAssets(record, "user-1");
   assert.equal(hydrated.mediaAssets.length, 3);
-  assert.deepEqual(hydrated.mediaAssets.map((item) => [item.type, item.assetUri, item.previewUrl, item.assetUrls.length]), [
-    ["reference_image", "asset://internal-1", "https://assets-cdn.example.com/asset-1?signature=fresh", 2],
-    ["reference_video", "asset://internal-2", "https://assets-cdn.example.com/asset-2?signature=fresh", 2],
-    ["reference_video", "asset://internal-3", "https://assets-cdn.example.com/asset-3?signature=fresh", 2],
+  assert.deepEqual(hydrated.mediaAssets.map((item) => [item.type, item.assetUri, item.previewUrl, item.posterUrl || "", item.assetUrls.length]), [
+    ["reference_image", "asset://internal-1", "https://assets-cdn.example.com/asset-1?signature=fresh", "", 2],
+    ["reference_video", "asset://internal-2", "https://assets-cdn.example.com/asset-2?signature=fresh", "https://assets-cdn.example.com/poster-2.jpg", 2],
+    ["reference_video", "asset://internal-3", "https://assets-cdn.example.com/asset-3?signature=fresh", "https://assets-cdn.example.com/poster-3.jpg", 2],
   ]);
   assert.equal(hydrated.mediaAssets[0].imageUrl, hydrated.mediaAssets[0].previewUrl);
   assert.equal(hydrated.mediaAssets[1].videoUrl, hydrated.mediaAssets[1].previewUrl);
@@ -538,6 +543,9 @@ test("Regeneration clicks are serialized and failed previews do not remain black
   assert.match(previewSource, /candidates\[candidateIndex\]/);
   assert.match(previewSource, /kind === "video"[\s\S]*?url[\s\S]*?data-advanced-preview-media/);
   assert.match(previewSource, /advanced-video-fallback/);
+  assert.match(previewSource, /advanced-video-poster/);
+  assert.match(previewSource, /reliableAssetPosterUrl/);
+  assert.match(previewSource, /poster="\$\{escapeHtml\(posterUrl\)\}"/);
   assert.match(previewSource, /is-video-ready/);
   assert.match(previewSource, /preload="auto"/);
   assert.match(previewSource, /素材不可用/);
@@ -627,5 +635,7 @@ test("Public user assets return the full address set for the frontend fallback c
   assert.match(publicAsset, /addAssetUrl\("delivery", deliveryUrl\)/);
   assert.match(publicAsset, /addAssetUrl\("local-http", localHttpUrl\)/);
   assert.match(publicAsset, /previewUrl: deliveryUrl/);
+  assert.match(publicAsset, /posterUrl: deliveryPosterUrl/);
+  assert.match(publicAsset, /localPosterUrl/);
   assert.doesNotMatch(publicAsset, /previewUrl: asset\.localUrl \|\|/);
 });

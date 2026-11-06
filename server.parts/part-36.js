@@ -613,6 +613,11 @@ function publicUserAsset(asset = {}) {
   const deliveryUrl = signedOssCdnUrlForDelivery(storedUrl, {
     key: asset.storageKey || asset.objectStorageKey || asset.r2Key || "",
   }) || storedPublicUrl || storedCdnUrl || localHttpUrl;
+  const localPosterUrl = String(asset.localPosterUrl || "").trim();
+  const storedPosterUrl = String(asset.posterUrl || asset.thumbnailUrl || asset.coverUrl || publicUrlForAssetPath(localPosterUrl) || "").trim();
+  const deliveryPosterUrl = signedOssCdnUrlForDelivery(storedPosterUrl, {
+    key: asset.posterStorageKey || asset.posterObjectStorageKey || asset.posterR2Key || "",
+  }) || storedPosterUrl;
   const assetUrls = [];
   const seenAssetUrls = new Set();
   const addAssetUrl = (source, value) => {
@@ -639,6 +644,10 @@ function publicUserAsset(asset = {}) {
     publicUrl: deliveryUrl,
     cdnUrl: deliveryUrl,
     previewUrl: deliveryUrl,
+    posterUrl: deliveryPosterUrl,
+    localPosterUrl,
+    thumbnailUrl: deliveryPosterUrl,
+    coverUrl: deliveryPosterUrl,
     assetUrls,
     durationSeconds: durationSecondsFromValue(firstPresent(asset.durationSeconds, asset.duration)),
     assetUri: kind === "image" ? asset.assetUri || "" : "",
