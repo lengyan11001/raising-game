@@ -5,7 +5,7 @@
 - Fix: `platform.create.parts/part-04.js` merges upstream internal videos/audio into matching database items by kind/order, preserves the public URL, and attaches the internal `assetUri` needed for regeneration. Added order/identity dedupe. `platform.create.parts/part-01.js` serializes regenerate clicks. `platform.create.parts/part-05.js` and `platform.css` replace failed image previews with an explicit “素材不可用” tile instead of leaving a black/blank item.
 - Regression: sanitized production-shaped record in `test/vega-regeneration-media.test.js` restores 1 image + 2 videos, both videos retain public URLs and receive their matching internal `assetUri`; no `asset://`-only video remains. The test file now reads split `server.parts` through `server-source.js` instead of stale `server.js` text.
 - Verification: `node --test test/vega-regeneration-media.test.js` passes 5/5; syntax checks and targeted `git diff --check` pass. Broader legacy test files contain pre-existing assertions against unsplit `server.js`/`platform.js` text and fail independently of this change.
-- Deployment: pending.
+- Deployment: old-site `749cef0`; platform-release `06c672f`, pushed with lease protection. Deployed only to `123vips.com` with `scripts/deploy_local.sh --site old`; health returned `200 {"ok":true}` and the production parts contain the merge/serialization/unavailable-preview fixes.
 
 ## Automatic media transfer concurrency and large-file safety (2026-11-06)
 
