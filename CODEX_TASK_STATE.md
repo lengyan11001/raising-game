@@ -674,7 +674,8 @@ CODEX_TASK_STATE.md
 - Changed files: `platform.config.js`, `platform.copy.js`, `platform.create.parts/part-01.js`, `platform.create.parts/part-02.js`, `platform.create.parts/part-04.js`, `platform.main.js`, `platform.ui.parts/part-01.js`, `test/tencent-vod-vega.test.js`.
 - Capability correction: Seedance 2.5 `reference_video` and `omini` now allow video/audio references (10 each); `first_last_frame` allows neither; Seedance NSFW `edit`/`extend` allow one video and no audio. Video/audio Targets are hidden when the active mode has no capacity.
 - Verification: `test/tencent-vod-vega.test.js` 61 pass / 0 fail; `test/seedance25.test.js` + `test/media-inputs.test.js` 34 pass / 0 fail; `node --check` on all changed JS; `git diff --check` pass. `test/advanced-custom-ui.test.js` has 6 pre-existing failures also reproduced from clean HEAD, unrelated to this change.
-- Pending: commit, build `platform-release`, push, and deploy only `123vips.com` with `scripts/deploy_local.sh --site old`. Live must remain untouched.
+- Release: `old-site` `9fd8a7d`, pushed; `platform-release` `d8a6d4c`, built from it and pushed with lease protection. Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`.
+- Production verification: `/api/health` is `200 {"ok":true}`; served `part-01.js` contains `seedanceModeNeedsReferenceVideo`, `advancedAssetLoadSeq`, and `filterAdvancedAssetsByType`; served `part-02.js` contains `REFERENCE_NOT_SUPPORTED`, `REFERENCE_NOT_ADDED`, and `advancedMediaReferenceAddError`. Live release `6642e17` was unchanged and was not deployed.
 
 ## Same-style navigation language flash fix (2026-11-06)
 
