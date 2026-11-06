@@ -2,7 +2,7 @@
 const ELEVEN_ELEVEN_PROMO = Object.freeze({
   id: "eleven-eleven-2026",
   startsAt: Date.parse(process.env.ELEVEN_ELEVEN_STARTS_AT || "2026-11-06T00:00:00+07:00"),
-  endsAt: Date.parse(process.env.ELEVEN_ELEVEN_ENDS_AT || "2026-11-12T00:00:00+07:00"),
+  periodSeconds: Math.max(3600, Number(process.env.ELEVEN_ELEVEN_PERIOD_SECONDS || 3 * 24 * 60 * 60) || 3 * 24 * 60 * 60),
   reservationSeconds: Math.max(300, Math.min(3600, Number(process.env.ELEVEN_ELEVEN_RESERVATION_SECONDS || 1500) || 1500)),
   skus: Object.freeze({
     member: Object.freeze({
@@ -30,29 +30,50 @@ function elevenElevenSku(sku = "") {
   return ELEVEN_ELEVEN_PROMO.skus[String(sku || "").trim()] || null;
 }
 
+function elevenElevenCampaignWindow(now = Date.now()) {
+  const periodMs = ELEVEN_ELEVEN_PROMO.periodSeconds * 1000;
+  const started = now >= ELEVEN_ELEVEN_PROMO.startsAt;
+  const elapsed = Math.max(0, now - ELEVEN_ELEVEN_PROMO.startsAt);
+  const period = Math.floor(elapsed / periodMs);
+  return {
+    started,
+    active: started,
+    startsAt: ELEVEN_ELEVEN_PROMO.startsAt + period * periodMs,
+    endsAt: ELEVEN_ELEVEN_PROMO.startsAt + (period + 1) * periodMs,
+    nextStartsAt: ELEVEN_ELEVEN_PROMO.startsAt + (period + 1) * periodMs,
+  };
+}
+
 function elevenElevenCampaignStarted(now = Date.now()) {
-  return now >= ELEVEN_ELEVEN_PROMO.startsAt;
+  return elevenElevenCampaignWindow(now).started;
 }
 
 function elevenElevenCampaignOpen(now = Date.now()) {
-  return now >= ELEVEN_ELEVEN_PROMO.startsAt && now < ELEVEN_ELEVEN_PROMO.endsAt;
+  return elevenElevenCampaignWindow(now).active;
 }
 
 function elevenElevenCampaignVisible(now = Date.now()) {
-  return now < ELEVEN_ELEVEN_PROMO.endsAt;
+  return true;
+}
+
+function elevenElevenCampaignRenewed(now = Date.now(), previousPeriodStartedAt = 0) {
+  const window = elevenElevenCampaignWindow(now);
+  return Boolean(previousPeriodStartedAt && window.startsAt > previousPeriodStartedAt);
 }
 
 function elevenElevenPublicPromo(state = {}, now = Date.now(), viewer = {}) {
   const inventory = new Map((state.inventory || []).map((item) => [item.sku, item]));
   const purchases = new Map((state.purchases || []).map((item) => [item.sku, item]));
   const memberOwned = Boolean(viewer.memberActive);
+  const window = elevenElevenCampaignWindow(now);
   return {
     id: ELEVEN_ELEVEN_PROMO.id,
     visible: elevenElevenCampaignVisible(now),
-    active: elevenElevenCampaignOpen(now),
-    started: elevenElevenCampaignStarted(now),
-    startsAt: new Date(ELEVEN_ELEVEN_PROMO.startsAt).toISOString(),
-    endsAt: new Date(ELEVEN_ELEVEN_PROMO.endsAt).toISOString(),
+    active: window.active,
+    started: window.started,
+    periodSeconds: ELEVEN_ELEVEN_PROMO.periodSeconds,
+    startsAt: new Date(window.startsAt).toISOString(),
+    endsAt: new Date(window.endsAt).toISOString(),
     currency: STRIPE_CURRENCY.toUpperCase(),
     skus: Object.values(ELEVEN_ELEVEN_PROMO.skus).map((sku) => {
       const usage = inventory.get(sku.id) || {};
@@ -95,8 +116,8 @@ async function createElevenElevenCheckout(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "活动数据需要 PostgreSQL，当前服务未配置 DATABASE_URL。" });
-  if (!elevenElevenCampaignOpen()) {
-    return sendJson(res, 403, { ok: false, code: "PROMO_CLOSED", message: elevenElevenCampaignStarted() ? "本次活动已结束。" : "活动尚未开始。" });
+  if (!elevenElevenCampaignStarted()) {
+    return sendJson(res, 403, { ok: false, code: "PROMO_CLOSED", message: "活动尚未开始。" });
   }
   const body = await readJson(req);
   const sku = elevenElevenSku(body.sku);

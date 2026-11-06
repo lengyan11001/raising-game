@@ -24,6 +24,7 @@ function promotionHelpers() {
     elevenElevenCampaignStarted,
     elevenElevenCampaignOpen,
     elevenElevenCampaignVisible,
+    elevenElevenCampaignWindow,
     elevenElevenPublicPromo
   };`)("usd");
 }
@@ -49,13 +50,14 @@ test("top-bar and mobile entries expose the redesigned 11.11 campaign", () => {
 test("promotion dialog handles countdown, sold-out, purchased, payment return, and duplicate submit", () => {
   const ui = read("platform.ui.parts/part-07.js");
 
-  assert.match(ui, /requestJson\("\/api\/promo\/1111"\)/);
+  assert.match(ui, /requestJson\(`\/api\/promo\/1111\$\{command/);
   assert.match(ui, /params\.get\("promo"\) === "1111"/);
   assert.match(ui, /params\.get\("promo_cancelled"\) === "1"/);
   assert.match(ui, /params\.get\("promo_sku"\)/);
   assert.match(ui, /距开始/);
   assert.match(ui, /距结束/);
-  assert.match(ui, /entry\.hidden = !promo\?\.visible/);
+  assert.match(ui, /refresh\("refresh"\)/);
+  assert.match(ui, /11\.11 新一期活动已开始/);
   assert.match(ui, /sku\.soldOut \|\| sku\.purchased \|\| sku\.owned \|\| !promo\?\.active/);
   assert.match(ui, /rib\.textContent = sku\?\.purchased \? "已购买" : sku\?\.owned \? "已拥有" : "本档已售完"/);
   assert.match(ui, /每个账号每档限购一次/);
@@ -90,15 +92,19 @@ test("server defines the two campaign SKUs with authoritative price and credit v
 });
 
 test("promotion status reports inventory and per-user purchase state from the server clock", () => {
-  const { ELEVEN_ELEVEN_PROMO, elevenElevenCampaignOpen, elevenElevenCampaignVisible, elevenElevenPublicPromo } = promotionHelpers();
+  const { ELEVEN_ELEVEN_PROMO, elevenElevenCampaignOpen, elevenElevenCampaignVisible, elevenElevenCampaignWindow, elevenElevenPublicPromo } = promotionHelpers();
   const beforeStart = ELEVEN_ELEVEN_PROMO.startsAt - 1;
   const during = ELEVEN_ELEVEN_PROMO.startsAt + 1;
-  const afterEnd = ELEVEN_ELEVEN_PROMO.endsAt + 1;
+  const afterFirstPeriod = ELEVEN_ELEVEN_PROMO.startsAt + ELEVEN_ELEVEN_PROMO.periodSeconds * 1000 + 1;
+  const afterEnd = ELEVEN_ELEVEN_PROMO.startsAt + ELEVEN_ELEVEN_PROMO.periodSeconds * 1000 * 2;
 
   assert.equal(elevenElevenCampaignVisible(beforeStart), true);
   assert.equal(elevenElevenCampaignOpen(beforeStart), false);
   assert.equal(elevenElevenCampaignOpen(during), true);
-  assert.equal(elevenElevenCampaignVisible(afterEnd), false);
+  assert.equal(elevenElevenCampaignVisible(afterEnd), true);
+  assert.equal(elevenElevenCampaignOpen(afterEnd), true);
+  assert.equal(elevenElevenCampaignWindow(afterFirstPeriod).startsAt, ELEVEN_ELEVEN_PROMO.startsAt + ELEVEN_ELEVEN_PROMO.periodSeconds * 1000);
+  assert.equal(elevenElevenCampaignWindow(afterFirstPeriod).endsAt, ELEVEN_ELEVEN_PROMO.startsAt + ELEVEN_ELEVEN_PROMO.periodSeconds * 1000 * 2);
 
   const promo = elevenElevenPublicPromo({
     inventory: [
@@ -133,7 +139,7 @@ test("checkout reserves PostgreSQL capacity and returns explicit campaign errors
   const db = read("db.js");
 
   assert.match(source, /if \(!dbEnabled\(\)\) return sendJson\(res, 503,[\s\S]*?DATABASE_REQUIRED/);
-  assert.match(source, /if \(!elevenElevenCampaignOpen\(\)\)[\s\S]*?PROMO_CLOSED/);
+  assert.match(source, /if \(!elevenElevenCampaignStarted\(\)\)[\s\S]*?PROMO_CLOSED/);
   assert.match(source, /reservePromotionPurchaseInDb\(\{/);
   assert.match(source, /capacity: sku\.capacity/);
   assert.match(source, /reservationSeconds: ELEVEN_ELEVEN_PROMO\.reservationSeconds/);

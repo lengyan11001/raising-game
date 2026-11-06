@@ -282,6 +282,8 @@ function setupElevenElevenPromo() {
   let statusTimer = 0;
   let clockTimer = 0;
   let pollTimer = 0;
+  let refreshInFlight = false;
+  let lastPeriodStartedAt = "";
   const params = new URLSearchParams(window.location.search);
   const isReturningFromCheckout = params.get("promo") === "1111" && Boolean(params.get("stripe_session_id"));
   const isCancelledCheckout = params.get("promo") === "1111" && params.get("promo_cancelled") === "1";
@@ -313,7 +315,10 @@ function setupElevenElevenPromo() {
     document.querySelectorAll("[data-eleven-time-label]").forEach((node) => { node.textContent = timing?.label || "距结束"; });
     const mobileCountdown = document.querySelector("#elevenElevenMobileCountdown");
     if (mobileCountdown) mobileCountdown.textContent = shortText || "--:--:--";
-    if (promo && !promo.visible && dialog.open) setView("ended");
+    if (promo?.active && promo.endsAt && Date.parse(promo.endsAt) <= Date.now() && !refreshInFlight) {
+      refreshInFlight = true;
+      refresh().catch(() => {}).finally(() => { refreshInFlight = false; });
+    }
   };
   const paintCards = () => {
     cards.forEach((card) => {
@@ -344,11 +349,15 @@ function setupElevenElevenPromo() {
       buyBtn.textContent = paying ? "支付处理中…" : `确认支付 ${money(sku.amount)}`;
     }
   };
-  const refresh = async () => {
-    const payload = await requestJson("/api/promo/1111");
+  const refresh = async (command = "") => {
+    const payload = await requestJson(`/api/promo/1111${command ? `?command=${encodeURIComponent(command)}` : ""}`);
     promo = payload.promo || null;
+    const nextPeriodStartedAt = String(promo?.startsAt || "");
+    const renewed = Boolean(lastPeriodStartedAt && nextPeriodStartedAt && nextPeriodStartedAt !== lastPeriodStartedAt);
+    lastPeriodStartedAt = nextPeriodStartedAt;
     paintCountdowns();
     paintCards();
+    if (renewed && !promo?.skus?.some((item) => item.owned || item.purchased)) setError("11.11 新一期活动已开始，倒计时已重新计算。");
     return promo;
   };
   const open = async () => {
@@ -474,7 +483,7 @@ function setupElevenElevenPromo() {
     }
   }).catch(() => {});
   clockTimer = window.setInterval(paintCountdowns, 1000);
-  statusTimer = window.setInterval(() => { refresh().catch(() => {}); }, 60000);
+  statusTimer = window.setInterval(() => { refresh("refresh").catch(() => {}); }, 60000);
   window.addEventListener("pagehide", () => {
     window.clearInterval(clockTimer);
     window.clearInterval(statusTimer);
