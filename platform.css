@@ -5339,6 +5339,45 @@ dialog.tool-download-modal {
   font-weight: 900;
   overflow-wrap: anywhere;
 }
+.media-transfer-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: max-content;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid rgba(14,165,233,.24);
+  border-radius: 999px;
+  color: #0369a1;
+  background: rgba(240,249,255,.9);
+  font-size: .7rem;
+  font-weight: 850;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.media-transfer-state svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+.media-transfer-state.is-preparing svg {
+  animation: spin 1.2s linear infinite;
+}
+.media-transfer-state.is-failed {
+  color: #b42318;
+  border-color: rgba(239,68,68,.28);
+  background: rgba(255,241,242,.92);
+}
+.media-transfer-state.is-detail {
+  flex: 0 0 auto;
+}
+.history-media > .media-transfer-state {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 3;
+  box-shadow: 0 4px 12px rgba(15,23,42,.16);
+}
 .advanced-result-meta p {
   margin: 2px 0 0;
   color: #b42318;
@@ -14185,4 +14224,16 @@ body.wan30-launch-visible .site-head { top: 0; }
 .workflow-react-host .react-flow__controls-button:hover {
   color: #fff;
   background: rgba(255, 71, 173, .16);
+}
+
+.history-r2-download.is-preparing,
+.advanced-result-r2-download.is-preparing,
+.history-detail-r2-download.is-preparing {
+  cursor: wait;
+  opacity: .82;
+}
+.history-r2-download.is-preparing svg,
+.advanced-result-r2-download.is-preparing svg,
+.history-detail-r2-download.is-preparing svg {
+  animation: spin 1.2s linear infinite;
 }

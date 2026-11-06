@@ -227,6 +227,12 @@
   }
 
   function statusText(node) {
+    var record = node.data && node.data.record;
+    var transferStatus = record ? String(record.advancedDownloadStatus || "").toLowerCase() : "";
+    if (!record || !record.r2DownloadReady) {
+      if (transferStatus === "preparing" || transferStatus === "queued" || transferStatus === "processing") return "已完成 · 素材加速中…";
+      if (transferStatus === "failed") return "已完成 · 素材加速失败，可重试 download2";
+    }
     if (node.data && node.data.error) return String(node.data.error);
     if (node.data && node.data.status) return String(node.data.status);
     return "Ready";

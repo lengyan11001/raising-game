@@ -446,6 +446,14 @@ function canDownloadGenerationRecord(record = {}) {
   return Boolean(generationRecordDownloadHref(record) && (generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl));
 }
 
+function advancedDownloadButtonLabel(record = {}) {
+  const status = advancedDownloadUiState(record);
+  if (status === "ready") return state.lang === "zh" ? "download2 可下载" : "download2 available";
+  if (status === "preparing") return state.lang === "zh" ? "download2 加速中" : "Preparing download2";
+  if (status === "failed") return state.lang === "zh" ? "download2 重试" : "Retry download2";
+  return t("history.advancedDownload");
+}
+
 function canAdvancedDownloadGenerationRecord(record = {}) {
   return Boolean(
     !isGenerationResultExpired(record)
@@ -454,6 +462,28 @@ function canAdvancedDownloadGenerationRecord(record = {}) {
     && (record?.r2DownloadReady || record?.advancedDownloadAvailable)
     && (generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl)
   );
+}
+
+function advancedDownloadUiState(record = {}) {
+  if (record?.r2DownloadReady) return "ready";
+  const status = String(record?.advancedDownloadStatus || "").toLowerCase();
+  if (status === "failed") return "failed";
+  if (status === "preparing" || status === "queued" || status === "processing") return "preparing";
+  return "idle";
+}
+
+function advancedDownloadStatusPill(record = {}, { detail = false } = {}) {
+  const status = advancedDownloadUiState(record);
+  if (status === "ready" || status === "idle") return "";
+  const zh = state.lang === "zh";
+  const preparing = status === "preparing";
+  const label = preparing
+    ? (zh ? "素材加速中…" : "Accelerating media…")
+    : (zh ? "素材加速失败" : "Media acceleration failed");
+  const title = preparing
+    ? (zh ? "生成已完成，正在准备高速下载；当前可直接预览和使用普通下载。" : "Generation is complete. Fast download is being prepared; preview and standard download remain available.")
+    : (zh ? "生成已完成，但素材加速失败；可点击 download2 重试。" : "Generation succeeded, but media acceleration failed. Retry with download2.");
+  return `<span class="media-transfer-state is-${preparing ? "preparing" : "failed"}${detail ? " is-detail" : ""}" role="status" title="${escapeHtml(title)}"><i data-lucide="${preparing ? "loader-circle" : "circle-alert"}"></i>${escapeHtml(label)}</span>`;
 }
 
 function setAdvancedDownloadButtonState(button, status = "idle") {

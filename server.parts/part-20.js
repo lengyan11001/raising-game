@@ -1178,6 +1178,7 @@ function publicGenerationRecord(record = {}, options = {}) {
       && !generationRecordR2Expired(record)
       && Boolean(generationRecordProviderDownloadTarget(record)?.url)
     ),
+    advancedDownloadStatus: String(record.advancedDownloadStatus || "").toLowerCase(),
     billing: publicBilling(record),
     createdAt: String(record.createdAt || ""),
     updatedAt: String(record.updatedAt || ""),

@@ -865,7 +865,9 @@ function renderAdvancedResultPanel() {
     const ratio = record.ratio || record.params?.ratio || "16:9";
     const canDownload = !resultExpired && canDownloadGenerationRecord(record);
     const canAdvancedDownload = !resultExpired && canAdvancedDownloadGenerationRecord(record);
-    const advancedDownloadState = record?.r2DownloadReady ? "ready" : "idle";
+    const advancedDownloadState = advancedDownloadUiState(record);
+    const advancedDownloadLabel = advancedDownloadButtonLabel(record);
+    const advancedDownloadDisabled = !canAdvancedDownload || advancedDownloadState === "preparing";
     const media = resultExpired
       ? `<div class="advanced-result-media is-placeholder is-expired"><img src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="内容已经过期" loading="lazy" decoding="async" /><span class="generation-expired-label">内容已经过期</span></div>`
       : videoUrl || posterUrl
@@ -881,6 +883,7 @@ function renderAdvancedResultPanel() {
         <div class="advanced-result-meta">
           <strong>${escapeHtml(publicModelText(publicGenerationDisplayTitle(record, "Generation")))}</strong>
           <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
+          ${advancedDownloadStatusPill(record)}
           ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
           <div class="advanced-result-actions">
             ${textResult ? `<button class="history-download advanced-result-copy" type="button" data-advanced-result-copy="${escapeHtml(String(index))}"><i data-lucide="copy"></i>Copy</button>` : ""}
@@ -890,9 +893,9 @@ function renderAdvancedResultPanel() {
               </button>
             ` : ""}
             ${videoUrl || imageUrl ? `
-              <button class="history-download advanced-result-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-advanced-result-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
+              <button class="history-download advanced-result-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}${advancedDownloadState === "preparing" ? " is-preparing" : ""}" type="button" data-advanced-result-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${advancedDownloadDisabled ? "disabled" : ""}>
                 <span class="advanced-result-download-hint" aria-hidden="true">如果下载素材慢请点击我保存</span>
-                <i data-lucide="cloud-download"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "download2 可下载" : "download2 available") : t("history.advancedDownload"))}
+                <i data-lucide="${advancedDownloadState === "preparing" ? "loader-circle" : advancedDownloadState === "failed" ? "circle-alert" : "cloud-download"}"></i>${escapeHtml(advancedDownloadLabel)}
               </button>
             ` : ""}
             <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">

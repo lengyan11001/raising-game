@@ -11,6 +11,7 @@ const server = read("server.js");
 const ui = read("platform.ui.js");
 const create = read("platform.create.js");
 const explore = read("platform.explore.js");
+const workflowReact = read("platform.workflow-react.js");
 const css = read("platform.css");
 
 test("generated media defaults to on-demand storage", () => {
@@ -139,10 +140,48 @@ test("advanced download preparation is queued so the download-url request cannot
 test("advanced download eligibility does not require a pre-existing R2 copy", () => {
   assert.match(server, /advancedDownloadAvailable: Boolean\(/);
   assert.match(ui, /record\?\.r2DownloadReady \|\| record\?\.advancedDownloadAvailable/);
-  assert.match(create, /const advancedDownloadState = record\?\.r2DownloadReady \? "ready" : "idle"/);
-  assert.match(explore, /const advancedDownloadState = record\?\.r2DownloadReady \? "ready" : "idle"/);
-  assert.match(create, /download2 可下载/);
-  assert.match(explore, /download2 可下载/);
+  assert.match(create, /const advancedDownloadState = advancedDownloadUiState\(record\)/);
+  assert.match(create, /const advancedDownloadLabel = advancedDownloadButtonLabel\(record\)/);
+  assert.match(explore, /const advancedDownloadState = advancedDownloadUiState\(record\)/);
+  assert.match(explore, /const advancedDownloadLabel = advancedDownloadButtonLabel\(record\)/);
+  assert.match(ui, /download2 可下载/);
+  assert.match(ui, /download2 加速中/);
+  assert.match(ui, /download2 重试/);
+});
+
+test("public generation records expose media transfer state without private errors", () => {
+  const publicRecord = server.slice(
+    server.indexOf("function publicGenerationRecord"),
+    server.indexOf("function adminGenerationRecordView", server.indexOf("function publicGenerationRecord")),
+  );
+  assert.match(publicRecord, /advancedDownloadStatus: String\(record\.advancedDownloadStatus \|\| ""\)\.toLowerCase\(\)/);
+  assert.doesNotMatch(publicRecord, /advancedDownloadError:/);
+});
+
+test("media transfer status is rendered in result, history, and detail surfaces", () => {
+  const helper = ui.slice(
+    ui.indexOf("function advancedDownloadButtonLabel"),
+    ui.indexOf("function setAdvancedDownloadButtonState"),
+  );
+  assert.match(helper, /status === "ready"/);
+  assert.match(helper, /status === "preparing"/);
+  assert.match(helper, /status === "failed"/);
+  assert.match(helper, /return "ready"/);
+  assert.match(helper, /status === "queued" \|\| status === "processing"/);
+  assert.match(helper, /素材加速中…/);
+  assert.match(helper, /素材加速失败/);
+  assert.match(helper, /生成已完成，正在准备高速下载/);
+  assert.match(helper, /生成已完成，但素材加速失败/);
+  assert.match(create, /\$\{advancedDownloadStatusPill\(record\)\}/);
+  assert.match(create, /advancedDownloadState === "preparing" \? " is-preparing" : ""/);
+  assert.match(create, /advancedDownloadDisabled = !canAdvancedDownload \|\| advancedDownloadState === "preparing"/);
+  assert.match(explore, /\$\{advancedDownloadStatusPill\(record, \{ detail: true \}\)\}/);
+  assert.match(explore, /advancedDownloadDisabled = !canAdvancedDownload \|\| advancedDownloadState === "preparing"/);
+  assert.match(workflowReact, /已完成 · 素材加速中…/);
+  assert.match(workflowReact, /已完成 · 素材加速失败，可重试 download2/);
+  assert.match(css, /\.media-transfer-state\.is-preparing svg \{[\s\S]*?animation: spin/);
+  assert.match(css, /\.media-transfer-state\.is-failed \{/);
+  assert.match(css, /\.history-r2-download\.is-preparing,/);
 });
 
 test("all download2 buttons show a persistent save hint bubble", () => {

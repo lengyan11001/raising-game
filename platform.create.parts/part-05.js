@@ -746,7 +746,9 @@ function renderHistory(records = []) {
     const imageFetchPriority = index === 0 ? "high" : "auto";
     const canDownload = !resultExpired && canDownloadGenerationRecord(record);
     const canAdvancedDownload = !resultExpired && canAdvancedDownloadGenerationRecord(record);
-    const advancedDownloadState = record?.r2DownloadReady ? "ready" : "idle";
+    const advancedDownloadState = advancedDownloadUiState(record);
+    const advancedDownloadLabel = advancedDownloadButtonLabel(record);
+    const advancedDownloadDisabled = !canAdvancedDownload || advancedDownloadState === "preparing";
     const isUndressHistory = isTenantTool("undress");
     const recordStatusClass = statusClass(record.status);
     const recordStatusLabel = statusLabel(record.status);
@@ -792,9 +794,9 @@ function renderHistory(records = []) {
           <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
         </button>
       ` : ""}
-      <button class="history-download history-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-history-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
+      <button class="history-download history-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}${advancedDownloadState === "preparing" ? " is-preparing" : ""}" type="button" data-history-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${advancedDownloadDisabled ? "disabled" : ""}>
         <span class="advanced-result-download-hint" aria-hidden="true">如果下载素材慢请点击我保存</span>
-        <i data-lucide="cloud-download"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "download2 可下载" : "download2 available") : t("history.advancedDownload"))}
+        <i data-lucide="${advancedDownloadState === "preparing" ? "loader-circle" : advancedDownloadState === "failed" ? "circle-alert" : "cloud-download"}"></i>${escapeHtml(advancedDownloadLabel)}
       </button>
       <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
         <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
@@ -840,6 +842,7 @@ function renderHistory(records = []) {
             </button>
             <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
           ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="${imageLoading}" fetchpriority="${imageFetchPriority}" decoding="async" />` : textResult ? `<div class="history-result-text">${escapeHtml(textResult)}</div>` : `<div class="history-placeholder"><i data-lucide="${recordStatusIcon}"></i><span>${escapeHtml(recordStatusLabel)}</span></div>`}
+          ${advancedDownloadStatusPill(record)}
         </div>
         ${isUndressHistory ? `<div class="undress-history-footer">
           ${undressResultActions}

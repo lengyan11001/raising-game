@@ -3769,7 +3769,9 @@ function openHistoryDetail(index) {
   const videos = recordVideoAssets(record);
   const canDownload = canDownloadGenerationRecord(record);
   const canAdvancedDownload = canAdvancedDownloadGenerationRecord(record);
-  const advancedDownloadState = record?.r2DownloadReady ? "ready" : "idle";
+  const advancedDownloadState = advancedDownloadUiState(record);
+  const advancedDownloadLabel = advancedDownloadButtonLabel(record);
+  const advancedDownloadDisabled = !canAdvancedDownload || advancedDownloadState === "preparing";
   els.historyDetailTitle.textContent = title || t("history.detailTitle");
   stopModalMedia(els.historyDetailBody);
   els.historyDetailBody.innerHTML = `
@@ -3777,15 +3779,16 @@ function openHistoryDetail(index) {
       <header>
         <strong>${escapeHtml(t("history.result"))}</strong>
         <span>${escapeHtml(record.taskId || "")}</span>
+        ${advancedDownloadStatusPill(record, { detail: true })}
         ${canDownload ? `
           <button class="history-download history-detail-download" type="button" data-history-detail-download>
             <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
           </button>
         ` : ""}
         ${videoUrl || imageResultUrl ? `
-          <button class="history-download history-detail-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-history-detail-r2-download data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
+          <button class="history-download history-detail-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}${advancedDownloadState === "preparing" ? " is-preparing" : ""}" type="button" data-history-detail-r2-download data-download-state="${advancedDownloadState}" ${advancedDownloadDisabled ? "disabled" : ""}>
             <span class="advanced-result-download-hint" aria-hidden="true">如果下载素材慢请点击我保存</span>
-            <i data-lucide="cloud-download"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "download2 可下载" : "download2 available") : t("history.advancedDownload"))}
+            <i data-lucide="${advancedDownloadState === "preparing" ? "loader-circle" : advancedDownloadState === "failed" ? "circle-alert" : "cloud-download"}"></i>${escapeHtml(advancedDownloadLabel)}
           </button>
         ` : ""}
       </header>
