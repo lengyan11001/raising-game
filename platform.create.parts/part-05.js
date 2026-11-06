@@ -297,7 +297,7 @@ function renderAdvancedReferencePreviews() {
         ? `<div class="advanced-audio-ref"><i data-lucide="audio-lines"></i></div>`
         : kind === "document"
           ? `<div class="advanced-audio-ref"><i data-lucide="file-text"></i><span>${escapeHtml(item.fileName || item.name || "Document")}</span></div>`
-        : (url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="image"></i></div>`);
+        : (url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" data-advanced-preview-media />` : `<div class="history-placeholder"><i data-lucide="image"></i></div>`);
     return `
       <figure class="advanced-reference-chip is-${escapeHtml(kind)} ${pending ? "is-pending" : ""}" title="${escapeHtml(item.name || item.fileName || label)}">
         ${pending ? "" : `<button class="advanced-preview-remove" type="button" ${removeAttr} aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>`}
@@ -306,6 +306,17 @@ function renderAdvancedReferencePreviews() {
       </figure>
     `;
   }).join("");
+  els.advancedUploadPreview.querySelectorAll("[data-advanced-preview-media]").forEach((media) => {
+    media.addEventListener("error", () => {
+      const figure = media.closest(".advanced-reference-chip");
+      if (!figure || figure.querySelector(".advanced-reference-unavailable")) return;
+      media.remove();
+      const unavailable = document.createElement("div");
+      unavailable.className = "advanced-reference-unavailable";
+      unavailable.textContent = state.lang === "zh" ? "素材不可用" : "Media unavailable";
+      figure.appendChild(unavailable);
+    }, { once: true });
+  });
   els.advancedUploadPreview.querySelectorAll("[data-remove-advanced-ref]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();

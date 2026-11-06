@@ -443,6 +443,64 @@ function restoreRecordImageLimit(record = {}) {
   return ADVANCED_SEEDANCE_REFERENCE_LIMIT;
 }
 
+function mergeRecordMediaByKind(primaryItems = [], upstreamItems = [], kind = "") {
+  const kindOf = (item = {}) => String(item.type || item.key || "").toLowerCase();
+  const matchesKind = (item) => !kind || kindOf(item).includes(kind);
+  const isConcrete = (item = {}) => Boolean(restoreMediaAssetId(item) || String(restoreMediaUrl(item) || "").startsWith("http"));
+  const used = new Set();
+  const merged = [];
+  const positionalByKind = new Map();
+  upstreamItems.forEach((item, index) => {
+    if (!matchesKind(item) || isConcrete(item)) return;
+    const key = kindOf(item);
+    if (!positionalByKind.has(key)) positionalByKind.set(key, []);
+    positionalByKind.get(key).push({ item, index });
+  });
+  const positionCursor = new Map();
+  primaryItems.filter(matchesKind).forEach((item) => {
+    const type = kindOf(item);
+    const cursor = positionCursor.get(type) || 0;
+    const positional = (positionalByKind.get(type) || [])[cursor] || null;
+    positionCursor.set(type, cursor + 1);
+    let upstreamIndex = upstreamItems.findIndex((candidate, index) => (
+      !used.has(index)
+      && matchesKind(candidate)
+      && ((restoreMediaAssetId(item) && restoreMediaAssetId(item) === restoreMediaAssetId(candidate))
+        || (restoreMediaAssetUri(item) && restoreMediaAssetUri(item) === restoreMediaAssetUri(candidate))
+        || (restoreMediaUrl(item) && restoreMediaUrl(item) === restoreMediaUrl(candidate)))
+    ));
+    if (upstreamIndex < 0 && positional) upstreamIndex = positional.index;
+    const upstream = upstreamIndex >= 0 ? upstreamItems[upstreamIndex] : null;
+    if (upstreamIndex >= 0) used.add(upstreamIndex);
+    const assetUri = restoreMediaAssetUri(item) || restoreMediaAssetUri(upstream || {});
+    merged.push(assetUri ? {
+      ...item,
+      assetUri,
+      referenceAssetUri: item.referenceAssetUri || assetUri,
+    } : item);
+  });
+  upstreamItems.filter(matchesKind).forEach((item, index) => {
+    if (used.has(index) || isConcrete(item)) return;
+    merged.push(item);
+  });
+  return merged;
+}
+
+function dedupeRecordMediaItems(items = []) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const keys = [
+      restoreMediaAssetId(item) ? `asset:${restoreMediaAssetId(item)}` : "",
+      restoreMediaAssetUri(item) ? `asset-uri:${restoreMediaAssetUri(item)}` : "",
+      restoreMediaUrl(item) ? `url:${restoreMediaUrl(item)}` : "",
+      item?.previewUrl ? `preview:${item.previewUrl}` : "",
+    ].filter(Boolean);
+    if (!keys.length || keys.some((key) => seen.has(key))) return false;
+    keys.forEach((key) => seen.add(key));
+    return true;
+  });
+}
+
 function restoreRecordMedia(record = {}) {
   const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
   const frameTypes = new Set(["first_frame", "firstframe", "first-frame", "last_frame", "lastframe", "last-frame", "end_frame", "endframe"]);
@@ -471,13 +529,14 @@ function restoreRecordMedia(record = {}) {
     .filter(({ item }) => !frameTypes.has(String(item.type || item.key || "").toLowerCase()))
     .map(({ item, index }) => restoreReferenceFromMedia(item, index))
     .filter(Boolean);
-  const videoEntries = [...mediaAssets, ...upstreamItems].map((item, index) => ({ item, index }));
-  const videos = videoEntries
-    .filter(({ item }) => String(item.type || item.key || "").toLowerCase().includes("video") && restoreMediaUrl(item))
-    .map(({ item, index }) => ({ ...item, assetId: restoreMediaAssetId(item), assetUri: restoreMediaAssetUri(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) }));
-  const audios = videoEntries
-    .filter(({ item }) => String(item.type || item.key || "").toLowerCase().includes("audio") && restoreMediaUrl(item))
-    .map(({ item, index }) => ({ ...item, assetId: restoreMediaAssetId(item), assetUri: restoreMediaAssetUri(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) }));
+  const videoItems = mergeRecordMediaByKind(mediaAssets, upstreamItems, "video");
+  const videos = dedupeRecordMediaItems(videoItems
+    .filter((item) => restoreMediaUrl(item))
+    .map((item, index) => ({ ...item, assetId: restoreMediaAssetId(item), assetUri: restoreMediaAssetUri(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) })));
+  const audioItems = mergeRecordMediaByKind(mediaAssets, upstreamItems, "audio");
+  const audios = dedupeRecordMediaItems(audioItems
+    .filter((item) => restoreMediaUrl(item))
+    .map((item, index) => ({ ...item, assetId: restoreMediaAssetId(item), assetUri: restoreMediaAssetUri(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) })));
   if (!references.length) {
     recordImageAssets(record).forEach((item, index) => {
       const ref = restoreReferenceFromMedia(item, index);

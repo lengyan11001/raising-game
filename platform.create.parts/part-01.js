@@ -953,6 +953,8 @@ function renderAdvancedResultPanel() {
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
     button.addEventListener("click", async () => {
+      if (state.advancedRegenerationRestoreInFlight) return;
+      state.advancedRegenerationRestoreInFlight = true;
       const cachedRecord = advancedResultPageRecord(button.dataset.advancedResultRegenerate);
       button.disabled = true;
       button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
@@ -968,6 +970,8 @@ function renderAdvancedResultPanel() {
           throw error;
         }
         restoreRecordToAdvancedCreate(cachedRecord, button);
+      } finally {
+        state.advancedRegenerationRestoreInFlight = false;
       }
     });
   });

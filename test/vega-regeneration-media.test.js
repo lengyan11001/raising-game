@@ -6,7 +6,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
-const serverSource = fs.readFileSync(path.join(root, "server.js"), "utf8");
+const serverSource = require("../server-source").readServerSource();
 const createSource = fs.readFileSync(path.join(root, "platform.create.parts", "part-04.js"), "utf8");
 const uiSource = fs.readFileSync(path.join(root, "platform.ui.parts", "part-02.js"), "utf8");
 const createUrlSource = fs.readFileSync(path.join(root, "platform.create.parts", "part-03.js"), "utf8");
@@ -94,6 +94,8 @@ function frontendRuntime() {
     "restoreReferenceFromMedia",
     "restoreVegaMediaItem",
     "mergeVegaMediaItems",
+    "mergeRecordMediaByKind",
+    "dedupeRecordMediaItems",
     "restoreVegaRecordMedia",
     "vegaPublicHttpUrl",
     "arrayFrom",
@@ -108,7 +110,7 @@ function frontendRuntime() {
     `function restoreRecordProvider(record = {}) { return String(record.params?.advancedProviderId || record.provider || ""); }`,
     `function restoreRecordImageLimit() { return 30; }`,
     extractFunction(createSource, "restoreRecordMedia"),
-    "return { restoreVegaRecordMedia };",
+    "return { restoreRecordMedia, restoreVegaRecordMedia };",
   ].join("\n"))();
 }
 
@@ -299,4 +301,92 @@ test("Vega hydration prefers legacy URL and asset-URI arrays over an empty canon
     ["https://cdn.example.com/legacy-ref.png", "asset://asset-legacy-ref"],
   ]);
   assert.equal(hydrated.params.referenceImages.length, 1);
+});
+
+function seedanceNsfwRegenerationRecord() {
+  return {
+    taskId: "cgt-20261106224218-1800a5",
+    provider: "seedance-nsfw",
+    status: "succeeded",
+    prompt: "keep the three references",
+    mediaMode: "omini",
+    mediaAssets: [
+      {
+        type: "reference_image",
+        userAssetId: "asset-1792378136626-21ee3188",
+        url: "https://cdn.example.com/reference-image.png",
+      },
+      {
+        type: "reference_video",
+        userAssetId: "asset-1793895814730-cea3b134",
+        url: "https://cdn.example.com/reference-video-1.mp4",
+      },
+      {
+        type: "reference_video",
+        userAssetId: "asset-1793940603600-bec2f1f1",
+        url: "https://cdn.example.com/reference-video-2.mp4",
+      },
+    ],
+    params: {
+      provider: "seedance-nsfw",
+      mediaMode: "omini",
+      referenceImageAssetIds: ["asset-1792378136626-21ee3188"],
+      referenceVideoAssetIds: [
+        "asset-1793895814730-cea3b134",
+        "asset-1793940603600-bec2f1f1",
+      ],
+    },
+    upstreamPayload: {
+      content: [
+        { role: "reference_image", type: "image_url", image_url: { url: "asset://asset-20261106224219-4shcg" } },
+        { role: "reference_video", type: "video_url", video_url: { url: "asset://asset-20261106224219-hpbpw" } },
+        { role: "reference_video", type: "video_url", video_url: { url: "asset://asset-20261106224219-pddlv" } },
+      ],
+    },
+  };
+}
+
+test("Seedance regenerated records merge database media with internal asset references without black duplicates", () => {
+  const { restoreRecordMedia, restoreVegaRecordMedia } = frontendRuntime();
+  const record = seedanceNsfwRegenerationRecord();
+  const restored = restoreRecordMedia(record);
+
+  assert.equal(restored.referenceImages.length, 1);
+  assert.deepEqual(restored.videos.map((item) => [item.url, item.assetUri, item.assetId]), [
+    [
+      "https://cdn.example.com/reference-video-1.mp4",
+      "asset://asset-20261106224219-hpbpw",
+      "asset-1793895814730-cea3b134",
+    ],
+    [
+      "https://cdn.example.com/reference-video-2.mp4",
+      "asset://asset-20261106224219-pddlv",
+      "asset-1793940603600-bec2f1f1",
+    ],
+  ]);
+  assert.equal(restored.videos.filter((item) => String(item.url || "").startsWith("asset://")).length, 0);
+
+  const vegaRestored = restoreVegaRecordMedia(record, record.params);
+  assert.equal(vegaRestored.referenceImages.length, 1);
+  assert.equal(vegaRestored.referenceVideos.length, 2);
+  assert.deepEqual(vegaRestored.referenceVideoUrls, [
+    "https://cdn.example.com/reference-video-1.mp4",
+    "https://cdn.example.com/reference-video-2.mp4",
+  ]);
+  assert.deepEqual(vegaRestored.referenceVideos.map((item) => item.assetUri), [
+    "asset://asset-20261106224219-hpbpw",
+    "asset://asset-20261106224219-pddlv",
+  ]);
+});
+
+test("Regeneration clicks are serialized and failed previews do not remain black", () => {
+  const createUiSource = fs.readFileSync(path.join(root, "platform.create.parts", "part-01.js"), "utf8");
+  const previewSource = fs.readFileSync(path.join(root, "platform.create.parts", "part-05.js"), "utf8");
+
+  assert.match(createUiSource, /if \(state\.advancedRegenerationRestoreInFlight\) return;/);
+  assert.match(createUiSource, /state\.advancedRegenerationRestoreInFlight = true;/);
+  assert.match(createUiSource, /state\.advancedRegenerationRestoreInFlight = false;/);
+  assert.match(previewSource, /data-advanced-preview-media/);
+  assert.match(previewSource, /addEventListener\("error"/);
+  assert.match(previewSource, /advanced-reference-unavailable/);
 });

@@ -1,3 +1,12 @@
+## Seedance regenerated-record black duplicate media fix (2026-11-06)
+
+- User record `cgt-20261106224218-1800a5` has exactly 3 persisted `mediaAssets` (1 image + 2 videos), but regeneration preview showed 5 items with 2 black tiles. Database media were correct; the frontend restore path merged public database videos and internal `asset://` videos from `upstreamPayload.content` as separate entries.
+- Root cause: `restoreRecordMedia()` unconditionally concatenated `mediaAssets` and `upstreamInputMediaItems()`. The internal `asset://` entries cannot render directly in a browser, so each appeared as a black preview and repeated clicks could stack overlapping restore work.
+- Fix: `platform.create.parts/part-04.js` merges upstream internal videos/audio into matching database items by kind/order, preserves the public URL, and attaches the internal `assetUri` needed for regeneration. Added order/identity dedupe. `platform.create.parts/part-01.js` serializes regenerate clicks. `platform.create.parts/part-05.js` and `platform.css` replace failed image previews with an explicit “素材不可用” tile instead of leaving a black/blank item.
+- Regression: sanitized production-shaped record in `test/vega-regeneration-media.test.js` restores 1 image + 2 videos, both videos retain public URLs and receive their matching internal `assetUri`; no `asset://`-only video remains. The test file now reads split `server.parts` through `server-source.js` instead of stale `server.js` text.
+- Verification: `node --test test/vega-regeneration-media.test.js` passes 5/5; syntax checks and targeted `git diff --check` pass. Broader legacy test files contain pre-existing assertions against unsplit `server.js`/`platform.js` text and fail independently of this change.
+- Deployment: pending.
+
 ## Automatic media transfer concurrency and large-file safety (2026-11-06)
 
 - User goal: after upstream generation succeeds, persist success first and immediately transfer every generated video/image asset to overseas OSS/CDN without waiting for `download2`; transfer failure must never rewrite generation success/billing.
