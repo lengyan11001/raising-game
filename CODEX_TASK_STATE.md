@@ -1,3 +1,24 @@
+## Same-style tabs restored to larger size (2026-11-06)
+
+- User approved the Case-matching neutral color treatment and requested the earlier larger tab size.
+- Kept transparent borders/background for idle tabs and the `rgba(255,255,255,.10)` active fill with no red/pink border.
+- Desktop tabs restored to 38px height, 8px 13px padding, 0.86rem text, 16px icons; mobile uses 38px height, 8px 12px padding, 0.83rem text, 15px icons.
+- Cache suffix bumped to `advanced-parameters-20261106-21`; production runtime resource key is `mw4u083i`.
+- `test/side-navigation-overflow.test.js` passes 3/3 and `git diff --check` is clean.
+- Deployment: old-site `9cb16ee`; platform-release `25883e2`; deployed only to `123vips.com` via `scripts/deploy_local.sh --site old`. Health is `200 {"ok":true}` and production CSS confirms the larger dimensions.
+
+## Workflow canvas interaction port from canvas_web (2026-11-06)
+
+- User asked to inspect `/Users/x042/Desktop/canvas_web.zip`, specifically node creation and connection behavior, then keep only the canvas interaction while preserving our dark/pink UI and our own node/model types.
+- Reference extracted at `/tmp/canvas_web_ref_20261106/canvas_web`; useful patterns were `Toolbar.js` center insertion, `Canvas.js` `screenToFlowPosition()` drop placement and `isValidConnection`, and `NodeOperationsProvider.js` create-node-and-connect. Reference model definitions/content were not imported.
+- Added a compact six-item node palette: click inserts at the visible canvas center, drag/drop uses `application/x-workflow-node` and places at pointer, and double-clicking empty canvas inserts a prompt node at pointer.
+- Clicking an empty input handle now creates and connects the missing source: prompt first; image reference/input second; video generation before output when no upstream generator exists. Existing prompt/media inputs prevent duplicate auto-creation.
+- Connection validation now follows our node types: image references -> image/video generation; video references -> video generation; prompt -> image/video generation; image generation/result -> video generation/output; video generation -> output. Self, duplicate, type-invalid, and cycle-producing edges are rejected; reconnect validation ignores the edge being replaced.
+- Our node definitions and model IDs remain unchanged. The existing canvas, node editor, save/load, execution, upload, and preview UI stay in place.
+- Changed files: `platform.ui.parts/part-05.js`, `platform.ui.parts/part-06.js`, `platform.ui.parts/part-07.js`, `platform.main.js`, `platform.css`, `test/workflow-access.test.js`, `test/workflow-canvases.test.js`.
+- Verification: workflow access/canvas tests 18 pass / 0 fail after the final mobile palette CSS-order correction; syntax checks pass for the three UI parts, `platform.main.js`, and `platform.workflow-canvases.js`; `git diff --check` passes. `test/source-split.test.js` remains blocked by pre-existing `server.parts/part-29.js` length.
+- Deployment: not deployed; user did not request deployment.
+
 ## Same-style tabs use outlined button states (2026-11-06)
 
 - User requested Case-child-tab-like borders and a clear selected state for all four Same-style tabs.
