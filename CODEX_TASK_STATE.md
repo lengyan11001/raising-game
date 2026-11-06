@@ -6,7 +6,8 @@
 - Changed `platform.main.js` and `platform.config.js`: removed obsolete dropdown handling, added `[data-gallery-top-tab]` routing, and added the shared panel DOM reference.
 - Updated `test/side-navigation-overflow.test.js` to assert the top-level entry, removed dropdown, shared Case-first tabs, routing, and active-tab styles.
 - Verification: targeted side-navigation/refresh/profile/cases tests pass (30/30); all modified JS and test files pass `node --check`; `git diff --check` passes. Static Chrome DOM check confirms the top-level entry and shared tab container are present.
-- Deployment: pending. No production release or site deployment was performed.
+- Deployment: `old-site` `ecf8077`, pushed; `platform-release` `e3a1af8`, built from it and pushed with lease protection. Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; wrapper initially saw a restart-window `502`, then immediate retry returned `200 {"ok":true}`.
+- Production verification: homepage and `platform.html` return the top-level same-style entry and shared `galleryModeTabs`; production JS contains `galleryTopTabItems` and Case-active logic; production CSS contains the shared pill-tab styles. Live-only paths remain `404`; Live was not deployed.
 - Excluded from this change: pre-existing unrelated Generate worktree changes in `platform.create.parts/part-02.js`, `test/advanced-custom-ui.test.js`, and Generate CSS hunks.
 
 ## Generate wider editor and viewport-height dialogs (2026-11-06)
