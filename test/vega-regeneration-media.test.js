@@ -471,10 +471,15 @@ test("Seedance regenerated records resolve user asset previews and retain intern
   const record = seedanceNsfwRegenerationRecord();
   const hydrated = await hydrateRecordMediaUserAssetPreviews(record, async (assetIds) => new Map([
     [assetIds[0], { id: assetIds[0], publicUrl: "https://cdn.example.com/reference-image.png" }],
-    [assetIds[1], { id: assetIds[1], cdnUrl: "https://cdn.example.com/reference-video-1.mp4" }],
+    [assetIds[1], {
+      id: assetIds[1],
+      cdnUrl: "https://cdn.example.com/reference-video-1.mp4",
+      posterUrl: "https://cdn.example.com/reference-video-1.poster.jpg",
+    }],
     [assetIds[2], {
       id: assetIds[2],
       previewUrl: "/assets/user-uploads/user-1/reference-video-2.mp4",
+      posterUrl: "https://cdn.example.com/reference-video-2.poster.jpg",
       assetUrls: [{ source: "delivery", url: "https://assets-cdn.example.com/reference-video-2.mp4?signature=fresh" }],
     }],
   ]));
@@ -497,6 +502,10 @@ test("Seedance regenerated records resolve user asset previews and retain intern
   assert.equal(restored.referenceImages[0].dataUrl, "https://cdn.example.com/reference-image.png");
   assert.equal(restored.referenceImages[0].url, "");
   assert.ok(restored.videos.every((item) => /^https:\/\//.test(item.url)));
+  assert.deepEqual(restored.videos.map((item) => item.posterUrl), [
+    "https://cdn.example.com/reference-video-1.poster.jpg",
+    "https://cdn.example.com/reference-video-2.poster.jpg",
+  ]);
 
   assert.equal(hydrated.mediaAssets.length, 3);
   assert.equal(restored.references.length + restored.videos.length + restored.audios.length, 3);

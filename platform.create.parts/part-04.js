@@ -1108,9 +1108,13 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   const firstVideo = videos[0];
   if (advancedUsesSharedReferenceUpload(provider, currentAdvancedVideoCapability()) && firstVideo) {
     setAdvancedSeedanceVideoReferences(videos.map((item) => ({
+      ...item,
       assetId: item.assetId || "",
       url: item.url || "",
       previewUrl: item.url || "",
+      posterUrl: item.posterUrl || item.thumbnailUrl || item.coverUrl || "",
+      thumbnailUrl: item.thumbnailUrl || item.posterUrl || item.coverUrl || "",
+      coverUrl: item.coverUrl || item.posterUrl || item.thumbnailUrl || "",
       name: item.name || item.label || item.fileName || "Video reference",
       durationSeconds: item.durationSeconds || item.duration || 0,
       order: advancedReferenceOrderValue(item),
