@@ -695,3 +695,13 @@ CODEX_TASK_STATE.md
 - Fix: a tiny inline head script reads `raisingGameLanguage`, sets `html.lang` and `i18n-<lang>` before body paint. The label contains sibling `i18n-en` / `i18n-zh` spans, selected by CSS, and is excluded from generic `data-i18n` rewriting.
 - Verification: 28 targeted navigation/performance/profile tests passed. Production Chrome sampling (431 English frames, 349 Chinese frames) showed exactly one visible label throughout each load: `Same style` for en and `同款` for zh.
 - Commit `57469a8`; release `f28057c`; deployed only `123vips.com`; service active and `/api/health` returned `200 {"ok":true}`. Live was not deployed.
+
+
+## Diagnosis (2026-11-06): cgt-20261106114344-b684c5
+
+- Task was created at `2026-11-06T03:43:44Z` (11:43:44 CST), before the asset Target/video Add fix was deployed at 12:58 CST.
+- Provider/model: `vega10-lite` / `wand-vega-video:1.0-lite`; upstream task `1524935253-AigcVideoTask-e3ca56879f78dd5388b50e5bc44b32cbt`.
+- Submitted media contained one image reference and zero video references; `params.referenceVideos=[]` and `upstreamPayload.FileInfos` contained only the image.
+- Tencent VOD returned `Status=FINISH`, `ErrCode=70000`, `ErrCodeExt=InternalError`, `Message=task failed with status: FAIL, message: `. This is an upstream internal failure with an empty detail message, not a local validation or content-policy error.
+- Local record is `status=failed`, `billingStatus=refunded`, `finalCredits=0`; no user action is needed for the refund.
+- Recent Vega 1.0 Lite tasks after the fix include successful generations; no post-deploy task with `referenceVideos` has been submitted yet.
