@@ -4477,7 +4477,7 @@ dialog.tool-download-modal {
   width: 100%;
 }
 .advanced-workspace.is-create-custom {
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, .55fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 .advanced-panel {
   padding: 0;
@@ -5167,6 +5167,7 @@ dialog.tool-download-modal {
 }
 @media (min-width: 761px) {
   .advanced-workspace.is-create-custom .advanced-form-card {
+    min-height: calc(100dvh - 100px);
     max-height: none;
     overflow: visible;
     gap: 6px;

@@ -1,3 +1,12 @@
+## Custom editor height correction (2026-11-06)
+
+- User clarified the Custom/Generate editor needed more height, not more width.
+- Restored `.advanced-workspace.is-create-custom` to equal columns and added a desktop `min-height: calc(100dvh - 100px)` to the left `.advanced-form-card`; mobile remains natural-height.
+- Updated the Custom UI regression to assert equal columns and the taller desktop editor. Cache suffix bumped to `advanced-parameters-20261106-12`.
+- Targeted Custom/result/dialog tests pass 3/3; syntax and `git diff --check` pass. The full Custom test file still has the documented 6 unrelated Wan/pricing failures.
+- Headless 1440x1000 production measurement with local CSS injected: left width 838 -> 579px (equal to right), height 484.5 -> 900px; editor client scroll height matched its rendered height, so no inner scrollbar was introduced.
+- Pending: commit, platform release snapshot, old-site deployment.
+
 ## Seedance Vega 768P correction (2026-11-06)
 
 - User reported Seedance Vega models should not offer 768P; 768P belongs to H3 (vega).
