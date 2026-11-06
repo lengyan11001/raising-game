@@ -441,7 +441,16 @@ sleep 2
 git status --short
 git log -1 --oneline
 {"true" if args.no_restart else f"systemctl status {args.service} --no-pager -l | head -25"}
-health_code=$(curl -sS --max-time 10 -o /tmp/raising-game-health -w '%{{http_code}}' {args.health_url}) || {{ echo "Health check failed: {args.health_url}"; exit 27; }}
+health_code=000
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  health_code=$(curl -sS --max-time 10 -o /tmp/raising-game-health -w '%{{http_code}}' {args.health_url}) || health_code=000
+  if [ "$health_code" = "200" ]; then
+    break
+  fi
+  if [ "$attempt" -lt 10 ]; then
+    sleep 1
+  fi
+done
 echo "http=$health_code"
 cat /tmp/raising-game-health 2>/dev/null || true
 echo
