@@ -1,7 +1,7 @@
 // 11.11 promotion campaign: server-authoritative SKUs, capacity reservations, and Stripe checkout.
 const ELEVEN_ELEVEN_PROMO = Object.freeze({
   id: "eleven-eleven-2026",
-  startsAt: Date.parse(process.env.ELEVEN_ELEVEN_STARTS_AT || "2026-11-10T00:00:00+07:00"),
+  startsAt: Date.parse(process.env.ELEVEN_ELEVEN_STARTS_AT || "2026-11-06T00:00:00+07:00"),
   endsAt: Date.parse(process.env.ELEVEN_ELEVEN_ENDS_AT || "2026-11-12T00:00:00+07:00"),
   reservationSeconds: Math.max(300, Math.min(3600, Number(process.env.ELEVEN_ELEVEN_RESERVATION_SECONDS || 1500) || 1500)),
   skus: Object.freeze({
