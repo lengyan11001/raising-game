@@ -1,3 +1,13 @@
+## Media ingest deployment verification (2026-11-07 final)
+
+- Deployed fixes: `old-site` `812754e`, `platform-release` `4e670ed`; only `123vips.com` was deployed. Health returned 200 and release boundary verification passed.
+- Production queue after deploy: `ready=402`, `processing=5`, `failed=1498`, `queued=0` at verification time. No stale processing older than 20 minutes. The five processing rows were freshly claimed and active, not stuck.
+- Generation transfer state is now reconciled in bounded batches: records whose ingest job is failed can no longer remain indefinitely at `advancedDownloadStatus=preparing`. Production verification: `advanced_preparing=5` (matches active processing), `advanced_failed=1498`, `advanced_ready=806`, and `preparing_with_failed_job=0`.
+- Historical failures are dominated by expired/forbidden upstream URLs (mostly old Volcengine TOS links returning 403), not host concurrency.
+- R2 decision confirmed: OSS serves new media (`storageProvider=oss` / `assets-cdn.123vips.com`); R2 remains required for historical `media.123vips.com` compatibility (4,322 video URLs and 4,070 poster URLs at final inspection). Do not remove R2 until those objects are migrated.
+- Tests: `node --require ./test/source-compat.js --test test/generated-assets-on-demand.test.js` passes 20/20; `node --check` and `git diff --check` pass.
+- Runtime after deployment: service active, zero restarts, approximately 27-36% CPU and 5-6% memory shortly after startup.
+
 ## Media ingest queue drain and OSS/R2 decision (2026-11-07)
 
 - Root cause of the large backlog: 1,119 queued rows had `attempts >= 5`; the claim SQL only selects `attempts < 5`, so raising worker concurrency alone could never drain them.
