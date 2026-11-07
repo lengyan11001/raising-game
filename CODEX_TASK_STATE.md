@@ -7,6 +7,7 @@
 - Video generation prompts now use `PromptMentionTextarea`. Typing `@` lists only connected or manually attached image/video references, supports filtering, arrows, Enter/Tab, Escape, and clicking, then inserts `@imageN` / `@videoN`. The existing backend alias normalization supplies the generated payload labels.
 - Verification: `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 25/25; syntax checks and `git diff --check` pass; production webpack build passes with existing size warnings.
 - Real Chrome/CDP acceptance at `http://127.0.0.1:8767` reports one maximum in-flight PUT, no conflicts, no exceptions, an `@` menu with `@image1`/`@image2`, successful `@image2` insertion, and no visible save-in-progress message. Evidence: `/tmp/workflow-react-verify/save-mention-acceptance.out`.
+- Deployment: `old-site` `aea742b`; `platform-release` `004cf20`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`. Production `platform.workflow-canvases.js` contains the 3000 ms delay, serialized promise, conflict retry and save bridge; production `workflow-react/dist/canvas.js` SHA-256 matches local (`99027819b1b2a20c0fac7f606677c5cbbffdd6439e30768095422f42c475b499`) and contains the mention-picker styles. Live was not deployed.
 
 ## Canvas generation keeps a separate result node per run (2026-11-07)
 
