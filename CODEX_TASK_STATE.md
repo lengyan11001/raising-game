@@ -5,7 +5,7 @@
 - Replaced canvas image-result links and reference-thumbnail links with `MediaPreviewTrigger`. Result and reference media no longer use `<a href>`, `target="_blank"`, or native navigation; context-menu download is prevented on the preview media.
 - Both generated results and connected/manual reference thumbnails use the same preview behavior. Video result cards show an explicit play overlay and open the full preview on click.
 - Verification: `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 26/26; `git diff --check` passes; production webpack build succeeds with existing bundle-size warnings.
-- Evidence: local bundle contains `site-media-preview-overlay`, `site-media-preview-trigger`, `图片预览`, and `视频预览`. Deployment: pending.
+- Deployment: `old-site` `ad4e531`; `platform-release` `441d20b`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`. Production `workflow-react/dist/canvas.js` SHA-256 matches local (`2553ef8db1d95dd6b33a78153f37863e262d077dc0133bec104e216c947f49ff`), contains the preview overlay, and has no `target="_blank"` links. Live was not deployed.
 
 ## Generate full rollback correction (2026-11-07)
 
