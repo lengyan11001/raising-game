@@ -2,6 +2,8 @@
 
 - Optimization: both download handlers now authenticate with `requireUser(req, res, { loadDb: false })`; click-time signing performs targeted session/user and generation-record queries instead of loading the full business database.
 - Added a regression assertion in `test/download-signing.test.js`; targeted download/media/Undress tests pass 37/37, syntax checks and `git diff --check` pass.
+- Production signed-download probe (temporary DB user/session/record with successful signed storage target, cleaned up immediately): 10/10 HTTP 200; median total 5.40ms, p95 7.83ms; response source `r2_signed`, `expiresIn: 600`. Warm three targeted DB queries measured median 1.39ms. Signing is local HMAC with no upstream network request.
+- Deployment: old-site `1fa67ed`; platform-release `21d96f5`; deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; health returned `200 {"ok":true}`.
 
 - User reported Safari opening generated-media download links in a player and showing a timeout. Confirmed signed OSS URLs expire after 600 seconds, while ordinary download used the cached CDN URL in the generation record and opened it with `target="_blank"`.
 - Standard downloads now always request `/api/generation-records/:taskId/download-url` at click time and immediately navigate the current context to the fresh attachment URL. The stale-URL fast path and popup/new-tab behavior were removed.
