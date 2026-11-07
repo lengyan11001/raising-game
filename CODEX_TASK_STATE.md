@@ -17,7 +17,7 @@
 - Handles are positioned directly on the card border and vertically centered in the card header (delta within 1px in verification).
 - Standard targeted command passes 23/23: `node --require ./test/source-compat.js --test test/workflow-access.test.js test/workflow-canvases.test.js`. Production webpack build succeeds with bundle-size warnings only. `git diff --check` passes.
 - Commit: `40d9376` (`Port source React Flow canvas interactions`) on `old-site`. Release snapshots: platform `432727f70464abe38445e7c8966ade3e73f5c68c`, live `7fb5e0148c45ef808d572ca3e75ecbaf901ebda5`.
-- Deployment: deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; release-boundary checks passed and `/api/health` returned `200 {"ok":true}`. Production `platform.js` loads `workflow-react/dist/canvas.js` and `platform.workflow-canvases.js`; served canvas bundle contains the site generation card styles. Live was not deployed.
+- First deployment attempt pulled stale remote `platform-release` commit `162a302`; this was not browser caching. Pushed the correct snapshot `432727f` with force-with-lease, then redeployed. Deployment expected commit was `432727f`; release-boundary checks passed and `/api/health` returned `200 {"ok":true}`. Production canvas hash now exactly matches local build (`6073bc8b...`, 538314 bytes), and `platform.js` loads `workflow-react/dist/canvas.js` and `platform.workflow-canvases.js`. Live was not deployed.
 - Visual evidence: `/tmp/workflow-react-verify/full-projects-grid.png`, `full-editor-connected.png`, `full-after-upload.png`, `full-reopened.png`. Acceptance log: `/tmp/workflow-react-verify/full-acceptance-final.out`.
 
 ## Upstream reference mirror 403 fix (2026-11-07)
@@ -1330,3 +1330,10 @@ CODEX_TASK_STATE.md
 - Unrelated existing worktree changes in workflow tests and `workflow-react/node_modules` are excluded from this commit.
 - Deployment: old-site `a1a0bd8`; platform-release `162a302`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`.
 - Production verification: `/api/config/public` returns Fast output `8.1648`/`17.29728` and input-video `4.8114`/`10.19304` credits/s at 480p/720p; production `platform.html` contains `Seedance 2.0 Fast` and `seedance-fast`. Live was not deployed.
+
+## Parameter popover design detail (2026-11-07 11:51 +08)
+
+- User asked specifically how the parameter picker popovers will look and behave.
+- Exported five-state evidence sheet `/Users/x042/.codex/visualizations/2026/11/05/01a1ab8c-4aa5-7a33-82cd-78be1dd6cb1f/generate-parameter-popovers.png`.
+- Design: each parameter chip is its own anchor; popover opens immediately below/above depending on viewport space; only one open at a time; clicking an option updates the chip and closes; click outside closes; keyboard focus remains native.
+- Model/mode/resolution use compact option pills. Ratio uses visual frame previews. Duration uses readout + range + quick values. Panels stay narrow and anchored, not full-screen modals.
