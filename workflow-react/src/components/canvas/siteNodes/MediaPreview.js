@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 
 const PREVIEW_MAX_WIDTH = 960;
@@ -12,7 +12,8 @@ function previewViewportBounds() {
   };
 }
 
-function fitPreviewDimensions(size = {}) {
+export function fitPreviewDimensions(size) {
+  if (!size || typeof size !== 'object') return null;
   const width = Number(size.width || 0);
   const height = Number(size.height || 0);
   if (!(width > 0) || !(height > 0)) return null;
@@ -38,7 +39,8 @@ export function mediaKindOf(media = {}) {
 function MediaPreviewOverlay({ media, onClose }) {
   const kind = mediaKindOf(media);
   const [mediaSize, setMediaSize] = useState(null);
-  const [viewportTick, setViewportTick] = useState(0);
+  const [, setViewportTick] = useState(0);
+  const mediaRef = useRef(null);
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') onClose();
@@ -59,13 +61,23 @@ function MediaPreviewOverlay({ media, onClose }) {
   }, []);
 
   const frameSize = fitPreviewDimensions(mediaSize);
-  const rememberMediaSize = (event) => {
-    const element = event.currentTarget;
-    setMediaSize({
-      width: element.naturalWidth || element.videoWidth || 0,
-      height: element.naturalHeight || element.videoHeight || 0,
-    });
+  const readMediaSize = (element) => {
+    if (!element) return;
+    const width = element.naturalWidth || element.videoWidth || 0;
+    const height = element.naturalHeight || element.videoHeight || 0;
+    if (!(width > 0) || !(height > 0)) return;
+    setMediaSize((current) => (
+      current?.width === width && current?.height === height
+        ? current
+        : { width, height }
+    ));
   };
+  const rememberMediaSize = (event) => readMediaSize(event.currentTarget);
+  useEffect(() => {
+    // Cached images/videos can finish loading before React attaches onLoad.
+    // Read the mounted element once so the preview keeps the source ratio.
+    readMediaSize(mediaRef.current);
+  }, [media.url]);
 
   return ReactDOM.createPortal(
     <div
@@ -87,6 +99,7 @@ function MediaPreviewOverlay({ media, onClose }) {
         >
           {kind === 'video' ? (
             <video
+              ref={mediaRef}
               src={media.url}
               poster={media.poster || undefined}
               controls
@@ -95,10 +108,12 @@ function MediaPreviewOverlay({ media, onClose }) {
               preload="metadata"
               draggable={false}
               onLoadedMetadata={rememberMediaSize}
+              onLoadedData={rememberMediaSize}
               onContextMenu={(event) => event.preventDefault()}
             />
           ) : (
             <img
+              ref={mediaRef}
               src={media.url}
               alt={media.label || '图片预览'}
               draggable={false}
