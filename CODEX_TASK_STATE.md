@@ -5,6 +5,7 @@
 - Result media now uses intrinsic dimensions (`width: auto`, `height: auto`, `max-width: 100%`) with a safe `min(360px, 42vh)` cap, preserving 1:1 and portrait ratios without cropping.
 - Local Chrome/CDP with a 512x512 generated image: result card `394x362`, result area `418x387`, controls `418x373.75`; preview overlay frame `680x680` and image `678x678`; no runtime errors.
 - Verification: targeted workflow suite 29/29; production webpack build passes with bundle-size warnings only; `git diff --check` passes.
+- Commit `6f0d4cf`; release `18b0aaa`; deployed to `123vips.com`. `/api/health` returned `200 {"ok":true}`, release boundary passed, and production `canvas.js` SHA-256 matches local (`c4c9e74d...`, 555087 bytes).
 
 ## Canvas generated-image 1:1 thumbnail crop fix (2026-11-07)
 
