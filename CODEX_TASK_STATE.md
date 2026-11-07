@@ -5,7 +5,7 @@
 - If fresh signing fails, standard downloads fall back to the same-origin authenticated `/api/generation-records/:taskId/download` proxy, which always returns `Content-Disposition: attachment`. Legacy records without a task id retain their stored URL fallback.
 - `download2` keeps its existing R2 preparation polling path and also uses the attachment navigation helper.
 - Added `test/download-signing.test.js` and updated `test/undress-tool.test.js`. Targeted signing/download tests pass 36/36; `node --check` and `git diff --check` pass.
-- Deployment: pending.
+- Deployment: `old-site` `9f01a1a`, `platform-release` `6567a17`; deployed only to `123vips.com` with `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}` and production `platform.ui.parts/part-02.js` contains the re-sign path with no popup/new-tab download behavior. Live was not deployed.
 
 ## Seedance recent URL audit (2026-11-07)
 
