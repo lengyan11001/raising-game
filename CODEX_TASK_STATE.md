@@ -3,7 +3,7 @@
 - Superseded the earlier library-return behavior. Browser/Android back while a canvas project is open is now an in-canvas action: it deletes only the current selection, leaves all other nodes intact, and restores `#workflow` so the site shell cannot hide or tear down the canvas. `popstate` and `hashchange` from one back gesture are deduplicated. The explicit toolbar `← 返回` still returns to the project library.
 - Deletion no longer auto-selects a fallback node, so repeated back/delete gestures cannot cascade through multiple nodes. React Flow selection and persisted business selection are synchronized on pointerdown/click; trash uses `pointerdown` so React Flow drag handling cannot swallow it. The badge uses Bootstrap Icons `bi-trash3`.
 - Verification: targeted workflow tests pass 29/29; syntax checks, `git diff --check`, and production webpack build pass. Local Chrome/CDP verified that selecting `n2` then invoking browser back leaves `n1`, clears selection, and remains at `#workflow`; trash click removes only its own node.
-- Deployment: pending in this change set.
+- Deployment: `old-site` `b10eb33`; `platform-release` `acab55f`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`. Production `workflow-react/dist/canvas.js` SHA-256 matches local: `c6d099b5d551fe8ef8cf7c28fa17a225d7d5a55226189ed143ad2004b5abd7cd`; served `platform.ui.parts/part-06.js` contains the deletion fix and served `platform.main.js` contains `handleWorkflowCanvasHistoryBack`. Live was not deployed.
 
 ## Canvas generation node isolation fix (2026-11-07)
 
