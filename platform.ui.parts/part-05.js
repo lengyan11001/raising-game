@@ -29,19 +29,22 @@ function clearWorkflowExecutionResults({ fromNodeId = "", message = "Execution c
   const startIndex = fromNodeId ? ordered.findIndex((node) => node.id === fromNodeId) : 0;
   ordered.slice(Math.max(0, startIndex)).forEach(workflowClearNodeExecution);
   state.workflowCancelRequested = false;
+  state.workflowCancelNodeIds = [];
   state.workflowActiveNodeId = "";
+  state.workflowRunningNodeIds = [];
   state.workflowMessage = message;
   persistWorkflowState();
   if (render) renderWorkflowPanel();
 }
 
+function workflowNodeIsRunning(node = {}) {
+  return Array.isArray(state.workflowRunningNodeIds)
+    && state.workflowRunningNodeIds.includes(String(node?.id || ""));
+}
+
 function workflowNodeRunState(node = {}) {
-  const active = state.workflowRunning && state.workflowActiveNodeId === node.id;
-  if (active) {
+  if (workflowNodeIsRunning(node)) {
     return { canRun: false, disabled: true, icon: "loader-circle", label: "Running", reason: "This node is running." };
-  }
-  if (state.workflowRunning) {
-    return { canRun: false, disabled: true, icon: "play", label: "Run", reason: "Workflow is running." };
   }
   if (!node?.id || !["imageDisplay", "imageGenerate", "unifiedVideoGen", "video"].includes(node.type)) {
     return { canRun: false, disabled: true, icon: "play", label: "Run", reason: "This node cannot run." };

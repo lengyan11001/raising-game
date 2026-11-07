@@ -271,19 +271,23 @@ function workflowCanceledError() {
   return error;
 }
 
-function workflowThrowIfCancelled() {
-  if (state.workflowCancelRequested) throw workflowCanceledError();
+function workflowThrowIfCancelled(nodeId = state.workflowActiveNodeId || "") {
+  if (!state.workflowCancelRequested) return;
+  const ids = Array.isArray(state.workflowCancelNodeIds) ? state.workflowCancelNodeIds.map(String) : [];
+  if (!ids.length || ids.includes(String(nodeId || ""))) throw workflowCanceledError();
 }
 
 function requestWorkflowCancel() {
-  if (!state.workflowRunning) return;
+  const running = Array.isArray(state.workflowRunningNodeIds) ? state.workflowRunningNodeIds.filter(Boolean) : [];
+  if (!running.length) return;
   state.workflowCancelRequested = true;
+  state.workflowCancelNodeIds = running.map(String);
   state.workflowMessage = "Canceling workflow...";
   renderWorkflowPanel();
 }
 
-function workflowHandleExecutionError(error = {}) {
-  const activeNode = workflowNodeById(state.workflowActiveNodeId || "");
+function workflowHandleExecutionError(error = {}, nodeId = state.workflowActiveNodeId || "") {
+  const activeNode = workflowNodeById(nodeId || "");
   if (error.workflowCanceled) {
     state.workflowMessage = "Workflow canceled.";
     if (activeNode && !workflowNodeHasSuccessfulResult(activeNode)) {
@@ -300,9 +304,9 @@ function workflowHandleExecutionError(error = {}) {
 async function pollWorkflowTask(nodeId = "", taskId = "", kind = "video") {
   let lastRecord = null;
   for (let attempt = 0; attempt < 150; attempt += 1) {
-    workflowThrowIfCancelled();
+    workflowThrowIfCancelled(node.id);
     await new Promise((resolve) => setTimeout(resolve, attempt ? 4000 : 1200));
-    workflowThrowIfCancelled();
+    workflowThrowIfCancelled(node.id);
     const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
     const record = payload.record || payload.generation || null;
     if (!record?.taskId) continue;
@@ -775,7 +779,7 @@ async function runWorkflowVideoNode(node = {}) {
 }
 
 async function runWorkflowNode(node = {}) {
-  workflowThrowIfCancelled();
+  workflowThrowIfCancelled(node.id);
   state.workflowActiveNodeId = node.id;
   state.workflowSelectedNodeId = node.id;
   if (["imageDisplay", "imageGenerate"].includes(node.type)) return runWorkflowImageNode(node);
@@ -785,7 +789,7 @@ async function runWorkflowNode(node = {}) {
 
 async function workflowExtractTailFrame(node = {}, taskId = "", videoUrl = "", duration = 5) {
   if (!taskId || !videoUrl) return "";
-  workflowThrowIfCancelled();
+  workflowThrowIfCancelled(node.id);
   const framePayload = await requestJson("/api/workflow/extract-frame", {
     method: "POST",
     body: { taskId, videoUrl, duration },
@@ -828,7 +832,7 @@ async function runWorkflowNodeLegacyDisabled(node = {}, { previousFrameUrl = "",
   state.workflowSelectedNodeId = node.id;
   state.workflowMessage = `Preparing ${model.label}...`;
   workflowSetNodeData(node.id, { status: "preparing", error: "", taskId: "", record: null, lastFrameUrl: "" });
-  workflowThrowIfCancelled();
+  workflowThrowIfCancelled(node.id);
 
   const continuityImage = previousFrameUrl || sourceImage;
   const keyframeStorageNode = firstNode ? upload : node;
@@ -839,7 +843,7 @@ async function runWorkflowNodeLegacyDisabled(node = {}, { previousFrameUrl = "",
     firstNode,
     storageNode: keyframeStorageNode,
   });
-  workflowThrowIfCancelled();
+  workflowThrowIfCancelled(node.id);
 
   const shouldPrepareStripTarget = firstNode
     && workflowNodeOptionEnabled(node, "stripFirst")
@@ -880,7 +884,7 @@ async function runWorkflowNodeLegacyDisabled(node = {}, { previousFrameUrl = "",
   state.workflowMessage = `Running ${model.label}...`;
   workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", record: null, lastFrameUrl: "" });
   workflowLog(`Submitting ${model.label}.`);
-  workflowThrowIfCancelled();
+  workflowThrowIfCancelled(node.id);
 
   const body = {
     provider: "seedance",
@@ -965,7 +969,7 @@ function workflowCompletedRunData(nodes = workflowOrderedVideoNodes()) {
 async function composeWorkflowOutput(taskIds = [], videoUrls = []) {
   const output = workflowNodeByType("output");
   if (!output || !videoUrls.length) return false;
-  workflowThrowIfCancelled();
+  workflowThrowIfCancelled(output.id);
   workflowSetNodeData(output.id, { status: "processing", resultVideoUrl: "", posterUrl: "", taskIds });
   try {
     const composed = await requestJson("/api/workflow/compose", {
@@ -1039,7 +1043,6 @@ async function runWorkflowUploadPreprocess(uploadNode = null) {
 }
 
 async function runWorkflowSingleNode(nodeId = "") {
-  const requestedNode = workflowNodeById(nodeId);
   if (!state.user) return openLogin();
   const nodes = workflowOrderedExecutableNodes();
   const node = nodes.find((item) => item.id === nodeId);
@@ -1049,23 +1052,22 @@ async function runWorkflowSingleNode(nodeId = "") {
     renderWorkflowPanel();
     return;
   }
-  state.workflowRunning = true;
-  state.workflowCancelRequested = false;
   const runNode = workflowGenerationRunNode(node);
   if (!runNode) throw new Error("Could not create a generation node.");
+  state.workflowRunningNodeIds = [...new Set([...(state.workflowRunningNodeIds || []), String(runNode.id)])];
+  state.workflowRunning = state.workflowRunningNodeIds.length > 0;
   state.workflowActiveNodeId = runNode.id;
   state.workflowMessage = "Running node...";
   renderWorkflowPanel();
   try {
-    workflowThrowIfCancelled();
     await runWorkflowNode(runNode);
     state.workflowMessage = `${runNode.title || "Node"} completed.`;
   } catch (error) {
-    workflowHandleExecutionError(error);
+    workflowHandleExecutionError(error, runNode.id);
   } finally {
-    state.workflowRunning = false;
-    state.workflowCancelRequested = false;
-    state.workflowActiveNodeId = "";
+    state.workflowRunningNodeIds = (state.workflowRunningNodeIds || []).filter((id) => id !== String(runNode.id));
+    state.workflowRunning = state.workflowRunningNodeIds.length > 0;
+    state.workflowActiveNodeId = state.workflowRunningNodeIds[state.workflowRunningNodeIds.length - 1] || "";
     persistWorkflowState();
     renderWorkflowPanel();
   }
@@ -1087,7 +1089,7 @@ async function runWorkflow() {
   try {
     workflowLog(`Run order: ${nodes.map((node) => workflowNodeModel(node).label).join(" -> ")}`);
     for (const node of nodes) {
-      workflowThrowIfCancelled();
+      workflowThrowIfCancelled(node.id);
       const dependencies = workflowIncomingEdges(node.id)
         .map((edge) => workflowNodeById(edge.from))
         .filter((item) => item && ["imageDisplay", "imageGenerate", "unifiedVideoGen", "video"].includes(item.type));

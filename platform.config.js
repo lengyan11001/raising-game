@@ -6,7 +6,7 @@ const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";
 const REGISTRATION_ATTRIBUTION_KEY = "raisingGameRegistrationAttribution";
 const AGE_GATE_ACCEPTED_KEY = "raisingGameAgeGateAccepted";
-const ALL_TABS = new Set(["home", "gallery", "cases", "characters", "chat", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
+const ALL_TABS = new Set(["home", "gallery", "cases", "characters", "chat", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing", "test"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 15;
@@ -874,6 +874,8 @@ const state = {
   categories: [],
   estimates: {},
   tab: initialPlatformTab(),
+  testMode: false,
+  pendingAdminTab: "",
   galleryMode: initialGalleryMode(),
   playfluxTemplateTab: "video",
   characterSource: "custom",
@@ -1036,7 +1038,9 @@ const state = {
   advancedResultLoading: false,
   workflow: null,
   workflowRunning: false,
+  workflowRunningNodeIds: [],
   workflowCancelRequested: false,
+  workflowCancelNodeIds: [],
   workflowMessage: "",
   workflowSelectedNodeId: "video-1",
   workflowActiveNodeId: "",
@@ -1209,9 +1213,16 @@ function isSiteProfile(id = "") {
   return siteProfileId() === String(id || "").trim();
 }
 
+function isAdvancedWorkspaceTab(tab = state.tab) {
+  return tab === "advanced" || tab === "test";
+}
+
 function isTabAllowed(tab) {
   const raw = platformHashParts(tab).tab || String(tab || "").trim();
   const normalized = raw === "custom" ? "advanced" : ALL_TABS.has(raw) ? raw : DEFAULT_PLATFORM_TAB;
+  // Internal preview routes are gated only by role. Tenant menu allowlists
+  // must not hide Test from administrators.
+  if (normalized === "test") return state.user?.role === "admin";
   const allowed = tenantAllowedTabs();
   if (allowed.length && !allowed.includes(normalized)) return false;
   if (tenantDisabledTabs().includes(normalized)) return false;

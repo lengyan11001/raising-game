@@ -253,6 +253,19 @@ test("canvas media controls open an in-app preview without download links", () =
   assert.match(css, /\.site-media-preview-close \{[\s\S]*?position: absolute;[\s\S]*?top: 10px;[\s\S]*?right: 10px;/);
 });
 
+test("workflow generation runs concurrently per node", () => {
+  const config = read("platform.config.js");
+  const nodeUi = read("platform.ui.parts/part-05.js");
+  const runner = read("platform.ui.parts/part-06.js");
+
+  assert.match(config, /workflowRunningNodeIds: \[\]/);
+  assert.match(nodeUi, /function workflowNodeIsRunning/);
+  assert.match(nodeUi, /workflowRunningNodeIds\.includes/);
+  assert.doesNotMatch(nodeUi, /if \(state\.workflowRunning\) \{\s*return \{ canRun: false/);
+  assert.match(runner, /workflowRunningNodeIds = \[\.\.\.new Set/);
+  assert.match(runner, /filter\(\(id\) => id !== String\(runNode\.id\)\)/);
+});
+
 test("workflow uploads store asset references instead of embedded media", () => {
   const ui = read("platform.ui.js");
   const server = read("server.js");
