@@ -6494,6 +6494,10 @@ select option:checked {
   text-overflow: ellipsis;
   text-shadow: 0 1px 1px #000;
 }
+.advanced-video-reference-label {
+  z-index: 8;
+  pointer-events: none;
+}
 .advanced-preview-remove {
   position: absolute;
   right: 5px;

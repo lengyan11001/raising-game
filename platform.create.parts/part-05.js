@@ -294,7 +294,7 @@ function renderAdvancedReferencePreviews() {
         ? `<div class="advanced-reference-pending"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div>`
       : kind === "video"
       ? (url
-        ? `<div class="advanced-video-preview"><div class="advanced-video-fallback"><i data-lucide="film"></i><span>Video</span></div>${posterUrl ? `<img class="advanced-video-poster" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" data-advanced-video-poster />` : ""}<video src="${escapeHtml(url)}"${posterUrl ? ` poster="${escapeHtml(posterUrl)}"` : ""} muted playsinline controls preload="auto" data-advanced-preview-media data-preview-index="${previewIndex}"></video></div>`
+        ? `<div class="advanced-video-preview"><div class="advanced-video-fallback"><i data-lucide="film"></i><span>Video</span></div>${posterUrl ? `<img class="advanced-video-poster" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" data-advanced-video-poster />` : ""}<video src="${escapeHtml(url)}"${posterUrl ? ` poster="${escapeHtml(posterUrl)}"` : ""} muted playsinline controls preload="auto" data-advanced-preview-media data-preview-index="${previewIndex}"></video><span class="advanced-reference-label advanced-video-reference-label">${escapeHtml(label)}</span></div>`
         : `<div class="advanced-reference-unavailable">${escapeHtml(state.lang === "zh" ? "素材不可用" : "Media unavailable")}</div>`)
       : kind === "audio"
         ? `<div class="advanced-audio-ref"><i data-lucide="audio-lines"></i></div>`
@@ -304,7 +304,7 @@ function renderAdvancedReferencePreviews() {
     return `
       <figure class="advanced-reference-chip is-${escapeHtml(kind)} ${pending ? "is-pending" : ""}" title="${escapeHtml(item.name || item.fileName || label)}">
         ${pending ? "" : `<button class="advanced-preview-remove" type="button" ${removeAttr} aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>`}
-        <span class="advanced-reference-label">${escapeHtml(label)}</span>
+        ${kind === "video" && url && !pending ? "" : `<span class="advanced-reference-label">${escapeHtml(label)}</span>`}
         ${media}
       </figure>
     `;

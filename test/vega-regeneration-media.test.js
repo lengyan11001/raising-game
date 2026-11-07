@@ -553,6 +553,8 @@ test("Regeneration clicks are serialized and failed previews do not remain black
   assert.match(previewSource, /kind === "video"[\s\S]*?url[\s\S]*?data-advanced-preview-media/);
   assert.match(previewSource, /advanced-video-fallback/);
   assert.match(previewSource, /advanced-video-poster/);
+  assert.match(previewSource, /advanced-video-reference-label/);
+  assert.match(previewSource, /kind === "video" && url && !pending/);
   assert.match(previewSource, /reliableAssetPosterUrl/);
   assert.match(previewSource, /poster="\$\{escapeHtml\(posterUrl\)\}"/);
   assert.match(previewSource, /is-video-ready/);
