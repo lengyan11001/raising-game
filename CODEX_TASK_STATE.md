@@ -1,3 +1,9 @@
+## Canvas preview fits intrinsic media dimensions (2026-11-07)
+
+- User asked the canvas preview window to size itself from the media dimensions.
+- `MediaPreview.js` now reads image `naturalWidth/naturalHeight` and video `videoWidth/videoHeight`, fits that ratio inside the available viewport, and recalculates on resize. Videos are no longer forced to 16:9 after metadata loads.
+- Verification: targeted workflow suite 29/29 and `git diff --check` pass; production webpack build passes; local Chrome confirms the new preview sizing CSS is loaded.
+
 ## Canvas trash deletion crash fix (2026-11-07)
 
 - User reported the node trash button still cleared the whole canvas while browser back now worked.

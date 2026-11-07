@@ -777,6 +777,13 @@
 
 .site-media-preview-frame.is-video {
   width: min(960px, calc(100vw - 48px));
+  aspect-ratio: 16 / 9;
+}
+
+.site-media-preview-frame.has-size {
+  width: auto;
+  height: auto;
+  aspect-ratio: auto;
 }
 
 .site-media-preview-frame img,
@@ -793,7 +800,14 @@
 
 .site-media-preview-frame.is-video video {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  height: 100%;
+  object-fit: contain;
+}
+
+.site-media-preview-frame.has-size img,
+.site-media-preview-frame.has-size video {
+  width: 100%;
+  height: 100%;
 }
 
 @media (max-width: 640px) {
@@ -813,6 +827,11 @@
 
   .site-media-preview-frame.is-video {
     width: calc(100vw - 24px);
+  }
+
+  .site-media-preview-frame.has-size {
+    width: auto;
+    height: auto;
   }
 
   .site-media-preview-frame img,
