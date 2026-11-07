@@ -30,8 +30,13 @@ function syncAdvancedPromptMentionLabels(previousRefs = [], nextRefs = advancedP
   });
   if (!edits.length) return false;
 
-  const selectionStart = Number.isFinite(textarea.selectionStart) ? textarea.selectionStart : originalValue.length;
-  const selectionEnd = Number.isFinite(textarea.selectionEnd) ? textarea.selectionEnd : selectionStart;
+  const richSelection = window.VipeakPromptEditorAdapter?.rich ? window.getAdvancedPromptSelection?.() : null;
+  const selectionStart = Number.isFinite(richSelection?.start)
+    ? richSelection.start
+    : Number.isFinite(textarea.selectionStart) ? textarea.selectionStart : originalValue.length;
+  const selectionEnd = Number.isFinite(richSelection?.end)
+    ? richSelection.end
+    : Number.isFinite(textarea.selectionEnd) ? textarea.selectionEnd : selectionStart;
   const selectionDirection = textarea.selectionDirection || "none";
   const mapSelectionPoint = (point) => {
     let delta = 0;
@@ -57,18 +62,36 @@ function syncAdvancedPromptMentionLabels(previousRefs = [], nextRefs = advancedP
   });
   value += originalValue.slice(lastIndex);
 
-  textarea.value = value;
   const maxLength = value.length;
-  textarea.setSelectionRange?.(
-    Math.min(nextSelectionStart, maxLength),
-    Math.min(nextSelectionEnd, maxLength),
-    selectionDirection,
-  );
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  const nextStart = Math.min(nextSelectionStart, maxLength);
+  const nextEnd = Math.min(nextSelectionEnd, maxLength);
+  if (window.VipeakPromptEditorAdapter?.rich && typeof window.setAdvancedPromptValue === "function") {
+    window.setAdvancedPromptValue(value, { selectionStart: nextStart, selectionEnd: nextEnd, emitInput: true });
+  } else {
+    textarea.value = value;
+    textarea.setSelectionRange?.(nextStart, nextEnd, selectionDirection);
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  }
   return true;
 }
 
 function advancedPromptMentionContext(textarea = els.advancedPrompt) {
+  const richEditor = window.VipeakPromptEditorAdapter?.rich ? window.VipeakPromptEditorAdapter : null;
+  if (richEditor) {
+    const selection = richEditor.getSelection();
+    if (!selection || selection.start !== selection.end) return null;
+    const cursor = Number(selection.start || 0);
+    const before = String(window.getAdvancedPromptValue?.() || "").slice(0, cursor);
+    const atIndex = before.lastIndexOf("@");
+    if (atIndex < 0) return null;
+    const fragment = before.slice(atIndex + 1);
+    if (/[\s.,;:!?()[\]{}<>\uFF0C\u3002\uFF1B\uFF1A\uFF01\uFF1F\u3001]/.test(fragment)) return null;
+    return {
+      start: atIndex,
+      end: cursor,
+      query: fragment.trim().toLowerCase(),
+    };
+  }
   if (!textarea || textarea.selectionStart !== textarea.selectionEnd) return null;
   if (textarea.hidden || textarea.closest("[hidden]")) return null;
   const cursor = Number(textarea.selectionStart || 0);
@@ -146,13 +169,16 @@ function positionAdvancedPromptMentionMenu() {
   if (!textarea || !menu || menu.hidden) return;
   const field = textarea.closest(".advanced-prompt-field") || textarea.parentElement;
   if (!field) return;
+  const richEditor = window.VipeakPromptEditorAdapter?.rich ? window.VipeakPromptEditorAdapter : null;
   const context = state.advancedPromptMentionContext || advancedPromptMentionContext(textarea);
-  const caret = textareaCaretClientRect(textarea, context?.end ?? textarea.selectionStart ?? 0);
+  const caret = richEditor
+    ? richEditor.coordsAtSelection()
+    : textareaCaretClientRect(textarea, context?.end ?? textarea.selectionStart ?? 0);
   const fieldRect = field.getBoundingClientRect();
-  const textareaRect = textarea.getBoundingClientRect();
+  const promptRect = (richEditor?.getElement() || textarea).getBoundingClientRect();
   const width = Math.max(220, Math.min(340, fieldRect.width - 16));
-  const fallbackLeft = textareaRect.left - fieldRect.left + 10;
-  const fallbackTop = textareaRect.bottom - fieldRect.top + 6;
+  const fallbackLeft = promptRect.left - fieldRect.left + 10;
+  const fallbackTop = promptRect.bottom - fieldRect.top + 6;
   const rawLeft = caret ? caret.left - fieldRect.left : fallbackLeft;
   const rawTop = caret ? caret.bottom - fieldRect.top + 8 : fallbackTop;
   const left = Math.max(8, Math.min(rawLeft, Math.max(8, fieldRect.width - width - 8)));
@@ -223,16 +249,26 @@ function insertAdvancedPromptMention(index = state.advancedPromptMentionIndex ||
   const context = state.advancedPromptMentionContext || advancedPromptMentionContext(textarea);
   const item = (state.advancedPromptMentionItems || [])[index];
   if (!textarea || !context || !item) return false;
-  const value = String(textarea.value || "");
+  const value = String(window.getAdvancedPromptValue?.() || textarea.value || "");
   const before = value.slice(0, context.start);
   const after = value.slice(context.end);
   const needsSpace = after && /^\s/.test(after) ? "" : " ";
   const inserted = `${item.mention}${needsSpace}`;
-  textarea.value = `${before}${inserted}${after}`;
   const cursor = before.length + inserted.length;
-  textarea.focus?.();
-  textarea.setSelectionRange?.(cursor, cursor);
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  if (window.VipeakPromptEditorAdapter?.rich && typeof window.replaceAdvancedPromptText === "function") {
+    window.replaceAdvancedPromptText(context.start, context.end, inserted);
+    window.VipeakPromptEditorAdapter.focus?.();
+    window.setAdvancedPromptValue(window.getAdvancedPromptValue(), {
+      selectionStart: cursor,
+      selectionEnd: cursor,
+      emitInput: true,
+    });
+  } else {
+    textarea.value = `${before}${inserted}${after}`;
+    textarea.focus?.();
+    textarea.setSelectionRange?.(cursor, cursor);
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  }
   closeAdvancedPromptMentions();
   return true;
 }
@@ -680,7 +716,7 @@ async function submitTemplate() {
   state.activeAdvancedCaseId = "";
   if (els.advancedProvider) els.advancedProvider.value = "seedance";
   if (els.advancedPrompt) {
-    els.advancedPrompt.value = els.templatePrompt?.value || template.prompt || template.description || "";
+    window.setAdvancedPromptValue?.(els.templatePrompt?.value || template.prompt || template.description || "", { emitInput: false });
     autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";

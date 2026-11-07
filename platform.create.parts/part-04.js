@@ -503,6 +503,10 @@ function syncAdvancedPromptHighlight() {
   const textarea = els.advancedPrompt;
   const highlight = els.advancedPromptHighlight;
   if (!textarea || !highlight) return false;
+  if (window.VipeakPromptEditorAdapter?.rich) {
+    highlight.hidden = true;
+    return false;
+  }
   highlight.innerHTML = advancedPromptHighlightHtml(textarea.value);
   highlight.scrollTop = textarea.scrollTop;
   highlight.scrollLeft = textarea.scrollLeft;
@@ -515,14 +519,24 @@ function autoSizeAdvancedPrompt({ force = false, resetManual = false } = {}) {
   syncAdvancedPromptHighlight();
   if (resetManual) delete textarea.dataset.promptUserResized;
   if (!force && state.advancedPromptResizing) return false;
-  if (!textarea.isConnected || textarea.offsetParent === null || textarea.getClientRects().length === 0) return false;
+  if (!textarea.isConnected) return false;
+  const richEditor = window.VipeakPromptEditorAdapter?.rich ? window.VipeakPromptEditorAdapter : null;
+  const promptElement = richEditor?.getElement?.() || textarea;
+  if (promptElement.offsetParent === null || promptElement.getClientRects().length === 0) return false;
   const { minimumHeight, maximumHeight } = advancedPromptHeightLimits();
-  textarea.style.height = "0px";
-  textarea.style.overflowY = "hidden";
-  const contentHeight = Math.max(minimumHeight, textarea.scrollHeight + 2);
+  const contentHeight = richEditor ? Math.max(minimumHeight, promptElement.scrollHeight + 2) : (() => {
+    textarea.style.height = "0px";
+    textarea.style.overflowY = "hidden";
+    return Math.max(minimumHeight, textarea.scrollHeight + 2);
+  })();
   const nextHeight = Math.min(maximumHeight, Math.max(minimumHeight, contentHeight));
-  textarea.style.height = `${Math.round(nextHeight)}px`;
-  textarea.style.overflowY = contentHeight > maximumHeight + 1 ? "auto" : "hidden";
+  if (richEditor) {
+    promptElement.style.height = `${Math.round(nextHeight)}px`;
+    promptElement.style.overflowY = contentHeight > maximumHeight + 1 ? "auto" : "hidden";
+  } else {
+    textarea.style.height = `${Math.round(nextHeight)}px`;
+    textarea.style.overflowY = contentHeight > maximumHeight + 1 ? "auto" : "hidden";
+  }
   const handle = els.advancedPromptResizeHandle;
   if (handle) {
     handle.setAttribute("aria-valuemin", String(minimumHeight));
@@ -549,8 +563,13 @@ function bindAdvancedPromptResizeHandle() {
   const resize = (height, { manual = false } = {}) => {
     if (manual) textarea.dataset.promptUserResized = "true";
     const next = Math.max(minimumHeight, Math.min(maximumHeight, height));
-    textarea.style.height = `${Math.round(next)}px`;
-    textarea.style.overflowY = next >= maximumHeight ? "auto" : "hidden";
+    const promptElement = window.VipeakPromptEditorAdapter?.rich
+      ? window.VipeakPromptEditorAdapter.getElement()
+      : textarea;
+    if (promptElement) {
+      promptElement.style.height = `${Math.round(next)}px`;
+      promptElement.style.overflowY = next >= maximumHeight ? "auto" : "hidden";
+    }
     handle.setAttribute("aria-valuemin", String(minimumHeight));
     handle.setAttribute("aria-valuemax", String(Math.round(maximumHeight)));
     handle.setAttribute("aria-valuenow", String(Math.round(next)));
@@ -564,7 +583,7 @@ function bindAdvancedPromptResizeHandle() {
   };
 
   autoSizeAdvancedPrompt({ force: true, resetManual: true });
-  resize(textarea.getBoundingClientRect().height || minimumHeight);
+  resize((window.VipeakPromptEditorAdapter?.rich ? window.VipeakPromptEditorAdapter.getElement() : textarea)?.getBoundingClientRect().height || minimumHeight);
   handle.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -572,7 +591,7 @@ function bindAdvancedPromptResizeHandle() {
     state.advancedPromptResizing = true;
     pointerId = event.pointerId;
     startY = event.clientY;
-    startHeight = textarea.getBoundingClientRect().height;
+    startHeight = (window.VipeakPromptEditorAdapter?.rich ? window.VipeakPromptEditorAdapter.getElement() : textarea)?.getBoundingClientRect().height || minimumHeight;
     handle.setPointerCapture?.(pointerId);
     handle.classList.add("is-resizing");
     document.body.classList.add("is-resizing-advanced-prompt");
@@ -593,7 +612,7 @@ function bindAdvancedPromptResizeHandle() {
   handle.addEventListener("keydown", (event) => {
     if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    const current = textarea.getBoundingClientRect().height || minimumHeight;
+    const current = (window.VipeakPromptEditorAdapter?.rich ? window.VipeakPromptEditorAdapter.getElement() : textarea)?.getBoundingClientRect().height || minimumHeight;
     if (event.key === "Home") resize(minimumHeight, { manual: true });
     else if (event.key === "End") resize(maximumHeight, { manual: true });
     else resize(current + (event.key === "ArrowDown" ? 24 : -24), { manual: true });
@@ -929,7 +948,7 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   }
   if (els.advancedPrompt) {
     const rawPrompt = record.finalPrompt || record.prompt || params.prompt || "";
-    els.advancedPrompt.value = restoredPresetFlow ? promptWithoutPresetParts(rawPrompt, params) : rawPrompt;
+    window.setAdvancedPromptValue?.(restoredPresetFlow ? promptWithoutPresetParts(rawPrompt, params) : rawPrompt, { emitInput: false });
     autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
   if (els.advancedRatio) els.advancedRatio.value = ratio;
@@ -1634,7 +1653,7 @@ function useAssetInAdvanced(asset = {}, action = "use") {
     state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ref]).slice(0, imageLimit);
     state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
     if (action === "modify" && els.advancedPrompt) {
-      els.advancedPrompt.value = "";
+      window.setAdvancedPromptValue?.("", { emitInput: false });
       autoSizeAdvancedPrompt({ force: true, resetManual: true });
     }
   }

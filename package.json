@@ -4,9 +4,19 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
+    "build:prompt-editor": "esbuild vendor/vipeak-prompt-editor.src.js --bundle --format=iife --platform=browser --target=es2020 --minify --outfile=vendor/vipeak-prompt-editor.js",
     "test": "node --require ./test/source-compat.js --test test/*.test.js"
   },
   "dependencies": {
+    "@tiptap/core": "^3.33.0",
+    "@tiptap/pm": "^3.33.0",
     "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@tiptap/extension-document": "^3.33.0",
+    "@tiptap/extension-hard-break": "^3.33.0",
+    "@tiptap/extension-paragraph": "^3.33.0",
+    "@tiptap/extension-text": "^3.33.0",
+    "esbuild": "^0.25.12"
   }
 }

@@ -36,7 +36,9 @@ LIVE_PATTERNS = (
 PLATFORM_PATTERNS = (
     "platform.html",
     "platform.css",
+    "platform.prompt-editor.css",
     "platform*.js",
+    "vendor/vipeak-prompt-editor.js",
     "server-source.js",
     "server.parts/**",
     "platform.ui.parts/**",

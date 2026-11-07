@@ -1400,7 +1400,7 @@ function fillAdvancedCase(item = {}) {
     els.advancedWanAnimateMode.value = params.animateMode || params.parameters?.mode || "wan-std";
   }
   if (els.advancedPrompt) {
-    els.advancedPrompt.value = item.prompt || params.prompt || "";
+    window.setAdvancedPromptValue?.(item.prompt || params.prompt || "", { emitInput: false });
     autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
   if (els.advancedRatio) els.advancedRatio.value = params.ratio || params.aspect_ratio || item.ratio || "9:16";

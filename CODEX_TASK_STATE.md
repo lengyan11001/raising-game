@@ -1,3 +1,20 @@
+## Generate prompt C 方案：Tiptap 富文本 + textarea 兼容回滚（2026-11-07）
+
+- 用户要求按 C 方案处理 Safari 输入框删除时光标视觉位置与实际位置错位；要求可以随时回滚，并记录方案。
+- 采用 Tiptap 独立富文本编辑层，`#advancedPrompt` 旧 textarea 仍是唯一兼容数据源。富文本每次变更同步写回 textarea，并继续触发原有 `input` 事件，现有提交、引用、模板、恢复历史等链路不需要改写第二套状态。
+- 默认启用 rich。初始化失败自动回退 legacy；同一页面有 URL 参数时优先于 localStorage。
+- 立即回滚方式：
+  - 单次：打开 `platform.html?promptEditor=legacy`。
+  - 持久：浏览器控制台执行 `localStorage.setItem("vipeakPromptEditorMode", "legacy")` 并刷新。
+  - 会话内：控制台执行 `setVipeakPromptEditorMode("legacy")`。
+  - 恢复 rich：`localStorage.setItem("vipeakPromptEditorMode", "rich")` 并刷新。
+- 代码回滚：回退本次 prompt-editor 提交即可；旧 textarea 路径保留，回退不涉及数据库或业务数据迁移。
+- 新增 `platform.prompt-editor.js`、`platform.prompt-editor.css`、`vendor/vipeak-prompt-editor.src.js`、构建产物 `vendor/vipeak-prompt-editor.js`、`test/prompt-editor.test.js`。构建命令：`npm run build:prompt-editor`。
+- prompt 写入点改为 `window.setAdvancedPromptValue()`；提交读取改为 `window.getAdvancedPromptValue()`；引用菜单、选区坐标、替换 token 和高度调整均支持 rich/legacy 双路径。
+- 验证：`test/prompt-editor.test.js` 6/6；相关 `node --check`、Python compile、`git diff --check` 均通过。真实 Chrome/CDP 验证中文、emoji、多行、@引用、Backspace、Cmd/Ctrl+Enter、textarea 同步及 rich→legacy 切换通过。
+- 隔离提交只包含 prompt-editor 相关文件，明确排除了工作区中未完成的 Test 模式路由/样式、Vega 和其他改动。
+- 状态：已提交后构建 `platform-release`，仅部署 old 站；live 不部署。
+
 ## Canvas concurrent node generation (2026-11-07)
 
 - User reported starting generation on one node disabled generation buttons on every other node until the first finished.

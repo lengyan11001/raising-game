@@ -1430,7 +1430,7 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
     if (els.advancedRatio) els.advancedRatio.value = "9:16";
   }
   if (els.advancedPrompt) {
-    els.advancedPrompt.value = template.prompt || "";
+    window.setAdvancedPromptValue?.(template.prompt || "", { emitInput: false });
     autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
   setTab("advanced");
@@ -3496,7 +3496,7 @@ async function useHomeCharacter(characterId = "") {
   }] : [];
   state.advancedUploadDataUrl = imageUrl || "";
   if (els.advancedPrompt) {
-    els.advancedPrompt.value = `Use Image 1 as the main character reference. Create a cinematic video featuring ${item.name || "the character"}.`;
+    window.setAdvancedPromptValue?.(`Use Image 1 as the main character reference. Create a cinematic video featuring ${item.name || "the character"}.`, { emitInput: false });
     autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
   setTab("advanced");
@@ -4053,9 +4053,10 @@ function fillAdvancedCasePrompt(item = {}) {
     updateAdvancedModelControls();
   }
   if (els.advancedPrompt) {
-    els.advancedPrompt.value = prompt;
+    window.setAdvancedPromptValue?.(prompt, { emitInput: false });
     autoSizeAdvancedPrompt({ force: true, resetManual: true });
-    els.advancedPrompt.focus?.();
+    if (window.VipeakPromptEditorAdapter?.rich) window.VipeakPromptEditorAdapter.focus?.("end");
+    else els.advancedPrompt.focus?.();
   }
   state.activeAdvancedCaseId = "";
   updateAdvancedButtonCost();

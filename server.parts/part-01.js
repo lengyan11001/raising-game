@@ -427,6 +427,7 @@ const LIVE_STATIC_ROOT = resolveLiveStaticRoot(ROOT, process.env.LIVE_STATIC_ROO
 const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.html",
   "platform.css",
+  "platform.prompt-editor.css",
   "platform.js",
   "platform-sw.js",
   "platform.config.js",
@@ -464,6 +465,8 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.create.parts/part-06.js",
   "platform.video-tools.js",
   "platform.undress-tool.js",
+  "platform.prompt-editor.js",
+  "vendor/vipeak-prompt-editor.js",
   "platform.main.js",
   "site-123vipfans.js",
   "chat.html",

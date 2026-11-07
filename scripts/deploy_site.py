@@ -184,7 +184,9 @@ LIVE_RELEASE_PATHS = (
 PLATFORM_RELEASE_PATHS = (
     "platform.html",
     "platform.css",
+    "platform.prompt-editor.css",
     "platform*.js",
+    "vendor/vipeak-prompt-editor.js",
     "admin.html",
     "admin.css",
     "admin.js",

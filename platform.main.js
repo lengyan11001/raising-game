@@ -762,6 +762,18 @@ els.advancedCreateModeTabs?.addEventListener("click", (event) => {
   if (!button) return;
   setAdvancedCreateMode(button.dataset.advancedCreateMode || "");
 });
+function enrichRichPromptEditor() {
+  const richElement = window.VipeakPromptEditorAdapter?.getElement?.();
+  if (!richElement) return;
+  if (richElement.dataset.vipeakPromptEvents === "true") return;
+  richElement.dataset.vipeakPromptEvents = "true";
+  richElement.addEventListener("click", renderAdvancedPromptMentionMenu);
+  richElement.addEventListener("keyup", (event) => {
+    if (["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) return;
+    renderAdvancedPromptMentionMenu();
+  });
+  richElement.addEventListener("blur", () => window.setTimeout(closeAdvancedPromptMentions, 120));
+}
 els.advancedPrompt?.addEventListener("input", handleAdvancedPromptMentionInput);
 els.advancedPrompt?.addEventListener("input", () => scheduleAutoSizeAdvancedPrompt({ force: true }));
 els.advancedPrompt?.addEventListener("scroll", syncAdvancedPromptHighlight);
@@ -779,8 +791,10 @@ els.advancedPrompt?.addEventListener("paste", (event) => {
     if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
   });
 });
+setTimeout(enrichRichPromptEditor, 0);
+document.addEventListener("platform-prompt-editor-ready", enrichRichPromptEditor);
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest("#advancedPrompt, #advancedPromptMentions")) return;
+  if (event.target.closest("#advancedPrompt, #advancedPromptEditorMount, #advancedPromptMentions")) return;
   closeAdvancedPromptMentions();
 });
 window.addEventListener("resize", () => {
@@ -1153,7 +1167,7 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
     }
     if (mode === "draft_followup") {
       if (els.advancedPrompt) {
-        els.advancedPrompt.value = "";
+        window.setAdvancedPromptValue?.("", { emitInput: false });
         autoSizeAdvancedPrompt({ force: true, resetManual: true });
       }
       state.advancedReferenceImages = [];

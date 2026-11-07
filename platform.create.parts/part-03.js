@@ -77,7 +77,7 @@ function showAdvancedSubmitFailure(error) {
 
 async function submitAdvancedGenerateInternal() {
   if (!state.user) return openLogin();
-  const promptInput = els.advancedPrompt?.value.trim() || "";
+  const promptInput = String(window.getAdvancedPromptValue?.() ?? els.advancedPrompt?.value ?? "").trim();
   const usingPresetFlow = advancedCreateModeUsesPresetBuilder();
   const autoPrompt = advancedCreateModeUsesAutoPrompt();
   if (usingPresetFlow && advancedCreateModeRequiresActionPreset() && !selectedAdvancedPreset("action")) {
@@ -1080,7 +1080,7 @@ function openTemplate(templateId) {
   state.activeAdvancedCaseId = "";
   if (els.advancedProvider) els.advancedProvider.value = "seedance";
   if (els.advancedPrompt) {
-    els.advancedPrompt.value = template.prompt || template.description || "";
+    window.setAdvancedPromptValue?.(template.prompt || template.description || "", { emitInput: false });
     autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
