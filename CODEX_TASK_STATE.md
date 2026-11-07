@@ -45,7 +45,8 @@
 - Matched the source design's dark composer card, pink underlined tabs, 130px prompt editor with mention highlighting, dashed reference upload surface, quiet parameter chip bar, ratio/resolution grouped chip, full-width pink/purple Generate button, inline ratio picker, resolution buttons, duration slider, model/mode option rows, and responsive layout.
 - Preserved `advancedPrompt`, `advancedUploadBox`, `advancedImage`, `advancedParameterChips`, `advancedParameterPanel`, `advancedParameterShell`, and `advancedSubmitBtn`. Native selects remain the submission source; picker selections update the existing select and dispatch its existing `change` event. Generation, upload, pricing, validation, API, and database behavior were not changed.
 - CSS cache key bumped to `generate-composer-design-20261107-1`.
-- Verification: `node --check platform.create.parts/part-02.js` passes; `git diff --check` passes; targeted Generate tests pass 3/3 (shared pink tabs, 123vip.fans shared surface, picker close behavior + duration slider). Closed-state and open-picker screenshots were visually checked against the source design.
+- Parameter chips now toggle closed when the same chip is clicked again; switching to another chip replaces the open picker. Picker content follows the supplied design: model rows with icon/title/description, mode rows, grouped ratio + resolution, and duration title above the slider.
+- Verification: real Chrome/CDP at 1440x1100 confirmed same-chip close, cross-chip switching, and model/mode/ratio/resolution/duration content. `node --check platform.create.parts/part-02.js` and `git diff --check` pass; the targeted Generate picker test passes 1/1. Closed-state and open-picker screenshots were visually checked against the source design.
 - Deployment: not deployed.
 
 ## Download signing on every click (2026-11-07)
@@ -1419,3 +1420,12 @@ CODEX_TASK_STATE.md
 - Existing native rendering still exposes three top-level Generate tabs (`VideoGen`, `ImageGen`, `Conversation`) and keeps the secondary mode row hidden for Generate.
 - Verification: `git diff --check`; no changes in the three restored JS/config files.
 - Deployment: not deployed.
+
+## Generate preview 404 fix (2026-11-07)
+
+- User reported `Request failed: 404` on `http://127.0.0.1:8767/platform.html#custom`.
+- Root cause: port 8767 was a bare `python -m http.server`, so static HTML/JS loaded but all same-origin `/api/*` requests returned 404. A direct local `node server.js` is unavailable without `DATABASE_URL`; no JSON fallback was added.
+- Replaced the static-only preview server with a temporary `/tmp/codex-preview-proxy.js` process that serves workspace files from the repository and reverse-proxies `/api/*`, `/docs/api.json`, and `/favicon.ico` to `https://123vips.com` while preserving methods, headers, bodies, cookies, and responses. This is preview-only and does not alter production deployment.
+- Verified through HTTP and real Chrome/CDP: `/api/config/public`, `/api/promo/1111`, `/api/ourdream/presets`, `/api/platform/estimates`, `/api/chat-live/characters`, `/docs/api.json`, and `/favicon.ico` all return 200; the visible `Request failed: 404` toast is gone and the Generate page renders.
+- Re-verified parameter pickers: opening Mode/Ratio/Duration shows the designed panels, switching chips closes the previous panel, and clicking the same chip again closes it.
+- Evidence: `/tmp/preview-after-proxy.png`, `/tmp/picker-final-proxy.png`, `/tmp/debug-preview-cdp.js`, and `/tmp/check-picker-cdp.js`.
