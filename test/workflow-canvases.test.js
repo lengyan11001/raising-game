@@ -467,6 +467,7 @@ test("workflow React Flow adapter owns creation, connection, and business deleti
   assert.match(ui, /function workflowAvailableNodePosition\(position = null\)/);
   assert.match(ui, /function workflowNodePositionIsFree\(candidate = \{\}/);
   assert.match(ui, /const point = position \? workflowAvailableNodePosition\(position\) : workflowNewNodePosition\(\)/);
+  assert.match(ui, /const cardWidth = 420;[\s\S]*?const columnGap = 28;[\s\S]*?cardWidth \+ columnGap/);
   assert.match(ui, /function syncWorkflowStatusText\(\)/);
   assert.match(css, /\.site-generation-card \{[\s\S]*?border-radius: 14px/);
   assert.match(css, /\.site-generation-card \.react-flow__handle-left \{[\s\S]*?left: 0 !important;[\s\S]*?transform: translate\(-50%, -50%\) !important/);

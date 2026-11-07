@@ -363,14 +363,16 @@ function workflowGeneratedNodeAction(kind = "image") {
 }
 
 function workflowGeneratedNodePosition(source = {}) {
-  const nodeWidth = typeof WORKFLOW_NODE_WIDTH === "number" ? WORKFLOW_NODE_WIDTH : 420;
-  const nodeGap = typeof WORKFLOW_NODE_GAP === "number" ? WORKFLOW_NODE_GAP : 36;
+  // Site generation cards are 420px wide. Keep a sibling result immediately
+  // beside its source card instead of using the legacy 520px layout width,
+  // which made the new node look like it jumped across the canvas.
+  const cardWidth = 420;
+  const columnGap = 28;
+  const rowGap = 24;
   const index = workflowGeneratedResultChildren(source).length;
-  const column = index % 2;
-  const row = Math.floor(index / 2);
   return {
-    x: Number(source.x || 0) + (column + 1) * (nodeWidth + nodeGap),
-    y: Number(source.y || 0) + row * 650,
+    x: Number(source.x || 0) + cardWidth + columnGap,
+    y: Number(source.y || 0) + index * (620 + rowGap),
   };
 }
 
