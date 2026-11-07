@@ -3,6 +3,7 @@
  */
 import React, { memo } from 'react';
 import { Handle, Position, useReactFlow } from '@xyflow/react';
+import { selectSiteNode } from '../../../site/SiteBridge';
 
 export const NodeLayout = memo(({
   id,
@@ -25,6 +26,12 @@ export const NodeLayout = memo(({
     if (typeof window.removeWorkflowNode === 'function' && window.removeWorkflowNode(id)) {
       window.dispatchEvent(new CustomEvent('workflow-react-node-change', { detail: { nodeId: id } }));
       window.dispatchEvent(new CustomEvent('workflow-react:sync'));
+      const selectedId = typeof window.activeWorkflowSelectedNodeId === 'function'
+        ? String(window.activeWorkflowSelectedNodeId() || '')
+        : '';
+      if (!selectedId) {
+        window.dispatchEvent(new CustomEvent('workflow-react:select-node', { detail: { nodeId: '' } }));
+      }
       return;
     }
     deleteElements({ nodes: [{ id }] }).catch((error) => {
@@ -33,7 +40,14 @@ export const NodeLayout = memo(({
   };
 
   return (
-    <div className={`site-generation-card${selected ? ' is-selected' : ''}`} data-node-id={id} data-node-type={type}>
+    <div
+      className={`site-generation-card${selected ? ' is-selected' : ''}`}
+      data-node-id={id}
+      data-node-type={type}
+      onPointerDownCapture={() => {
+        selectSiteNode(id);
+      }}
+    >
       {showInputHandle && (
         <Handle
           type="target"
@@ -54,8 +68,11 @@ export const NodeLayout = memo(({
           className="nodrag nopan site-generation-delete"
           aria-label="删除节点"
           title="删除节点"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={removeNode}
+          onPointerDown={removeNode}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
         >
           <i className="bi bi-trash3" aria-hidden="true" />
         </button>

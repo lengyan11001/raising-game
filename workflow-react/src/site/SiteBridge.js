@@ -12,6 +12,19 @@ function siteWorkflow() {
     : { nodes: [], edges: [] };
 }
 
+function selectSiteNode(nodeId = "") {
+  if (typeof window.selectWorkflowNode === "function") {
+    return window.selectWorkflowNode(String(nodeId || ""), { render: false });
+  }
+  // Standalone canvas builds may not include the legacy platform panel. Keep
+  // React Flow selection and the persisted node contract aligned in that case.
+  const workflow = siteWorkflow();
+  if (!Array.isArray(workflow.nodes)) return null;
+  const id = String(nodeId || "");
+  if (id) return (workflow.nodes || []).find((node) => String(node.id) === id) || null;
+  return null;
+}
+
 function siteNode(nodeId = "") {
   return typeof window.workflowNodeById === "function"
     ? window.workflowNodeById(nodeId)
@@ -198,6 +211,7 @@ export {
   siteWorkflow,
   notifyNodeChanged,
   canConnect,
+  selectSiteNode,
   addSiteNode,
   runSiteNode,
   updateSiteNode,

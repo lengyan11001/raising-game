@@ -1,9 +1,9 @@
-## Canvas back navigation and delete icon fix (2026-11-07)
+## Canvas back navigation and scoped deletion fix (2026-11-07)
 
-- Canvas detail now records an editor history entry. Browser/Android back closes the detail back to the project library without clearing the workflow state; Backspace/Delete inside the canvas is consumed even with no selection, so it can no longer invoke browser history navigation.
-- Node top-right badge now uses Bootstrap Icons `bi-trash3` instead of the close glyph `×`; its click path remains scoped to that node.
-- Tests: `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 29/29; syntax checks, `git diff --check`, and production webpack build pass.
-- Deployment: `old-site` `36de035`; `platform-release` `6bfc4b9`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`. Production `workflow-react/dist/canvas.js` SHA-256 matches local: `baef2b6f3612e9869fa7cb59454fbbf3885ba0708babaa7f71a49148f13bf34a`; bundle contains `bi-trash3` and `__workflowCanvasProjectId`. Live was not deployed.
+- Superseded the earlier library-return behavior. Browser/Android back while a canvas project is open is now an in-canvas action: it deletes only the current selection, leaves all other nodes intact, and restores `#workflow` so the site shell cannot hide or tear down the canvas. `popstate` and `hashchange` from one back gesture are deduplicated. The explicit toolbar `← 返回` still returns to the project library.
+- Deletion no longer auto-selects a fallback node, so repeated back/delete gestures cannot cascade through multiple nodes. React Flow selection and persisted business selection are synchronized on pointerdown/click; trash uses `pointerdown` so React Flow drag handling cannot swallow it. The badge uses Bootstrap Icons `bi-trash3`.
+- Verification: targeted workflow tests pass 29/29; syntax checks, `git diff --check`, and production webpack build pass. Local Chrome/CDP verified that selecting `n2` then invoking browser back leaves `n1`, clears selection, and remains at `#workflow`; trash click removes only its own node.
+- Deployment: pending in this change set.
 
 ## Canvas generation node isolation fix (2026-11-07)
 

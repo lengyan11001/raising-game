@@ -671,19 +671,22 @@ test("inline workflow dialogs use an explicit async confirm handler", () => {
   assert.match(manager, /if \(button\.disabled\) return true;/);
 });
 
-test("browser back from canvas detail returns to the project library without clearing", () => {
+test("browser back stays in canvas and deletes only the current selection", () => {
   const index = read("workflow-react/src/index.js");
   const canvas = read("workflow-react/src/components/canvas/Canvas.js");
 
   const main = read("platform.main.js");
   assert.match(main, /if \(window\.handleWorkflowCanvasHistoryBack\?\.\(\)\) return;/);
   assert.match(index, /window\.handleWorkflowCanvasHistoryBack = \(\) =>/);
-  assert.match(index, /window\.history\.replaceState\(state, '', `\$\{window\.location\.pathname\}\$\{window\.location\.search\}\$\{nextHash\}`\)/);
-  assert.match(index, /returnToLibrary\(\{ syncHistory: false \}\)/);
+  assert.match(index, /window\.history\.replaceState\(state, '', `\$\{window\.location\.pathname\}\$\{window\.location\.search\}#workflow`\)/);
+  assert.match(index, /window\.deleteSelectedWorkflowNodeFromCanvas/);
+  assert.doesNotMatch(index, /leaveEditorForHistory/);
   assert.match(index, /rememberEditorHistory\(canvas\.id\)/);
   assert.match(index, /state\[WORKFLOW_CANVAS_HISTORY_KEY\] = String\(canvasId \|\| ''\)/);
   assert.match(index, /editorOpenRef\.current = false/);
   assert.match(canvas, /Always consume Backspace\/Delete while the canvas owns focus/);
+  assert.match(canvas, /window\.deleteSelectedWorkflowNodeFromCanvas = deleteCanvasSelection/);
+  assert.match(canvas, /onNodeClick=\{\(_, node\) =>/);
 });
 
 test("workflow delete keys only remove selected canvas elements", () => {
@@ -694,14 +697,14 @@ test("workflow delete keys only remove selected canvas elements", () => {
   assert.match(canvas, /deleteKeyCode=\{null\}/);
   assert.match(canvas, /const selectedNodes = getNodes\(\)\.filter\(\(node\) => node\.selected\)/);
   assert.match(canvas, /const selectedEdges = getEdges\(\)\.filter\(\(edge\) => edge\.selected\)/);
-  assert.match(canvas, /if \(!selectedNodes\.length && !selectedEdges\.length\) return/);
-  assert.match(canvas, /let removedBusinessNode = false/);
+  assert.match(canvas, /if \(!selectedNodes\.length && !selectedEdges\.length\) return false/);
+  assert.match(canvas, /const removedBusinessNode = removedNodeIds\.length > 0/);
   assert.match(canvas, /window\.removeWorkflowNode\(node\.id\)/);
   assert.match(canvas, /deleteElements\(\{ nodes: selectedNodes, edges: selectedEdges \}\)/);
   assert.match(canvas, /document\.addEventListener\('keydown', handleDeleteKeyDown, true\)/);
   // Backspace must be consumed even with no selection so it cannot navigate
   // browser history and tear down the canvas.
-  assert.match(canvas, /event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+const selectedNodes/);
+  assert.match(canvas, /event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+deleteCanvasSelection\(\)/);
   assert.match(layout, /className="nodrag nopan site-generation-delete"/);
   assert.match(layout, /aria-label="删除节点"/);
   assert.match(layout, /<i className="bi bi-trash3" aria-hidden="true" \/>/);

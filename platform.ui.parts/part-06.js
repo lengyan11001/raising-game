@@ -1374,7 +1374,7 @@ function deleteSelectedWorkflowNodes() {
   return true;
 }
 
-function removeWorkflowNode(nodeId = "") {
+function removeWorkflowNode(nodeId = "", { selectFallback = false } = {}) {
   const workflow = ensureWorkflowState();
   const node = workflow.nodes.find((item) => item.id === nodeId);
   if (!node) return false;
@@ -1395,7 +1395,11 @@ function removeWorkflowNode(nodeId = "") {
     edge.from && edge.to
     && edges.findIndex((item) => item.from === edge.from && item.to === edge.to) === edgeIndex
   ));
-  state.workflowSelectedNodeId = workflowVideoNodes()[0]?.id || workflowImageNodes()[0]?.id || workflow.nodes[0]?.id || "";
+  // Normal deletion leaves nothing selected. Switching projects may explicitly
+  // request a fallback so a freshly opened canvas still has a sensible target.
+  state.workflowSelectedNodeId = selectFallback
+    ? (workflowVideoNodes()[0]?.id || workflowImageNodes()[0]?.id || workflow.nodes[0]?.id || "")
+    : "";
   persistWorkflowState();
   return true;
 }

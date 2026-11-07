@@ -40,6 +40,7 @@ function WorkflowWorkspace() {
   const projectRef = React.useRef(null);
   const editorOpenRef = React.useRef(false);
   const historyTokenRef = React.useRef('');
+  const lastCanvasBackAtRef = React.useRef(0);
 
   React.useEffect(() => {
     projectRef.current = project;
@@ -74,43 +75,55 @@ function WorkflowWorkspace() {
     setLibraryVersion((value) => value + 1);
   }, []);
 
-  const leaveEditorForHistory = React.useCallback(() => {
+  const keepEditorOnHistoryBack = React.useCallback(() => {
     if (!editorOpenRef.current) return false;
-    // Keep the workflow route itself on the current history entry. The project
-    // detail is an in-page level, not a site tab; changing that entry to another
-    // hash lets platform.main.js hide the whole workflow panel.
+    const projectId = String(projectRef.current?.id || '');
+    if (!projectId) return false;
     const state = window.history.state && typeof window.history.state === 'object'
       ? { ...window.history.state }
       : {};
-    state[WORKFLOW_CANVAS_HISTORY_KEY] = '';
-    state[`${WORKFLOW_CANVAS_HISTORY_KEY}Token`] = '';
-    const nextHash = window.location.hash.startsWith('#workflow') ? window.location.hash : '#workflow';
-    window.history.replaceState(state, '', `${window.location.pathname}${window.location.search}${nextHash}`);
-    returnToLibrary({ syncHistory: false });
+    state[WORKFLOW_CANVAS_HISTORY_KEY] = projectId;
+    state[`${WORKFLOW_CANVAS_HISTORY_KEY}Token`] = `${projectId}:${Date.now()}`;
+    // Back is an in-canvas delete gesture. Replace the entry the browser just
+    // moved to with the editor entry again, otherwise the site shell can hide
+    // the workflow tab or a second back can tear down the canvas.
+    window.history.replaceState(state, '', `${window.location.pathname}${window.location.search}#workflow`);
     return true;
-  }, [returnToLibrary]);
+  }, []);
+
+  const handleCanvasHistoryBack = React.useCallback(() => {
+    if (!editorOpenRef.current) return false;
+    const now = Date.now();
+    // popstate and hashchange can both fire for one physical back gesture.
+    // Consume the pair as one deletion, never two.
+    if (now - lastCanvasBackAtRef.current > 180) {
+      lastCanvasBackAtRef.current = now;
+      if (typeof window.deleteSelectedWorkflowNodeFromCanvas === 'function') {
+        window.deleteSelectedWorkflowNodeFromCanvas();
+      }
+    }
+    keepEditorOnHistoryBack();
+    return true;
+  }, [keepEditorOnHistoryBack]);
 
   React.useEffect(() => {
     const handlePopState = (event) => {
       if (!editorOpenRef.current) return;
-      // Browser/Android back has already moved to the previous entry.
       event.stopImmediatePropagation?.();
-      leaveEditorForHistory();
+      handleCanvasHistoryBack();
     };
     // The site shell's hash listener is registered before this component. Make
     // the bridge available to it so a hash back gesture can be resolved here
     // before setTab() hides the canvas.
     window.handleWorkflowCanvasHistoryBack = () => {
-      if (!editorOpenRef.current) return false;
-      leaveEditorForHistory();
-      return true;
+      return handleCanvasHistoryBack();
     };
     window.addEventListener('popstate', handlePopState);
     return () => {
       window.removeEventListener('popstate', handlePopState);
       if (window.handleWorkflowCanvasHistoryBack) delete window.handleWorkflowCanvasHistoryBack;
     };
-  }, [leaveEditorForHistory]);
+  }, [handleCanvasHistoryBack]);
 
   const openProject = React.useCallback(async (summary) => {
     setLoading(true);
@@ -239,7 +252,7 @@ function sync() {
 }
 
 function selectNode(nodeId = '') {
-  if (!mountedHost || !nodeId) return false;
+  if (!mountedHost) return false;
   window.dispatchEvent(new CustomEvent('workflow-react:select-node', { detail: { nodeId } }));
   return true;
 }

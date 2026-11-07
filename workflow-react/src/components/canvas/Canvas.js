@@ -25,6 +25,7 @@ import {
   toReactFlowGraph,
   readCanvasViewport,
   writeCanvasViewport,
+  selectSiteNode,
 } from '../../site/SiteBridge';
 import { NodeOperationsProvider } from './providers/NodeOperationsProvider';
 import { NodeDropzoneProvider } from './providers/NodeDropzoneProvider';
@@ -79,6 +80,50 @@ const CanvasInner = ({
   const edgesRef = useRef(initialEdges);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
+
+  const clearCanvasSelection = useCallback(() => {
+    selectSiteNode('');
+    window.dispatchEvent(new CustomEvent('workflow-react:select-node', { detail: { nodeId: '' } }));
+  }, []);
+
+  const deleteCanvasSelection = useCallback(() => {
+    const selectedNodes = getNodes().filter((node) => node.selected);
+    const selectedEdges = getEdges().filter((edge) => edge.selected);
+    const businessSelectedId = typeof window.activeWorkflowSelectedNodeId === 'function'
+      ? String(window.activeWorkflowSelectedNodeId() || '')
+      : '';
+    if (!selectedNodes.length && businessSelectedId) {
+      const fallback = getNodes().find((node) => String(node.id) === businessSelectedId);
+      if (fallback) selectedNodes.push(fallback);
+    }
+    if (!selectedNodes.length && !selectedEdges.length) return false;
+
+    const removedNodeIds = selectedNodes
+      .filter((node) => typeof window.removeWorkflowNode === 'function' && window.removeWorkflowNode(node.id))
+      .map((node) => String(node.id));
+    const removedBusinessNode = removedNodeIds.length > 0;
+    if (removedBusinessNode) {
+      const graph = toReactFlowGraph();
+      setNodes(graph.nodes);
+      nodesRef.current = graph.nodes;
+      setEdges(graph.edges);
+      edgesRef.current = graph.edges;
+      onGraphChange?.(graph.nodes, graph.edges);
+      const businessSelectedId = typeof window.activeWorkflowSelectedNodeId === 'function'
+        ? String(window.activeWorkflowSelectedNodeId() || '')
+        : '';
+      if (!businessSelectedId) clearCanvasSelection();
+      window.dispatchEvent(new CustomEvent('workflow-react-node-change', { detail: { nodeId: '' } }));
+      return true;
+    }
+    if (selectedEdges.length) {
+      deleteElements({ nodes: selectedNodes, edges: selectedEdges }).catch((error) => {
+        console.warn('Unable to delete selected canvas elements', error);
+      });
+      return true;
+    }
+    return false;
+  }, [clearCanvasSelection, deleteElements, getEdges, getNodes, onGraphChange]);
 
   const measuredHandleNodesRef = useRef(new Set());
   const nodeIdsKey = nodes.map((node) => node.id).join('|');
@@ -257,7 +302,6 @@ const CanvasInner = ({
     };
     const select = (event) => {
       const nodeId = String(event?.detail?.nodeId || '');
-      if (!nodeId) return;
       setNodes((current) => {
         const next = current.map((node) => ({ ...node, selected: node.id === nodeId }));
         nodesRef.current = next;
@@ -270,6 +314,34 @@ const CanvasInner = ({
       window.removeEventListener('workflow-react:sync', sync);
       window.removeEventListener('workflow-react:select-node', select);
     };
+  }, []);
+
+  useEffect(() => {
+    window.deleteSelectedWorkflowNodeFromCanvas = deleteCanvasSelection;
+    return () => {
+      if (window.deleteSelectedWorkflowNodeFromCanvas === deleteCanvasSelection) {
+        delete window.deleteSelectedWorkflowNodeFromCanvas;
+      }
+    };
+  }, [deleteCanvasSelection]);
+
+  useEffect(() => {
+    // Capture the business node id straight from the flow graph. The node
+    // component's pointer capture runs while React Flow is still calculating a
+    // multi-selection, so relying only on onNodeClick leaves the business
+    // selection stale in some browsers.
+    const handleNodePointerDown = (event) => {
+      const flowNode = event.target?.closest?.('.react-flow__node');
+      const nodeId = String(flowNode?.dataset?.id || '');
+      if (!nodeId || event.target?.closest?.('.site-generation-delete')) return;
+      selectSiteNode(nodeId);
+      // Update the visual selection before the delete gesture, because
+      // bindings are often invoked while the task is still on the previous
+      // frame. React Flow also processes its own select change afterwards.
+      window.dispatchEvent(new CustomEvent('workflow-react:select-node', { detail: { nodeId } }));
+    };
+    document.addEventListener('pointerdown', handleNodePointerDown, true);
+    return () => document.removeEventListener('pointerdown', handleNodePointerDown, true);
   }, []);
 
   // React Flow's default backspace handler treats every selected element as
@@ -291,36 +363,11 @@ const CanvasInner = ({
       // editor, which looks like the canvas was cleared.
       event.preventDefault();
       event.stopPropagation();
-      const selectedNodes = getNodes().filter((node) => node.selected);
-      const selectedEdges = getEdges().filter((edge) => edge.selected);
-      if (!selectedNodes.length && !selectedEdges.length) return;
-
-      // React Flow is a view over the persisted business graph. Delete nodes
-      // through the site first, otherwise the next sync restores them. Edges
-      // remain view-level graph edits and can be removed directly.
-      let removedBusinessNode = false;
-      selectedNodes.forEach((node) => {
-        if (typeof window.removeWorkflowNode === 'function' && window.removeWorkflowNode(node.id)) {
-          removedBusinessNode = true;
-        }
-      });
-      if (removedBusinessNode) {
-        window.dispatchEvent(new CustomEvent('workflow-react-node-change', { detail: { nodeId: '' } }));
-        const graph = toReactFlowGraph();
-        setNodes(graph.nodes);
-        nodesRef.current = graph.nodes;
-        setEdges(graph.edges);
-        edgesRef.current = graph.edges;
-        onGraphChange?.(graph.nodes, graph.edges);
-        return;
-      }
-      deleteElements({ nodes: selectedNodes, edges: selectedEdges }).catch((error) => {
-        console.warn('Unable to delete selected canvas elements', error);
-      });
+      deleteCanvasSelection();
     };
     document.addEventListener('keydown', handleDeleteKeyDown, true);
     return () => document.removeEventListener('keydown', handleDeleteKeyDown, true);
-  }, [deleteElements, getEdges, getNodes, onGraphChange, readOnly]);
+  }, [deleteCanvasSelection, readOnly]);
   const isMountedRef = useRef(true); // 追踪组件是否已挂载
   const displayEdges = useMemo(
     () => buildConnectionGuideEdges(edges, nodes),
@@ -430,9 +477,10 @@ const CanvasInner = ({
         addNodeAtPointer(event);
         return;
       }
+      clearCanvasSelection();
       lastPaneClickRef.current = { time: now, x: event.clientX, y: event.clientY };
     },
-    [addNodeAtPointer, readOnly]
+    [addNodeAtPointer, clearCanvasSelection, readOnly]
   );
 
   // 保留原生双击兼容路径；与 pane 点击识别去重。
@@ -558,6 +606,9 @@ const CanvasInner = ({
             writeCanvasViewport(viewport);
           }}
           onPaneClick={handlePaneClick}
+          onNodeClick={(_, node) => {
+            selectSiteNode(node.id);
+          }}
           onDoubleClick={handleDoubleClick}
           onDrop={onDrop}
           onDragOver={onDragOver}
