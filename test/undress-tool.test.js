@@ -265,7 +265,7 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(server, /left\[0\] < right\[0\] \? -1 : 1/);
   assert.doesNotMatch(server, /left\[0\]\.localeCompare\(right\[0\]\)/);
   assert.ok(server.includes("${storage.provider}_signed"));
-  assert.match(ui, /href = payload\.url/);
+  assert.match(ui, /href = String\(payload\.url \|\| ""\)\.trim\(\)/);
   assert.match(ui, /download-url\?\$\{query\}/);
   assert.match(ui, /triggerBrowserDownload\(href, fileName\)/);
   assert.match(history, /setAdvancedDownloadButtonState\(button, "transferring"\)/);

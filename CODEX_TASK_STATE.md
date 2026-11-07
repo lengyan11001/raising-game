@@ -1,3 +1,12 @@
+## Download signing on every click (2026-11-07)
+
+- User reported Safari opening generated-media download links in a player and showing a timeout. Confirmed signed OSS URLs expire after 600 seconds, while ordinary download used the cached CDN URL in the generation record and opened it with `target="_blank"`.
+- Standard downloads now always request `/api/generation-records/:taskId/download-url` at click time and immediately navigate the current context to the fresh attachment URL. The stale-URL fast path and popup/new-tab behavior were removed.
+- If fresh signing fails, standard downloads fall back to the same-origin authenticated `/api/generation-records/:taskId/download` proxy, which always returns `Content-Disposition: attachment`. Legacy records without a task id retain their stored URL fallback.
+- `download2` keeps its existing R2 preparation polling path and also uses the attachment navigation helper.
+- Added `test/download-signing.test.js` and updated `test/undress-tool.test.js`. Targeted signing/download tests pass 36/36; `node --check` and `git diff --check` pass.
+- Deployment: pending.
+
 ## Seedance recent URL audit (2026-11-07)
 
 - User asked whether recent SD tasks had started sending URLs upstream again. Audited production PostgreSQL `app_generation_records` for the latest 24 hours, not just source code.

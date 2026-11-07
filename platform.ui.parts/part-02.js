@@ -518,12 +518,11 @@ function showAdvancedDownloadError(error) {
   });
 }
 
-function triggerBrowserDownload(href, fileName, options = {}) {
+function triggerBrowserDownload(href, fileName) {
   const link = document.createElement("a");
   link.href = href;
   link.download = fileName;
   link.rel = "noopener";
-  if (options.newTab) link.target = "_blank";
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -542,26 +541,11 @@ async function downloadGenerationRecord(record = {}, { advanced = false } = {}) 
 
 async function downloadGenerationRecordInternal(record = {}, { advanced = false } = {}) {
   let href = generationRecordDownloadHref(record);
-  if (!advanced && href && !href.startsWith("/api/")) return triggerBrowserDownload(href, generationRecordDownloadName(record), { newTab: true });
   let fileName = generationRecordDownloadName(record);
   const taskId = String(record?.taskId || "").trim();
   const legacyHref = taskId && !taskId.startsWith("pending-")
     ? `/api/generation-records/${encodeURIComponent(taskId)}/download`
     : "";
-
-  // Open a browser tab immediately. Fetching the whole media file through
-  // fetch()+blob made the click appear unresponsive until the download had
-  // completely finished. The browser can stream the upstream/R2 URL itself.
-  const popup = advanced ? null : window.open("about:blank", "_blank");
-  const openHref = (url) => {
-    const target = String(url || "").trim();
-    if (!target) return;
-    if (popup && !popup.closed) {
-      popup.location.href = target;
-      return;
-    }
-    window.open(target, "_blank");
-  };
 
   // Advanced downloads always resolve server-side first. A provider URL in
   // the record is not a durable download and must never bypass the on-demand
@@ -597,28 +581,32 @@ async function downloadGenerationRecordInternal(record = {}, { advanced = false 
     throw new Error("高级下载转存超时，请稍后重试。");
   }
 
-  // Standard downloads intentionally use the provider asset whenever it is
-  // available. Do not wait for a presign request in that path.
-  if (href && !href.startsWith("/api/")) {
-    openHref(href);
-    return;
-  }
+  // Every standard download click gets a fresh signature. Cached CDN URLs in
+  // history records may already be expired when the user clicks download.
   if (taskId && !taskId.startsWith("pending-")) {
     try {
       const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url`);
-      if (payload.url) {
-        href = payload.url;
-        fileName = payload.fileName || fileName;
-      }
-      if (payload.source === "r2_signed") {
+      href = String(payload.url || "").trim();
+      fileName = payload.fileName || fileName;
+      if (href) {
+        // Signed storage URLs use Content-Disposition: attachment. Keep the
+        // download in the current browsing context because Safari ignores
+        // cross-origin download hints on newly opened tabs and plays the media.
         triggerBrowserDownload(href, fileName);
         return;
       }
     } catch {
-      // Fall through to the public URL or legacy download endpoint.
+      // Fall through to the authenticated proxy. Never reuse a stale cached
+      // signed URL from the record after signing fails.
     }
   }
-  openHref(href || legacyHref);
+  if (legacyHref) {
+    triggerBrowserDownload(legacyHref, fileName);
+    return;
+  }
+  // Legacy records without a task id can only use whichever durable URL they
+  // already contain. Current records always re-sign above.
+  if (href) triggerBrowserDownload(href, fileName);
 }
 
 function stripModelParams(value) {
