@@ -1093,12 +1093,12 @@ function normalizeAdvancedPricing(pricing = {}) {
       "4k": normalizeStoredCredits(seedanceVideoInput["4k"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["4k"]),
     },
     seedanceFastCreditsPerSecondByResolution: {
-      "480p": normalizeSeedanceFastCredits(seedanceFast["480p"], DEFAULT_ADVANCED_PRICING.seedanceFastCreditsPerSecondByResolution["480p"], [12, 4.0824]),
-      "720p": normalizeSeedanceFastCredits(seedanceFast["720p"], DEFAULT_ADVANCED_PRICING.seedanceFastCreditsPerSecondByResolution["720p"], [24, 8.64864]),
+      "480p": normalizeSeedanceFastCredits(seedanceFast["480p"], DEFAULT_ADVANCED_PRICING.seedanceFastCreditsPerSecondByResolution["480p"], [8, 9.6, 12, 4.0824]),
+      "720p": normalizeSeedanceFastCredits(seedanceFast["720p"], DEFAULT_ADVANCED_PRICING.seedanceFastCreditsPerSecondByResolution["720p"], [20, 19.2, 24, 8.64864]),
     },
     seedanceFastVideoInputCreditsPerSecondByResolution: {
-      "480p": normalizeSeedanceFastCredits(seedanceFastVideoInput["480p"], DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["480p"], [8, 2.4057]),
-      "720p": normalizeSeedanceFastCredits(seedanceFastVideoInput["720p"], DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["720p"], [16, 5.09652]),
+      "480p": normalizeSeedanceFastCredits(seedanceFastVideoInput["480p"], DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["480p"], [5, 6.4, 8, 2.4057]),
+      "720p": normalizeSeedanceFastCredits(seedanceFastVideoInput["720p"], DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["720p"], [10, 12.8, 16, 5.09652]),
     },
     wan30CreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(wan30["480p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["480p"], 6),

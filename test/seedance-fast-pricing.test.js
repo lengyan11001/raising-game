@@ -74,6 +74,20 @@ test("legacy Fast defaults migrate without overwriting custom prices", () => {
   assert.equal(migrated.creditsPerSecond, 17.29728);
   assert.equal(migrated.videoInputCreditsPerSecond, 10.19304);
 
+  const storedLegacyDefaults = {
+    seedanceFastCreditsPerSecondByResolution: { "480p": 8, "720p": 20 },
+    seedanceFastVideoInputCreditsPerSecondByResolution: { "480p": 5, "720p": 10 },
+  };
+  const storedMigrated = application.advancedModelPricing("seedance", {
+    duration: 5,
+    resolution: "720p",
+    seedanceTier: "fast",
+    inputVideoSeconds: 1,
+    advancedPricing: storedLegacyDefaults,
+  });
+  assert.equal(storedMigrated.creditsPerSecond, 17.29728);
+  assert.equal(storedMigrated.videoInputCreditsPerSecond, 10.19304);
+
   const roundedLegacy = {
     seedanceFastCreditsPerSecondByResolution: { "480p": 4.0824, "720p": 8.64864 },
     seedanceFastVideoInputCreditsPerSecondByResolution: { "480p": 2.4057, "720p": 5.09652 },
