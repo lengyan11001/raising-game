@@ -1337,3 +1337,11 @@ CODEX_TASK_STATE.md
 - Exported five-state evidence sheet `/Users/x042/.codex/visualizations/2026/11/05/01a1ab8c-4aa5-7a33-82cd-78be1dd6cb1f/generate-parameter-popovers.png`.
 - Design: each parameter chip is its own anchor; popover opens immediately below/above depending on viewport space; only one open at a time; clicking an option updates the chip and closes; click outside closes; keyboard focus remains native.
 - Model/mode/resolution use compact option pills. Ratio uses visual frame previews. Duration uses readout + range + quick values. Panels stay narrow and anchored, not full-screen modals.
+# Canvas login token fix (2026-11-07)
+
+- User reported `Please sign in to continue` after a successful site login. Root cause was not browser cache: the React canvas requested same-origin `/api/workflow/canvases` with cookies only, while the site authentication layer uses `Authorization: Bearer <raisingGameToken>`.
+- Confirmed the canvas never targets an external/source-project origin. All workflow requests are relative same-origin paths. Added `workflow-react/src/components/workflow/canvasApi.js` and routed the library, editor, and workspace requests through it; it reads `raisingGameToken`, sends Bearer auth when present, keeps `credentials: include`, preserves headers/content type, and surfaces server errors.
+- Regression coverage: targeted workflow tests pass 25/25. The Chrome acceptance mock now rejects `/api/workflow/*` requests without `Authorization: Bearer canvas-full-token`; the full browser flow still passes (project list, create/save/delete, two nodes, real handle connection, proportional zoom, upload preserving graph, and reopen preserving graph).
+- Source commit: `97bbe6c`. Platform release: `0ce9df4c008ec062e615c43f58a445013d62385f`. Production page cache key is `mw5y4fd1`; production `canvas.js` hash matches local exactly (`e4af47e68ee7f41bcd944a7aa3433f22c7fe675bf8fb6788cff6381d77a4ed69`, 537550 bytes) and contains the token/Bearer logic.
+- Deployed only `123vips.com` through `scripts/deploy_local.sh --site old`. Health is `200 {"ok":true}`. Anonymous workflow canvas access remains `401` as required. Live was not deployed.
+
