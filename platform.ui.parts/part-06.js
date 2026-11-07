@@ -450,6 +450,22 @@ function workflowNodeHasOwnContent(node = {}) {
   return Boolean(workflowNodeOwnResultVideos(node).length || data.posterUrl || data.record || data.taskId);
 }
 
+function cloneWorkflowInputEdges(sourceNodeId = "", targetNodeId = "") {
+  if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) return;
+  const workflow = ensureWorkflowState();
+  const existingSources = new Set(
+    workflow.edges
+      .filter((edge) => edge.to === targetNodeId)
+      .map((edge) => edge.from),
+  );
+  workflow.edges
+    .filter((edge) => edge.to === sourceNodeId && edge.from !== targetNodeId && !existingSources.has(edge.from))
+    .forEach((edge) => {
+      existingSources.add(edge.from);
+      workflow.edges.push({ from: edge.from, to: targetNodeId });
+    });
+}
+
 function workflowGenerationRunNode(node = {}) {
   if (!node?.id) return null;
   if (node.data?.generationRunPlaceholder) return node;
@@ -457,7 +473,6 @@ function workflowGenerationRunNode(node = {}) {
   const kind = ["imageDisplay", "imageGenerate"].includes(node.type) ? "image" : "video";
   const newNode = createWorkflowNode(kind === "video" ? "add-video" : "add-image", workflowGeneratedNodePosition(node));
   if (!newNode) return node;
-  const inputReferences = workflowNodeCanvasReferences(node);
   newNode.title = `${kind === "video" ? "视频结果" : "图片结果"} ${workflowGeneratedResultChildren(node).length + 1}`;
   newNode.data = {
     ...(newNode.data || {}),
@@ -483,16 +498,19 @@ function workflowGenerationRunNode(node = {}) {
     duration: node.data?.duration,
     mode: node.data?.mode,
     addSound: node.data?.addSound,
-    referenceImages: inputReferences.images,
-    referenceVideos: inputReferences.videos,
-    referenceAudios: inputReferences.audios,
+    referenceImages: workflowNodeReferences(node, "referenceImages"),
+    referenceVideos: workflowNodeReferences(node, "referenceVideos"),
+    referenceAudios: workflowNodeReferences(node, "referenceAudios"),
     source: "generated",
     generatedFromNodeId: node.id,
     generationRunPlaceholder: true,
     status: "submitting",
     error: "",
   };
-  window.connectWorkflowNodes?.(node.id, newNode.id);
+  // A repeat generation must receive the same upstream inputs and explicit
+  // references as the source node. Connecting source -> new would feed the
+  // source's own result back as a reference, which is not part of its params.
+  cloneWorkflowInputEdges(node.id, newNode.id);
   state.workflowSelectedNodeId = newNode.id;
   persistWorkflowState();
   window.WorkflowReactCanvas?.sync?.();

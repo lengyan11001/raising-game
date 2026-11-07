@@ -1,3 +1,10 @@
+## Canvas repeat-generation parameter isolation (2026-11-07)
+
+- User reported that clicking Generate on a node with an existing result created a new node whose reference media included the source node's result. Root cause: `workflowGenerationRunNode()` connected `source -> new`, so the new node consumed the source output as an upstream input.
+- Repeat generation now clones only the source node's own generation parameters and explicit reference arrays, and copies its existing upstream input edges to the new node. It never connects the source node itself to the replacement node, so the prior result does not become an input.
+- Regression contract: `test/workflow-canvases.test.js` asserts `cloneWorkflowInputEdges(node.id, newNode.id)` and rejects `connectWorkflowNodes(node.id, newNode.id)`. Targeted workflow tests pass 29/29; syntax and `git diff --check` pass.
+- Deployment: pending.
+
 ## Canvas back navigation and scoped deletion fix (2026-11-07)
 
 - Superseded the earlier library-return behavior. Browser/Android back while a canvas project is open is now an in-canvas action: it deletes only the current selection, leaves all other nodes intact, and restores `#workflow` so the site shell cannot hide or tear down the canvas. `popstate` and `hashchange` from one back gesture are deduplicated. The explicit toolbar `← 返回` still returns to the project library.

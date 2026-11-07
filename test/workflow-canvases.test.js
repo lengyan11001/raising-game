@@ -635,9 +635,11 @@ test("workflow generations create a selected same-type node without replacing pr
   assert.match(part, /generationRunPlaceholder: true/);
   assert.match(part, /resultImageUrls: \[\]/);
   assert.match(part, /resultVideoUrls: \[\]/);
-  assert.match(part, /referenceImages: inputReferences\.images/);
-  assert.match(part, /referenceVideos: inputReferences\.videos/);
-  assert.match(part, /window\.connectWorkflowNodes\?\.\(node\.id, newNode\.id\)/);
+  assert.match(part, /function cloneWorkflowInputEdges\(sourceNodeId = "", targetNodeId = ""\)/);
+  assert.match(part, /referenceImages: workflowNodeReferences\(node, "referenceImages"\)/);
+  assert.match(part, /referenceVideos: workflowNodeReferences\(node, "referenceVideos"\)/);
+  assert.match(part, /cloneWorkflowInputEdges\(node\.id, newNode\.id\)/);
+  assert.doesNotMatch(part, /window\.connectWorkflowNodes\?\.\(node\.id, newNode\.id\)/);
   assert.match(part, /const runNode = workflowGenerationRunNode\(node\)/);
   assert.doesNotMatch(part, /clearWorkflowExecutionResults\(\{ fromNodeId: node\.id/);
   assert.match(part, /workflowStoreCompletedNodeResult\(node, "image", \{[\s\S]*?imageUrl/);
