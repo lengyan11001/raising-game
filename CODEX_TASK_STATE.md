@@ -4,6 +4,7 @@
 - Root cause was not navigation. `NodeLayout` deleted the business node while React Flow still rendered its stale node component; `SiteImageGenerationNode`/`SiteVideoGenerationNode` then called helpers such as `workflowNodeOwnResultImages`, `workflowNodeRunState`, and `workflowCostLabel` with a null business node, throwing and unmounting the canvas.
 - Deletion now syncs the React Flow graph before notifying the removed node hook, and both generation node types return no node shell while their business data is momentarily absent. Result helpers also guard null records.
 - Verification: targeted workflow suite 29/29; `node --check platform.ui.parts/part-06.js`; `git diff --check`; production webpack build passed. Local Chrome/CDP actual trash click on the second node leaves `editor:true`, `flow:true`, `href:#workflow`, only the first node remains, and selection clears.
+- Deployment: `old-site` `5bcabad`; `platform-release` `27720cb`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`. Production `workflow-react/dist/canvas.js` SHA-256 matches local: `34a180bec16e6f8b3b2954cffe9aab883fb79528a7deedb7b268fe2cebb066bf`. Live was not deployed.
 
 ## Canvas repeat-generation parameter isolation (2026-11-07)
 
