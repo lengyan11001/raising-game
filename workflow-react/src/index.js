@@ -38,6 +38,8 @@ function WorkflowWorkspace() {
   const [libraryVersion, setLibraryVersion] = React.useState(0);
   const [editorVersion, setEditorVersion] = React.useState(0);
   const projectRef = React.useRef(null);
+  const editorOpenRef = React.useRef(false);
+  const historyTokenRef = React.useRef('');
 
   React.useEffect(() => {
     projectRef.current = project;
@@ -47,12 +49,16 @@ function WorkflowWorkspace() {
     const state = window.history.state && typeof window.history.state === 'object'
       ? { ...window.history.state }
       : {};
+    const historyToken = `${String(canvasId || '')}:${Date.now()}`;
+    historyTokenRef.current = historyToken;
     state[WORKFLOW_CANVAS_HISTORY_KEY] = String(canvasId || '');
+    state[`${WORKFLOW_CANVAS_HISTORY_KEY}Token`] = historyToken;
     const method = replace ? 'replaceState' : 'pushState';
     window.history[method](state, '', window.location.href);
   }, []);
 
   const returnToLibrary = React.useCallback(({ syncHistory = true } = {}) => {
+    editorOpenRef.current = false;
     if (typeof window.deactivateWorkflowCanvasProject === 'function') {
       window.deactivateWorkflowCanvasProject();
     }
@@ -68,18 +74,43 @@ function WorkflowWorkspace() {
     setLibraryVersion((value) => value + 1);
   }, []);
 
+  const leaveEditorForHistory = React.useCallback(() => {
+    if (!editorOpenRef.current) return false;
+    // Keep the workflow route itself on the current history entry. The project
+    // detail is an in-page level, not a site tab; changing that entry to another
+    // hash lets platform.main.js hide the whole workflow panel.
+    const state = window.history.state && typeof window.history.state === 'object'
+      ? { ...window.history.state }
+      : {};
+    state[WORKFLOW_CANVAS_HISTORY_KEY] = '';
+    state[`${WORKFLOW_CANVAS_HISTORY_KEY}Token`] = '';
+    const nextHash = window.location.hash.startsWith('#workflow') ? window.location.hash : '#workflow';
+    window.history.replaceState(state, '', `${window.location.pathname}${window.location.search}${nextHash}`);
+    returnToLibrary({ syncHistory: false });
+    return true;
+  }, [returnToLibrary]);
+
   React.useEffect(() => {
-    const handlePopState = () => {
-      if (!projectRef.current) return;
-      const historyId = String(window.history.state?.[WORKFLOW_CANVAS_HISTORY_KEY] || '');
-      if (historyId === String(projectRef.current.id || '')) return;
-      // Browser/Android back from a canvas detail returns to the project list
-      // instead of letting the route change tear down the editor state.
-      returnToLibrary({ syncHistory: false });
+    const handlePopState = (event) => {
+      if (!editorOpenRef.current) return;
+      // Browser/Android back has already moved to the previous entry.
+      event.stopImmediatePropagation?.();
+      leaveEditorForHistory();
+    };
+    // The site shell's hash listener is registered before this component. Make
+    // the bridge available to it so a hash back gesture can be resolved here
+    // before setTab() hides the canvas.
+    window.handleWorkflowCanvasHistoryBack = () => {
+      if (!editorOpenRef.current) return false;
+      leaveEditorForHistory();
+      return true;
     };
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [returnToLibrary]);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (window.handleWorkflowCanvasHistoryBack) delete window.handleWorkflowCanvasHistoryBack;
+    };
+  }, [leaveEditorForHistory]);
 
   const openProject = React.useCallback(async (summary) => {
     setLoading(true);
@@ -92,6 +123,7 @@ function WorkflowWorkspace() {
         throw new Error('画布站点桥接未加载');
       }
       if (!window.activateWorkflowCanvasProject(canvas)) throw new Error('画布激活失败');
+      editorOpenRef.current = true;
       rememberEditorHistory(canvas.id);
       setProject(canvas);
       setEditorVersion((value) => value + 1);
@@ -121,6 +153,7 @@ function WorkflowWorkspace() {
         throw new Error('画布站点桥接未加载');
       }
       if (!window.activateWorkflowCanvasProject({ ...canvas, workflow })) throw new Error('画布激活失败');
+      editorOpenRef.current = true;
       rememberEditorHistory(canvas.id, Boolean(projectRef.current));
       setProject({ ...canvas, workflow });
       setEditorVersion((value) => value + 1);

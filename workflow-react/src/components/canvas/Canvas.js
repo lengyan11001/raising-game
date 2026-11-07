@@ -295,13 +295,32 @@ const CanvasInner = ({
       const selectedEdges = getEdges().filter((edge) => edge.selected);
       if (!selectedNodes.length && !selectedEdges.length) return;
 
+      // React Flow is a view over the persisted business graph. Delete nodes
+      // through the site first, otherwise the next sync restores them. Edges
+      // remain view-level graph edits and can be removed directly.
+      let removedBusinessNode = false;
+      selectedNodes.forEach((node) => {
+        if (typeof window.removeWorkflowNode === 'function' && window.removeWorkflowNode(node.id)) {
+          removedBusinessNode = true;
+        }
+      });
+      if (removedBusinessNode) {
+        window.dispatchEvent(new CustomEvent('workflow-react-node-change', { detail: { nodeId: '' } }));
+        const graph = toReactFlowGraph();
+        setNodes(graph.nodes);
+        nodesRef.current = graph.nodes;
+        setEdges(graph.edges);
+        edgesRef.current = graph.edges;
+        onGraphChange?.(graph.nodes, graph.edges);
+        return;
+      }
       deleteElements({ nodes: selectedNodes, edges: selectedEdges }).catch((error) => {
         console.warn('Unable to delete selected canvas elements', error);
       });
     };
     document.addEventListener('keydown', handleDeleteKeyDown, true);
     return () => document.removeEventListener('keydown', handleDeleteKeyDown, true);
-  }, [deleteElements, getEdges, getNodes, readOnly]);
+  }, [deleteElements, getEdges, getNodes, onGraphChange, readOnly]);
   const isMountedRef = useRef(true); // 追踪组件是否已挂载
   const displayEdges = useMemo(
     () => buildConnectionGuideEdges(edges, nodes),

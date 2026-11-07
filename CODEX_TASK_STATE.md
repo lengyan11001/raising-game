@@ -3,7 +3,7 @@
 - Canvas detail now records an editor history entry. Browser/Android back closes the detail back to the project library without clearing the workflow state; Backspace/Delete inside the canvas is consumed even with no selection, so it can no longer invoke browser history navigation.
 - Node top-right badge now uses Bootstrap Icons `bi-trash3` instead of the close glyph `×`; its click path remains scoped to that node.
 - Tests: `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 29/29; syntax checks, `git diff --check`, and production webpack build pass.
-- Deployment status: pending for this fix.
+- Deployment: `old-site` `36de035`; `platform-release` `6bfc4b9`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`. Production `workflow-react/dist/canvas.js` SHA-256 matches local: `baef2b6f3612e9869fa7cb59454fbbf3885ba0708babaa7f71a49148f13bf34a`; bundle contains `bi-trash3` and `__workflowCanvasProjectId`. Live was not deployed.
 
 ## Canvas generation node isolation fix (2026-11-07)
 

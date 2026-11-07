@@ -91,7 +91,12 @@ els.wan30LaunchClose?.addEventListener("click", () => {
 syncWan30LaunchVisibility(false);
 els.mobileDrawerToggle?.addEventListener("click", toggleMobileDrawer);
 els.mobileDrawerBackdrop?.addEventListener("click", closeMobileDrawer);
-window.addEventListener("hashchange", () => setTab(window.location.hash));
+window.addEventListener("hashchange", () => {
+  // The React canvas owns history while a project detail is open. Resolve the
+  // back gesture inside the canvas first so the shell does not hide #workflow.
+  if (window.handleWorkflowCanvasHistoryBack?.()) return;
+  setTab(window.location.hash);
+});
 els.templateImage?.addEventListener("change", async () => {
   const file = els.templateImage.files?.[0];
   if (!file) return;

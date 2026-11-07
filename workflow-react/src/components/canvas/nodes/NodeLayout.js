@@ -19,6 +19,14 @@ export const NodeLayout = memo(({
   const removeNode = (event) => {
     event.preventDefault();
     event.stopPropagation();
+    // React Flow is a controlled view over the site's business workflow.
+    // Remove the persisted node first so the next bridge sync cannot restore
+    // it, then resync the canvas (including its connected edges).
+    if (typeof window.removeWorkflowNode === 'function' && window.removeWorkflowNode(id)) {
+      window.dispatchEvent(new CustomEvent('workflow-react-node-change', { detail: { nodeId: id } }));
+      window.dispatchEvent(new CustomEvent('workflow-react:sync'));
+      return;
+    }
     deleteElements({ nodes: [{ id }] }).catch((error) => {
       console.warn('Unable to delete canvas node', error);
     });

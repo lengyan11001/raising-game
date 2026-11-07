@@ -675,10 +675,14 @@ test("browser back from canvas detail returns to the project library without cle
   const index = read("workflow-react/src/index.js");
   const canvas = read("workflow-react/src/components/canvas/Canvas.js");
 
-  assert.match(index, /window.addEventListener\('popstate', handlePopState\)/);
+  const main = read("platform.main.js");
+  assert.match(main, /if \(window\.handleWorkflowCanvasHistoryBack\?\.\(\)\) return;/);
+  assert.match(index, /window\.handleWorkflowCanvasHistoryBack = \(\) =>/);
+  assert.match(index, /window\.history\.replaceState\(state, '', `\$\{window\.location\.pathname\}\$\{window\.location\.search\}\$\{nextHash\}`\)/);
   assert.match(index, /returnToLibrary\(\{ syncHistory: false \}\)/);
   assert.match(index, /rememberEditorHistory\(canvas\.id\)/);
   assert.match(index, /state\[WORKFLOW_CANVAS_HISTORY_KEY\] = String\(canvasId \|\| ''\)/);
+  assert.match(index, /editorOpenRef\.current = false/);
   assert.match(canvas, /Always consume Backspace\/Delete while the canvas owns focus/);
 });
 
@@ -691,6 +695,8 @@ test("workflow delete keys only remove selected canvas elements", () => {
   assert.match(canvas, /const selectedNodes = getNodes\(\)\.filter\(\(node\) => node\.selected\)/);
   assert.match(canvas, /const selectedEdges = getEdges\(\)\.filter\(\(edge\) => edge\.selected\)/);
   assert.match(canvas, /if \(!selectedNodes\.length && !selectedEdges\.length\) return/);
+  assert.match(canvas, /let removedBusinessNode = false/);
+  assert.match(canvas, /window\.removeWorkflowNode\(node\.id\)/);
   assert.match(canvas, /deleteElements\(\{ nodes: selectedNodes, edges: selectedEdges \}\)/);
   assert.match(canvas, /document\.addEventListener\('keydown', handleDeleteKeyDown, true\)/);
   // Backspace must be consumed even with no selection so it cannot navigate
@@ -700,6 +706,8 @@ test("workflow delete keys only remove selected canvas elements", () => {
   assert.match(layout, /aria-label="删除节点"/);
   assert.match(layout, /<i className="bi bi-trash3" aria-hidden="true" \/>/);
   assert.doesNotMatch(layout, />\s*×\s*<\/button>/);
+  assert.match(layout, /window\.removeWorkflowNode\(id\)/);
+  assert.match(layout, /new CustomEvent\('workflow-react:sync'\)/);
   assert.match(layout, /deleteElements\(\{ nodes: \[\{ id \}\] \}\)/);
   assert.match(css, /\.site-generation-delete \{/);
 });
