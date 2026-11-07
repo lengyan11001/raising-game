@@ -1553,3 +1553,11 @@ CODEX_TASK_STATE.md
 - Changed the desktop parameter chip bar from horizontal scroll to wrapping, so additional parameters flow onto multiple rows instead of requiring side-scrolling. Cache key bumped to `generate-composer-design-20261107-6`.
 - Verification: real Chrome/CDP at 1280px confirms only Model, Mode, Ratio, and Duration chips render for Seedance 2.5; adding extra chips increases the container height without horizontal overflow; selecting `720p` inside Ratio updates `advancedResolution=720p` and the estimate to 150 credits. Syntax, targeted picker test, and `git diff --check` pass.
 - Deployment: not deployed.
+
+## Canvas delete/back behavior deployment (2026-11-07 19:12 +08)
+
+- Fixed two controlled-view bugs: node trash and Delete/Backspace now mutate the persisted business graph before resyncing React Flow; browser/system back is delegated from `platform.main.js` to the open canvas before the site shell can hide `#workflow`.
+- Local checks: webpack build succeeded; syntax checks and `git diff --check` passed; `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passed 29/29.
+- Release: `old-site` `3b48d06`; `platform-release` `386ba23`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`.
+- Production verification: `/api/health` returned `200 {"ok":true}`; served `platform.main.js` contains `handleWorkflowCanvasHistoryBack`; served `canvas.js` contains the new back bridge and business-first deletion path. Local/production SHA-256 match: `canvas.js` `f697ac086cdd3a2e4c09f3d53fd5749a839de2fb5c944f191d62e2375cc737fc`, `platform.main.js` `0c5dbdf0059fae95d8294fabb84bda73269671735af8f5a95769831d56f9e447`.
+- Live site was not deployed.
