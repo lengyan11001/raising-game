@@ -7,6 +7,19 @@
 - Example `cgt-20261107050322-50d01c` succeeded with six `asset://` references in `content[]`; example `cgt-20261107111115-77fdc1` failed on upstream sensitive-image validation while `content[1].image_url.url` was `asset://asset-20261107111115-685l7`.
 - No code change was required for this audit. An exploratory local attempt to rewrite gateway `asset://` values was reverted after production evidence showed it was not the reported regression.
 
+## Source canvas interaction port final verification (2026-11-07)
+
+- User rejected the prior custom canvas and required a direct adoption of the source `canvas_web.zip` React Flow interactions, source-style project cards, site styling, and site-owned image/video generation nodes.
+- Verified source-style project grid: 4 columns, 16:9 mini-canvas cards, whole card opens project, three-dot menu supports rename/delete; no plain button cards.
+- Verified editor toolbar only has back/title/save/new and canvas toolbar only has image generation/video generation.
+- Verified native React Flow interactions in real Chrome: two nodes, real handle drag creates 1 business and 1 DOM edge, wheel zoom is proportional and bounded, upload preserves 2 nodes/1 edge and adds a thumbnail, save/reopen preserves 2 nodes/1 edge/thumbnail. Browser runtime errors: none.
+- Fixed opening viewport sizing: fit now waits for React Flow initialization, measures the real canvas, uses `getNodesBounds` plus card-size fallback, and applies safe top/right/bottom/left padding. Reopening shows the graph instead of `translate(0,0) scale(1)` or an extreme zoom.
+- Handles are positioned directly on the card border and vertically centered in the card header (delta within 1px in verification).
+- Standard targeted command passes 23/23: `node --require ./test/source-compat.js --test test/workflow-access.test.js test/workflow-canvases.test.js`. Production webpack build succeeds with bundle-size warnings only. `git diff --check` passes.
+- Commit: `40d9376` (`Port source React Flow canvas interactions`) on `old-site`. Release snapshots: platform `432727f70464abe38445e7c8966ade3e73f5c68c`, live `7fb5e0148c45ef808d572ca3e75ecbaf901ebda5`.
+- Deployment: deployed only `123vips.com` with `scripts/deploy_local.sh --site old`; release-boundary checks passed and `/api/health` returned `200 {"ok":true}`. Production `platform.js` loads `workflow-react/dist/canvas.js` and `platform.workflow-canvases.js`; served canvas bundle contains the site generation card styles. Live was not deployed.
+- Visual evidence: `/tmp/workflow-react-verify/full-projects-grid.png`, `full-editor-connected.png`, `full-after-upload.png`, `full-reopened.png`. Acceptance log: `/tmp/workflow-react-verify/full-acceptance-final.out`.
+
 ## Upstream reference mirror 403 fix (2026-11-07)
 
 - User reported generation failures with `下载上游参考镜像失败:403`; no exact string exists in local source, so traced the shared reference-media path.
