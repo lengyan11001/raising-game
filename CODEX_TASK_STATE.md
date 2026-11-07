@@ -3,7 +3,7 @@
 - User reported that clicking Generate on a node with an existing result created a new node whose reference media included the source node's result. Root cause: `workflowGenerationRunNode()` connected `source -> new`, so the new node consumed the source output as an upstream input.
 - Repeat generation now clones only the source node's own generation parameters and explicit reference arrays, and copies its existing upstream input edges to the new node. It never connects the source node itself to the replacement node, so the prior result does not become an input.
 - Regression contract: `test/workflow-canvases.test.js` asserts `cloneWorkflowInputEdges(node.id, newNode.id)` and rejects `connectWorkflowNodes(node.id, newNode.id)`. Targeted workflow tests pass 29/29; syntax and `git diff --check` pass.
-- Deployment: pending.
+- Deployment: `old-site` `4997746`; `platform-release` `c379eefff3e8214e766a0bd4341475ccb3ce2d2e`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. Production `/api/health` returned `200 {"ok":true}` and release boundary checks passed. Served production `platform.ui.parts/part-06.js` contains `cloneWorkflowInputEdges` and no longer contains `connectWorkflowNodes?.(node.id, newNode.id)`. Live was not deployed.
 
 ## Canvas back navigation and scoped deletion fix (2026-11-07)
 
