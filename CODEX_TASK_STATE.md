@@ -18,7 +18,8 @@
 - 回滚：优先使用 `?promptEditor=legacy` 或 localStorage 的 `vipeakPromptEditorMode=legacy`；代码可回退 `8564b9a`。发布分支回滚值：部署前 `platform-release=0e7f572`（对应 `old-site=05e397c`）。
 - 恢复原工作区：原 `stash@{0}`（`pre-C-scheme-backup-20261107`）已 apply，Test 模式/Vega 等原改动已恢复，4 处仅涉及 Test CSS 发布清单的冲突已按保留 Test 样式解决；stash 暂不 drop，作为额外保险。恢复后的 Test 模式定向测试 10 项中 1 项因既有精确 `hashchange` 断言未同步而失败（不是 C 方案引入），prompt-editor 6/6 通过；语法、Python compile、`git diff --check` 通过。
 - 后续问题（2026-11-07）：用户反馈复制长文本后删除，输入框反而/持续变高。根因是富文本测高直接读取 `scrollHeight`，而元素当前 `height` 未归零时 `scrollHeight` 不会低于现有高度，导致高度只能增不能减。修复为测高前统一设置 `height=0px`、`overflowY=hidden` 再读 `scrollHeight`；新增对应回归测试。
-- 高度修复验证：`test/prompt-editor.test.js` 7/7；真实 Chrome/CDP 在线上富文本编辑器验证长文本高度 `194px` 删除为短文本后缩回 `140px`，且 textarea 同步值正确。部署状态见下方追加记录。
+- 高度修复验证：`test/prompt-editor.test.js` 7/7；真实 Chrome/CDP 在线上富文本编辑器验证长文本高度 `192px` 删除为短文本后缩回 `138px`，且 textarea 同步值正确。
+- 高度修复部署：集成提交 `old-site` / `125a828`，发布提交 `platform-release` / `9bb3dc6`；已推送并用 `scripts/deploy_local.sh --site old` 部署到 `123vips.com`，release boundary 通过，`/api/health` 返回 `200 {"ok":true}`。线上 `platform.create.parts/part-04.js` SHA-256 与本地一致（`ae795dc2...`）；live 未部署。
 - 状态：已完成并部署 old 站；live 未部署。
 
 ## Canvas concurrent node generation (2026-11-07)
