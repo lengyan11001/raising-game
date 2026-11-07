@@ -598,6 +598,7 @@ function renderAdvancedAssets(assets) {
   els.advancedAssetGrid.innerHTML = list.map((asset) => {
     const url = assetPreviewUrl(asset);
     const video = isVideoAsset(asset);
+    const posterUrl = video ? reliableAssetPosterUrl(asset) : "";
     const audio = isAudioAsset(asset);
     const document = isDocumentAsset(asset);
     const typeLabel = video ? t("assets.video") : audio ? t("assets.audio") : document ? "Document" : t("assets.image");
@@ -605,7 +606,7 @@ function renderAdvancedAssets(assets) {
       <article class="advanced-asset-card">
         <div class="advanced-asset-preview ${audio ? "is-audio" : ""}" ${!audio ? `data-advanced-asset-preview="${escapeHtml(asset.id)}"` : ""}>
           ${video
-            ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video><span class="advanced-case-video-mark"><i data-lucide="play"></i></span>`
+            ? `<video src="${escapeHtml(url)}"${posterUrl ? ` poster="${escapeHtml(posterUrl)}"` : ""} muted playsinline preload="metadata"></video><span class="advanced-case-video-mark"><i data-lucide="play"></i></span>`
             : audio
               ? `<div class="audio-asset-preview"><i data-lucide="audio-lines"></i></div>`
               : document

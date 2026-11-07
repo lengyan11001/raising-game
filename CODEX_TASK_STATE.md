@@ -1,3 +1,12 @@
+## Asset video poster and content-hashed platform assets (2026-11-07)
+
+- User report: videos added from Assets through Add had no thumbnail, while regenerated and manually uploaded videos did.
+- Advanced Assets cards and the main Assets grid now set the `<video>` `poster` from `reliableAssetPosterUrl(asset)`.
+- Adding an asset video as a Seedance reference now preserves `posterUrl`, `thumbnailUrl`, and `coverUrl` on the attachment, so the selected-reference preview keeps its cover.
+- Fixed stale production public asset URLs: `currentPlatformAssetVersion()` now hashes shipped platform file contents instead of using file mtimes. Archive/copy releases preserve mtimes, which allowed an old newer-mtime file to keep Node serving the previous CSS/JS cache key even after deployment.
+- Regression tests: `platform-refresh-performance.test.js` and `vega-regeneration-media.test.js` pass 23/23; `tencent-vod-vega.test.js` passes 62/62; syntax checks and `git diff --check` pass.
+- Deployment: pending.
+
 ## Canvas save serialization and video @ mention picker (2026-11-07)
 
 - Root cause of the intermittent `A workflow save is already in progress.` error: React had its own 350 ms canvas autosave while the site shell queued a second PUT for the same canvas. The backend correctly rejected overlapping writes with `429 WORKFLOW_CANVAS_UPDATE_IN_PROGRESS`.

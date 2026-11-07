@@ -543,6 +543,8 @@ test("Regeneration clicks are serialized and failed previews do not remain black
   const exploreSource = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 
   assert.match(createUiSource, /if \(state\.advancedRegenerationRestoreInFlight\) return;/);
+  assert.match(createUiSource, /const posterUrl = video \? reliableAssetPosterUrl\(asset\) : "";/);
+  assert.match(createUiSource, /poster="\$\{escapeHtml\(posterUrl\)\}"/);
   assert.match(createUiSource, /state\.advancedRegenerationRestoreInFlight = true;/);
   assert.match(createUiSource, /state\.advancedRegenerationRestoreInFlight = false;/);
   assert.match(previewSource, /data-advanced-preview-media/);
@@ -557,6 +559,8 @@ test("Regeneration clicks are serialized and failed previews do not remain black
   assert.match(previewSource, /kind === "video" && url && !pending/);
   assert.match(previewSource, /reliableAssetPosterUrl/);
   assert.match(previewSource, /poster="\$\{escapeHtml\(posterUrl\)\}"/);
+  assert.match(previewSource, /const posterUrl = video \? reliableAssetPosterUrl\(asset\) : "";/);
+  assert.match(previewSource, /src="\$\{escapeHtml\(url\)\}"\$\{posterUrl \? ` poster=/);
   assert.match(previewSource, /is-video-ready/);
   assert.match(previewSource, /preload="auto"/);
   assert.match(previewSource, /素材不可用/);

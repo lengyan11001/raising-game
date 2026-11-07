@@ -59,6 +59,8 @@ test("HTML and public config are CDN-cacheable for repeat refreshes", () => {
 
 test("HTML snapshots coalesce requests and include tenant/version cache keys", () => {
   const source = read("server.parts/part-04.js");
+  assert.match(source, /crypto\.createHash\("sha256"\)\.update\(content\)/);
+  assert.match(source, /entries\.join\("\\0"\)/);
   assert.match(source, /const platformHtmlSnapshotCache = new Map\(\);/);
   assert.match(source, /const PLATFORM_HTML_CACHE_TTL_MS = 20_000;/);
   assert.match(source, /pageOriginFromRequest\(req\)/);

@@ -449,6 +449,7 @@ function renderAssets(assets = state.userAssets || []) {
   els.assetGrid.innerHTML = assets.map((asset) => {
     const url = assetPreviewUrl(asset);
     const video = isVideoAsset(asset);
+    const posterUrl = video ? reliableAssetPosterUrl(asset) : "";
     const audio = isAudioAsset(asset);
     const document = isDocumentAsset(asset);
     const typeLabel = video ? t("assets.video") : audio ? t("assets.audio") : document ? "Document" : t("assets.image");
@@ -456,7 +457,7 @@ function renderAssets(assets = state.userAssets || []) {
       <article class="asset-card">
         <div class="asset-preview ${audio ? "is-audio" : ""}" ${!audio ? `data-asset-preview="${escapeHtml(asset.id)}"` : ""}>
           ${video
-            ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata" controls></video>`
+            ? `<video src="${escapeHtml(url)}"${posterUrl ? ` poster="${escapeHtml(posterUrl)}"` : ""} muted playsinline preload="metadata" controls></video>`
             : audio
               ? `<div class="audio-asset-preview"><i data-lucide="audio-lines"></i><audio src="${escapeHtml(url)}" controls preload="metadata"></audio></div>`
               : document

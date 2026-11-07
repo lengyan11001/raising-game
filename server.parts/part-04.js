@@ -1173,12 +1173,17 @@ async function platformHtmlSnapshot(req) {
 
 async function currentPlatformAssetVersion() {
   if (!platformAssetVersionPromise) {
+    // File mtimes are preserved by archive/copy based releases and can leave an
+    // older, newer-mtime file dominating the cache key. Content hashes make the
+    // public asset URL change whenever any shipped platform file changes.
     platformAssetVersionPromise = Promise.all(
-      PLATFORM_ASSET_FILES.map((fileName) => fs.stat(path.join(ROOT, fileName))),
-    ).then((stats) => {
-      const latestMtime = Math.max(...stats.map((stat) => Number(stat.mtimeMs || 0)));
-      return latestMtime > 0 ? Math.floor(latestMtime).toString(36) : "current";
-    }).catch(() => "current");
+      PLATFORM_ASSET_FILES.map(async (fileName) => {
+        const content = await fs.readFile(path.join(ROOT, fileName));
+        const digest = crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
+        return `${fileName}:${digest}`;
+      }),
+    ).then((entries) => crypto.createHash("sha256").update(entries.join("\0")).digest("hex").slice(0, 12))
+      .catch(() => "current");
   }
   return platformAssetVersionPromise;
 }

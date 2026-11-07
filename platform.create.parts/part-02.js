@@ -248,6 +248,11 @@ function addAdvancedSeedanceMediaReference(asset = {}, kind = "video", options =
     name: options.ref?.name || asset.name || asset.fileName || (kind === "audio" ? "Audio reference" : "Video reference"),
     fileName: options.ref?.fileName || asset.fileName || asset.name || "",
     durationSeconds: options.ref?.durationSeconds || asset.durationSeconds || asset.duration || 0,
+    ...(kind === "video" ? {
+      posterUrl: options.ref?.posterUrl || asset.posterUrl || asset.thumbnailUrl || asset.coverUrl || "",
+      thumbnailUrl: options.ref?.thumbnailUrl || asset.thumbnailUrl || asset.posterUrl || asset.coverUrl || "",
+      coverUrl: options.ref?.coverUrl || asset.coverUrl || asset.posterUrl || asset.thumbnailUrl || "",
+    } : {}),
     fromLibrary: true,
     order: options.order || options.ref?.order || 0,
   };

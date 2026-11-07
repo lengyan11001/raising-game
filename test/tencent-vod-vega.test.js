@@ -1435,10 +1435,17 @@ test("Seedance 2.5 reference-video modes expose and persist video references", (
 
   assert.equal(api.advancedVideoReferenceLimit("seedance25"), 10);
   assert.equal(api.advancedAudioReferenceLimit("seedance25"), 10);
-  const result = api.addAdvancedSeedanceMediaReference({ id: "video-1", previewUrl: "https://cdn.example/video.mp4" }, "video");
+  const result = api.addAdvancedSeedanceMediaReference({
+    id: "video-1",
+    previewUrl: "https://cdn.example/video.mp4",
+    posterUrl: "https://cdn.example/video-1.jpg",
+  }, "video");
   assert.equal(result.ok, true);
   assert.equal(videoRefs.length, 1);
   assert.equal(videoRefs[0].assetId, "video-1");
+  assert.equal(videoRefs[0].posterUrl, "https://cdn.example/video-1.jpg");
+  assert.equal(videoRefs[0].thumbnailUrl, "https://cdn.example/video-1.jpg");
+  assert.equal(videoRefs[0].coverUrl, "https://cdn.example/video-1.jpg");
 
   els.advancedSeedanceMediaMode.value = "omini";
   assert.equal(api.advancedVideoReferenceLimit("seedance25"), 10);
