@@ -1291,3 +1291,5 @@ CODEX_TASK_STATE.md
 - Admin/public labels use `Seedance 2.0 Fast`; Fast price fields retain six decimals. The new test is `test/seedance-fast-pricing.test.js`.
 - Verification: targeted pricing/Vega/Seedance tests pass 50/50; all changed JS files pass `node --check`; `git diff --check` passes. Full `npm test` remains 750/775 with 25 pre-existing source-shape failures, so it is not claimed green.
 - Unrelated existing worktree changes in workflow tests and `workflow-react/node_modules` are excluded from this commit.
+- Deployment: old-site `a1a0bd8`; platform-release `162a302`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`.
+- Production verification: `/api/config/public` returns Fast output `8.1648`/`17.29728` and input-video `4.8114`/`10.19304` credits/s at 480p/720p; production `platform.html` contains `Seedance 2.0 Fast` and `seedance-fast`. Live was not deployed.
