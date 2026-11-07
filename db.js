@@ -6386,6 +6386,43 @@ async function expireExhaustedMediaIngestJobsInDb(maxAttempts = 5, { staleMinute
   return rows;
 }
 
+async function syncFailedMediaIngestRecordStatusesInDb(limit = 1000) {
+  if (!dbEnabled()) return [];
+  const count = Math.max(1, Math.min(5000, Number(limit) || 1000));
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      WITH targets AS (
+        SELECT jobs.task_id, jobs.error
+        FROM app_media_ingest_jobs jobs
+        JOIN app_generation_records records ON records.task_id = jobs.task_id
+        WHERE jobs.status = 'failed'
+          AND records.payload->>'advancedDownloadStatus' IN ('preparing', 'queued', 'processing')
+        ORDER BY jobs.updated_at ASC
+        LIMIT $1
+        FOR UPDATE OF jobs SKIP LOCKED
+      )
+      UPDATE app_generation_records records
+      SET payload = jsonb_set(
+        jsonb_set(
+          records.payload,
+          '{advancedDownloadStatus}',
+          to_jsonb('failed'::text),
+          true
+        ),
+        '{advancedDownloadError}',
+        to_jsonb(COALESCE(NULLIF(targets.error, ''), 'Advanced download preparation failed.')),
+        true
+      )
+      FROM targets
+      WHERE records.task_id = targets.task_id
+      RETURNING records.task_id
+    `,
+    [count],
+  );
+  return rows;
+}
+
 async function failMediaIngestJobInDb(taskId = "", error = "", {
   retryAfterSeconds = 60,
   maxAttempts = 5,
@@ -7692,6 +7729,7 @@ module.exports = {
   completeMediaIngestJobInDb,
   expireExhaustedMediaIngestJobsInDb,
   failMediaIngestJobInDb,
+  syncFailedMediaIngestRecordStatusesInDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,
   insertWebVitalSamplesInDb,

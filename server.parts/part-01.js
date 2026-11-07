@@ -316,6 +316,7 @@ const {
   claimNextMediaIngestJobsInDb,
   completeMediaIngestJobInDb,
   expireExhaustedMediaIngestJobsInDb,
+  syncFailedMediaIngestRecordStatusesInDb,
   failMediaIngestJobInDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,

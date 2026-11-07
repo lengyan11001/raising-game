@@ -914,6 +914,7 @@ async function scanMediaIngestQueue() {
     // Older releases could leave rows at attempts >= 5 in "queued" or stale
     // "processing"; they are not claimable and otherwise inflate the backlog.
     await expireExhaustedMediaIngestJobsInDb(5, { staleMinutes: 20 });
+    await syncFailedMediaIngestRecordStatusesInDb(200);
     const jobs = await claimNextMediaIngestJobsInDb(slots, { staleMinutes: 20 });
     for (const job of jobs) {
       const id = String(job.task_id || "").trim();
