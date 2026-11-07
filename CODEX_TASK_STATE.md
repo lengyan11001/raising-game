@@ -5,7 +5,8 @@
 - Adding an asset video as a Seedance reference now preserves `posterUrl`, `thumbnailUrl`, and `coverUrl` on the attachment, so the selected-reference preview keeps its cover.
 - Fixed stale production public asset URLs: `currentPlatformAssetVersion()` now hashes shipped platform file contents instead of using file mtimes. Archive/copy releases preserve mtimes, which allowed an old newer-mtime file to keep Node serving the previous CSS/JS cache key even after deployment.
 - Regression tests: `platform-refresh-performance.test.js` and `vega-regeneration-media.test.js` pass 23/23; `tencent-vod-vega.test.js` passes 62/62; syntax checks and `git diff --check` pass.
-- Deployment: pending.
+- Deployment: `old-site` `2a152a0`; `platform-release` `b6dae0e`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. Service active; `/api/health` returned `200 {"ok":true}`.
+- Production verification: `/platform.html` serves content-hash assets `platform.css?v=0506b5b1df8e` and `platform.js?v=0506b5b1df8e`; immutable cache headers are present. The three deployed create-part files match local SHA-256 (`part-01` `758b8a14…`, `part-02` `f42f2887…`, `part-05` `d52dff52…`) and contain the video `poster`, preserved poster/thumbnail/cover fields, and Assets-card `poster` logic. Live was not deployed.
 
 ## Canvas save serialization and video @ mention picker (2026-11-07)
 
