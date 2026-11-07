@@ -128,13 +128,13 @@ test("media ingest drains OSS transfers without starving retry-exhausted rows", 
     server.indexOf("function isRetryableMediaIngestError"),
     server.indexOf("function advancedDownloadFailureMessage"),
   );
-  assert.match(scan, /expireExhaustedMediaIngestJobsInDb\(5\)/);
+  assert.match(scan, /expireExhaustedMediaIngestJobsInDb\(5, \{ staleMinutes: 20 \}\)/);
   assert.match(scan, /MEDIA_INGEST_CONCURRENCY/);
   assert.match(server, /process\.env\.MEDIA_INGEST_CONCURRENCY \|\| 3/);
   assert.match(failure, /403/);
   assert.match(failure, /return false/);
   assert.match(server, /retryable: isRetryableMediaIngestError\(error\)/);
-  assert.match(db, /SET status = 'failed'[\s\S]*WHERE status = 'queued'[\s\S]*attempts >= \$1/);
+  assert.match(db, /SET status = 'failed'[\s\S]*status = 'queued' AND attempts >= \$1[\s\S]*status = 'processing' AND attempts >= \$1/);
 });
 
 test("advanced download preparation is queued so the download-url request cannot hit proxy timeout", () => {

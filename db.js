@@ -6339,9 +6339,10 @@ async function completeMediaIngestJobInDb(taskId = "", {
   return rows[0] || null;
 }
 
-async function expireExhaustedMediaIngestJobsInDb(maxAttempts = 5) {
+async function expireExhaustedMediaIngestJobsInDb(maxAttempts = 5, { staleMinutes = 20 } = {}) {
   if (!dbEnabled()) return [];
   const max = Math.max(1, Math.min(20, Number(maxAttempts) || 5));
+  const stale = Math.max(1, Math.min(240, Number(staleMinutes) || 20));
   await ensureSchema();
   const { rows } = await query(
     `
@@ -6353,11 +6354,14 @@ async function expireExhaustedMediaIngestJobsInDb(maxAttempts = 5) {
             WHEN error = '' THEN 'Transfer retry limit reached.'
             ELSE error
           END
-      WHERE status = 'queued'
-        AND attempts >= $1
+      WHERE (
+          (status = 'queued' AND attempts >= $1)
+          OR (status = 'processing' AND attempts >= $1
+              AND updated_at < NOW() - ($2::int * INTERVAL '1 minute'))
+        )
       RETURNING task_id
     `,
-    [max],
+    [max, stale],
   );
   return rows;
 }

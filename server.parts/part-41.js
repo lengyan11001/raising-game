@@ -911,9 +911,9 @@ async function scanMediaIngestQueue() {
     if (slots <= 0) return;
     // Claim only as many rows as we can start immediately. Claiming a batch
     // would leave unclaimed-but-processing rows stuck until stale recovery.
-    // Older releases could leave rows at attempts >= 5 in "queued"; they are
-    // not claimable and otherwise inflate the backlog forever.
-    await expireExhaustedMediaIngestJobsInDb(5);
+    // Older releases could leave rows at attempts >= 5 in "queued" or stale
+    // "processing"; they are not claimable and otherwise inflate the backlog.
+    await expireExhaustedMediaIngestJobsInDb(5, { staleMinutes: 20 });
     const jobs = await claimNextMediaIngestJobsInDb(slots, { staleMinutes: 20 });
     for (const job of jobs) {
       const id = String(job.task_id || "").trim();
