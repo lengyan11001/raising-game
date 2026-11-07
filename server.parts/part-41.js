@@ -1244,7 +1244,7 @@ function generationRecordDownloadUrlPayload(target = {}, fallbackUrl = "") {
 
 async function handleGenerationRecordDownloadUrl(req, res, taskId, url = null) {
   const r2Only = String(url?.searchParams?.get("quality") || "").toLowerCase() === "r2";
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   let record = await getGenerationRecord(taskId);
   if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
@@ -1299,7 +1299,7 @@ async function handleGenerationRecordDownloadUrl(req, res, taskId, url = null) {
 
 async function handleDownloadGenerationRecord(req, res, taskId, url = null) {
   const r2Only = String(url?.searchParams?.get("quality") || "").toLowerCase() === "r2";
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   let record = await getGenerationRecord(taskId);
   if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {

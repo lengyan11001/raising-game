@@ -1,5 +1,8 @@
 ## Download signing on every click (2026-11-07)
 
+- Optimization: both download handlers now authenticate with `requireUser(req, res, { loadDb: false })`; click-time signing performs targeted session/user and generation-record queries instead of loading the full business database.
+- Added a regression assertion in `test/download-signing.test.js`; targeted download/media/Undress tests pass 37/37, syntax checks and `git diff --check` pass.
+
 - User reported Safari opening generated-media download links in a player and showing a timeout. Confirmed signed OSS URLs expire after 600 seconds, while ordinary download used the cached CDN URL in the generation record and opened it with `target="_blank"`.
 - Standard downloads now always request `/api/generation-records/:taskId/download-url` at click time and immediately navigate the current context to the fresh attachment URL. The stale-URL fast path and popup/new-tab behavior were removed.
 - If fresh signing fails, standard downloads fall back to the same-origin authenticated `/api/generation-records/:taskId/download` proxy, which always returns `Content-Disposition: attachment`. Legacy records without a task id retain their stored URL fallback.
