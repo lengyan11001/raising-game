@@ -246,7 +246,10 @@ test("canvas media controls open an in-app preview without download links", () =
   assert.match(preview, /onLoad=\{rememberMediaSize\}/);
   assert.match(preview, /data-preview-width/);
   assert.match(css, /\.site-media-preview-frame\.has-size/);
-  assert.match(css, /\.site-image-result img \{[\s\S]*?object-fit: contain;/);
+  assert.match(css, /\.site-image-result img \{[\s\S]*?width: auto;[\s\S]*?max-width: 100%;[\s\S]*?max-height: min\(360px, 42vh\);[\s\S]*?aspect-ratio: auto;[\s\S]*?object-fit: contain;/);
+  assert.doesNotMatch(css, /\.site-image-result img \{[\s\S]*?aspect-ratio: 1 \/ 1;/);
+  assert.match(css, /\.site-generation-result \{[\s\S]*?min-height: 190px;[\s\S]*?overflow: visible;/);
+  assert.doesNotMatch(css, /\.site-generation-result \{[\s\S]*?max-height: 210px;/);
   assert.match(css, /\.site-media-preview-close \{[\s\S]*?position: absolute;[\s\S]*?top: 10px;[\s\S]*?right: 10px;/);
 });
 

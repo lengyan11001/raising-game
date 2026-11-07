@@ -1,3 +1,11 @@
+## Canvas result media ratio separation fix (2026-11-07)
+
+- User reported generated 1:1 result media remained cropped and preview/controls were still coupled by a shared fixed height.
+- Removed the `210px` cap and scrollbar from `.site-generation-result`; result preview and generation controls now size independently.
+- Result media now uses intrinsic dimensions (`width: auto`, `height: auto`, `max-width: 100%`) with a safe `min(360px, 42vh)` cap, preserving 1:1 and portrait ratios without cropping.
+- Local Chrome/CDP with a 512x512 generated image: result card `394x362`, result area `418x387`, controls `418x373.75`; preview overlay frame `680x680` and image `678x678`; no runtime errors.
+- Verification: targeted workflow suite 29/29; production webpack build passes with bundle-size warnings only; `git diff --check` passes.
+
 ## Canvas generated-image 1:1 thumbnail crop fix (2026-11-07)
 
 - User reported generated 1:1 images were still not fully visible inside canvas result cards.
