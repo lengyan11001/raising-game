@@ -1,4 +1,5 @@
 import React from 'react';
+import { MediaPreviewTrigger, useMediaPreview } from './MediaPreview';
 
 function beginMediaDrag(event, { kind, url, index, sourceNodeId }) {
   event.stopPropagation();
@@ -13,6 +14,7 @@ function beginMediaDrag(event, { kind, url, index, sourceNodeId }) {
 }
 
 export function GenerationResultMedia({ kind = 'image', urls = [], poster = '', status = '', error = '', sourceNodeId = '' }) {
+  const { openPreview, previewOverlay } = useMediaPreview();
   if (status === 'failed' && error) {
     return <div className="site-generation-empty is-error"><i className="bi bi-exclamation-circle"></i><span>{error}</span></div>;
   }
@@ -26,37 +28,43 @@ export function GenerationResultMedia({ kind = 'image', urls = [], poster = '', 
   }
   if (kind === 'video') {
     return (
-      <div className={`site-video-result-grid ${urls.length > 1 ? 'is-multiple' : ''}`}>
-        {urls.map((url, index) => (
-          <div
-            key={`${url}-${index}`}
-            className="site-video-result"
-            draggable
-            onDragStart={(event) => beginMediaDrag(event, { kind, url, index, sourceNodeId })}
-          >
-            <video src={url} poster={poster || undefined} controls playsInline preload="metadata" />
-          </div>
-        ))}
-      </div>
+      <>
+        <div className={`site-video-result-grid ${urls.length > 1 ? 'is-multiple' : ''}`}>
+          {urls.map((url, index) => (
+            <MediaPreviewTrigger
+              key={`${url}-${index}`}
+              media={{ kind, url, poster, label: `视频结果 ${index + 1}` }}
+              onOpen={openPreview}
+              className="site-video-result"
+              draggable
+              onDragStart={(event) => beginMediaDrag(event, { kind, url, index, sourceNodeId })}
+            >
+              <video src={url} poster={poster || undefined} muted playsInline preload="metadata" />
+              <span className="site-media-preview-play"><i className="bi bi-play-fill" /></span>
+            </MediaPreviewTrigger>
+          ))}
+        </div>
+        {previewOverlay}
+      </>
     );
   }
   return (
-    <div className={`site-image-result-grid ${urls.length > 1 ? 'is-multiple' : ''}`}>
-      {urls.map((url, index) => (
-        <a
-          key={`${url}-${index}`}
-          className="site-image-result"
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          draggable
-          onDragStart={(event) => {
-            beginMediaDrag(event, { kind, url, index, sourceNodeId });
-          }}
-        >
-          <img src={url} alt={`生成结果 ${index + 1}`} loading="lazy" decoding="async" />
-        </a>
-      ))}
-    </div>
+    <>
+      <div className={`site-image-result-grid ${urls.length > 1 ? 'is-multiple' : ''}`}>
+        {urls.map((url, index) => (
+          <MediaPreviewTrigger
+            key={`${url}-${index}`}
+            media={{ kind, url, poster, label: `生成结果 ${index + 1}` }}
+            onOpen={openPreview}
+            className="site-image-result"
+            draggable
+            onDragStart={(event) => beginMediaDrag(event, { kind, url, index, sourceNodeId })}
+          >
+            <img src={url} alt={`生成结果 ${index + 1}`} loading="lazy" decoding="async" draggable={false} />
+          </MediaPreviewTrigger>
+        ))}
+      </div>
+      {previewOverlay}
+    </>
   );
 }

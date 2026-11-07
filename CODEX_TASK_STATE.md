@@ -1,3 +1,12 @@
+## Canvas media preview instead of download (2026-11-07)
+
+- User reported that clicking image/video previews in canvas could navigate/download instead of previewing.
+- Added `MediaPreview.js`, a portal-based in-app media viewer. Images render full-size; videos render with controls and autoplay in the preview layer. Escape, the close button, or clicking the backdrop closes it.
+- Replaced canvas image-result links and reference-thumbnail links with `MediaPreviewTrigger`. Result and reference media no longer use `<a href>`, `target="_blank"`, or native navigation; context-menu download is prevented on the preview media.
+- Both generated results and connected/manual reference thumbnails use the same preview behavior. Video result cards show an explicit play overlay and open the full preview on click.
+- Verification: `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 26/26; `git diff --check` passes; production webpack build succeeds with existing bundle-size warnings.
+- Evidence: local bundle contains `site-media-preview-overlay`, `site-media-preview-trigger`, `图片预览`, and `视频预览`. Deployment: pending.
+
 ## Generate full rollback correction (2026-11-07)
 
 - User reported the prior rollback still showed model descriptions and merged Resolution inside Ratio. Root cause: `f23e38b` rolled back `platform.css` only; `platform.create.parts/part-02.js` retained the later advanced parameter redesign.

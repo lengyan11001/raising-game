@@ -213,6 +213,30 @@ test("video prompt exposes connected media in an @ mention picker", () => {
   assert.match(css, /\.site-prompt-mention\.is-active/);
 });
 
+test("canvas media controls open an in-app preview without download links", () => {
+  const preview = read("workflow-react/src/components/canvas/siteNodes/MediaPreview.js");
+  const results = read("workflow-react/src/components/canvas/siteNodes/GenerationResultMedia.js");
+  const upload = read("workflow-react/src/components/canvas/siteNodes/SiteNodeUpload.js");
+  const css = read("workflow-react/src/site/site.css");
+
+  assert.match(preview, /site-media-preview-overlay/);
+  assert.match(preview, /createPortal/);
+  assert.match(preview, /event\.preventDefault\(\)/);
+  assert.match(preview, /event\.stopPropagation\(\)/);
+  assert.match(preview, /onContextMenu=\{\(event\) => event\.preventDefault\(\)\}/);
+  assert.match(preview, /if \(event\.key === 'Escape'\) onClose\(\)/);
+  assert.match(results, /MediaPreviewTrigger/);
+  assert.match(results, /useMediaPreview/);
+  assert.doesNotMatch(results, /<a\b/);
+  assert.doesNotMatch(results, /href=/);
+  assert.doesNotMatch(results, /target="_blank"/);
+  assert.match(upload, /MediaPreviewTrigger/);
+  assert.doesNotMatch(upload, /<a\b/);
+  assert.doesNotMatch(upload, /href=/);
+  assert.match(css, /\.site-media-preview-overlay/);
+  assert.match(css, /\.site-media-preview-stage video/);
+});
+
 test("workflow uploads store asset references instead of embedded media", () => {
   const ui = read("platform.ui.js");
   const server = read("server.js");
