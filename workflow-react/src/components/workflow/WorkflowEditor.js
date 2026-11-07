@@ -2,25 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { Canvas } from '../canvas/Canvas';
 import { toReactFlowGraph, writeReactFlowGraph, notifyNodeChanged } from '../../site/SiteBridge';
+import { requestCanvasJson } from './canvasApi';
 import './WorkflowEditor.css';
-
-function requestJson(path, options = {}) {
-  const method = String(options.method || 'GET').toUpperCase();
-  const headers = { Accept: 'application/json', ...(options.headers || {}) };
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json';
-  return fetch(path, {
-    method,
-    credentials: 'include',
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  }).then(async (response) => {
-    const text = await response.text();
-    let payload = {};
-    try { payload = text ? JSON.parse(text) : {}; } catch { payload = { error: text }; }
-    if (!response.ok) throw new Error(payload.error || payload.message || `请求失败 (${response.status})`);
-    return payload;
-  });
-}
 
 function projectName(project = {}) {
   return String(project.name || '未命名画布');
@@ -51,7 +34,7 @@ export function WorkflowEditor({ project, onBack, onCreate, onProjectChange }) {
     setSaveState('saving');
     setError('');
     try {
-      const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(project.id)}`, {
+      const payload = await requestCanvasJson(`/api/workflow/canvases/${encodeURIComponent(project.id)}`, {
         method: 'PUT',
         body: { name: titleRef.current, workflow },
       });

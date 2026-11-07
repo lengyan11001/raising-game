@@ -1,23 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { requestCanvasJson } from './canvasApi';
 import './WorkflowLibrary.css';
-
-function requestJson(path, options = {}) {
-  const method = String(options.method || 'GET').toUpperCase();
-  const headers = { Accept: 'application/json', ...(options.headers || {}) };
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json';
-  return fetch(path, {
-    method,
-    credentials: 'include',
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  }).then(async (response) => {
-    const text = await response.text();
-    let payload = {};
-    try { payload = text ? JSON.parse(text) : {}; } catch { payload = { error: text }; }
-    if (!response.ok) throw new Error(payload.error || payload.message || `请求失败 (${response.status})`);
-    return payload;
-  });
-}
 
 function formatProjectDate(value) {
   const time = Date.parse(String(value || ''));
@@ -54,7 +37,7 @@ export function WorkflowLibrary({ onOpen, onCreate, createSignal = 0, className 
     setLoading(true);
     setError('');
     try {
-      const payload = await requestJson('/api/workflow/canvases');
+      const payload = await requestCanvasJson('/api/workflow/canvases');
       setProjects((payload.canvases || []).map((project) => ({
         ...project,
         id: String(project.id || project.uuid || ''),
@@ -101,7 +84,7 @@ export function WorkflowLibrary({ onOpen, onCreate, createSignal = 0, className 
     if (!window.confirm(`删除画布“${project.name}”？此操作无法撤销。`)) return;
     setBusy(project.id);
     try {
-      await requestJson(`/api/workflow/canvases/${encodeURIComponent(project.id)}`, { method: 'DELETE' });
+      await requestCanvasJson(`/api/workflow/canvases/${encodeURIComponent(project.id)}`, { method: 'DELETE' });
       setProjects((current) => current.filter((item) => item.id !== project.id));
       setOpenProjectMenuId('');
     } catch (deleteError) {
@@ -116,9 +99,9 @@ export function WorkflowLibrary({ onOpen, onCreate, createSignal = 0, className 
     const name = renameValue.trim().slice(0, 80) || renaming.name;
     setBusy(renaming.id);
     try {
-      const currentPayload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(renaming.id)}`);
+      const currentPayload = await requestCanvasJson(`/api/workflow/canvases/${encodeURIComponent(renaming.id)}`);
       const currentCanvas = currentPayload.canvas || {};
-      const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(renaming.id)}`, {
+      const payload = await requestCanvasJson(`/api/workflow/canvases/${encodeURIComponent(renaming.id)}`, {
         method: 'PUT',
         body: { name, workflow: currentCanvas.workflow || { nodes: [], edges: [] } },
       });

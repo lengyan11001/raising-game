@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { Canvas } from './components/canvas/Canvas';
 import { WorkflowEditor } from './components/workflow/WorkflowEditor';
 import { WorkflowLibrary } from './components/workflow/WorkflowLibrary';
+import { requestCanvasJson } from './components/workflow/canvasApi';
 import {
   toReactFlowGraph,
   writeReactFlowGraph,
@@ -28,24 +29,6 @@ function emptyWorkflow() {
   };
 }
 
-function jsonRequest(path, options = {}) {
-  const method = String(options.method || 'GET').toUpperCase();
-  const headers = { Accept: 'application/json', ...(options.headers || {}) };
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json';
-  return fetch(path, {
-    method,
-    credentials: 'include',
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  }).then(async (response) => {
-    const text = await response.text();
-    let payload = {};
-    try { payload = text ? JSON.parse(text) : {}; } catch { payload = { error: text }; }
-    if (!response.ok) throw new Error(payload.error || payload.message || `请求失败 (${response.status})`);
-    return payload;
-  });
-}
-
 function WorkflowWorkspace() {
   const [view, setView] = React.useState('library');
   const [project, setProject] = React.useState(null);
@@ -67,7 +50,7 @@ function WorkflowWorkspace() {
     setLoading(true);
     setError('');
     try {
-      const payload = await jsonRequest(`/api/workflow/canvases/${encodeURIComponent(summary.id)}`);
+      const payload = await requestCanvasJson(`/api/workflow/canvases/${encodeURIComponent(summary.id)}`);
       const canvas = payload.canvas || {};
       if (!canvas.id || !canvas.workflow) throw new Error('画布数据为空');
       if (typeof window.activateWorkflowCanvasProject !== 'function') {
@@ -92,7 +75,7 @@ function WorkflowWorkspace() {
     setError('');
     try {
       const workflow = emptyWorkflow();
-      const payload = await jsonRequest('/api/workflow/canvases', {
+      const payload = await requestCanvasJson('/api/workflow/canvases', {
         method: 'POST',
         body: { name, workflow },
       });

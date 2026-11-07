@@ -89,6 +89,63 @@ test("workflow canvas CRUD is authenticated and unavailable on tool tenants", ()
   assert.match(server, /WORKFLOW_CANVAS_LIMIT/);
 });
 
+test("workflow canvas API requests reuse the site bearer token", async () => {
+  const source = read("workflow-react/src/components/workflow/canvasApi.js")
+    .replace("export async function requestCanvasJson", "async function requestCanvasJson");
+  const module = { exports: {} };
+  let request = null;
+  const window = {
+    localStorage: {
+      getItem(key) {
+        assert.equal(key, "raisingGameToken");
+        return "site-session-token";
+      },
+    },
+  };
+  const fetch = async (path, options) => {
+    request = { path, options };
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true, canvases: [] }),
+    };
+  };
+
+  new Function("window", "fetch", "module", "exports", `${source}\nmodule.exports.requestCanvasJson = requestCanvasJson;`)(window, fetch, module, module.exports);
+  const payload = await module.exports.requestCanvasJson("/api/workflow/canvases", {
+    method: "post",
+    headers: { "X-Canvas-Test": "1" },
+    body: { name: "test" },
+  });
+
+  assert.deepEqual(payload, { ok: true, canvases: [] });
+  assert.equal(request.path, "/api/workflow/canvases");
+  assert.equal(request.options.method, "POST");
+  assert.equal(request.options.credentials, "include");
+  assert.equal(request.options.headers.Authorization, "Bearer site-session-token");
+  assert.equal(request.options.headers["X-Canvas-Test"], "1");
+  assert.equal(request.options.headers["Content-Type"], "application/json");
+  assert.equal(request.options.body, JSON.stringify({ name: "test" }));
+});
+
+test("workflow canvas API surfaces a missing-token rejection", async () => {
+  const source = read("workflow-react/src/components/workflow/canvasApi.js")
+    .replace("export async function requestCanvasJson", "async function requestCanvasJson");
+  const module = { exports: {} };
+  const window = { localStorage: { getItem: () => "" } };
+  const fetch = async () => ({
+    ok: false,
+    status: 401,
+    text: async () => JSON.stringify({ ok: false, message: "Please sign in to continue" }),
+  });
+
+  new Function("window", "fetch", "module", "exports", `${source}\nmodule.exports.requestCanvasJson = requestCanvasJson;`)(window, fetch, module, module.exports);
+  await assert.rejects(
+    module.exports.requestCanvasJson("/api/workflow/canvases"),
+    /Please sign in to continue/,
+  );
+});
+
 test("workflow canvas UI supports selection, create, save and delete", () => {
   const loader = read("platform.js");
   const manager = read("platform.workflow-canvases.js");
