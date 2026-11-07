@@ -6339,7 +6339,34 @@ async function completeMediaIngestJobInDb(taskId = "", {
   return rows[0] || null;
 }
 
-async function failMediaIngestJobInDb(taskId = "", error = "", { retryAfterSeconds = 60, maxAttempts = 5 } = {}) {
+async function expireExhaustedMediaIngestJobsInDb(maxAttempts = 5) {
+  if (!dbEnabled()) return [];
+  const max = Math.max(1, Math.min(20, Number(maxAttempts) || 5));
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      UPDATE app_media_ingest_jobs
+      SET status = 'failed',
+          updated_at = NOW(),
+          available_at = 'infinity'::timestamptz,
+          error = CASE
+            WHEN error = '' THEN 'Transfer retry limit reached.'
+            ELSE error
+          END
+      WHERE status = 'queued'
+        AND attempts >= $1
+      RETURNING task_id
+    `,
+    [max],
+  );
+  return rows;
+}
+
+async function failMediaIngestJobInDb(taskId = "", error = "", {
+  retryAfterSeconds = 60,
+  maxAttempts = 5,
+  retryable = true,
+} = {}) {
   if (!dbEnabled()) return null;
   const id = String(taskId || "").trim();
   if (!id) return null;
@@ -6349,14 +6376,17 @@ async function failMediaIngestJobInDb(taskId = "", error = "", { retryAfterSecon
   const { rows } = await query(
     `
       UPDATE app_media_ingest_jobs
-      SET status = CASE WHEN attempts >= $3 THEN 'failed' ELSE 'queued' END,
-          available_at = NOW() + ($2::int * INTERVAL '1 second'),
+      SET status = CASE WHEN $5::boolean = false OR attempts >= $3 THEN 'failed' ELSE 'queued' END,
+          available_at = CASE
+            WHEN $5::boolean = false OR attempts >= $3 THEN 'infinity'::timestamptz
+            ELSE NOW() + ($2::int * INTERVAL '1 second')
+          END,
           updated_at = NOW(),
           error = $4
       WHERE task_id = $1
       RETURNING *
     `,
-    [id, delay, max, String(error || "").slice(0, 1000)],
+    [id, delay, max, String(error || "").slice(0, 1000), retryable !== false],
   );
   return rows[0] || null;
 }
@@ -7636,6 +7666,7 @@ module.exports = {
   claimMediaIngestJobInDb,
   claimNextMediaIngestJobsInDb,
   completeMediaIngestJobInDb,
+  expireExhaustedMediaIngestJobsInDb,
   failMediaIngestJobInDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,

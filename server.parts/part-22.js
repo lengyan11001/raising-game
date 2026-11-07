@@ -83,11 +83,14 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
     storageKey: "",
     posterStorageProvider: "",
     posterStorageKey: "",
+    videoBytes: 0,
+    posterBytes: 0,
   };
   if (!objectStorageEnabled() || (!force && !generatedOutputStorageEnabled())) return result;
   const errors = [];
   if (localVideoPath) {
     try {
+      result.videoBytes = (await fs.stat(localVideoPath)).size;
       const videoExt = path.extname(localVideoPath) || ".mp4";
       const videoUpload = await uploadStaticAssetToObjectStorage({
         key: objectStoragePath("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
@@ -107,6 +110,7 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
   if (localPosterPath) {
     try {
       const posterBytes = await fs.readFile(localPosterPath);
+      result.posterBytes = posterBytes.length;
       const posterUpload = await uploadStaticAssetToObjectStorage({
         key: objectStoragePath("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
         bytes: posterBytes,

@@ -14,6 +14,7 @@ const explore = read("platform.explore.js");
 const siteCanvas = read("workflow-react/src/components/canvas/siteNodes/GenerationResultMedia.js");
 const siteNode = read("workflow-react/src/components/canvas/siteNodes/useSiteNode.js");
 const css = read("platform.css");
+const db = read("db.js");
 
 test("generated media defaults to on-demand storage", () => {
   assert.match(server, /const GENERATED_ASSETS_ON_DEMAND = .*process\.env\.GENERATED_ASSETS_ON_DEMAND \|\| "true"/);
@@ -80,11 +81,10 @@ test("background media transfer uses a global bounded worker pool", () => {
   assert.match(scan, /mediaIngestRunning\.add\(id\)/);
   assert.match(scan, /mediaIngestRunning\.delete\(id\)/);
   assert.doesNotMatch(scan, /await runClaimedMediaIngestJob\(job\)/);
-  assert.match(read(".env.example"), /MEDIA_INGEST_CONCURRENCY=2/);
+  assert.match(read(".env.example"), /MEDIA_INGEST_CONCURRENCY=3/);
 });
 
 test("stale media jobs stop being claimed at the retry limit", () => {
-  const db = read("db.js");
   const claimNext = db.slice(
     db.indexOf("async function claimNextMediaIngestJobsInDb"),
     db.indexOf("async function completeMediaIngestJobInDb"),
@@ -95,7 +95,7 @@ test("stale media jobs stop being claimed at the retry limit", () => {
     db.indexOf("async function updateGenerationRecordAdvancedDownloadInDb"),
   );
   assert.match(fail, /maxAttempts = 5/);
-  assert.match(fail, /SET status = CASE WHEN attempts >= \$3 THEN 'failed'/);
+  assert.match(fail, /SET status = CASE WHEN \$5::boolean = false OR attempts >= \$3 THEN 'failed'/);
 });
 
 test("background media transfer never rewrites generation status and deduplicates images", () => {
@@ -116,8 +116,25 @@ test("background media transfer never rewrites generation status and deduplicate
     server.indexOf("function awsQueryEncode"),
   );
   assert.match(hasDownload, /stored\.length >= expected\.length/);
-  const db = read("db.js");
   assert.match(db, /ON CONFLICT \(task_id\) DO UPDATE SET/);
+});
+
+test("media ingest drains OSS transfers without starving retry-exhausted rows", () => {
+  const scan = server.slice(
+    server.indexOf("async function scanMediaIngestQueue"),
+    server.indexOf("async function runClaimedMediaIngestJob"),
+  );
+  const failure = server.slice(
+    server.indexOf("function isRetryableMediaIngestError"),
+    server.indexOf("function advancedDownloadFailureMessage"),
+  );
+  assert.match(scan, /expireExhaustedMediaIngestJobsInDb\(5\)/);
+  assert.match(scan, /MEDIA_INGEST_CONCURRENCY/);
+  assert.match(server, /process\.env\.MEDIA_INGEST_CONCURRENCY \|\| 3/);
+  assert.match(failure, /403/);
+  assert.match(failure, /return false/);
+  assert.match(server, /retryable: isRetryableMediaIngestError\(error\)/);
+  assert.match(db, /SET status = 'failed'[\s\S]*WHERE status = 'queued'[\s\S]*attempts >= \$1/);
 });
 
 test("advanced download preparation is queued so the download-url request cannot hit proxy timeout", () => {
@@ -235,7 +252,6 @@ test("on-demand still repairs a successful video poster", () => {
 });
 
 test("background poster backfill scans non-API video records in bounded batches", () => {
-  const db = read("db.js");
   const scanStart = server.indexOf("async function scanGenerationRecordMissingPosterBackfill");
   const scanEnd = server.indexOf("function startGenerationRecordMediaRecoveryScheduler", scanStart);
   const scan = server.slice(scanStart, scanEnd);

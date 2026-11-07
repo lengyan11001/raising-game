@@ -1,3 +1,21 @@
+## Media ingest queue drain and OSS/R2 decision (2026-11-07)
+
+- Root cause of the large backlog: 1,119 queued rows had `attempts >= 5`; the claim SQL only selects `attempts < 5`, so raising worker concurrency alone could never drain them.
+- `expireExhaustedMediaIngestJobsInDb()` now moves retry-exhausted queued rows to terminal `failed`. Permanent media errors (400/401/403/404/410) are marked failed immediately with `available_at='infinity'`, so the failed-row retry condition cannot re-claim them. Temporary errors (408/425/429/5xx/timeouts/network) still retry up to 5 times.
+- Worker concurrency default raised from 2 to 3, matching the verified 4-vCPU/7GB host capacity; `.env.example` and tests are synchronized.
+- Successful transfers now record bytes in `app_media_ingest_jobs.bytes` (video + poster + images), so future capacity reports are meaningful.
+- Storage decision: new generated media uses Singapore OSS + `assets-cdn.123vips.com`; R2 is not needed for new media. R2 configuration/signing remains only for historical `media.123vips.com` records (about 4,322 rows at inspection time) until those objects are migrated. Do not remove R2 yet.
+- Verification: `node --require ./test/source-compat.js --test test/generated-assets-on-demand.test.js` passes 20/20; syntax checks and `git diff --check` pass.
+
+## Recent media ingest status report (2026-11-07)
+
+- User asked for a recent media-transfer (转存) status report. Production PostgreSQL `app_media_ingest_jobs` snapshot at `2026-11-07T09:24:17Z`: 1,896 jobs created in the last 24h, with 391 ready, 1,172 queued, 21 processing, and 312-314 failed while the queue was moving.
+- Important interpretation: 1,489 of the 1,896 jobs reference generation records older than 7 days; 939 reference records older than 30 days. This is predominantly historical backfill, not 1,896 fresh generations. Oldest source record is from 2026-08-20.
+- Completed recent jobs: average 17.6s, p50 10.5s, p95 52.8s from enqueue through transfer completion.
+- Dominant failures are expired/forbidden upstream source URLs: 299 final and 51 retrying `Failed to download generated video: 403`; 12 image-download 403s; one OSS multipart `SignatureDoesNotMatch`. Most failing video URLs are old Volcengine TOS links.
+- Source health: `advanced-wan30` 49 ready / 959 open / 121 failed; `advanced-seedance` 189 / 218 / 154; `advanced-seedance-nsfw` 53 / 12 / 26; `advanced-seedance25-vega` 50 / 0 / 0; Vega 1.5 Pro 50/50 ready.
+- Operational/data gaps: some rows with `attempts >= 5` remain status `queued`; `app_media_ingest_jobs.bytes` is 0 for all jobs, so transferred bytes/storage volume cannot be reported reliably. No code or deployment changes were made for this report.
+
 ## Canvas preview close button moved to media frame (2026-11-07)
 
 - User reported the media preview close button was too far away at the viewport corner.

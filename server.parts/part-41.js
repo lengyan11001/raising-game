@@ -847,6 +847,18 @@ function generationRecordProviderImageUrls(record = {}) {
 
 const advancedDownloadPreparationQueued = new Set();
 
+function isRetryableMediaIngestError(error = {}) {
+  const message = String(error?.message || error || "");
+  const status = Number(error?.statusCode || error?.status || 0);
+  if (status === 408 || status === 425 || status === 429 || status >= 500) return true;
+  if (/\b(408|425|429|50[0234])\b/.test(message)) return true;
+  if (/abort|timeout|timed out|network|socket|ECONN|ETIMEDOUT/i.test(message)) return true;
+  // Signed provider media URLs are commonly permanent 403/404 after expiry.
+  // Retrying those five times only delays the queue and cannot recover them.
+  if (/\b(400|401|403|404|410)\b/.test(message)) return false;
+  return false;
+}
+
 function advancedDownloadFailureMessage(error = {}) {
   const message = String(error?.message || error || "").trim();
   if (!message) return "Advanced download preparation failed.";
@@ -887,7 +899,7 @@ function queueGenerationRecordAdvancedDownload(record = {}) {
   return true;
 }
 
-const MEDIA_INGEST_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.MEDIA_INGEST_CONCURRENCY || 2) || 2));
+const MEDIA_INGEST_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.MEDIA_INGEST_CONCURRENCY || 3) || 3));
 const mediaIngestRunning = new Set();
 let mediaIngestScanRunning = false;
 
@@ -899,6 +911,9 @@ async function scanMediaIngestQueue() {
     if (slots <= 0) return;
     // Claim only as many rows as we can start immediately. Claiming a batch
     // would leave unclaimed-but-processing rows stuck until stale recovery.
+    // Older releases could leave rows at attempts >= 5 in "queued"; they are
+    // not claimable and otherwise inflate the backlog forever.
+    await expireExhaustedMediaIngestJobsInDb(5);
     const jobs = await claimNextMediaIngestJobsInDb(slots, { staleMinutes: 20 });
     for (const job of jobs) {
       const id = String(job.task_id || "").trim();
@@ -935,12 +950,14 @@ async function runClaimedMediaIngestJob(job = {}) {
       storageProvider: target.storageProvider || objectStorageProvider(),
       storageKey: target.storageKey || "",
       cdnUrl: target.objectStorageUrl || target.url || "",
+      bytes: Number(prepared.videoBytes || 0) + Number(prepared.posterBytes || 0) + Number(prepared.imageBytes || 0),
     });
     return prepared;
   } catch (error) {
     const failed = await failMediaIngestJobInDb(id, advancedDownloadFailureMessage(error), {
       retryAfterSeconds: Math.min(15 * 60, 30 * Math.max(1, Number(job.attempts) || 1)),
       maxAttempts: 5,
+      retryable: isRetryableMediaIngestError(error),
     }).catch(() => null);
     if (failed?.status === "failed") {
       await updateGenerationRecordAdvancedDownloadInDb(id, {
@@ -980,7 +997,7 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
       error.code = "R2_UPLOAD_FAILED";
       throw error;
     }
-    return updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
+    const updated = await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
       localVideoUrl: localVideo.localVideoUrl,
       localVideoPath: localVideo.localVideoPath,
       localPosterUrl: poster.localPosterUrl,
@@ -997,12 +1014,18 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
       advancedDownloadStatus: "ready",
       advancedDownloadError: "",
     });
+    return {
+      ...updated,
+      videoBytes: Number(cdn.videoBytes || 0),
+      posterBytes: Number(cdn.posterBytes || 0),
+    };
   }
 
   const imageUrls = generationRecordProviderImageUrls(existing);
   const sources = imageUrls.length ? imageUrls : [providerTarget.url];
   const savedImages = [];
   const uploads = [];
+  const uploadedBytes = [];
   const errors = [];
   for (let index = 0; index < sources.length; index += 1) {
     const sourceUrl = sources[index];
@@ -1025,6 +1048,7 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
       await markPublishedFileSafely(saved.localImagePath);
       savedImages.push(saved);
       uploads.push(upload);
+      uploadedBytes.push(downloaded.bytes.length);
       await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
         localImageUrl: savedImages[0]?.localImageUrl || "",
         localImagePath: savedImages[0]?.localImagePath || "",
@@ -1059,7 +1083,10 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
     error.code = "R2_UPLOAD_FAILED";
     throw error;
   }
-  return updated;
+  return {
+    ...updated,
+    imageBytes: uploadedBytes.reduce((total, bytes) => total + Number(bytes || 0), 0),
+  };
 }
 
 function generationImageResultUrl(record = {}, savedImage = null) {
@@ -1219,6 +1246,8 @@ function makeR2PresignedDownloadUrl({ key, fileName, contentType = "application/
 
 function generationRecordDownloadUrlPayload(target = {}, fallbackUrl = "") {
   const storage = objectStorageDownloadKey(target);
+  // New media is stored in OSS. R2 signing is retained only for historical
+  // media.123vips.com records that have not yet been migrated.
   const signedUrl = storage.provider === "r2" && storage.key
     ? makeR2PresignedDownloadUrl({
       key: storage.key,
