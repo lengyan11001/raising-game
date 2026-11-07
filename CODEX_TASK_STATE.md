@@ -7,6 +7,14 @@
 - Verification: focused 3/3 tests pass for expired OSS refresh, canonical Vega cache identity/fresh import URL, and Seedance gateway refresh. `node --check tencent-vod-vega.js`, server load, and `git diff --check` pass. Broader historical source-shape tests still have unrelated stale assertions, so they are not claimed green.
 - Deployment: old-site `9cbb612`; platform-release `9ccde59`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`; release boundary checks passed. Live was not deployed.
 
+## Video reference labels layered above posters (2026-11-07)
+
+- User reported restored video thumbnails hid the `Video 1` / `Video 2` badges.
+- Cause: the global label span was rendered outside `.advanced-video-preview`; the poster/video layers covered it after thumbnails were added.
+- Fix: video chips now render their label inside the video preview surface at `z-index: 8`, while non-video chips keep the original label placement.
+- Verification: `node --test test/vega-regeneration-media.test.js` 12/12; `node --check platform.create.parts/part-05.js`; `git diff --check`; headless visual fixture confirms `Video 1`/`Video 2` above the image layer.
+- Deployment: old-site `3776ae6`; platform-release `355cc26`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}` and production JS/CSS contain `advanced-video-reference-label`. Live was not deployed.
+
 ## Video reference thumbnails restored in regeneration (2026-11-07)
 
 - User reported two videos restored into `cgt-20261106224218-1800a5` regeneration without thumbnails.
@@ -1265,3 +1273,11 @@ CODEX_TASK_STATE.md
 - Verification: advanced result suites pass 22/22; syntax and `git diff --check` pass.
 - Integration and release: pushed `old-site` at `365c1fe`; built and pushed platform release `cdda822` with lease protection.
 - Deployment: `scripts/deploy_local.sh --site old` exited 0. Production `/api/health` returns `200 {"ok":true}`; served `platform.create.parts/part-01.js` renders the image branch before the video/poster branch, and the image branch has no play icon. Live was not deployed.
+
+## Production failed-task inspection (2026-11-07 09:14 +08)
+
+- Queried production PostgreSQL `app_generation_records` directly through the old-site host; no source-text search was used.
+- Last 24h: 67 failed records. Latest failure was `2026-11-07 04:50:55 +08`, before the current release restart at `2026-11-07 08:59:42 +08`.
+- Strictly after that release time: 0 failed/error records created or updated.
+- Last 24h error groups: 37 content-moderation/copyright/sensitive-content; 19 Wan 3.0 `Failed to download file: HTTP 502` (latest `2026-11-06 23:16:28`, all predating the signed-media deployment); 6 timeout; 3 invalid duration; remaining isolated upstream errors.
+- Last 24h: 0 HTTP 403 failures, 0 post-release literal `"undefined"` prompts. No new fix made from this inspection.
