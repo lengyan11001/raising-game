@@ -181,13 +181,26 @@ function workflowVisibleNodePosition() {
   const canvas = els.workflowRoot?.querySelector(".workflow-react-host");
   if (!canvas || typeof window.WorkflowReactCanvas?.screenToFlowPosition !== "function") return workflowVisibleCenterPosition();
   const rect = canvas.getBoundingClientRect();
-  const index = workflowImageNodes().length + workflowVideoNodes().length;
-  const column = index % 2;
-  const row = Math.floor(index / 2) % 3;
-  return window.WorkflowReactCanvas.screenToFlowPosition({
-    x: rect.left + Math.min(rect.width - 480, 150 + column * Math.min(470, rect.width * 0.42)),
-    y: rect.top + 92 + row * 360,
-  });
+  const nodeWidth = 420;
+  const nodeHeight = 590;
+  const gap = 28;
+  const left = rect.left + 36;
+  const top = rect.top + 30;
+  const right = rect.left + Math.max(nodeWidth, rect.width - 36);
+  const bottom = rect.top + rect.height - 112;
+  const maxColumns = Math.max(1, Math.floor((right - left + gap) / (nodeWidth + gap)));
+  const maxRows = Math.max(1, Math.floor((bottom - top + gap) / (nodeHeight + gap)));
+  for (let row = 0; row < maxRows; row += 1) {
+    for (let column = 0; column < maxColumns; column += 1) {
+      const flowPosition = window.WorkflowReactCanvas.screenToFlowPosition({
+        x: left + column * (nodeWidth + gap),
+        y: top + row * (nodeHeight + gap),
+      });
+      const candidate = clampWorkflowNodePosition(flowPosition.x, flowPosition.y);
+      if (workflowNodePositionIsFree(candidate)) return candidate;
+    }
+  }
+  return workflowVisibleCenterPosition();
 }
 
 function addWorkflowNodeAt(action = "", position = null) {
@@ -196,6 +209,7 @@ function addWorkflowNodeAt(action = "", position = null) {
   persistWorkflowState();
   if (window.WorkflowReactCanvas?.sync?.()) {
     window.WorkflowReactCanvas.selectNode(node.id);
+    window.dispatchEvent(new CustomEvent("workflow-react:fit-view"));
   } else {
     renderWorkflowPanel({ focusNodeId: node.id });
   }

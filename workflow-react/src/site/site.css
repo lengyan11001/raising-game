@@ -149,13 +149,13 @@
 .site-generation-card .react-flow__handle-left {
   left: 0 !important;
   top: 20px !important;
-  transform: translate(-50%, 0) !important;
+  transform: translate(-50%, -50%) !important;
 }
 
 .site-generation-card .react-flow__handle-right {
   right: 0 !important;
   top: 20px !important;
-  transform: translate(50%, 0) !important;
+  transform: translate(50%, -50%) !important;
 }
 
 .site-generation-card .react-flow__handle:hover,
@@ -508,4 +508,51 @@
 .Canvas-reactflow .react-flow__selection {
   border-color: var(--site-canvas-pink);
   background: rgba(255, 79, 163, .1);
+}
+.WorkflowWorkspace-state {
+  display: flex;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: #f6f1f7;
+  background: #111014;
+  font-size: 13px;
+}
+.WorkflowWorkspace-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(245, 106, 168, 0.28);
+  border-top-color: #f56aa8;
+  border-radius: 50%;
+  animation: WorkflowWorkspace-spin 0.8s linear infinite;
+}
+.WorkflowWorkspace-state.is-error { color: #ffd1dd; background: #151116; }
+.WorkflowWorkspace-state strong { font-size: 16px; }
+.WorkflowWorkspace-state span { max-width: 620px; line-height: 1.55; text-align: center; }
+.WorkflowWorkspace-state button {
+  margin-top: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  color: #1d1218;
+  background: #f56aa8;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  cursor: pointer;
+}
+@keyframes WorkflowWorkspace-spin { to { transform: rotate(360deg); } }
+.workflow-panel > .workflow-shell,
+.workflow-shell > .workflow-react-host {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.workflow-shell > .workflow-react-host {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  color: #f6f1f7;
+  background: #111014;
 }

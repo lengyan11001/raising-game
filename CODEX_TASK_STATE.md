@@ -1,3 +1,12 @@
+## Seedance recent URL audit (2026-11-07)
+
+- User asked whether recent SD tasks had started sending URLs upstream again. Audited production PostgreSQL `app_generation_records` for the latest 24 hours, not just source code.
+- Ordinary `advanced-seedance` (225 success / 24 failed) and `advanced-seedance-nsfw` (64 success / 20 failed) never store `upstreamPayload.FileInfos`; their upstream image/video/audio URLs are under `upstreamPayload.content[]`.
+- All recent ordinary SD / Fast / Seedance 2.5 upstream media values are `asset://asset-...`; no public HTTP(S) media URL is present in those fields. Pro 1.0 (`advanced-seedance20-vega`, 7 success / 1 failed) and Pro 1.5 (`advanced-seedance25-vega`, 47 success / 1 failed) use `FileInfos[].Url`, also all `asset://asset-...`. No recent Pro task reverted to HTTPS `FileInfos`.
+- Failure mix in the latest 24 hours is upstream content moderation and copyright/audio restriction, not media URL delivery. `advanced-seedance`: 12 sensitive-content, 11 copyright/audio, 1 other. `advanced-seedance-nsfw`: 7 sensitive-content, 6 invalid-parameter, 4 copyright/audio, 3 other. Pro 1.0 and 1.5 each had 1 copyright/audio failure.
+- Example `cgt-20261107050322-50d01c` succeeded with six `asset://` references in `content[]`; example `cgt-20261107111115-77fdc1` failed on upstream sensitive-image validation while `content[1].image_url.url` was `asset://asset-20261107111115-685l7`.
+- No code change was required for this audit. An exploratory local attempt to rewrite gateway `asset://` values was reverted after production evidence showed it was not the reported regression.
+
 ## Upstream reference mirror 403 fix (2026-11-07)
 
 - User reported generation failures with `下载上游参考镜像失败:403`; no exact string exists in local source, so traced the shared reference-media path.
@@ -1281,6 +1290,21 @@ CODEX_TASK_STATE.md
 - Strictly after that release time: 0 failed/error records created or updated.
 - Last 24h error groups: 37 content-moderation/copyright/sensitive-content; 19 Wan 3.0 `Failed to download file: HTTP 502` (latest `2026-11-06 23:16:28`, all predating the signed-media deployment); 6 timeout; 3 invalid duration; remaining isolated upstream errors.
 - Last 24h: 0 HTTP 403 failures, 0 post-release literal `"undefined"` prompts. No new fix made from this inspection.
+
+## Generate composer interaction polish mock (2026-11-07)
+
+- User rejected a large layout redesign and requested keeping the existing generation presentation while improving parameter-selection and input interaction styling.
+- Added separate mock `/Users/x042/.codex/visualizations/2026/11/05/01a1ab8c-4aa5-7a33-82cd-78be1dd6cb1f/generate-composer-polish.html`; the previous `generate-redesign.html` was not changed.
+- Direction: retain bottom conversation composer; expose only key parameters as compact chips (model, ratio, resolution, duration, mode); clicking ratio opens a polished popover above the composer with visual aspect-ratio cards. Attachments, prompt typography, secondary tools, and Generate button were refined without changing the page structure.
+- Opened in the app browser for review. No production code or deployment changes.
+
+## Generate composer polish design corrected to production UI (2026-11-07 09:02 +08)
+
+- User rejected the earlier conversational composer mock because it did not match the deployed Generate page and omitted the parameter controls.
+- Inspected the logged-in production page at `https://123vips.com/#advanced`; captured the actual Prompt -> reference assets -> model/mode/ratio/resolution/duration chips -> Generate area.
+- Source anchors: `platform.html` prompt/toolbar at ~570-746; `platform.create.parts/part-02.js` parameter chips/popovers at ~989-1250; `platform.css` composer styles at ~5697-5775 and ~10954-11255.
+- Created the corrected local interactive design mock `/Users/x042/.codex/visualizations/2026/11/05/01a1ab8c-4aa5-7a33-82cd-78be1dd6cb1f/generate-panel-polish.html`.
+- Scope remains deliberately local to composer styling/interaction: keep the existing two-column Generate page and current parameter model, improve prompt/reference/chip grouping, use anchored popovers, and retain only key parameters. No production code changed or deployed.
 
 ## Seedance 2.0 Fast independent option and 1.5x pricing (2026-11-07)
 

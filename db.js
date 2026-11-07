@@ -4565,7 +4565,7 @@ async function listWorkflowCanvasesFromDb(userId = "") {
   await ensureSchema();
   const { rows } = await query(
     `
-      SELECT id, user_id, name, created_at, updated_at FROM app_workflow_canvases
+      SELECT id, user_id, name, payload, created_at, updated_at FROM app_workflow_canvases
       WHERE user_id = $1
       ORDER BY updated_at DESC, created_at DESC
     `,

@@ -140,11 +140,22 @@ function publicWorkflowCanvasView(record = {}) {
 }
 
 function publicWorkflowCanvasSummary(record = {}) {
+  const workflow = record.workflow && typeof record.workflow === "object" ? record.workflow : {};
+  const previewNodes = (Array.isArray(workflow.nodes) ? workflow.nodes : [])
+    .filter((node) => node && node.id)
+    .slice(0, 8)
+    .map((node) => ({
+      id: String(node.id || ""),
+      type: String(node.type || ""),
+      x: Number(node.x || 0),
+      y: Number(node.y || 0),
+    }));
   return {
     id: String(record.id || "").trim(),
     name: normalizeWorkflowCanvasName(record.name),
     createdAt: String(record.createdAt || record.created_at || "").trim(),
     updatedAt: String(record.updatedAt || record.updated_at || "").trim(),
+    previewNodes,
   };
 }
 

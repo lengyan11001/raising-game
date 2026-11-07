@@ -232,6 +232,26 @@ function setActiveWorkflowCanvas(canvas = {}, { preserveLocalEdits = false, base
   return true;
 }
 
+// React owns the project list/editor shell. This bridge only swaps the active
+// PostgreSQL-backed canvas into the existing site workflow state before the
+// canvas mounts, so autosave and uploads always target the opened project.
+function activateWorkflowCanvasProject(canvas = {}) {
+  if (!canvas || !canvas.id) return false;
+  const requestSeq = beginWorkflowCanvasLoad();
+  if (!setActiveWorkflowCanvas(canvas, { requestSeq })) return false;
+  state.workflowCanvasView = "detail";
+  state.workflowCanvasMessage = "已保存";
+  savedWorkflowViewport = null;
+  return true;
+}
+
+function deactivateWorkflowCanvasProject() {
+  window.clearTimeout(state.workflowCanvasSaveTimer);
+  state.workflowCanvasSaveTimer = 0;
+  state.workflowCanvasView = "list";
+  state.workflowCanvasMessage = "";
+}
+
 async function fetchWorkflowCanvas(canvasId = "") {
   const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(canvasId)}`);
   return payload.canvas || null;
@@ -537,3 +557,6 @@ function handleWorkflowCanvasInput(event) {
   }
   return false;
 }
+
+window.activateWorkflowCanvasProject = activateWorkflowCanvasProject;
+window.deactivateWorkflowCanvasProject = deactivateWorkflowCanvasProject;

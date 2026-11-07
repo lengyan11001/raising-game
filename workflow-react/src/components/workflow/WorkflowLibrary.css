@@ -1,0 +1,388 @@
+.InspirationCanvas-body {
+  --canvas-list-pink: #f56aa8;
+  --canvas-list-line: rgba(255, 255, 255, 0.09);
+  --canvas-list-muted: #938b98;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  color: #f7f3f8;
+  background:
+    radial-gradient(circle at 86% -8%, rgba(245, 106, 168, 0.12), transparent 33%),
+    #111014;
+}
+
+.InspirationCanvas-body * { box-sizing: border-box; }
+
+.InspirationCanvas-main {
+  width: min(100%, 1580px);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 28px 32px 64px;
+}
+
+.InspirationCanvas-section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+
+.InspirationCanvas-section-header h2 {
+  margin: 0;
+  color: #f7f3f8;
+  font-size: 21px;
+  font-weight: 720;
+  line-height: 1.2;
+}
+
+.InspirationCanvas-create-project-button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  color: #21141a;
+  background: var(--canvas-list-pink);
+  border: 1px solid var(--canvas-list-pink);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.InspirationCanvas-create-project-button:hover {
+  background: #ff83b8;
+  border-color: #ff83b8;
+  transform: translateY(-1px);
+}
+
+.InspirationCanvas-create-project-button:focus-visible,
+.InspirationCanvas-project-menu-trigger:focus-visible,
+.InspirationCanvas-project-menu-popover button:focus-visible {
+  outline: 2px solid rgba(245, 106, 168, 0.9);
+  outline-offset: 2px;
+}
+
+.InspirationCanvas-masonry-container.is-mine-projects {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px 18px;
+  align-items: start;
+}
+
+.InspirationCanvas-masonry-container.is-mine-projects .InspirationCanvas-masonry-column {
+  display: contents;
+}
+
+.InspirationCanvas-masonry-container.is-mine-projects .InspirationCanvas-masonry-item {
+  min-width: 0;
+  transform: none;
+}
+
+.InspirationCanvas-masonry-item {
+  color: #f7f3f8;
+  border-radius: 9px;
+  cursor: pointer;
+  outline: none;
+}
+
+.InspirationCanvas-card-content.is-mine-project {
+  overflow: visible;
+  background: transparent;
+  border-radius: 0;
+}
+
+.InspirationCanvas-card-thumbnail {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--canvas-list-line);
+  border-radius: 9px;
+  background:
+    radial-gradient(circle at 70% 20%, rgba(245, 106, 168, 0.12), transparent 46%),
+    #1b181e;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.InspirationCanvas-card-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 480ms ease;
+}
+
+.InspirationCanvas-masonry-item:hover .InspirationCanvas-card-thumbnail {
+  border-color: rgba(245, 106, 168, 0.46);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.26);
+}
+
+.InspirationCanvas-masonry-item:hover .InspirationCanvas-card-thumbnail img {
+  transform: scale(1.035);
+}
+
+.InspirationCanvas-masonry-item:focus-visible .InspirationCanvas-card-thumbnail {
+  outline: 2px solid var(--canvas-list-pink);
+  outline-offset: 3px;
+}
+
+.InspirationCanvas-card-mini-canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 82% 8%, rgba(245, 106, 168, 0.14), transparent 38%),
+    linear-gradient(145deg, #211b26, #171419);
+}
+
+.InspirationCanvas-card-mini-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.6;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+  background-size: 14px 14px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent);
+}
+
+.InspirationCanvas-card-mini-node {
+  position: absolute;
+  display: grid;
+  width: 46px;
+  height: 32px;
+  place-items: center;
+  color: #ffaece;
+  background: linear-gradient(150deg, rgba(57, 45, 63, 0.96), rgba(34, 28, 39, 0.96));
+  border: 1px solid rgba(245, 106, 168, 0.42);
+  border-radius: 5px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+  font-size: 13px;
+}
+
+.InspirationCanvas-card-mini-node.is-video {
+  color: #c4b0ff;
+  border-color: rgba(158, 123, 255, 0.5);
+}
+
+.InspirationCanvas-card-mini-node::after {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 1px);
+  width: 18px;
+  height: 1px;
+  content: '';
+  background: rgba(245, 106, 168, 0.46);
+}
+
+.InspirationCanvas-card-mini-node:last-child::after { display: none; }
+
+.InspirationCanvas-card-empty-create {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 3px;
+  color: #b8aebd;
+  background:
+    radial-gradient(circle at 50% 36%, rgba(245, 106, 168, 0.1), transparent 48%),
+    linear-gradient(145deg, #1e1a21, #171419);
+}
+
+.InspirationCanvas-card-empty-mark { color: #f56aa8; font-size: 27px; font-weight: 300; line-height: 1; }
+.InspirationCanvas-card-empty-create strong { font-size: 11px; font-weight: 620; }
+.InspirationCanvas-card-empty-create small { color: #787080; font-size: 9px; }
+
+.InspirationCanvas-card-info {
+  position: static;
+  display: block;
+  padding: 10px 2px 0;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.InspirationCanvas-card-meta-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.InspirationCanvas-card-content.is-mine-project .InspirationCanvas-card-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #f4eff5;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 680;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.InspirationCanvas-card-title-input {
+  min-width: 0;
+  width: 100%;
+  padding: 3px 6px;
+  color: #f7f3f8;
+  background: #211c23;
+  border: 1px solid rgba(245, 106, 168, 0.7);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.InspirationCanvas-project-date {
+  display: block;
+  margin-top: 4px;
+  color: var(--canvas-list-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.InspirationCanvas-project-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.InspirationCanvas-project-menu-trigger {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  color: #837a88;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.InspirationCanvas-project-menu-trigger:hover,
+.InspirationCanvas-project-menu-trigger[aria-expanded='true'] {
+  color: #f7f3f8;
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.InspirationCanvas-project-menu-trigger:disabled { cursor: wait; opacity: 0.45; }
+
+.InspirationCanvas-project-menu-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 7px);
+  right: 0;
+  display: grid;
+  min-width: 136px;
+  gap: 2px;
+  padding: 5px;
+  background: #1c181f;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.42);
+}
+
+.InspirationCanvas-project-menu-popover button {
+  width: 100%;
+  padding: 8px 9px;
+  color: #d9d1dc;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.InspirationCanvas-project-menu-popover button:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+.InspirationCanvas-project-menu-popover button.is-danger { color: #ff8aa5; }
+.InspirationCanvas-project-menu-popover button.is-danger:hover { color: #ffb1c2; background: rgba(255, 91, 125, 0.1); }
+.InspirationCanvas-project-menu-divider { height: 1px; margin: 3px 2px; background: var(--canvas-list-line); }
+
+.InspirationCanvas-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px 18px;
+}
+
+.InspirationCanvas-project-skeleton {
+  display: block;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--canvas-list-line);
+  border-radius: 8px;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.035) 20%, rgba(255, 255, 255, 0.075) 40%, rgba(255, 255, 255, 0.035) 60%);
+  background-size: 200% 100%;
+  animation: InspirationCanvas-project-shimmer 1.4s linear infinite;
+}
+
+@keyframes InspirationCanvas-project-shimmer { to { background-position: -200% 0; } }
+
+.InspirationCanvas-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  color: #ffd3dd;
+  background: rgba(255, 83, 124, 0.08);
+  border: 1px solid rgba(255, 83, 124, 0.24);
+  border-radius: 9px;
+  font-size: 12px;
+}
+
+.InspirationCanvas-error p { margin: 0; }
+.InspirationCanvas-error button {
+  padding: 5px 11px;
+  color: #ffd3dd;
+  background: transparent;
+  border: 1px solid rgba(255, 143, 164, 0.4);
+  border-radius: 999px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.InspirationCanvas-empty-project {
+  display: flex;
+  width: 100%;
+  min-height: 340px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 9px;
+  color: #f5eff7;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.InspirationCanvas-empty-project:hover {
+  background: rgba(245, 106, 168, 0.055);
+  border-color: rgba(245, 106, 168, 0.5);
+}
+
+.InspirationCanvas-empty-project-mark { color: var(--canvas-list-pink); font-size: 36px; font-weight: 200; line-height: 1; }
+.InspirationCanvas-empty-project strong { font-size: 15px; font-weight: 620; }
+.InspirationCanvas-empty-project small { color: var(--canvas-list-muted); font-size: 12px; }
+
+@media (max-width: 1100px) {
+  .InspirationCanvas-masonry-container.is-mine-projects,
+  .InspirationCanvas-skeleton-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 768px) {
+  .InspirationCanvas-main { padding: 24px 16px 56px; }
+  .InspirationCanvas-masonry-container.is-mine-projects,
+  .InspirationCanvas-skeleton-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 16px; }
+}

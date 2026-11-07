@@ -1040,36 +1040,10 @@ window.syncWorkflowStatusText = syncWorkflowStatusText;
 
 function renderWorkflowPanel({ focusNodeId = "" } = {}) {
   if (!els.workflowRoot) return;
-  if (state.workflowCanvasView !== "detail") {
-    els.workflowRoot.innerHTML = typeof renderWorkflowCanvasManager === "function" ? renderWorkflowCanvasManager() : "";
-    refreshIcons();
-    return;
-  }
-
   let reactHost = els.workflowRoot.querySelector(".workflow-react-host");
   if (!reactHost) {
-    els.workflowRoot.innerHTML = `
-      ${typeof renderWorkflowCanvasManager === "function" ? renderWorkflowCanvasManager() : ""}
-      <div class="workflow-layout">
-        <div class="workflow-canvas-empty-actions" data-workflow-canvas-empty-actions>
-          <span>双击画布，或添加一个生成节点</span>
-          <button type="button" data-workflow-action="add-image">图片生成</button>
-          <button type="button" data-workflow-action="add-video">视频生成</button>
-        </div>
-        <section class="workflow-canvas workflow-react-host" aria-label="画布"></section>
-      </div>
-    `;
-    refreshIcons();
+    els.workflowRoot.innerHTML = `<section class="workflow-react-host" aria-label="画布工作区"></section>`;
     reactHost = els.workflowRoot.querySelector(".workflow-react-host");
-  } else {
-    const manager = els.workflowRoot.querySelector(".workflow-canvas-manager") || els.workflowRoot.querySelector(".workflow-canvas-detail-bar");
-    if (manager && typeof renderWorkflowCanvasManager === "function") {
-      const template = document.createElement("template");
-      template.innerHTML = renderWorkflowCanvasManager();
-      const nextManager = template.content.firstElementChild;
-      if (nextManager) manager.replaceWith(nextManager);
-      refreshIcons();
-    }
   }
 
   if (!reactHost) return;

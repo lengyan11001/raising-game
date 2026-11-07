@@ -12,6 +12,8 @@ import {
   applyEdgeChanges,
   useReactFlow,
   useUpdateNodeInternals,
+  useStore,
+  getViewportForBounds,
   ReactFlowProvider,
 } from '@xyflow/react';
 import { nanoid } from 'nanoid';
@@ -27,6 +29,7 @@ import {
 } from '../../site/SiteBridge';
 import { NodeOperationsProvider } from './providers/NodeOperationsProvider';
 import { NodeDropzoneProvider } from './providers/NodeDropzoneProvider';
+import { Toolbar } from './Toolbar';
 import { ConnectionGuideEdge } from './edges/ConnectionGuideEdge';
 import {
   buildConnectionGuideEdges,
@@ -54,10 +57,18 @@ const CanvasInner = ({
     screenToFlowPosition,
     getViewport,
     setViewport,
+    getNodesBounds,
     fitView,
+    viewportInitialized,
   } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
-  const viewportRef = useRef(readCanvasViewport());
+  const canvasWidth = useStore((state) => state.width);
+  const canvasHeight = useStore((state) => state.height);
+  // Opening a project should show all of its nodes. Zoom changes made during
+  // editing are still persisted by onMoveEnd, but they are not allowed to
+  // reopen the canvas cropped far outside the graph.
+  const viewportRef = useRef(null);
+  const hasAutoFittedRef = useRef(false);
   const lastPaneClickRef = useRef({ time: 0, x: 0, y: 0 });
   const lastAddNodeAtRef = useRef({ time: 0, x: 0, y: 0 });
   const connectingNodeId = useRef(null);
@@ -66,11 +77,87 @@ const CanvasInner = ({
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
 
+  const measuredHandleNodesRef = useRef(new Set());
+  const nodeIdsKey = nodes.map((node) => node.id).join('|');
+
+  const fitCanvasSafely = useCallback((targetNodes = nodesRef.current) => {
+    if (!viewportInitialized) return false;
+    const viewportElement = document.querySelector('.CanvasEditor-canvas > .react-flow');
+    const measuredWidth = viewportElement?.clientWidth || canvasWidth;
+    const measuredHeight = viewportElement?.clientHeight || canvasHeight;
+    if (!targetNodes.length || !measuredWidth || !measuredHeight) return false;
+
+    // React Flow measures custom nodes asynchronously. On a freshly opened
+    // project getNodesBounds can still be empty during the first frame, so use
+    // the same card dimensions as a conservative fallback instead of leaving
+    // the graph under the toolbar/minimap.
+    const measuredBounds = getNodesBounds(targetNodes);
+    const fallbackBounds = targetNodes.reduce((box, node) => {
+      const width = node.measured?.width || node.width || node.style?.width || 420;
+      const height = node.measured?.height || node.height || node.style?.height || 620;
+      const x = node.position?.x || 0;
+      const y = node.position?.y || 0;
+      return {
+        x: Math.min(box.x, x),
+        y: Math.min(box.y, y),
+        right: Math.max(box.right, x + width),
+        bottom: Math.max(box.bottom, y + height),
+      };
+    }, { x: Infinity, y: Infinity, right: -Infinity, bottom: -Infinity });
+    const bounds = measuredBounds?.width > 0 && measuredBounds?.height > 0
+      ? measuredBounds
+      : {
+          x: fallbackBounds.x,
+          y: fallbackBounds.y,
+          width: fallbackBounds.right - fallbackBounds.x,
+          height: fallbackBounds.bottom - fallbackBounds.y,
+        };
+    if (!bounds.width || !bounds.height) return false;
+
+    const viewport = getViewportForBounds(
+      bounds,
+      measuredWidth,
+      measuredHeight,
+      0.25,
+      1,
+      { top: 94, right: 76, bottom: 118, left: 76 },
+    );
+    setViewport(viewport, { duration: 0 });
+    viewportRef.current = viewport;
+    writeCanvasViewport(viewport);
+    return true;
+  }, [canvasHeight, canvasWidth, getNodesBounds, setViewport, viewportInitialized]);
+
+  useEffect(() => {
+    if (!nodesRef.current.length) return undefined;
+    let firstFrame;
+    let secondFrame;
+    let retryFrame;
+    const tryFit = (remaining = 20) => {
+      if (fitCanvasSafely(nodesRef.current)) {
+        secondFrame = requestAnimationFrame(() => fitCanvasSafely(nodesRef.current));
+        return;
+      }
+      if (remaining > 0) retryFrame = requestAnimationFrame(() => tryFit(remaining - 1));
+    };
+    if (viewportInitialized) {
+      firstFrame = requestAnimationFrame(() => tryFit());
+    } else {
+      // Width/height become available before the pan/zoom instance exists.
+      // Retry only while the instance is absent; use a zero-delay timer so
+      // initialization is not tied to unrelated animation frames.
+      firstFrame = window.setTimeout(() => tryFit(), 0);
+    }
+    return () => {
+      if (firstFrame) window.clearTimeout(firstFrame);
+      if (secondFrame) cancelAnimationFrame(secondFrame);
+      if (retryFrame) cancelAnimationFrame(retryFrame);
+    };
+  }, [fitCanvasSafely, nodeIdsKey, viewportInitialized]);
+
   // React 17 下节点首次挂载时，React Flow 的 ResizeObserver 可能只测量到节点
   // 尺寸而没有写入 Handle 边界，导致 Handle 可点击却无法开始连线。节点 DOM
   // 就绪后使用官方 API 强制补测一次，并在下一帧复核，以覆盖异步布局。
-  const measuredHandleNodesRef = useRef(new Set());
-  const nodeIdsKey = nodes.map((node) => node.id).join('|');
   useEffect(() => {
     if (readOnly || !nodes.length) return undefined;
     const frame = requestAnimationFrame(() => {
@@ -107,7 +194,7 @@ const CanvasInner = ({
       setViewport(viewport, { duration: 0 });
     };
     const handleFitView = () => {
-      fitView({ padding: 0.18, maxZoom: 1, duration: 0 });
+      fitCanvasSafely(nodesRef.current);
       window.setTimeout(() => handleCaptureViewport(), 0);
     };
     const handleScreenToFlowPosition = (event) => {
@@ -121,6 +208,10 @@ const CanvasInner = ({
       setViewport: (viewport) => handleSetViewport({ detail: { viewport } }),
       fitView: () => handleFitView(),
       getViewport: readViewport,
+      getGraph: () => ({
+        nodes: nodesRef.current,
+        edges: edgesRef.current,
+      }),
     };
     window.WorkflowReactCanvas = { ...(window.WorkflowReactCanvas || {}), ...api };
     window.addEventListener('workflow-react:capture-viewport', handleCaptureViewport);
@@ -133,7 +224,7 @@ const CanvasInner = ({
       window.removeEventListener('workflow-react:set-viewport', handleSetViewport);
       window.removeEventListener('workflow-react:fit-view', handleFitView);
     };
-  }, [fitView, getViewport, screenToFlowPosition, setViewport]);
+  }, [fitCanvasSafely, getViewport, screenToFlowPosition, setViewport]);
 
   // 业务状态更新（生成轮询、上传、节点控件）通过同一个 React Flow 实例同步，
   // 不再卸载并重建画布，避免节点和已有连线消失。
@@ -509,7 +600,8 @@ const CanvasInner = ({
           fitView={false}
           defaultViewport={viewportRef.current || { x: 0, y: 0, zoom: 1 }}
           fitViewOptions={{
-            padding: 0.18,
+            padding: { top: 94, right: 76, bottom: 118, left: 76 },
+            minZoom: 0.25,
             maxZoom: 1,
           }}
           minZoom={0.25}
@@ -548,7 +640,9 @@ const CanvasInner = ({
           </div>
         )} */}
 
-        {!readOnly && (
+        {!readOnly && <Toolbar disabled={readOnly} />}
+
+        {false && (
           <div className="Canvas-mode-toggle" role="group" aria-label="画布操作模式">
             <button
               type="button"
