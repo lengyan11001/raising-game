@@ -15206,12 +15206,8 @@ body.wan30-launch-visible .site-head { top: 0; }
     grid-template-columns: minmax(560px, 680px) minmax(420px, 1fr);
   }
   .advanced-workspace.is-create-custom .advanced-parameter-chips {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .advanced-workspace.is-create-custom .advanced-parameter-chips::-webkit-scrollbar {
-    display: none;
+    flex-wrap: wrap;
+    overflow-x: visible;
   }
   .advanced-workspace.is-create-custom .advanced-parameter-chip {
     flex: 0 0 auto;

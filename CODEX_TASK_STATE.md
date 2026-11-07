@@ -1430,3 +1430,10 @@ CODEX_TASK_STATE.md
 - Re-verified parameter pickers: opening Mode/Ratio/Duration shows the designed panels, switching chips closes the previous panel, and clicking the same chip again closes it.
 - Evidence: `/tmp/preview-after-proxy.png`, `/tmp/picker-final-proxy.png`, `/tmp/debug-preview-cdp.js`, and `/tmp/check-picker-cdp.js`.
 - Deployment: `123vips.com` only. `old-site` `a6af8d0`; `platform-release` `f829a69`; deployed via `scripts/deploy_local.sh --site old`; `/api/health` returned `200 {"ok":true}`. Production Chrome/CDP acceptance at `https://123vips.com/platform.html#custom` confirms the Generate chips render, Mode opens with all four reference modes, Mode closes on repeat click, and Ratio opens with ratio/resolution options. Production `/platform.css`, `/platform.js`, and `/platform.create.parts/part-02.js` hashes match the release. Live was not deployed.
+
+## Generate parameter consolidation (2026-11-07)
+
+- Removed the standalone Resolution chip whenever the Ratio chip is visible, because the ratio popup already includes resolution selection. The native `advancedResolution` select remains the submission source and still updates pricing/estimates when 480p/720p is chosen inside the Ratio popup.
+- Changed the desktop parameter chip bar from horizontal scroll to wrapping, so additional parameters flow onto multiple rows instead of requiring side-scrolling. Cache key bumped to `generate-composer-design-20261107-6`.
+- Verification: real Chrome/CDP at 1280px confirms only Model, Mode, Ratio, and Duration chips render for Seedance 2.5; adding extra chips increases the container height without horizontal overflow; selecting `720p` inside Ratio updates `advancedResolution=720p` and the estimate to 150 credits. Syntax, targeted picker test, and `git diff --check` pass.
+- Deployment: not deployed.

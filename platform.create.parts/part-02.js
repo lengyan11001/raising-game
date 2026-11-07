@@ -1092,6 +1092,13 @@ function advancedParameterChipItems() {
     const select = advancedParameterNativeSelect(kind);
     const options = advancedParameterVisibleOptions(kind);
     if (select && options.length && advancedParameterFieldVisible(kind, select)) {
+      // Resolution is presented inside the ratio picker. Keep a standalone
+      // resolution chip only when ratio itself is unavailable.
+      const ratioSelect = advancedParameterNativeSelect("ratio");
+      const ratioVisible = ratioSelect
+        && advancedParameterVisibleOptions("ratio").length
+        && advancedParameterFieldVisible("ratio", ratioSelect);
+      if (kind === "resolution" && ratioVisible) return;
       items.push({ kind, valueLabel: advancedParameterValueLabel(kind, select) });
     }
   });
