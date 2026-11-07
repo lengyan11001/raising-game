@@ -6,7 +6,7 @@
 - Verification: workflow access/canvas tests pass 26/26; syntax checks and `git diff --check` pass; production webpack build passes with existing size warnings.
 - Real Chrome/CDP acceptance covers image upload + two image generations, video upload, and two video generations. Each run adds one result node, retains previous results, preserves the uploaded source preview, connects every result to its source, and selects the newest result.
 - Evidence: `/tmp/workflow-react-verify/generation-history-video-acceptance.out`, `/tmp/workflow-react-verify/generation-history-video.png`, `/tmp/workflow-react-verify/generation-history-image.png`.
-- Deployment: not deployed.
+- Deployment: `old-site` `a20e7fe`; `platform-release` `cc2494f`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`; release boundary checks passed. Production `workflow-react/dist/canvas.js` SHA-256 matches local (`b92a7d46...`), and deployed canvas files contain generated-result node creation plus upload/result isolation logic. Live was not deployed.
 
 ## Canvas manual-create selection and persistent viewport (2026-11-07)
 
