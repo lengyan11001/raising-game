@@ -440,6 +440,8 @@ module.exports = {
   publicGenerationRecord,
   publicUserAsset,
   signedOssCdnUrlForDelivery,
+  canonicalOssStorageUrlForCache,
+  publicHttpUrlForUpstream,
   objectStorageKeyFromPublicUrl,
   handleAdvancedVegaGenerate,
   repairStalledGenerationRecords,

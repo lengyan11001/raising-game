@@ -103,3 +103,10 @@ test("Wan 3.0 submission sends the signed media to both routing and Alibaba payl
   assert.match(submitSource, /buildAliyunVideoRequest\(\{[\s\S]*?media: upstreamMedia,/);
   assert.match(submitSource, /mulerouterAliyun\.decideVideo\(\{[\s\S]*?media: upstreamMedia,/);
 });
+
+test("Seedance gateway reference helpers refresh OSS signatures at the final boundary", () => {
+  const referenceSource = extractFunction(serverSource, "gatewaySeedanceReferenceFromUri");
+  const videoSource = extractFunction(serverSource, "gatewaySeedanceVideoUrlFromUri");
+  assert.match(referenceSource, /publicHttpUrlForUpstream\(value\) \|\| gatewayAbsoluteAssetUrl\(value\)/);
+  assert.match(videoSource, /publicHttpUrlForUpstream\(value\) \|\| gatewayAbsoluteAssetUrl\(value\)/);
+});

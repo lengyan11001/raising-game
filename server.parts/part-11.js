@@ -93,14 +93,18 @@ function signedOssCdnUrlForDelivery(value = "", { key = "", fileName = "", downl
   // OSS credentials merely because a key was supplied.
   const urlProvider = inferObjectStorageProviderFromUrl(text);
   if (urlProvider && urlProvider !== "oss") return "";
+  const inferred = objectStorageKeyFromPublicUrl(text, "oss");
+  // A configured CDN origin is also used as a general media domain. Re-sign
+  // only objects that can be mapped into this bucket, otherwise a third-party
+  // path on the same host could be rewritten into an invalid signature.
+  if (isPublicHttpUrl(text) && urlProvider === "oss" && !inferred.key) return "";
   // Recognized OSS origin/CDN URLs are safe to sign. For any other public URL,
   // only use an explicitly supplied key when the caller has no URL-derived
   // provider. This keeps arbitrary external/R2 URLs from being rewritten.
   const hasPublicUrl = isPublicHttpUrl(text);
-  const inferred = objectStorageKeyFromPublicUrl(text, "oss");
   // Prefer the object key encoded in the URL. Multi-image records can contain
   // several different keys while carrying only one record-level storageKey.
-  const objectKey = String(inferred.key || (!hasPublicUrl ? key : "") || "").trim();
+  const objectKey = String(inferred.key || (hasPublicUrl ? "" : key) || "").trim();
   if (!objectKey || (inferred.provider && inferred.provider !== "oss")) return "";
   return makeOssSignedCdnUrl({
     key: objectKey,
@@ -108,6 +112,24 @@ function signedOssCdnUrlForDelivery(value = "", { key = "", fileName = "", downl
     download,
     config: OSS,
   });
+}
+
+// Media-library cache rows must identify the object, not one short-lived
+// signature. Historical rows stored full OSS signed URLs; normalize those to a
+// stable CDN URL so a refreshed signature can still hit the same asset.
+function canonicalOssStorageUrlForCache(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const inferred = objectStorageKeyFromPublicUrl(text);
+  if (inferred.provider !== "oss" || !inferred.key) return text;
+  try {
+    const parsed = new URL(text);
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return text;
+  }
 }
 
 function publicHttpUrlForUpstream(value = "") {

@@ -1,3 +1,12 @@
+## Upstream reference mirror 403 fix (2026-11-07)
+
+- User reported generation failures with `下载上游参考镜像失败:403`; no exact string exists in local source, so traced the shared reference-media path.
+- Root cause: private OSS/CDN references could be forwarded upstream as expired signed URLs, and Vega media-library cache identity used the full short-lived signed URL.
+- `publicHttpUrlForUpstream()` now refreshes OSS signatures from the durable object path before submission. Vega media-library cache rows use canonical unsigned object URLs and receive a fresh signature only at `CreateAigcMaterial`.
+- Seedance gateway/direct reference, video, and audio boundaries now normalize OSS URLs before forwarding. Changed `server.parts/part-11.js`, `part-24.js`, `part-26.js`, `part-43.js`, and `tencent-vod-vega.js`.
+- Verification: focused 3/3 tests pass for expired OSS refresh, canonical Vega cache identity/fresh import URL, and Seedance gateway refresh. `node --check tencent-vod-vega.js`, server load, and `git diff --check` pass. Broader historical source-shape tests still have unrelated stale assertions, so they are not claimed green.
+- Deployment: pending old-site commit and `123vips.com` deployment; Live is not to be deployed.
+
 ## Video reference thumbnails restored in regeneration (2026-11-07)
 
 - User reported two videos restored into `cgt-20261106224218-1800a5` regeneration without thumbnails.

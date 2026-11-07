@@ -185,6 +185,24 @@ test("private OSS origin URLs are converted to signed CDN delivery URLs", () => 
   assert.equal(pathStyle.pathname, "/generated/videos/path.mp4");
   assert.ok(pathStyle.searchParams.get("Signature"));
 
+  // A browser may still hold an expired signature. It must be replaced from
+  // the object path instead of being forwarded upstream unchanged.
+  const refreshed = new URL(isolatedServer.publicHttpUrlForUpstream(
+    "https://assets-cdn.123vips.com/assets/user-uploads/user-1/asset-1.png?Expires=1&OSSAccessKeyId=old&Signature=expired",
+  ));
+  assert.equal(refreshed.hostname, "assets-cdn.123vips.com");
+  assert.equal(refreshed.pathname, "/assets/user-uploads/user-1/asset-1.png");
+  assert.equal(refreshed.searchParams.get("OSSAccessKeyId"), "test-access-key");
+  assert.notEqual(refreshed.searchParams.get("Signature"), "expired");
+  assert.ok(Number(refreshed.searchParams.get("Expires")) > 1);
+
+  assert.equal(
+    isolatedServer.canonicalOssStorageUrlForCache(
+      "https://assets-cdn.123vips.com/assets/user-uploads/user-1/asset-1.png?Expires=1&OSSAccessKeyId=old&Signature=expired",
+    ),
+    "https://assets-cdn.123vips.com/assets/user-uploads/user-1/asset-1.png",
+  );
+
   // Historical R2 media must stay on media.123vips.com even when a caller
   // still passes a record-level key alongside the URL.
   const historicalR2Asset = isolatedServer.publicUserAsset({

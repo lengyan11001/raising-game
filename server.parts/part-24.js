@@ -817,14 +817,14 @@ async function gatewaySeedanceReferenceFromUri(uri = "", label = "Reference") {
     const localPath = path.normalize(path.join(ROOT, value.replace(/^\/+/, "")));
     return { url: await publishLocalAssetUrlToObjectStorage(value), fileName: path.basename(localPath), name: label };
   }
-  return { url: gatewayAbsoluteAssetUrl(value), name: label };
+  return { url: publicHttpUrlForUpstream(value) || gatewayAbsoluteAssetUrl(value), name: label };
 }
 
 async function gatewaySeedanceVideoUrlFromUri(uri = "") {
   const value = String(uri || "").trim();
   if (!value) return "";
   if (value.startsWith("/")) return publishLocalAssetUrlToObjectStorage(value);
-  return gatewayAbsoluteAssetUrl(value);
+  return publicHttpUrlForUpstream(value) || gatewayAbsoluteAssetUrl(value);
 }
 
 async function gatewaySeedanceBodyFromReferences({

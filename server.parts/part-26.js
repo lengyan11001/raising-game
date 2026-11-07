@@ -189,6 +189,8 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
           userId: auth.user.id,
           lookup: getVegaMediaLibraryEntryFromDb,
           persist: upsertVegaMediaLibraryEntryInDb,
+          canonicalizeSourceUrl: canonicalOssStorageUrlForCache,
+          signSourceUrl: publicHttpUrlForUpstream,
         }),
       };
     } catch (error) {
@@ -201,6 +203,18 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
         details: errorInfo.details || null,
       });
     }
+  }
+  // Lite providers submit public URL FileInfos directly. Refresh OSS
+  // signatures at this final boundary so a stale browser/cache URL cannot
+  // become a 403 inside Tencent VOD.
+  if (Array.isArray(payload.FileInfos) && payload.FileInfos.length) {
+    payload = {
+      ...payload,
+      FileInfos: payload.FileInfos.map((fileInfo) => ({
+        ...fileInfo,
+        Url: String(publicHttpUrlForUpstream(fileInfo?.Url) || fileInfo?.Url || "").trim(),
+      })),
+    };
   }
 
   const firstFrameAssetUri = usesVegaMediaLibrary
@@ -808,7 +822,9 @@ async function runAdvancedGenerationJob(job = {}) {
         }
       } else if (seedanceAudioAssets.length) {
         for (const asset of seedanceAudioAssets) {
-          const uri = useExternalSeedanceHttp ? publicHttpUrlForUserAsset(asset) : (asset.localUrl || asset.publicUrl || "");
+          const uri = useExternalSeedanceHttp
+            ? publicHttpUrlForUserAsset(asset)
+            : (publicHttpUrlForUpstream(asset.publicUrl || asset.localUrl) || asset.localUrl || asset.publicUrl || "");
           if (uri && !resolvedReferenceAudioAssetUris.includes(uri)) {
             resolvedReferenceAudioAssetUris.push(uri);
             audioReferenceUriByAssetId.set(asset.id, uri);
@@ -1127,7 +1143,7 @@ async function runAdvancedGenerationJob(job = {}) {
               ? publicHttpUrlForUserAsset(asset)
               : String(firstPresent(item.referenceAssetUri, item.imageUrl, item.videoUrl, item.audioUrl, "") || "").trim();
           if (mediaUrl.startsWith("/")) mediaUrl = await publishLocalAssetUrlToObjectStorage(mediaUrl);
-          else if (mediaUrl && !mediaUrl.startsWith("asset://")) mediaUrl = gatewayAbsoluteAssetUrl(mediaUrl);
+          else if (mediaUrl && !mediaUrl.startsWith("asset://")) mediaUrl = publicHttpUrlForUpstream(mediaUrl) || gatewayAbsoluteAssetUrl(mediaUrl);
           if (!mediaUrl) continue;
           if (item.type === "reference_video") {
             referenceVideos.push(mediaUrl);

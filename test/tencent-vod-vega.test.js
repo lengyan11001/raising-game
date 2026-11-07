@@ -525,6 +525,39 @@ test("Vega media-library cache avoids CreateAigcMaterial and failed imports pres
   assert.equal(persisted[0].assetUri, undefined);
 });
 
+test("Vega media-library cache uses canonical object URLs and refreshes signatures at import", async () => {
+  const lookups = [];
+  const persisted = [];
+  const importedUrls = [];
+  const expiredUrl = "https://assets-cdn.123vips.com/assets/user-uploads/u/ref.png?Expires=1&OSSAccessKeyId=old&Signature=expired";
+  const canonicalUrl = "https://assets-cdn.123vips.com/assets/user-uploads/u/ref.png";
+  const freshUrl = "https://assets-cdn.123vips.com/assets/user-uploads/u/ref.png?Expires=9999999999&OSSAccessKeyId=fresh&Signature=fresh";
+  const files = await vega.prepareVegaMediaLibraryFileInfos({
+    provider: "seedance25-vega",
+    fileInfos: [{ Type: "Url", Category: "Image", Usage: "Reference", Url: expiredUrl }],
+    subAppId: 123,
+    userId: "user-1",
+    canonicalizeSourceUrl: (value) => String(value || "").split("?")[0],
+    signSourceUrl: (value) => String(value || "").split("?")[0] === canonicalUrl ? freshUrl : value,
+    lookup: async (args) => { lookups.push(args); return null; },
+    persist: async (entry) => { persisted.push(entry); },
+    callVod: async ({ action, payload }) => {
+      if (action === "CreateAigcMaterial") {
+        importedUrls.push(payload.FileInfo.Url);
+        return { Response: { TaskId: "asset-task-refreshed" } };
+      }
+      return { Response: { CreateAigcMaterialTask: { Status: "FINISH", ErrCode: 0, Output: { AssetId: "asset-refreshed" } } } };
+    },
+    timeoutMs: 0,
+    pollIntervalMs: 0,
+    now: () => 0,
+  });
+  assert.deepEqual(lookups, [{ userId: "user-1", sourceUrl: canonicalUrl, subAppId: 123 }]);
+  assert.deepEqual(importedUrls, [freshUrl]);
+  assert.equal(persisted[0].sourceUrl, canonicalUrl);
+  assert.deepEqual(files, [{ Type: "Url", Category: "Image", Usage: "Reference", Url: "asset://asset-refreshed" }]);
+});
+
 test("Vega media-library polling reports upstream errors, missing AssetId, and timeout", async () => {
   const base = {
     fileInfo: { Type: "Url", Category: "Video", Usage: "Reference", Url: "https://cdn.example.com/ref.mp4" },

@@ -966,6 +966,8 @@ async function prepareVegaMediaLibraryFileInfos({
   userId = "",
   lookup,
   persist,
+  canonicalizeSourceUrl = (value) => String(value || "").trim(),
+  signSourceUrl = (value) => String(value || "").trim(),
   ...importOptions
 } = {}) {
   if (!vegaProviderUsesMediaLibrary(provider)) return fileInfos;
@@ -974,16 +976,23 @@ async function prepareVegaMediaLibraryFileInfos({
     const sourceUrl = String(fileInfo?.Url || "").trim();
     const category = String(fileInfo?.Category || "").trim();
     if (sourceUrl.startsWith("asset://")) return fileInfo;
-    if (lookup && userId && sourceUrl) {
-      const cached = await lookup({ userId, sourceUrl, subAppId });
+    // The object key is the durable identity. A signed URL changes every few
+    // minutes and must never become a cache row identity.
+    const cacheSourceUrl = String(canonicalizeSourceUrl(sourceUrl) || sourceUrl).trim();
+    if (lookup && userId && cacheSourceUrl) {
+      const cached = await lookup({ userId, sourceUrl: cacheSourceUrl, subAppId });
       if (cached?.status === "succeeded" && (String(cached.assetUri || "").trim() || String(cached.assetId || "").trim())) return fileInfoFromMediaLibrary(cached, fileInfo);
     }
     try {
-      const imported = await importVegaMediaLibraryFile({ fileInfo, subAppId, ...importOptions });
-      if (persist && userId && sourceUrl) {
+      const importFileInfo = {
+        ...fileInfo,
+        Url: String(signSourceUrl(cacheSourceUrl) || sourceUrl).trim(),
+      };
+      const imported = await importVegaMediaLibraryFile({ fileInfo: importFileInfo, subAppId, ...importOptions });
+      if (persist && userId && cacheSourceUrl) {
         await persist({
           userId,
-          sourceUrl,
+          sourceUrl: cacheSourceUrl,
           subAppId,
           category,
           assetId: imported.assetId,
@@ -995,10 +1004,10 @@ async function prepareVegaMediaLibraryFileInfos({
       }
       return fileInfoFromMediaLibrary(imported, fileInfo);
     } catch (error) {
-      if (persist && userId && sourceUrl) {
+      if (persist && userId && cacheSourceUrl) {
         await Promise.resolve(persist({
           userId,
-          sourceUrl,
+          sourceUrl: cacheSourceUrl,
           subAppId,
           category,
           status: "failed",
