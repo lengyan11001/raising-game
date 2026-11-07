@@ -1616,3 +1616,12 @@ CODEX_TASK_STATE.md
 - Live site was not deployed.
 - Deployment: `old-site` `ec87f5d`; `platform-release` `7856246`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`. Production `workflow-react/dist/canvas.js` SHA-256 matches local: `cf7d65007a689e2463839c8cddea1c2fd79f3d13888d4c03207b5b5742c81c1a`. Live was not deployed.
 - Deployment: `old-site` `cf89d89`; `platform-release` `6bb6e86`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`. Production `workflow-react/dist/canvas.js` SHA-256 matches local: `4dd84a3630eb5cb664511ad0717f75817ff5110f42dcc2ba06230a9f71aa2d97`. Live was not deployed.
+
+## Wan 3.0 Prime result thumbnail fix (2026-11-07 22:55 +08)
+
+- User reported completed task `cgt-20261107212551-c42b11` did not show a Result thumbnail.
+- Root cause: the task is a normal completed `advanced-wan30` / `aliyun-wan30` video. Its JPG poster is valid, but the upstream MP4 output was also populated into `imageResultUrls` and `providerImageUrl`; the Result renderer selected image fields before the video poster and produced `<img src="...output_00.mp4">` (`naturalWidth=0`).
+- Fix commit `05e397c`: server-side image-field collection and frontend image URL helpers now reject `.mp4/.webm/.mov/.m4v`, so cached records with contaminated image fields fall back to the valid JPG poster and render through the video-result branch.
+- Regression coverage: `test/media-url-priority.test.js` and `test/advanced-result-kind.test.js`. Targeted suite passed 71/71; syntax and `git diff --check` passed.
+- Release: `old-site` `05e397c`; `platform-release` `0e7f572`; deployed only `123vips.com` with `scripts/deploy_local.sh --site old`. Health returned `200 {"ok":true}`.
+- Production verification on logged-in Chrome/CDP: task record has no video URL in image fields; Result card uses `advanced-result-media`, poster URL is `.../posters/cgt-20261107212551-c42b11.jpg?...Signature=...`, image loaded at 480x854, and no `.mp4` image source remains. Live was not deployed.
