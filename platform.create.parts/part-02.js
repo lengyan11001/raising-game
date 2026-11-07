@@ -1051,40 +1051,6 @@ function advancedParameterChipLabel(kind = "") {
   }[kind] || kind;
 }
 
-function advancedParameterOptionDescription(kind = "", item = {}) {
-  if (kind !== "model") return "";
-  const provider = String(item.value || "").trim().toLowerCase();
-  if (provider === "seedance-nsfw" || provider === "seedance25") return "Latest flagship · best quality and motion";
-  if (provider === "seedance") return "All-round · text, image and reference";
-  if (provider === "seedance-fast") return "Faster output · best value";
-  if (provider === "seedance20-vega" || provider === "seedance25-vega") return "Vega video generation";
-  if (provider.startsWith("wan") || provider === "h3-vega" || provider === "vega10-lite") return "Wan video model";
-  if (provider === "happyhorse") return "Fast motion video model";
-  return "Video generation model";
-}
-
-function advancedParameterOptionIcon(kind = "", item = {}, index = 0) {
-  if (kind !== "model") return "";
-  const provider = String(item.value || "").trim().toLowerCase();
-  if (provider.startsWith("seedance")) return "S";
-  if (provider.startsWith("wan") || provider === "h3-vega") return "W";
-  if (provider === "vega10-lite") return "H";
-  if (provider === "happyhorse") return "H";
-  return String(index + 1);
-}
-
-function advancedParameterRatioShapeClass(value = "") {
-  const match = String(value || "").trim().match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
-  if (!match) return "r3";
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width === height) return "r3";
-  if (width / height >= 1.7) return "r1";
-  if (width > height) return "r2";
-  if (width / height <= .65) return "r5";
-  return "r4";
-}
-
 function advancedParameterChipItems() {
   const items = [];
   const providerSelect = advancedParameterNativeSelect("model");
@@ -1097,13 +1063,6 @@ function advancedParameterChipItems() {
     const select = advancedParameterNativeSelect(kind);
     const options = advancedParameterVisibleOptions(kind);
     if (select && options.length && advancedParameterFieldVisible(kind, select)) {
-      // Resolution is presented inside the ratio picker. Keep a standalone
-      // resolution chip only when ratio itself is unavailable.
-      const ratioSelect = advancedParameterNativeSelect("ratio");
-      const ratioVisible = ratioSelect
-        && advancedParameterVisibleOptions("ratio").length
-        && advancedParameterFieldVisible("ratio", ratioSelect);
-      if (kind === "resolution" && ratioVisible) return;
       items.push({ kind, valueLabel: advancedParameterValueLabel(kind, select) });
     }
   });
@@ -1191,7 +1150,6 @@ function renderAdvancedParameterPanel(kind = "") {
         ? selectedNumber
         : min;
     body = `
-      <div class="advanced-parameter-title">选择时长</div>
       <div class="advanced-parameter-duration">
         <div class="advanced-parameter-duration-readout">
           <strong data-advanced-parameter-duration-value>${escapeHtml(advancedParameterValueLabel(kind, select))}</strong>
@@ -1203,49 +1161,11 @@ function renderAdvancedParameterPanel(kind = "") {
         </div>
       </div>
     `;
-  } else if (kind === "ratio") {
-    const resolutionSelect = advancedParameterNativeSelect("resolution");
-    const resolutionOptions = advancedParameterVisibleOptions("resolution");
-    const currentResolution = String(resolutionSelect?.value || "");
-    body = `<div class="advanced-parameter-title">选择比例</div>
-      <div class="advanced-parameter-options advanced-parameter-options-ratio">
-        ${options.map((item) => `
-          <button class="advanced-parameter-option advanced-parameter-ratio-option ${item.value === current ? "is-selected" : ""}" type="button" data-advanced-parameter-option-kind="ratio" data-advanced-parameter-option-value="${escapeHtml(item.value)}">
-            <span class="advanced-parameter-ratio-box ${advancedParameterRatioShapeClass(item.value)}" aria-hidden="true"></span>
-            <strong>${escapeHtml(item.value === "adaptive" ? "Adaptive" : item.label)}</strong>
-          </button>
-        `).join("")}
-      </div>`;
-    if (resolutionOptions.length) {
-      body += `<div class="advanced-parameter-title advanced-parameter-title-secondary">选择分辨率</div>
-        <div class="advanced-parameter-options advanced-parameter-options-resolution">
-          ${resolutionOptions.map((item) => `
-            <button class="advanced-parameter-option advanced-parameter-resolution-option ${item.value === currentResolution ? "is-selected" : ""}" type="button" data-advanced-parameter-option-kind="resolution" data-advanced-parameter-option-value="${escapeHtml(item.value)}">
-              <strong>${escapeHtml(item.label)}</strong>
-            </button>
-          `).join("")}
-        </div>`;
-    }
-  } else if (kind === "resolution") {
-    body = `<div class="advanced-parameter-title">选择分辨率</div>
-      <div class="advanced-parameter-options advanced-parameter-options-resolution">
-        ${options.map((item) => `
-          <button class="advanced-parameter-option advanced-parameter-resolution-option ${item.value === current ? "is-selected" : ""}" type="button" data-advanced-parameter-option-kind="resolution" data-advanced-parameter-option-value="${escapeHtml(item.value)}">
-            <strong>${escapeHtml(item.label)}</strong>
-          </button>
-        `).join("")}
-      </div>`;
   } else {
-    const title = kind === "model" ? "选择模型" : kind === "mode" ? "选择参考模式" : advancedParameterChipLabel(kind);
-    body = `<div class="advanced-parameter-title">${escapeHtml(title)}</div>
-      <div class="advanced-parameter-options advanced-parameter-options-${escapeHtml(kind)}">
+    body = `<div class="advanced-parameter-options">
       ${options.map((item) => `
-        <button class="advanced-parameter-option advanced-parameter-option-${escapeHtml(kind)} ${item.value === current ? "is-selected" : ""}" type="button" data-advanced-parameter-option-kind="${escapeHtml(kind)}" data-advanced-parameter-option-value="${escapeHtml(item.value)}">
-          ${kind === "model" ? `<span class="advanced-parameter-option-icon" aria-hidden="true">${escapeHtml(advancedParameterOptionIcon(kind, item, options.indexOf(item)))}</span>` : ""}
-          <span class="advanced-parameter-option-copy">
-            <strong>${escapeHtml(item.value === "adaptive" ? "Adaptive" : item.label)}</strong>
-            ${advancedParameterOptionDescription(kind, item) ? `<small>${escapeHtml(advancedParameterOptionDescription(kind, item))}</small>` : ""}
-          </span>
+        <button class="advanced-parameter-option ${item.value === current ? "is-selected" : ""}" type="button" data-advanced-parameter-option-kind="${escapeHtml(kind)}" data-advanced-parameter-option-value="${escapeHtml(item.value)}">
+          <strong>${escapeHtml(item.value === "adaptive" ? "Adaptive" : item.label)}</strong>
         </button>
       `).join("")}
     </div>`;
@@ -1287,12 +1207,7 @@ function handleAdvancedParameterChipClick(event) {
   const button = event.target.closest("[data-advanced-parameter-open]");
   if (!button) return;
   event.preventDefault();
-  const nextKind = button.dataset.advancedParameterOpen || "";
-  if (nextKind && state.advancedParameterOpen === nextKind) {
-    closeAdvancedParameterPanel();
-    return;
-  }
-  openAdvancedParameterPanel(nextKind);
+  openAdvancedParameterPanel(button.dataset.advancedParameterOpen || "");
 }
 
 function handleAdvancedParameterPanelClick(event) {

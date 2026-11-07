@@ -120,7 +120,6 @@ test("Generate parameter pickers close after selection and duration uses a slide
   assert.doesNotMatch(picker, /advanced-parameter-panel-close/);
   assert.doesNotMatch(picker, /advanced-parameter-option-check/);
   assert.match(createSource, /dataset\.advancedParameterPlacement = openUp \? "up" : "down"/);
-  assert.match(createSource, /if \(kind === "resolution" && ratioVisible\) return;/);
 
   const setter = createSource.slice(
     createSource.indexOf("function setAdvancedParameterValue("),

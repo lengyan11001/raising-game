@@ -1,3 +1,16 @@
+## Generate full rollback correction (2026-11-07)
+
+- User reported the prior rollback still showed model descriptions and merged Resolution inside Ratio. Root cause: `f23e38b` rolled back `platform.css` only; `platform.create.parts/part-02.js` retained the later advanced parameter redesign.
+- Restored `platform.create.parts/part-02.js` to the last pre-redesign snapshot, `8fd091b`, which has compact model options with no descriptions and a standalone Resolution chip. Re-applied only the existing 5-line video reference poster/thumbnail/cover preservation from `2a152a0`.
+- Removed the regression assertion for merged Resolution from `test/platform-site-profile.test.js`; syntax and `git diff --check` pass. Targeted tests are 46 pass / 8 known unrelated failures.
+
+## Generate pre-redesign rollback redeploy (2026-11-07)
+
+- User requested a strict rollback using the previously established rollback only, with no new fixes or logic.
+- Discarded the uncommitted second-pass Generate changes from the working tree and restored `platform.css`, `platform.html`, `platform.create.parts/part-02.js`, `test/advanced-custom-ui.test.js`, and `test/platform-site-profile.test.js` to `f23e38b` (`Restore Generate UI before composer redesign`).
+- Redeployed the existing `platform-release` snapshot `ddaeb70b0ff1e5a70d3ccaf903310bb393e91122` to `123vips.com` only via `scripts/deploy_local.sh --site old`; Live was not deployed.
+- Production `/api/health` returns `200 {"ok":true}`. `/platform.html` currently serves `platform.css?v=e917fa3adc9d` and `platform.js?v=e917fa3adc9d`.
+
 ## Asset video poster and content-hashed platform assets (2026-11-07)
 
 - User report: videos added from Assets through Add had no thumbnail, while regenerated and manually uploaded videos did.
