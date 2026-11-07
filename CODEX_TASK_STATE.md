@@ -1,3 +1,12 @@
+## Canvas concurrent node generation (2026-11-07)
+
+- User reported starting generation on one node disabled generation buttons on every other node until the first finished.
+- Replaced the global run gate in `workflowNodeRunState()` with a per-node pending set (`workflowRunningNodeIds`); only the node currently generating is disabled.
+- `runWorkflowSingleNode()` now adds/removes its own node id independently, and errors/cancellation are scoped so concurrent runs cannot overwrite another node's state.
+- Local Chrome/CDP acceptance held the first generation request open, confirmed the first node was disabled while the second remained runnable, then started the second; both `/api/advanced/generate` requests were emitted (2 calls), the canvas stayed mounted, and no runtime errors occurred.
+- Verification: targeted workflow suites 33/33; `node --check` for parts 05/06; `git diff --check`; production deployment passed.
+- Commit `8b68b5c`; release `6619bde`; deployed to `123vips.com`. `/api/health` returned `200 {"ok":true}`, release boundary passed, and production hashes for config/parts 05/06 match local.
+
 ## Canvas result media ratio separation fix (2026-11-07)
 
 - User reported generated 1:1 result media remained cropped and preview/controls were still coupled by a shared fixed height.
