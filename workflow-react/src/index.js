@@ -12,6 +12,7 @@ import {
 import './site/site.css';
 
 let mountedHost = null;
+const WORKFLOW_CANVAS_HISTORY_KEY = '__workflowCanvasProjectId';
 
 function emptyWorkflow() {
   return {
@@ -36,15 +37,49 @@ function WorkflowWorkspace() {
   const [error, setError] = React.useState('');
   const [libraryVersion, setLibraryVersion] = React.useState(0);
   const [editorVersion, setEditorVersion] = React.useState(0);
+  const projectRef = React.useRef(null);
 
-  const returnToLibrary = React.useCallback(() => {
+  React.useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
+
+  const rememberEditorHistory = React.useCallback((canvasId, replace = false) => {
+    const state = window.history.state && typeof window.history.state === 'object'
+      ? { ...window.history.state }
+      : {};
+    state[WORKFLOW_CANVAS_HISTORY_KEY] = String(canvasId || '');
+    const method = replace ? 'replaceState' : 'pushState';
+    window.history[method](state, '', window.location.href);
+  }, []);
+
+  const returnToLibrary = React.useCallback(({ syncHistory = true } = {}) => {
     if (typeof window.deactivateWorkflowCanvasProject === 'function') {
       window.deactivateWorkflowCanvasProject();
+    }
+    if (syncHistory) {
+      const state = window.history.state && typeof window.history.state === 'object'
+        ? { ...window.history.state }
+        : {};
+      state[WORKFLOW_CANVAS_HISTORY_KEY] = '';
+      window.history.replaceState(state, '', window.location.href);
     }
     setProject(null);
     setView('library');
     setLibraryVersion((value) => value + 1);
   }, []);
+
+  React.useEffect(() => {
+    const handlePopState = () => {
+      if (!projectRef.current) return;
+      const historyId = String(window.history.state?.[WORKFLOW_CANVAS_HISTORY_KEY] || '');
+      if (historyId === String(projectRef.current.id || '')) return;
+      // Browser/Android back from a canvas detail returns to the project list
+      // instead of letting the route change tear down the editor state.
+      returnToLibrary({ syncHistory: false });
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [returnToLibrary]);
 
   const openProject = React.useCallback(async (summary) => {
     setLoading(true);
@@ -57,6 +92,7 @@ function WorkflowWorkspace() {
         throw new Error('画布站点桥接未加载');
       }
       if (!window.activateWorkflowCanvasProject(canvas)) throw new Error('画布激活失败');
+      rememberEditorHistory(canvas.id);
       setProject(canvas);
       setEditorVersion((value) => value + 1);
       setView('editor');
@@ -65,7 +101,7 @@ function WorkflowWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [rememberEditorHistory]);
 
   const createProject = React.useCallback(async () => {
     const adjectives = ['创意', '智能', '未来', '梦想', '灵感', '神奇', '精彩', '炫酷', '极致', '超凡'];
@@ -85,6 +121,7 @@ function WorkflowWorkspace() {
         throw new Error('画布站点桥接未加载');
       }
       if (!window.activateWorkflowCanvasProject({ ...canvas, workflow })) throw new Error('画布激活失败');
+      rememberEditorHistory(canvas.id, Boolean(projectRef.current));
       setProject({ ...canvas, workflow });
       setEditorVersion((value) => value + 1);
       setView('editor');
@@ -93,7 +130,7 @@ function WorkflowWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [rememberEditorHistory]);
 
   const handleProjectChange = React.useCallback((nextProject) => {
     setProject((current) => ({ ...(current || {}), ...(nextProject || {}) }));

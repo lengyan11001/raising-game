@@ -280,18 +280,21 @@ const CanvasInner = ({
     const handleDeleteKeyDown = (event) => {
       if (!['Backspace', 'Delete'].includes(event.key) || event.defaultPrevented) return;
       const target = event.target;
-      if (target?.closest?.('input, textarea, select, button, a, video, audio, [contenteditable], [contenteditable="true"]')) return;
+      if (target?.closest?.('input, textarea, select, [contenteditable], [contenteditable="true"]')) return;
       const root = canvasRootRef.current;
       const targetInsideCanvas = root?.contains(target);
       const focusInsideCanvas = root?.contains(document.activeElement);
       if (!targetInsideCanvas && !focusInsideCanvas && target !== document.body) return;
 
+      // Always consume Backspace/Delete while the canvas owns focus. Otherwise
+      // the browser treats Backspace as history navigation and leaves the
+      // editor, which looks like the canvas was cleared.
+      event.preventDefault();
+      event.stopPropagation();
       const selectedNodes = getNodes().filter((node) => node.selected);
       const selectedEdges = getEdges().filter((edge) => edge.selected);
       if (!selectedNodes.length && !selectedEdges.length) return;
 
-      event.preventDefault();
-      event.stopPropagation();
       deleteElements({ nodes: selectedNodes, edges: selectedEdges }).catch((error) => {
         console.warn('Unable to delete selected canvas elements', error);
       });

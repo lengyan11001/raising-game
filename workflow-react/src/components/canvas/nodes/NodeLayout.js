@@ -49,7 +49,7 @@ export const NodeLayout = memo(({
           onPointerDown={(event) => event.stopPropagation()}
           onClick={removeNode}
         >
-          ×
+          <i className="bi bi-trash3" aria-hidden="true" />
         </button>
       </div>
 

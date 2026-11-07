@@ -1,3 +1,20 @@
+## Canvas back navigation and delete icon fix (2026-11-07)
+
+- Canvas detail now records an editor history entry. Browser/Android back closes the detail back to the project library without clearing the workflow state; Backspace/Delete inside the canvas is consumed even with no selection, so it can no longer invoke browser history navigation.
+- Node top-right badge now uses Bootstrap Icons `bi-trash3` instead of the close glyph `×`; its click path remains scoped to that node.
+- Tests: `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 29/29; syntax checks, `git diff --check`, and production webpack build pass.
+- Deployment status: pending for this fix.
+
+## Canvas generation node isolation fix (2026-11-07)
+
+- Fixed single-node generation clearing downstream results. `runWorkflowSingleNode()` no longer calls `clearWorkflowExecutionResults({ fromNodeId })`, so generating an image cannot erase a connected video node preview.
+- Single-node generation now resolves its target through `workflowGenerationRunNode()`. When the clicked node already has a preview, upload, reference, record, or task, a same-type node is created, selected, auto-connected from the source, marked `生成中`, and used for submission/polling. Nodes without prior content run in place.
+- Direct image/video generation now stores the final result on that same target node through `workflowStoreCompletedNodeResult()`. It no longer creates a separate post-completion result node. The placeholder flag is cleared when generation succeeds.
+- Uploading media no longer clears execution results from the receiving node or its downstream nodes; this protects existing connected previews while adding a linked upload node.
+- Deletion behavior is scoped to selected canvas elements, nodes have a top-right delete badge, and project-list thumbnails use the last content-bearing node.
+- Tests: `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 28/28. `node --check platform.ui.parts/part-05.js`, `node --check platform.ui.parts/part-06.js`, `git diff --check`, and production webpack build pass.
+- Deployment: `old-site` `e592b58`; `platform-release` `63fca81`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}` and release boundary checks passed. Production `platform.ui.parts/part-06.js` and `workflow-react/dist/canvas.js` hashes match local (`d1a7e710...`, `179eb6be...`). Live was not deployed.
+
 ## Media ingest deployment verification (2026-11-07 final)
 
 - Deployed fixes: `old-site` `812754e`, `platform-release` `4e670ed`; only `123vips.com` was deployed. Health returned 200 and release boundary verification passed.
@@ -7,6 +24,20 @@
 - R2 decision confirmed: OSS serves new media (`storageProvider=oss` / `assets-cdn.123vips.com`); R2 remains required for historical `media.123vips.com` compatibility (4,322 video URLs and 4,070 poster URLs at final inspection). Do not remove R2 until those objects are migrated.
 - Tests: `node --require ./test/source-compat.js --test test/generated-assets-on-demand.test.js` passes 20/20; `node --check` and `git diff --check` pass.
 - Runtime after deployment: service active, zero restarts, approximately 27-36% CPU and 5-6% memory shortly after startup.
+
+## Admin-only Test preview route (2026-11-07)
+
+- User requested a main-nav Test entry visible only to administrators, with the new Generate visual available inside Test while formal Generate remains unchanged until acceptance.
+- Implemented `test` as an authenticated admin-only route mapped to the existing `data-panel="advanced"` business flow. No second generation state machine or backend flow was added.
+- Added hidden `Test` navigation entry; role gate runs before tenant allowlists, so tenant menu restrictions cannot hide Test from admins.
+- Refreshing `#test` while session restoration is pending is preserved via `state.pendingAdminTab`; explicit navigation elsewhere clears it. Non-admin/guest routes fall back safely.
+- Added `platform.test-generate.css`, sourced from the previous composer design and scoped entirely to `body.platform-test-mode`. Formal `#custom`/Generate does not receive these styles.
+- Registered the Test stylesheet in HTML, static asset serving, release snapshot filtering, deployment path validation, and old/new sync tooling.
+- Added `test/platform-test-mode.test.js` covering nav visibility contract, role/tenant ordering, Advanced DOM reuse, refresh restoration, pending cleanup, release registration, and CSS scope isolation.
+- Test-internal Advanced actions now use `setAdvancedWorkspaceTab()`, preserving `#test` when already in Test and using formal `#advanced` otherwise; template, case, asset, character and chat-to-generate flows no longer drop admins back to formal Generate.
+- Fixed the self-cancelling Test upload selector (`.is-create-custom:not(.is-create-custom)`).
+- Verification: syntax checks and `git diff --check` pass; targeted `platform-site-profile`, `advanced-result-refresh`, and `platform-test-mode` tests pass 36/36. `advanced-custom-ui.test.js` still has known pre-existing source-extraction failures under `source-compat` (not caused by Test route). Full server preview requires `DATABASE_URL` and fails clearly without it, per repository storage rule.
+- Not deployed. Pending user acceptance/browser verification with a real PostgreSQL-backed environment.
 
 ## Media ingest queue drain and OSS/R2 decision (2026-11-07)
 

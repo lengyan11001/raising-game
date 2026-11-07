@@ -671,6 +671,17 @@ test("inline workflow dialogs use an explicit async confirm handler", () => {
   assert.match(manager, /if \(button\.disabled\) return true;/);
 });
 
+test("browser back from canvas detail returns to the project library without clearing", () => {
+  const index = read("workflow-react/src/index.js");
+  const canvas = read("workflow-react/src/components/canvas/Canvas.js");
+
+  assert.match(index, /window.addEventListener\('popstate', handlePopState\)/);
+  assert.match(index, /returnToLibrary\(\{ syncHistory: false \}\)/);
+  assert.match(index, /rememberEditorHistory\(canvas\.id\)/);
+  assert.match(index, /state\[WORKFLOW_CANVAS_HISTORY_KEY\] = String\(canvasId \|\| ''\)/);
+  assert.match(canvas, /Always consume Backspace\/Delete while the canvas owns focus/);
+});
+
 test("workflow delete keys only remove selected canvas elements", () => {
   const canvas = read("workflow-react/src/components/canvas/Canvas.js");
   const layout = read("workflow-react/src/components/canvas/nodes/NodeLayout.js");
@@ -682,8 +693,13 @@ test("workflow delete keys only remove selected canvas elements", () => {
   assert.match(canvas, /if \(!selectedNodes\.length && !selectedEdges\.length\) return/);
   assert.match(canvas, /deleteElements\(\{ nodes: selectedNodes, edges: selectedEdges \}\)/);
   assert.match(canvas, /document\.addEventListener\('keydown', handleDeleteKeyDown, true\)/);
+  // Backspace must be consumed even with no selection so it cannot navigate
+  // browser history and tear down the canvas.
+  assert.match(canvas, /event\.preventDefault\(\);\s+event\.stopPropagation\(\);\s+const selectedNodes/);
   assert.match(layout, /className="nodrag nopan site-generation-delete"/);
   assert.match(layout, /aria-label="删除节点"/);
+  assert.match(layout, /<i className="bi bi-trash3" aria-hidden="true" \/>/);
+  assert.doesNotMatch(layout, />\s*×\s*<\/button>/);
   assert.match(layout, /deleteElements\(\{ nodes: \[\{ id \}\] \}\)/);
   assert.match(css, /\.site-generation-delete \{/);
 });
