@@ -731,22 +731,43 @@
   min-height: 0;
 }
 
-.site-media-preview-stage img,
-.site-media-preview-stage video {
+.site-media-preview-frame {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 12px;
+  background: #09090b;
+  box-shadow: 0 26px 90px rgba(0, 0, 0, .62);
+}
+
+.site-media-preview-frame.is-image {
+  width: auto;
+  height: auto;
+}
+
+.site-media-preview-frame.is-video {
+  width: min(960px, calc(100vw - 48px));
+}
+
+.site-media-preview-frame img,
+.site-media-preview-frame video {
   display: block;
   width: auto;
   height: auto;
   max-width: min(960px, calc(100vw - 48px));
   max-height: min(680px, calc(100vh - 80px));
-  border: 1px solid rgba(255, 255, 255, .13);
-  border-radius: 12px;
+  border-radius: 11px;
   background: #09090b;
-  box-shadow: 0 26px 90px rgba(0, 0, 0, .62);
   object-fit: contain;
 }
 
-.site-media-preview-stage video {
-  width: min(960px, calc(100vw - 48px));
+.site-media-preview-frame.is-video video {
+  width: 100%;
   aspect-ratio: 16 / 9;
 }
 
@@ -760,32 +781,39 @@
     height: calc(100vh - 66px);
   }
 
-  .site-media-preview-stage img,
-  .site-media-preview-stage video {
+  .site-media-preview-frame {
     max-width: calc(100vw - 24px);
     max-height: calc(100vh - 66px);
   }
 
-  .site-media-preview-stage video {
+  .site-media-preview-frame.is-video {
     width: calc(100vw - 24px);
+  }
+
+  .site-media-preview-frame img,
+  .site-media-preview-frame video {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 66px);
   }
 }
 
 .site-media-preview-close {
   position: absolute;
-  top: 18px;
-  right: 20px;
+  top: 10px;
+  right: 10px;
   z-index: 1;
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border: 1px solid rgba(255, 255, 255, .16);
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, .2);
   border-radius: 999px;
   color: white;
-  background: rgba(25, 25, 30, .86);
-  font-size: 16px;
+  background: rgba(13, 13, 16, .78);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, .34);
+  font-size: 15px;
   cursor: pointer;
+  backdrop-filter: blur(8px);
 }
 
 .site-media-preview-close:hover {

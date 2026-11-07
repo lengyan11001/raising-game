@@ -32,29 +32,31 @@ function MediaPreviewOverlay({ media, onClose }) {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <button type="button" className="site-media-preview-close" onClick={onClose} aria-label="关闭预览">
-        <i className="bi bi-x-lg" />
-      </button>
       <div className="site-media-preview-stage">
-        {kind === 'video' ? (
-          <video
-            src={media.url}
-            poster={media.poster || undefined}
-            controls
-            autoPlay
-            playsInline
-            preload="metadata"
-            draggable={false}
-            onContextMenu={(event) => event.preventDefault()}
-          />
-        ) : (
-          <img
-            src={media.url}
-            alt={media.label || '图片预览'}
-            draggable={false}
-            onContextMenu={(event) => event.preventDefault()}
-          />
-        )}
+        <div className={`site-media-preview-frame is-${kind}`}>
+          {kind === 'video' ? (
+            <video
+              src={media.url}
+              poster={media.poster || undefined}
+              controls
+              autoPlay
+              playsInline
+              preload="metadata"
+              draggable={false}
+              onContextMenu={(event) => event.preventDefault()}
+            />
+          ) : (
+            <img
+              src={media.url}
+              alt={media.label || '图片预览'}
+              draggable={false}
+              onContextMenu={(event) => event.preventDefault()}
+            />
+          )}
+          <button type="button" className="site-media-preview-close" onClick={onClose} aria-label="关闭预览">
+            <i className="bi bi-x-lg" />
+          </button>
+        </div>
       </div>
     </div>,
     document.body,

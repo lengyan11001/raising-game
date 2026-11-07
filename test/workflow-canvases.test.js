@@ -234,10 +234,12 @@ test("canvas media controls open an in-app preview without download links", () =
   assert.doesNotMatch(upload, /<a\b/);
   assert.doesNotMatch(upload, /href=/);
   assert.match(css, /\.site-media-preview-overlay/);
-  assert.match(css, /\.site-media-preview-stage video/);
+  assert.match(css, /\.site-media-preview-frame video/);
   assert.match(css, /width: min\(960px, calc\(100vw - 48px\)\)/);
   assert.match(css, /height: min\(680px, calc\(100vh - 80px\)\)/);
   assert.match(css, /@media \(max-width: 640px\)/);
+  assert.match(preview, /site-media-preview-frame/);
+  assert.match(css, /\.site-media-preview-close \{[\s\S]*?position: absolute;[\s\S]*?top: 10px;[\s\S]*?right: 10px;/);
 });
 
 test("workflow uploads store asset references instead of embedded media", () => {

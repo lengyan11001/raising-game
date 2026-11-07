@@ -1,3 +1,10 @@
+## Canvas preview close button moved to media frame (2026-11-07)
+
+- User reported the media preview close button was too far away at the viewport corner.
+- Wrapped preview media in `.site-media-preview-frame` and moved the close button inside that frame at `top: 10px; right: 10px`, so it follows the actual image/video bounds. Mobile keeps the same frame-relative positioning.
+- Verification: workflow canvas tests pass 26/26; `git diff --check` passes; webpack production build succeeds with existing size warnings.
+- Deployment: pending.
+
 ## Canvas media preview size bounds (2026-11-07)
 
 - User asked to control the preview popup size rather than letting media fill the entire viewport.
