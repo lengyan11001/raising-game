@@ -6,6 +6,7 @@ import { SiteNodeUpload } from './SiteNodeUpload';
 
 function imageResults(node = {}, nodeId = '') {
   const sourceNode = (typeof window.workflowNodeById === 'function' && window.workflowNodeById(nodeId)) || node;
+  if (!sourceNode?.data) return [];
   if (typeof window.workflowNodeOwnResultImages === 'function') return window.workflowNodeOwnResultImages(sourceNode);
   if (typeof window.workflowNodeResultImages === 'function') return window.workflowNodeResultImages(sourceNode);
   const data = sourceNode.data || {};
@@ -23,6 +24,9 @@ export function SiteImageGenerationNode({ id, selected = false }) {
   const tiers = optionsFrom(model.tiers || [], { standard: 'Standard', pro: 'Pro' });
   const outputCounts = optionsFrom(model.outputCounts || [1], Object.fromEntries((model.outputCounts || [1]).map((value) => [value, `${value} 张`])));
   const results = useMemo(() => imageResults(node, id), [node, id]);
+  // A controlled React Flow node can briefly outlive its business record while
+  // deletion is being propagated. Do not call node helpers with null.
+  if (!node?.data) return null;
   const busy = ['submitting', 'preparing', 'processing', 'running'].includes(data.status);
   const runState = typeof window.workflowNodeRunState === 'function' ? window.workflowNodeRunState(node) : { disabled: busy, label: busy ? '生成中' : '生成' };
 

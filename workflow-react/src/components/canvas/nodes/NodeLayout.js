@@ -24,8 +24,11 @@ export const NodeLayout = memo(({
     // Remove the persisted node first so the next bridge sync cannot restore
     // it, then resync the canvas (including its connected edges).
     if (typeof window.removeWorkflowNode === 'function' && window.removeWorkflowNode(id)) {
-      window.dispatchEvent(new CustomEvent('workflow-react-node-change', { detail: { nodeId: id } }));
+      // Sync the controlled React Flow graph before notifying the removed
+      // node's hook. Otherwise that hook briefly reads null and a result query
+      // can throw, unmounting the whole editor.
       window.dispatchEvent(new CustomEvent('workflow-react:sync'));
+      window.dispatchEvent(new CustomEvent('workflow-react-node-change', { detail: { nodeId: id } }));
       const selectedId = typeof window.activeWorkflowSelectedNodeId === 'function'
         ? String(window.activeWorkflowSelectedNodeId() || '')
         : '';

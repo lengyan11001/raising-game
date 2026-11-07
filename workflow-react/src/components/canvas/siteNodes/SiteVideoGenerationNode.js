@@ -7,6 +7,7 @@ import { PromptMentionTextarea } from './PromptMentionTextarea';
 
 function videoResults(node = {}, nodeId = '') {
   const sourceNode = (typeof window.workflowNodeById === 'function' && window.workflowNodeById(nodeId)) || node;
+  if (!sourceNode?.data) return [];
   if (typeof window.workflowNodeOwnResultVideos === 'function') return window.workflowNodeOwnResultVideos(sourceNode);
   if (typeof window.workflowNodeResultVideos === 'function') return window.workflowNodeResultVideos(sourceNode);
   if (typeof window.workflowNodeResultVideo === 'function') return [window.workflowNodeResultVideo(sourceNode)].filter(Boolean);
@@ -16,6 +17,7 @@ function videoResults(node = {}, nodeId = '') {
 
 function canvasReferences(node = {}, nodeId = '') {
   const sourceNode = (typeof window.workflowNodeById === 'function' && window.workflowNodeById(nodeId)) || node;
+  if (!sourceNode?.data) return { images: [], videos: [], audios: [] };
   if (typeof window.workflowNodeCanvasReferences === 'function') return window.workflowNodeCanvasReferences(sourceNode);
   const data = sourceNode.data || {};
   return {
@@ -39,6 +41,9 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
   const modes = (typeof window.workflowVideoModeOptions === 'function' ? window.workflowVideoModeOptions(model) : []);
   const results = useMemo(() => videoResults(node, id), [node, id]);
   const references = useMemo(() => canvasReferences(node, id), [node, id]);
+  // A controlled React Flow node can briefly outlive its business record while
+  // deletion is being propagated. Do not call node helpers with null.
+  if (!node?.data) return null;
   const isSeedance = ['seedance', 'seedance25', 'seedance-nsfw'].includes(model.id);
   const frameMode = ['first_frame', 'first_last_frame'].includes(String(data.mode || model.mode || ''));
   const showReferenceLabels = isSeedance && !frameMode;

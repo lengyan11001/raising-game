@@ -1,3 +1,10 @@
+## Canvas trash deletion crash fix (2026-11-07)
+
+- User reported the node trash button still cleared the whole canvas while browser back now worked.
+- Root cause was not navigation. `NodeLayout` deleted the business node while React Flow still rendered its stale node component; `SiteImageGenerationNode`/`SiteVideoGenerationNode` then called helpers such as `workflowNodeOwnResultImages`, `workflowNodeRunState`, and `workflowCostLabel` with a null business node, throwing and unmounting the canvas.
+- Deletion now syncs the React Flow graph before notifying the removed node hook, and both generation node types return no node shell while their business data is momentarily absent. Result helpers also guard null records.
+- Verification: targeted workflow suite 29/29; `node --check platform.ui.parts/part-06.js`; `git diff --check`; production webpack build passed. Local Chrome/CDP actual trash click on the second node leaves `editor:true`, `flow:true`, `href:#workflow`, only the first node remains, and selection clears.
+
 ## Canvas repeat-generation parameter isolation (2026-11-07)
 
 - User reported that clicking Generate on a node with an existing result created a new node whose reference media included the source node's result. Root cause: `workflowGenerationRunNode()` connected `source -> new`, so the new node consumed the source output as an upstream input.
