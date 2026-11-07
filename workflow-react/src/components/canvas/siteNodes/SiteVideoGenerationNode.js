@@ -3,6 +3,7 @@ import { NodeLayout } from '../nodes/NodeLayout';
 import { useSiteNode, optionsFrom, selectedOption } from './useSiteNode';
 import { GenerationResultMedia } from './GenerationResultMedia';
 import { SiteNodeUpload } from './SiteNodeUpload';
+import { PromptMentionTextarea } from './PromptMentionTextarea';
 
 function videoResults(node = {}, nodeId = '') {
   const sourceNode = (typeof window.workflowNodeById === 'function' && window.workflowNodeById(nodeId)) || node;
@@ -46,6 +47,12 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
     ? [
       ...references.images.map((_, index) => `Image ${index + 1}`),
       ...references.videos.map((_, index) => `Video ${index + 1}`),
+    ]
+    : [];
+  const mentionItems = showReferenceLabels
+    ? [
+      ...references.images.map((url, index) => ({ url, kind: 'image', label: `图片素材 ${index + 1}`, alias: `image${index + 1}` })),
+      ...references.videos.map((url, index) => ({ url, kind: 'video', label: `视频素材 ${index + 1}`, alias: `video${index + 1}` })),
     ]
     : [];
   const poster = typeof window.workflowNodePoster === 'function' ? window.workflowNodePoster(node) : (data.posterUrl || '');
@@ -100,13 +107,13 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
         <div className="site-generation-controls is-selected-only">
           <label className="site-field site-prompt-field">
             <span>提示词</span>
-            <textarea
+            <PromptMentionTextarea
               rows={3}
               value={prompt}
-              placeholder="描述视频的画面、动作、镜头和氛围..."
-              onChange={(event) => setPrompt(event.target.value)}
+              items={mentionItems}
+              placeholder={mentionItems.length ? '描述视频画面，输入 @ 引用已连接素材...' : '描述视频的画面、动作、镜头和氛围...'}
+              onChange={setPrompt}
               onBlur={savePrompt}
-              onPointerDown={(event) => event.stopPropagation()}
             />
           </label>
           <SiteNodeUpload

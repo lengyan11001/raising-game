@@ -1068,7 +1068,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   if (userChanged && state.tab === "advanced") loadAdvancedAssets();
   if (userChanged && state.tab === "access") loadApiSubtokens({ force: true });
   if (userChanged && state.tab === "chat") loadChatConversations({ selectFirst: true });
-  if (userChanged && state.tab === "workflow") loadWorkflowCanvases({ force: true });
+  if (userChanged && state.tab === "workflow" && typeof loadWorkflowCanvases === "function") loadWorkflowCanvases({ force: true });
   if (userChanged && state.tab === "cases") renderCaseLibrary();
   if (state.tab === "referral") {
     if (userChanged && state.user && !skipReferralRefresh) loadReferralSummary({ force: true });

@@ -178,6 +178,41 @@ test("workflow canvas UI supports selection, create, save and delete", () => {
   assert.match(explore, /loadWorkflowCanvases\(\)/);
 });
 
+test("workflow saving uses one serialized path and retries transient conflicts", () => {
+  const canvas = read("workflow-react/src/components/canvas/Canvas.js");
+  const editor = read("workflow-react/src/components/workflow/WorkflowEditor.js");
+  const manager = read("platform.workflow-canvases.js");
+
+  assert.doesNotMatch(canvas, /useDebouncedCallback/);
+  assert.doesNotMatch(canvas, /debouncedSave/);
+  assert.match(editor, /window\.saveWorkflowCanvasNow\(\{ name: titleRef\.current \}\)/);
+  assert.doesNotMatch(editor, /requestCanvasJson\(`\/api\/workflow\/canvases/);
+  assert.match(manager, /const WORKFLOW_CANVAS_SAVE_DELAY_MS = 3000/);
+  assert.match(manager, /WORKFLOW_CANVAS_UPDATE_IN_PROGRESS/);
+  assert.match(manager, /error\.statusCode === 429/);
+  assert.match(manager, /WORKFLOW_CANVAS_SAVE_RETRY_DELAY_MS/);
+  assert.match(manager, /window\.saveWorkflowCanvasNow =/);
+});
+
+test("video prompt exposes connected media in an @ mention picker", () => {
+  const videoNode = read("workflow-react/src/components/canvas/siteNodes/SiteVideoGenerationNode.js");
+  const picker = read("workflow-react/src/components/canvas/siteNodes/PromptMentionTextarea.js");
+  const css = read("workflow-react/src/site/site.css");
+
+  assert.match(videoNode, /PromptMentionTextarea/);
+  assert.match(videoNode, /alias: `image\$\{index \+ 1\}`/);
+  assert.match(videoNode, /alias: `video\$\{index \+ 1\}`/);
+  assert.match(picker, /lastIndexOf\('@'/);
+  assert.match(picker, /ArrowDown/);
+  assert.match(picker, /ArrowUp/);
+  assert.match(picker, /insertMention/);
+  assert.match(picker, /@\$\{alias\}/);
+  assert.match(picker, /role="listbox"/);
+  assert.match(picker, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.match(css, /\.site-prompt-mentions/);
+  assert.match(css, /\.site-prompt-mention\.is-active/);
+});
+
 test("workflow uploads store asset references instead of embedded media", () => {
   const ui = read("platform.ui.js");
   const server = read("server.js");

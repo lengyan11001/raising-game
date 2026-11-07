@@ -1,5 +1,6 @@
 const WORKFLOW_CANVAS_ACTIVE_KEY = `${WORKFLOW_STORAGE_KEY}:active`;
-const WORKFLOW_CANVAS_SAVE_DELAY_MS = 1200;
+const WORKFLOW_CANVAS_SAVE_DELAY_MS = 3000;
+const WORKFLOW_CANVAS_SAVE_RETRY_DELAY_MS = 650;
 let savedWorkflowViewport = null;
 
 function workflowCanvasUserSuffix() {
@@ -307,6 +308,7 @@ async function saveWorkflowCanvas({ quiet = false, name = "" } = {}) {
   }
   if (state.workflowCanvasSavePromise) {
     state.workflowCanvasSaveQueued = true;
+    if (name) state.workflowCanvasSavePendingName = String(name).trim().slice(0, 80);
     return state.workflowCanvasSavePromise;
   }
   const canvasId = String(state.workflowActiveCanvasId || "");
@@ -322,12 +324,24 @@ async function saveWorkflowCanvas({ quiet = false, name = "" } = {}) {
       do {
         state.workflowCanvasSaveQueued = false;
         const latest = activeWorkflowCanvasSummary();
-        if (name) latest && (latest.name = String(name).trim().slice(0, 80) || latest.name);
+        const pendingName = name || state.workflowCanvasSavePendingName || "";
+        if (pendingName) latest && (latest.name = String(pendingName).trim().slice(0, 80) || latest.name);
         const nextName = String(latest?.name || "未命名画布").trim().slice(0, 80) || "未命名画布";
-        const payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(canvasId)}`, {
-          method: "PUT",
-          body: { name: nextName, workflow: workflowCanvasSnapshot() },
-        });
+        let payload = null;
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          try {
+            payload = await requestJson(`/api/workflow/canvases/${encodeURIComponent(canvasId)}`, {
+              method: "PUT",
+              body: { name: nextName, workflow: workflowCanvasSnapshot() },
+            });
+            break;
+          } catch (error) {
+            const conflict = error.code === "WORKFLOW_CANVAS_UPDATE_IN_PROGRESS" || error.statusCode === 429;
+            if (!conflict || attempt === 3) throw error;
+            await new Promise((resolve) => window.setTimeout(resolve, WORKFLOW_CANVAS_SAVE_RETRY_DELAY_MS * (attempt + 1)));
+          }
+        }
+        state.workflowCanvasSavePendingName = "";
         savedCanvas = payload.canvas || null;
         if (state.workflowActiveCanvasId === canvasId && savedCanvas) {
           const updated = workflowCanvasSummary(savedCanvas);
@@ -561,4 +575,15 @@ function handleWorkflowCanvasInput(event) {
 }
 
 window.activateWorkflowCanvasProject = activateWorkflowCanvasProject;
+window.saveWorkflowCanvasNow = (options = {}) => {
+  // React Flow and the legacy site shell can both observe one edit. Keep a
+  // single in-flight PUT for the active canvas so the server never sees two
+  // concurrent updates for the same user/project.
+  if (state.workflowCanvasSavePromise) {
+    state.workflowCanvasSaveQueued = true;
+    if (options?.name) state.workflowCanvasSavePendingName = String(options.name).trim().slice(0, 80);
+    return state.workflowCanvasSavePromise;
+  }
+  return saveWorkflowCanvas(options);
+};
 window.deactivateWorkflowCanvasProject = deactivateWorkflowCanvasProject;

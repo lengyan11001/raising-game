@@ -1,3 +1,13 @@
+## Canvas save serialization and video @ mention picker (2026-11-07)
+
+- Root cause of the intermittent `A workflow save is already in progress.` error: React had its own 350 ms canvas autosave while the site shell queued a second PUT for the same canvas. The backend correctly rejected overlapping writes with `429 WORKFLOW_CANVAS_UPDATE_IN_PROGRESS`.
+- Removed the React-side autosave from `Canvas.js`; graph changes now use the site save queue only. Manual Save/Back/title commit calls `window.saveWorkflowCanvasNow({ name: titleRef.current })`.
+- The remaining save path waits 3000 ms, serializes all writes through `state.workflowCanvasSavePromise`, preserves the latest pending name, and retries transient conflict/429 responses up to four attempts with increasing delay.
+- Fixed early session hydration calling `loadWorkflowCanvases` before that function was defined by guarding with `typeof loadWorkflowCanvases === "function"`.
+- Video generation prompts now use `PromptMentionTextarea`. Typing `@` lists only connected or manually attached image/video references, supports filtering, arrows, Enter/Tab, Escape, and clicking, then inserts `@imageN` / `@videoN`. The existing backend alias normalization supplies the generated payload labels.
+- Verification: `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 25/25; syntax checks and `git diff --check` pass; production webpack build passes with existing size warnings.
+- Real Chrome/CDP acceptance at `http://127.0.0.1:8767` reports one maximum in-flight PUT, no conflicts, no exceptions, an `@` menu with `@image1`/`@image2`, successful `@image2` insertion, and no visible save-in-progress message. Evidence: `/tmp/workflow-react-verify/save-mention-acceptance.out`.
+
 ## Canvas generation keeps a separate result node per run (2026-11-07)
 
 - Every successful image or video generation appends a new selected result node (`图片结果 N` / `视频结果 N`) connected from the source node. Previous result nodes remain visible for comparison; the source is never overwritten.

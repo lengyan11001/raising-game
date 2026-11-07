@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { Canvas } from '../canvas/Canvas';
 import { toReactFlowGraph, writeReactFlowGraph, notifyNodeChanged } from '../../site/SiteBridge';
-import { requestCanvasJson } from './canvasApi';
 import './WorkflowEditor.css';
 
 function projectName(project = {}) {
@@ -34,13 +33,12 @@ export function WorkflowEditor({ project, onBack, onCreate, onProjectChange }) {
     setSaveState('saving');
     setError('');
     try {
-      const payload = await requestCanvasJson(`/api/workflow/canvases/${encodeURIComponent(project.id)}`, {
-        method: 'PUT',
-        body: { name: titleRef.current, workflow },
-      });
-      const saved = payload.canvas || {};
+      if (typeof window.saveWorkflowCanvasNow !== 'function') {
+        throw new Error('画布保存桥接未加载');
+      }
+      const saved = await window.saveWorkflowCanvasNow({ name: titleRef.current });
       setSaveState('saved');
-      onProjectChange?.({ ...project, ...saved, name: saved.name || titleRef.current });
+      onProjectChange?.({ ...project, ...(saved || {}), name: saved?.name || titleRef.current });
     } catch (saveError) {
       setSaveState('error');
       setError(saveError.message || String(saveError));

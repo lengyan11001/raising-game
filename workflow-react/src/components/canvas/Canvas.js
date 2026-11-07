@@ -17,7 +17,6 @@ import {
   ReactFlowProvider,
 } from '@xyflow/react';
 import { nanoid } from 'nanoid';
-import { useDebouncedCallback } from 'use-debounce';
 import '@xyflow/react/dist/style.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 
@@ -268,10 +267,7 @@ const CanvasInner = ({
       window.removeEventListener('workflow-react:select-node', select);
     };
   }, []);
-  const isInitialMount = useRef(true);
-  const [saveStatus, setSaveStatus] = useState(null); // 'saving' | 'saved' | null
   const isMountedRef = useRef(true); // 追踪组件是否已挂载
-  const saveStatusTimerRef = useRef(null); // 保存状态定时器引用
   const displayEdges = useMemo(
     () => buildConnectionGuideEdges(edges, nodes),
     [edges, nodes]
@@ -281,70 +277,8 @@ const CanvasInner = ({
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
-      // 清理保存状态定时器
-      if (saveStatusTimerRef.current) {
-        clearTimeout(saveStatusTimerRef.current);
-      }
     };
   }, []);
-
-  // 自动保存（防抖 2 秒）
-  const debouncedSave = useDebouncedCallback(async () => {
-    // 只读模式下不保存
-    if (readOnly || !onSave || isInitialMount.current) {
-      return;
-    }
-
-    try {
-      if (!isMountedRef.current) return; // 检查组件是否已挂载
-      setSaveStatus('saving');
-      await onSave(nodes, edges);
-      if (onGraphChange) await onGraphChange(nodes, edges);
-      if (!isMountedRef.current) return; // 再次检查
-      setSaveStatus('saved');
-      console.log('Canvas 自动保存成功');
-
-      // 清除之前的定时器
-      if (saveStatusTimerRef.current) {
-        clearTimeout(saveStatusTimerRef.current);
-      }
-
-      // 2秒后清除"已保存"状态
-      saveStatusTimerRef.current = setTimeout(() => {
-        if (isMountedRef.current) {
-          setSaveStatus(null);
-        }
-      }, 2000);
-    } catch (err) {
-      console.error('Canvas 自动保存失败:', err);
-      if (isMountedRef.current) {
-        setSaveStatus(null);
-      }
-    }
-  }, 350); // 节点/连线变化后尽快写入业务图
-
-  // 当 nodes 或 edges 改变时触发自动保存
-  useEffect(() => {
-    // 跳过初始加载时的保存
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-
-    // 只读模式下不保存
-    if (readOnly) {
-      return;
-    }
-
-    // 触发自动保存（包括空画布的情况）
-    console.log('Canvas 检测到变化，准备自动保存');
-    debouncedSave();
-
-    // 清理函数：取消防抖
-    return () => {
-      debouncedSave.cancel();
-    };
-  }, [nodes, edges, debouncedSave, onGraphChange, readOnly]);
 
   // 节点变化处理
   const onNodesChange = useCallback(
