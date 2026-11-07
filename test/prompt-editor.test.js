@@ -132,6 +132,13 @@ test("rich mention support branches on editor selection while keeping textarea f
   assert.match(main, /#advancedPromptEditorMount/);
 });
 
+test("rich prompt auto-size resets height before measuring so deletion can shrink", () => {
+  assert.match(part04, /promptElement\.style\.height = "0px"/);
+  assert.match(part04, /promptElement\.style\.overflowY = "hidden"/);
+  assert.match(part04, /const contentHeight = Math\.max\(minimumHeight, promptElement\.scrollHeight \+ 2\)/);
+  assert.doesNotMatch(part04, /richEditor \? Math\.max\(minimumHeight, promptElement\.scrollHeight \+ 2\)/);
+});
+
 test("editor bundle provides document paragraph text and hard break nodes", () => {
   assert.match(editorSource, /Document/);
   assert.match(editorSource, /Paragraph/);

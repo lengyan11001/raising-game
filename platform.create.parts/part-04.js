@@ -524,11 +524,11 @@ function autoSizeAdvancedPrompt({ force = false, resetManual = false } = {}) {
   const promptElement = richEditor?.getElement?.() || textarea;
   if (promptElement.offsetParent === null || promptElement.getClientRects().length === 0) return false;
   const { minimumHeight, maximumHeight } = advancedPromptHeightLimits();
-  const contentHeight = richEditor ? Math.max(minimumHeight, promptElement.scrollHeight + 2) : (() => {
-    textarea.style.height = "0px";
-    textarea.style.overflowY = "hidden";
-    return Math.max(minimumHeight, textarea.scrollHeight + 2);
-  })();
+  // scrollHeight never reports less than the element's current height. Reset the
+  // previous inline height before measuring so deleting pasted content can shrink.
+  promptElement.style.height = "0px";
+  promptElement.style.overflowY = "hidden";
+  const contentHeight = Math.max(minimumHeight, promptElement.scrollHeight + 2);
   const nextHeight = Math.min(maximumHeight, Math.max(minimumHeight, contentHeight));
   if (richEditor) {
     promptElement.style.height = `${Math.round(nextHeight)}px`;
@@ -928,7 +928,7 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   const restoredPresetFlow = hydrateAdvancedPresetsFromParams(params);
   const restoredKind = ADVANCED_CREATE_KINDS.some((item) => item.id === params.createKind) ? params.createKind : "";
   const restoredMode = restoredKind && advancedCreateModesForKind(restoredKind).some((item) => item.id === params.createMode) ? params.createMode : "";
-  setTab("advanced");
+  setAdvancedWorkspaceTab();
   state.advancedCreateKind = restoredPresetFlow && restoredKind ? restoredKind : "custom";
   state.advancedCreateMode = state.advancedCreateKind === "custom" ? ADVANCED_CUSTOM_MODE.id : (restoredMode || advancedCreateModesForKind(state.advancedCreateKind)[0]?.id || ADVANCED_CUSTOM_MODE.id);
   renderAdvancedCreateControls();
@@ -1661,7 +1661,7 @@ function useAssetInAdvanced(asset = {}, action = "use") {
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
     addAdvancedSeedanceMediaReference(asset, "video");
   }
-  setTab("advanced");
+  setAdvancedWorkspaceTab();
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
   if (els.advancedNote) {
