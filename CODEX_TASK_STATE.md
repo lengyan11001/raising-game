@@ -5,7 +5,7 @@
 - `publicHttpUrlForUpstream()` now refreshes OSS signatures from the durable object path before submission. Vega media-library cache rows use canonical unsigned object URLs and receive a fresh signature only at `CreateAigcMaterial`.
 - Seedance gateway/direct reference, video, and audio boundaries now normalize OSS URLs before forwarding. Changed `server.parts/part-11.js`, `part-24.js`, `part-26.js`, `part-43.js`, and `tencent-vod-vega.js`.
 - Verification: focused 3/3 tests pass for expired OSS refresh, canonical Vega cache identity/fresh import URL, and Seedance gateway refresh. `node --check tencent-vod-vega.js`, server load, and `git diff --check` pass. Broader historical source-shape tests still have unrelated stale assertions, so they are not claimed green.
-- Deployment: pending old-site commit and `123vips.com` deployment; Live is not to be deployed.
+- Deployment: old-site `9cbb612`; platform-release `9ccde59`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`; release boundary checks passed. Live was not deployed.
 
 ## Video reference thumbnails restored in regeneration (2026-11-07)
 
