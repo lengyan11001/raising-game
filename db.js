@@ -6346,20 +6346,40 @@ async function expireExhaustedMediaIngestJobsInDb(maxAttempts = 5, { staleMinute
   await ensureSchema();
   const { rows } = await query(
     `
-      UPDATE app_media_ingest_jobs
-      SET status = 'failed',
-          updated_at = NOW(),
-          available_at = 'infinity'::timestamptz,
-          error = CASE
-            WHEN error = '' THEN 'Transfer retry limit reached.'
-            ELSE error
-          END
-      WHERE (
-          (status = 'queued' AND attempts >= $1)
-          OR (status = 'processing' AND attempts >= $1
-              AND updated_at < NOW() - ($2::int * INTERVAL '1 minute'))
+      WITH expired AS (
+        UPDATE app_media_ingest_jobs
+        SET status = 'failed',
+            updated_at = NOW(),
+            available_at = 'infinity'::timestamptz,
+            error = CASE
+              WHEN error = '' THEN 'Transfer retry limit reached.'
+              ELSE error
+            END
+        WHERE (
+            (status = 'queued' AND attempts >= $1)
+            OR (status = 'processing' AND attempts >= $1
+                AND updated_at < NOW() - ($2::int * INTERVAL '1 minute'))
+          )
+        RETURNING task_id, error
+      ), synced_records AS (
+        UPDATE app_generation_records records
+        SET payload = jsonb_set(
+          jsonb_set(
+            records.payload,
+            '{advancedDownloadStatus}',
+            to_jsonb('failed'::text),
+            true
+          ),
+          '{advancedDownloadError}',
+          to_jsonb(expired.error),
+          true
         )
-      RETURNING task_id
+        FROM expired
+        WHERE records.task_id = expired.task_id
+          AND COALESCE(records.payload->>'advancedDownloadStatus', '') <> 'ready'
+        RETURNING records.task_id
+      )
+      SELECT task_id FROM expired
     `,
     [max, stale],
   );
