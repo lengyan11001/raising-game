@@ -6,12 +6,13 @@ import { SiteNodeUpload } from './SiteNodeUpload';
 
 function imageResults(node = {}, nodeId = '') {
   const sourceNode = (typeof window.workflowNodeById === 'function' && window.workflowNodeById(nodeId)) || node;
+  if (typeof window.workflowNodeOwnResultImages === 'function') return window.workflowNodeOwnResultImages(sourceNode);
   if (typeof window.workflowNodeResultImages === 'function') return window.workflowNodeResultImages(sourceNode);
   const data = sourceNode.data || {};
   return [...new Set([...(data.resultImageUrls || []), data.resultImageUrl].filter(Boolean))];
 }
 
-export function SiteImageGenerationNode({ id }) {
+export function SiteImageGenerationNode({ id, selected = false }) {
   const { node, update, run } = useSiteNode(id);
   const data = node?.data || {};
   const [prompt, setPrompt] = useState(data.prompt || '');
@@ -47,6 +48,7 @@ export function SiteImageGenerationNode({ id }) {
       showOutputHandle
       showDuplicateButton={false}
       inputHandleLabel=""
+      selected={selected}
     >
       <div className="site-generation-node">
         <div className="site-generation-result-head">
@@ -54,9 +56,9 @@ export function SiteImageGenerationNode({ id }) {
           <small>{data.status ? String(data.status) : '就绪'}</small>
         </div>
         <div className="site-generation-result">
-          <GenerationResultMedia kind="image" urls={results} status={data.status} error={data.error} sourceNodeId={id} />
+          <GenerationResultMedia kind="image" urls={results} status={results.length ? 'succeeded' : data.status} error={results.length ? '' : data.error} sourceNodeId={id} />
         </div>
-        <div className="site-generation-controls">
+        <div className="site-generation-controls is-selected-only">
           <label className="site-field site-prompt-field">
             <span>提示词</span>
             <textarea

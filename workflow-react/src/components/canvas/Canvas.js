@@ -64,10 +64,10 @@ const CanvasInner = ({
   const updateNodeInternals = useUpdateNodeInternals();
   const canvasWidth = useStore((state) => state.width);
   const canvasHeight = useStore((state) => state.height);
-  // Opening a project should show all of its nodes. Zoom changes made during
-  // editing are still persisted by onMoveEnd, but they are not allowed to
-  // reopen the canvas cropped far outside the graph.
-  const viewportRef = useRef(null);
+  // Reopen exactly where the user left off. Auto-fit is only a fallback for a
+  // canvas that has never stored a viewport yet.
+  const viewportRef = useRef(readCanvasViewport());
+  const shouldAutoFitInitialGraphRef = useRef(initialNodes.length > 0);
   const hasAutoFittedRef = useRef(false);
   const lastPaneClickRef = useRef({ time: 0, x: 0, y: 0 });
   const lastAddNodeAtRef = useRef({ time: 0, x: 0, y: 0 });
@@ -129,7 +129,10 @@ const CanvasInner = ({
   }, [canvasHeight, canvasWidth, getNodesBounds, setViewport, viewportInitialized]);
 
   useEffect(() => {
-    if (!nodesRef.current.length) return undefined;
+    // An empty project has no graph to fit. Do not run auto-fit when the first
+    // manually created node appears, because that would unexpectedly reset the
+    // user's current viewport.
+    if (!shouldAutoFitInitialGraphRef.current || !nodesRef.current.length || viewportRef.current) return undefined;
     let firstFrame;
     let secondFrame;
     let retryFrame;
@@ -153,7 +156,7 @@ const CanvasInner = ({
       if (secondFrame) cancelAnimationFrame(secondFrame);
       if (retryFrame) cancelAnimationFrame(retryFrame);
     };
-  }, [fitCanvasSafely, nodeIdsKey, viewportInitialized]);
+  }, [fitCanvasSafely, viewportInitialized]);
 
   // React 17 下节点首次挂载时，React Flow 的 ResizeObserver 可能只测量到节点
   // 尺寸而没有写入 Handle 边界，导致 Handle 可点击却无法开始连线。节点 DOM

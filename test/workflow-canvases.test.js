@@ -28,6 +28,7 @@ test("workflow canvas state is normalized and bounded", () => {
     canvasHeight: 1800,
     scrollLeft: 2400,
     scrollTop: 320,
+    viewport: { x: -123.5, y: 44, zoom: 0.73 },
   });
   assert.equal(normalized.zoom, 1.8);
   assert.equal(normalized.directorPrompt.length, 6000);
@@ -35,6 +36,7 @@ test("workflow canvas state is normalized and bounded", () => {
   assert.equal(normalized.canvasHeight, 1800);
   assert.equal(normalized.scrollLeft, 2400);
   assert.equal(normalized.scrollTop, 320);
+  assert.deepEqual(normalized.viewport, { x: -123.5, y: 44, zoom: 0.73 });
   assert.throws(
     () => normalizeWorkflowCanvasState({ ...initial, nodes: Array.from({ length: 101 }, (_, index) => ({ id: `n-${index}` })) }),
     /100 nodes/,
@@ -260,6 +262,7 @@ test("workflow canvas loading cannot overwrite edits made while the request is i
   assert.match(manager, /if \(requestSeq && !workflowCanvasLoadIsCurrent\(requestSeq\)\) return false/);
   assert.match(manager, /switchSeq = beginWorkflowCanvasLoad\(\)/);
   assert.match(manager, /const deleteSeq = beginWorkflowCanvasLoad\(\)/);
+  assert.match(manager, /state\.workflowSelectedNodeId = ""/);
   assert.match(part, /window\.markWorkflowCanvasLocalEdit\(\)/);
   assert.doesNotMatch(part, /WorkflowReactCanvas\?\.captureViewport/);
   assert.match(part, /window\.WorkflowReactCanvas\.isMounted\?\.\(reactHost\)/);
@@ -271,7 +274,9 @@ test("workflow canvas loading cannot overwrite edits made while the request is i
   assert.doesNotMatch(drop, /uploadPending: true/);
   assert.match(bridge, /function readCanvasViewport\(\)/);
   assert.match(bridge, /function writeCanvasViewport\(viewport = \{\}\)/);
-  assert.match(canvas, /const viewportRef = useRef\(null\)/);
+  assert.match(canvas, /const viewportRef = useRef\(readCanvasViewport\(\)\)/);
+  assert.match(canvas, /const shouldAutoFitInitialGraphRef = useRef\(initialNodes\.length > 0\)/);
+  assert.match(canvas, /if \(!shouldAutoFitInitialGraphRef\.current \|\| !nodesRef\.current\.length \|\| viewportRef\.current\) return undefined/);
   assert.match(canvas, /const fitCanvasSafely = useCallback/);
   assert.match(canvas, /onMoveEnd=\{\(_, viewport\) =>/);
   assert.match(canvas, /fitView=\{false\}/);
@@ -390,6 +395,10 @@ test("workflow React Flow adapter owns creation, connection, and business deleti
   assert.match(layout, /import \{ Handle, Position \} from '@xyflow\/react'/);
   assert.match(layout, /type="target"[\s\S]*?position=\{Position\.Left\}/);
   assert.match(layout, /type="source"[\s\S]*?position=\{Position\.Right\}/);
+  assert.match(layout, /selected = false/);
+  assert.match(layout, /site-generation-card\$\{selected \? ' is-selected'/);
+  assert.match(css, /\.site-generation-controls\.is-selected-only \{\s*display: none;/);
+  assert.match(css, /\.site-generation-card\.is-selected \.site-generation-controls\.is-selected-only \{\s*display: grid;/);
   assert.match(layout, /site-generation-drag-handle/);
   assert.match(ui, /function workflowAvailableNodePosition\(position = null\)/);
   assert.match(ui, /function workflowNodePositionIsFree\(candidate = \{\}/);
@@ -448,6 +457,10 @@ test("workflow generation nodes own their input media without standalone input n
   assert.match(part, /referenceImages: \[\], referenceVideos: \[\]/);
   assert.match(imageNode, /SiteNodeUpload/);
   assert.match(imageNode, /accept="image\/\*"/);
+  assert.match(imageNode, /selected = false/);
+  assert.match(imageNode, /site-generation-controls is-selected-only/);
+  assert.match(videoNode, /selected = false/);
+  assert.match(videoNode, /site-generation-controls is-selected-only/);
   assert.match(videoNode, /accept="image\/\*,video\/\*"/);
   assert.match(ui, /function renderWorkflowImageEditor\(node = \{\}\)/);
   assert.match(ui, /function renderWorkflowVideoEditor\(node = \{\}\)/);
@@ -455,15 +468,33 @@ test("workflow generation nodes own their input media without standalone input n
 
 test("workflow media results feed downstream generation with model-specific payloads", () => {
   const ui = read("platform.ui.js");
+  const incoming = read("platform.ui.parts/part-05.js");
+  const part = read("platform.ui.parts/part-06.js");
+  const videoNode = read("workflow-react/src/components/canvas/siteNodes/SiteVideoGenerationNode.js");
 
   assert.match(ui, /function workflowNodeIncomingMedia\(node = \{\}\)/);
-  assert.match(ui, /const incoming = workflowNodeIncomingMedia\(node\)/);
-  assert.match(ui, /const imagePayload = seedanceFrameMode \? \[\] : workflowReferencePayload\(images\)/);
-  assert.match(ui, /referenceImages: imagePayload/);
-  assert.match(ui, /referenceVideoUrls: videoUrls/);
-  assert.match(ui, /\["wan27-i2v", "happyhorse-i2v", "wan-animate-move", "wan-animate-mix"\]/);
-  assert.match(ui, /resultImageUrl: imageUrl/);
-  assert.match(ui, /resultVideoUrl: videoUrl/);
+  assert.match(incoming, /workflowNodeResultImages\(source\)/);
+  assert.match(incoming, /workflowNodeResultVideos\(source\)/);
+  assert.match(incoming, /map\(\(value\) => String\(value \|\| ""\)\.trim\(\)\)/);
+  assert.doesNotMatch(incoming, /\.map\(String\)\.filter\(Boolean\)/);
+  assert.match(incoming, /Number\(left\.source\.y \|\| 0\) - Number\(right\.source\.y \|\| 0\)/);
+  assert.match(part, /function workflowMediaValueList\(values = \[\]\)/);
+  assert.match(part, /return \[\.\.\.new Set\(values\.map/);
+  assert.match(part, /function workflowNodeCanvasReferences\(node = \{\}\)/);
+  assert.match(part, /workflowNodeCanvasReferences\(node\)\.images/);
+  assert.match(part, /window\.workflowNodeCanvasReferences = workflowNodeCanvasReferences/);
+  assert.doesNotMatch(part, /linkedReferenceImages|linkedReferenceVideos|workflowSyncCanvasNodeReferences/);
+  assert.match(part, /function workflowSeedancePromptAliases/);
+  assert.match(part, /return `Image \$\{index\}`/);
+  assert.match(part, /const imagePayload = seedanceFrameMode \? \[\] : workflowReferencePayload\(images\)/);
+  assert.match(part, /referenceImages: imagePayload/);
+  assert.match(part, /referenceVideoUrls: videoUrls/);
+  assert.match(part, /\["wan27-i2v", "happyhorse-i2v", "wan-animate-move", "wan-animate-mix"\]/);
+  assert.match(part, /createWorkflowGeneratedResultNode\(node, \{[\s\S]*?imageUrl/);
+  assert.match(part, /createWorkflowGeneratedResultNode\(node, \{[\s\S]*?videoUrl/);
+  assert.match(videoNode, /workflowNodeCanvasReferences/);
+  assert.match(videoNode, /references=\{referenceValues\}/);
+  assert.match(videoNode, /referenceLabels=\{referenceLabels\}/);
 });
 
 test("workflow graph supports fan-in, rejects loops, and migrates embedded references", () => {
@@ -486,12 +517,15 @@ test("workflow viewport is persisted and stale edges are filtered", () => {
   assert.match(bridge, /String\(edge\.from\) !== String\(edge\.to\)/);
   assert.match(bridge, /const seenEdges = new Set\(\)/);
   assert.match(bridge, /function writeCanvasViewport\(viewport = \{\}\)/);
+  assert.match(bridge, /affectedTargets\.forEach\(\(nodeId\) =>/);
+  assert.match(bridge, /workflow-react-node-change/);
   assert.match(ui, /viewport: workflow\.viewport/);
   assert.match(manager, /viewport/);
 });
 
-test("workflow upload targets generation nodes and preserves graph", () => {
+test("workflow upload creates a selected linked preview node with generation controls", () => {
   const part = read("platform.ui.parts/part-05.js");
+  const bridge = read("workflow-react/src/site/SiteBridge.js");
   const canvas = read("workflow-react/src/components/canvas/Canvas.js");
   const drop = read("platform.ui.parts/part-06.js");
   const media = read("workflow-react/src/components/canvas/siteNodes/GenerationResultMedia.js");
@@ -499,13 +533,56 @@ test("workflow upload targets generation nodes and preserves graph", () => {
   assert.match(part, /const WORKFLOW_UPLOAD_NODE_TYPES = new Set\(\["imageGenerate", "unifiedVideoGen"\]\)/);
   assert.match(part, /const canvasId = String\(state\.workflowActiveCanvasId \|\| ""\)/);
   assert.match(part, /if \(String\(state\.workflowActiveCanvasId \|\| ""\) !== canvasId\) return false/);
-  assert.match(part, /workflowNodeReferences\(current, field\)/);
+  assert.match(part, /const newNode = createWorkflowNode\(action, workflowUploadedNodePosition\(current\)\)/);
+  assert.match(part, /resultImageUrl: uploaded\.url/);
+  assert.match(part, /resultVideoUrl: uploaded\.url/);
+  assert.match(part, /window\.connectWorkflowNodes\?\.\(newNode\.id, current\.id\)/);
+  assert.match(part, /state\.workflowSelectedNodeId = newNode\.id/);
+  assert.match(part, /window\.WorkflowReactCanvas\?\.selectNode\?\.\(newNode\.id\)/);
+  assert.match(drop, /window\.activeWorkflowSelectedNodeId = \(\) => String\(state\.workflowSelectedNodeId/);
+  assert.match(bridge, /selected: String\(node\.id \|\| ""\) === String\(selectedNodeId \|\| ""\)/);
+  assert.match(drop, /function addWorkflowNodeAt[\s\S]*?window\.WorkflowReactCanvas\.selectNode\(node\.id\);[\s\S]*?return node\.id/);
+  assert.doesNotMatch(drop, /function addWorkflowNodeAt[\s\S]*?workflow-react:fit-view[\s\S]*?return node\.id/);
+  assert.doesNotMatch(part, /async function uploadWorkflowFilesToNode[\s\S]{0,2200}?workflowNodeReferences\(current, field\)/);
   assert.match(part, /clearWorkflowExecutionResults\(\{ fromNodeId: current\.id/);
   assert.match(canvas, /window\.uploadWorkflowFilesToNode\(files, targetNodeId\)/);
   assert.match(drop, /window\.uploadWorkflowFilesToNode\(files, nodeId\)/);
   assert.match(videoNode, /workflowNodeResultVideos/);
   assert.match(media, /urls\.map\(\(url, index\)/);
   assert.match(media, /beginMediaDrag\(event, \{ kind, url, index, sourceNodeId \}\)/);
+});
+
+test("workflow generations append selected result nodes without replacing prior previews", () => {
+  const ui = read("platform.ui.parts/part-05.js");
+  const part = read("platform.ui.parts/part-06.js");
+  const imageNode = read("workflow-react/src/components/canvas/siteNodes/SiteImageGenerationNode.js");
+  const videoNode = read("workflow-react/src/components/canvas/siteNodes/SiteVideoGenerationNode.js");
+
+  assert.match(part, /function createWorkflowGeneratedResultNode\(sourceNode = \{\}, result = \{\}, kind = "image"\)/);
+  assert.match(part, /source: "generated"/);
+  assert.match(part, /generatedFromNodeId: sourceNode\.id/);
+  assert.match(part, /window\.connectWorkflowNodes\?\.\(sourceNode\.id, newNode\.id\)/);
+  assert.match(part, /state\.workflowSelectedNodeId = newNode\.id/);
+  assert.match(part, /window\.WorkflowReactCanvas\?\.selectNode\?\.\(newNode\.id\)/);
+  assert.match(part, /createWorkflowGeneratedResultNode\(node, \{[\s\S]*?imageUrl/);
+  assert.match(part, /createWorkflowGeneratedResultNode\(node, \{[\s\S]*?videoUrl/);
+  assert.match(part, /resultImageUrl: imageUrls\[0\]/);
+  assert.match(part, /resultVideoUrl: result\.videoUrl/);
+  assert.match(ui, /function workflowGeneratedResultChildren\(node = \{\}\)/);
+  assert.match(ui, /\.\.\.workflowGeneratedResultChildren\(node\)\.flatMap\(\(child\) => workflowNodeOwnResultImages\(child\)\)/);
+  assert.match(ui, /\.\.\.workflowGeneratedResultChildren\(node\)\.flatMap\(\(child\) => workflowNodeOwnResultVideos\(child\)\)/);
+  assert.match(ui, /window\.workflowNodeOwnResultImages = workflowNodeOwnResultImages/);
+  assert.match(ui, /window\.workflowNodeOwnResultVideos = workflowNodeOwnResultVideos/);
+  assert.match(ui, /const uploadSource = data\.source === "upload"/);
+  assert.match(ui, /const uploadSource = node\.data\?\.source === "upload"/);
+  assert.match(ui, /\.\.\.\(!uploadSource \? recordVideos : \[\]\)/);
+  assert.match(ui, /\.\.\.\(!uploadSource \? record : \[\]\)/);
+  assert.match(imageNode, /workflowNodeOwnResultImages/);
+  assert.match(videoNode, /workflowNodeOwnResultVideos/);
+  assert.doesNotMatch(ui, /resultImageUrl: "",\s+resultImageUrls: \[\],\s+posterUrl: ""/);
+  assert.doesNotMatch(part, /status: "submitting"[\s\S]{0,160}?resultImageUrl: ""/);
+  assert.doesNotMatch(part, /status: "submitting"[\s\S]{0,160}?resultVideoUrl: ""/);
+  assert.doesNotMatch(part, /status: "succeeded", record: finalRecord, taskId, resultVideoUrl: videoUrl/);
 });
 
 test("inline workflow dialogs use an explicit async confirm handler", () => {

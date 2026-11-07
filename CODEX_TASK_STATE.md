@@ -1,3 +1,53 @@
+## Canvas generation keeps a separate result node per run (2026-11-07)
+
+- Every successful image or video generation appends a new selected result node (`图片结果 N` / `视频结果 N`) connected from the source node. Previous result nodes remain visible for comparison; the source is never overwritten.
+- Result nodes are placed in two columns before starting a new row. Generated result nodes aggregate their own media only, while source nodes expose generated children to downstream nodes.
+- Uploaded source nodes now return only their uploaded preview from `workflowNodeOwnResult*`; task records on an upload node can no longer leak a newer generation into that uploaded preview.
+- Verification: workflow access/canvas tests pass 26/26; syntax checks and `git diff --check` pass; production webpack build passes with existing size warnings.
+- Real Chrome/CDP acceptance covers image upload + two image generations, video upload, and two video generations. Each run adds one result node, retains previous results, preserves the uploaded source preview, connects every result to its source, and selects the newest result.
+- Evidence: `/tmp/workflow-react-verify/generation-history-video-acceptance.out`, `/tmp/workflow-react-verify/generation-history-video.png`, `/tmp/workflow-react-verify/generation-history-image.png`.
+- Deployment: not deployed.
+
+## Canvas manual-create selection and persistent viewport (2026-11-07)
+
+- Manually added image/video nodes now become selected immediately and expose their lower generation controls. Project entry still starts with no node selected.
+- Empty projects no longer auto-fit after the first manual node is added. Auto-fit is limited to projects that already contain nodes when opened, so adding nodes does not unexpectedly reset pan/zoom.
+- Canvas viewport `{x, y, zoom}` now survives project changes, project list navigation, and server-backed reloads through the PostgreSQL canvas record. Viewport normalization is covered in `workflow-canvases.js` and the client bridge.
+- Verification: workflow access/canvas tests pass 25/25; syntax checks pass; `git diff --check` passes; production webpack build passes with size warnings only.
+- Real Chrome/CDP acceptance passed at `http://127.0.0.1:8767`: project opens unselected, manual image node is selected with visible controls and unchanged viewport, zoom controls change the viewport, and back/reopen restores `{x:-156.96,y:-104.98,zoom:1.44}` from the mock server workflow while selection stays empty.
+- Evidence: `/tmp/workflow-react-verify/manual-selection-viewport-acceptance.out`, `/tmp/workflow-react-verify/manual-selection-viewport-before-back.png`, `/tmp/workflow-react-verify/manual-selection-viewport-reopened.png`.
+- Deployment: not deployed.
+
+## Canvas upload creates linked selected preview node (2026-11-07)
+
+- Uploading an image from a canvas node now uploads through the existing PostgreSQL-backed `/api/user-assets` flow, creates a new `imageGenerate` node, displays the uploaded image as its preview, selects it, and opens its generation controls. Uploading a video creates a `unifiedVideoGen` node the same way.
+- Each uploaded file gets its own node. The new node is automatically connected from the new preview node into the node where the file was uploaded. Uploading multiple files creates multiple linked nodes; the last one stays selected.
+- The uploaded preview is stored in the normal generation result fields (`resultImageUrl` / `resultVideoUrl` plus asset IDs), so a later successful generation replaces the preview through the existing result flow without separate preview state.
+- Regression coverage is in `test/workflow-canvases.test.js`. Workflow access/canvas tests pass 25/25; syntax checks and `git diff --check` pass. Real-browser acceptance passed for image and video uploads, including new-node creation, auto-edge, selection, preview, visible generation controls, and generated-result replacement.
+- Browser screenshots: `/tmp/workflow-react-verify/reference-graph-upload-image.png` and `/tmp/workflow-react-verify/reference-graph-upload-video.png`.
+- Deployment: not deployed.
+
+## Canvas preview and selected-only generation controls (2026-11-07)
+
+- User clarified that image/video previews must stay separate from generation controls: unselected nodes show only the preview; controls appear only when selected.
+- Added selection state to `NodeLayout`, passed `selected` from both site generation node components, and marked lower generation sections `is-selected-only`. CSS hides those sections by default and shows them on `.site-generation-card.is-selected`.
+- Fixed fan-in media derivation: `workflowNodeResultImages()` and `workflowNodeResultVideos()` now trim/filter null and empty values before deduplicating, eliminating the bogus `"undefined"` video reference that made two image inputs display `参考素材 3 / Video 1`.
+- Kept Seedance aliases aligned with payload order: connected/manual images are deduplicated, displayed as `Image 1`, `Image 2`, etc., and `@image1`/`@图片2` normalize to the server contract.
+- Verification: workflow access/canvas tests pass 25/25; syntax checks and `git diff --check` pass; production webpack build passes with size warnings only.
+- Real-browser acceptance at `http://127.0.0.1:8767`: two real pointer-dragged image->video edges produce `参考素材 2`, two thumbnails, labels `Image 1|Image 2`, payload images in matching order, and prompt `让 Image 1 和 Image 2 在雨中拥抱`. Unselected all three nodes hide controls while previews remain; selecting image/video reveals only that node's controls. Selecting the second edge and pressing Delete updates the count to 1 and thumbnail count to 1; manual plus linked references coexist.
+- Screenshots: `/tmp/workflow-react-verify/reference-graph-unselected-selected.png` and `/tmp/workflow-react-verify/reference-graph-connected.png`.
+- Deployment: not deployed.
+
+## Generate composer matches supplied interaction design (2026-11-07)
+
+- User asked to read the supplied `/Users/x042/Desktop/视频生成页面-交互重设计(1).html` carefully and apply its styles to the real Generate page without changing any generation flow.
+- Production UI changes are scoped to `platform.html`, `platform.css`, and `platform.create.parts/part-02.js`. The supplied design file and unrelated dirty worktree files were not modified.
+- Matched the source design's dark composer card, pink underlined tabs, 130px prompt editor with mention highlighting, dashed reference upload surface, quiet parameter chip bar, ratio/resolution grouped chip, full-width pink/purple Generate button, inline ratio picker, resolution buttons, duration slider, model/mode option rows, and responsive layout.
+- Preserved `advancedPrompt`, `advancedUploadBox`, `advancedImage`, `advancedParameterChips`, `advancedParameterPanel`, `advancedParameterShell`, and `advancedSubmitBtn`. Native selects remain the submission source; picker selections update the existing select and dispatch its existing `change` event. Generation, upload, pricing, validation, API, and database behavior were not changed.
+- CSS cache key bumped to `generate-composer-design-20261107-1`.
+- Verification: `node --check platform.create.parts/part-02.js` passes; `git diff --check` passes; targeted Generate tests pass 3/3 (shared pink tabs, 123vip.fans shared surface, picker close behavior + duration slider). Closed-state and open-picker screenshots were visually checked against the source design.
+- Deployment: not deployed.
+
 ## Download signing on every click (2026-11-07)
 
 - Optimization: both download handlers now authenticate with `requireUser(req, res, { loadDb: false })`; click-time signing performs targeted session/user and generation-record queries instead of loading the full business database.
@@ -1359,3 +1409,13 @@ CODEX_TASK_STATE.md
 - Source commit: `97bbe6c`. Platform release: `0ce9df4c008ec062e615c43f58a445013d62385f`. Production page cache key is `mw5y4fd1`; production `canvas.js` hash matches local exactly (`e4af47e68ee7f41bcd944a7aa3433f22c7fe675bf8fb6788cff6381d77a4ed69`, 537550 bytes) and contains the token/Bearer logic.
 - Deployed only `123vips.com` through `scripts/deploy_local.sh --site old`. Health is `200 {"ok":true}`. Anonymous workflow canvas access remains `401` as required. Live was not deployed.
 
+
+## Generate UI style-only restoration (2026-11-07)
+
+- User required the established Generate/Advanced DOM, routes, state, and generation flows to stay unchanged; styling only.
+- Restored JavaScript/config changes accidentally introduced during the redesign: `platform.create.parts/part-02.js`, `platform.ui.parts/part-04.js`, and `platform.config.js` now have no diff.
+- Preserved the existing DOM nodes in `platform.html`; only the `platform.css` cache-busting query changed.
+- Current Generate styling is scoped under `.advanced-workspace.is-create-custom` in `platform.css` and does not generate or replace UI structure.
+- Existing native rendering still exposes three top-level Generate tabs (`VideoGen`, `ImageGen`, `Conversation`) and keeps the secondary mode row hidden for Generate.
+- Verification: `git diff --check`; no changes in the three restored JS/config files.
+- Deployment: not deployed.

@@ -83,6 +83,7 @@ function defaultWorkflowCanvasState() {
     canvasHeight: 720,
     scrollLeft: 0,
     scrollTop: 0,
+    viewport: null,
   };
 }
 
@@ -124,6 +125,17 @@ function normalizeWorkflowCanvasState(value = {}) {
     canvasHeight: boundedNumber(value.canvasHeight, 720, 720, 3200),
     scrollLeft: boundedNumber(value.scrollLeft, 0, 0, 12000),
     scrollTop: boundedNumber(value.scrollTop, 0, 0, 3200),
+    viewport: plainObject(value.viewport)
+      && Number.isFinite(Number(value.viewport.x))
+      && Number.isFinite(Number(value.viewport.y))
+      && Number.isFinite(Number(value.viewport.zoom))
+      && Number(value.viewport.zoom) > 0
+      ? {
+          x: boundedNumber(value.viewport.x, 0, -200000, 200000),
+          y: boundedNumber(value.viewport.y, 0, -200000, 200000),
+          zoom: boundedNumber(value.viewport.zoom, 1, 0.1, 2),
+        }
+      : null,
   };
   safeJsonClone(state);
   return state;

@@ -209,7 +209,6 @@ function addWorkflowNodeAt(action = "", position = null) {
   persistWorkflowState();
   if (window.WorkflowReactCanvas?.sync?.()) {
     window.WorkflowReactCanvas.selectNode(node.id);
-    window.dispatchEvent(new CustomEvent("workflow-react:fit-view"));
   } else {
     renderWorkflowPanel({ focusNodeId: node.id });
   }
@@ -217,6 +216,7 @@ function addWorkflowNodeAt(action = "", position = null) {
 }
 
 window.createWorkflowNode = createWorkflowNode;
+window.activeWorkflowSelectedNodeId = () => String(state.workflowSelectedNodeId || "");
 window.selectWorkflowNode = selectWorkflowNode;
 window.addWorkflowNodeAt = addWorkflowNodeAt;
 window.workflowCanConnectNodes = workflowCanConnectNodes;
@@ -310,10 +310,6 @@ async function pollWorkflowTask(nodeId = "", taskId = "", kind = "video") {
     workflowSetNodeData(nodeId, {
       status: record.status || "running",
       record,
-      resultVideoUrl: generationVideoUrl(record),
-      resultImageUrl: generationImageResultUrl(record),
-      resultImageUrls: generationImageResultUrls(record),
-      posterUrl: generationPosterUrl(record),
       taskId: record.taskId,
     });
     if (isTerminalGenerationStatus(record.status)) break;
@@ -322,7 +318,7 @@ async function pollWorkflowTask(nodeId = "", taskId = "", kind = "video") {
 }
 
 function workflowMediaValueList(values = []) {
-  return values.map((value) => String(value || "").trim()).filter(Boolean);
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
 function workflowMediaBodyValue(value = "") {
@@ -333,18 +329,115 @@ function workflowMediaBodyValue(value = "") {
   };
 }
 
-function workflowNodeImageInputs(node = {}) {
+function workflowNodeCanvasReferences(node = {}) {
   const incoming = workflowNodeIncomingMedia(node);
-  return workflowMediaValueList(incoming.images);
+  return {
+    images: workflowMediaValueList([
+      ...incoming.images,
+      ...workflowNodeReferences(node, "referenceImages"),
+    ]),
+    videos: workflowMediaValueList([
+      ...incoming.videos,
+      ...workflowNodeReferences(node, "referenceVideos"),
+    ]),
+    audios: workflowMediaValueList(workflowNodeReferences(node, "referenceAudios")),
+  };
+}
+
+function workflowNodeImageInputs(node = {}) {
+  return workflowNodeCanvasReferences(node).images;
 }
 
 function workflowNodeVideoInputs(node = {}) {
-  const incoming = workflowNodeIncomingMedia(node);
-  return workflowMediaValueList(incoming.videos);
+  return workflowNodeCanvasReferences(node).videos;
 }
 
 function workflowNodeAudioInputs(node = {}) {
-  return [];
+  return workflowNodeCanvasReferences(node).audios;
+}
+
+window.workflowNodeCanvasReferences = workflowNodeCanvasReferences;
+
+function workflowGeneratedNodeAction(kind = "image") {
+  return kind === "video" ? "add-video" : "add-image";
+}
+
+function workflowGeneratedNodePosition(source = {}) {
+  const nodeWidth = typeof WORKFLOW_NODE_WIDTH === "number" ? WORKFLOW_NODE_WIDTH : 420;
+  const nodeGap = typeof WORKFLOW_NODE_GAP === "number" ? WORKFLOW_NODE_GAP : 36;
+  const index = workflowGeneratedResultChildren(source).length;
+  const column = index % 2;
+  const row = Math.floor(index / 2);
+  return {
+    x: Number(source.x || 0) + (column + 1) * (nodeWidth + nodeGap),
+    y: Number(source.y || 0) + row * 650,
+  };
+}
+
+function createWorkflowGeneratedResultNode(sourceNode = {}, result = {}, kind = "image") {
+  if (!sourceNode?.id) return null;
+  const newNode = createWorkflowNode(workflowGeneratedNodeAction(kind), workflowGeneratedNodePosition(sourceNode));
+  if (!newNode) return null;
+  const sourceData = sourceNode.data || {};
+  const resultNumber = workflowGeneratedResultChildren(sourceNode).length + 1;
+  newNode.title = `${kind === "video" ? "视频结果" : "图片结果"} ${resultNumber}`;
+  const commonData = {
+    ...(newNode.data || {}),
+    modelId: sourceData.modelId || newNode.data?.modelId,
+    prompt: sourceData.prompt || "",
+    ratio: sourceData.ratio || newNode.data?.ratio,
+    resolution: sourceData.resolution || newNode.data?.resolution,
+    qwenTier: sourceData.qwenTier,
+    seedreamTier: sourceData.seedreamTier,
+    outputImageCount: sourceData.outputImageCount,
+    promptExtend: sourceData.promptExtend,
+    watermark: sourceData.watermark,
+    duration: sourceData.duration,
+    mode: sourceData.mode,
+    addSound: sourceData.addSound,
+    referenceImages: [],
+    referenceVideos: [],
+    referenceAudios: [],
+    source: "generated",
+    generatedFromNodeId: sourceNode.id,
+    status: "succeeded",
+    error: "",
+    record: result.record || null,
+    taskId: result.taskId || "",
+  };
+  if (kind === "video") {
+    newNode.data = {
+      ...commonData,
+      resultVideoUrl: result.videoUrl || "",
+      resultVideoUrls: [result.videoUrl].filter(Boolean),
+      posterUrl: result.posterUrl || "",
+    };
+  } else {
+    const imageUrls = Array.isArray(result.imageUrls) ? result.imageUrls : [result.imageUrl].filter(Boolean);
+    newNode.data = {
+      ...commonData,
+      resultImageUrl: imageUrls[0] || result.imageUrl || "",
+      resultImageUrls: imageUrls,
+      posterUrl: result.posterUrl || imageUrls[0] || "",
+    };
+  }
+  window.connectWorkflowNodes?.(sourceNode.id, newNode.id);
+  state.workflowSelectedNodeId = newNode.id;
+  persistWorkflowState();
+  window.WorkflowReactCanvas?.sync?.();
+  window.WorkflowReactCanvas?.selectNode?.(newNode.id);
+  return newNode;
+}
+
+window.createWorkflowGeneratedResultNode = createWorkflowGeneratedResultNode;
+
+function workflowSeedancePromptAliases(prompt = "") {
+  return String(prompt || "").replace(/@(image|图片|video|视频|audio|音频)\s*(\d+)/gi, (_, kind, index) => {
+    const normalized = String(kind).toLowerCase();
+    if (normalized === "image" || normalized === "图片") return `Image ${index}`;
+    if (normalized === "video" || normalized === "视频") return `Video ${index}`;
+    return `Audio ${index}`;
+  });
 }
 
 function workflowVideoProviderConfig(node = {}) {
@@ -433,6 +526,7 @@ function workflowVideoGenerationBody(node = {}) {
     && ["first_frame", "first_last_frame"].includes(selectedMode);
   const imagePayload = seedanceFrameMode ? [] : workflowReferencePayload(images);
   const videoPayload = workflowMediaValueList(videos).map(workflowMediaBodyValue);
+  const seedanceProvider = ["seedance", "seedance25", "seedance-nsfw"].includes(config.provider);
   const audioPayload = workflowMediaValueList(audios).map(workflowMediaBodyValue);
   const videoUrls = videoPayload.map((item) => item.url).filter(Boolean);
   const audioUrls = audioPayload.map((item) => item.url).filter(Boolean);
@@ -450,7 +544,7 @@ function workflowVideoGenerationBody(node = {}) {
   const body = {
     provider: config.provider,
     videoCapability: config.videoCapability || undefined,
-    prompt: workflowEffectivePrompt(node),
+    prompt: seedanceProvider ? workflowSeedancePromptAliases(workflowEffectivePrompt(node)) : workflowEffectivePrompt(node),
     referenceImages: imagePayload,
     referenceVideos: videoPayload,
     referenceVideoUrls: videoUrls,
@@ -462,7 +556,7 @@ function workflowVideoGenerationBody(node = {}) {
     audioDataUrl: audioPayload[0]?.dataUrl || undefined,
     audioUrl: audioPayload[0]?.url || undefined,
     ...firstFrameFields,
-    seedanceMode: ["seedance", "seedance25", "seedance-nsfw"].includes(config.provider) ? (selectedMode || (config.provider === "seedance" ? "reference_video" : "omini")) : undefined,
+    seedanceMode: seedanceProvider ? (selectedMode || (config.provider === "seedance" ? "reference_video" : "omini")) : undefined,
     functionMode: ["seedance25", "seedance-nsfw"].includes(config.provider) ? (selectedMode || "omini") : undefined,
     mediaMode: config.provider === "wan30" ? (selectedMode || "multimodal") : undefined,
     generateAudio: node.data?.addSound !== false,
@@ -498,7 +592,7 @@ async function runWorkflowImageNode(node = {}) {
   const references = workflowNodeImageInputs(node);
   if (model.id === "qwen-image-edit-spicy" && !references.length) throw new Error("Qwen Image Edit Spicy requires an input image.");
   state.workflowMessage = `Running ${model.label}...`;
-  workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", record: null, resultImageUrl: "", resultImageUrls: [], resultVideoUrl: "" });
+  workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", record: null });
   workflowLog(`Submitting ${model.label}.`);
   let payload;
   if (model.id === "qwen-image-edit-spicy") {
@@ -523,7 +617,12 @@ async function runWorkflowImageNode(node = {}) {
   if (!taskId && !immediateImage) throw new Error("Image generation did not return a task or image.");
   if (payload.user) setUser(payload.user);
   if (immediateImage && !taskId) {
-    workflowSetNodeData(node.id, { status: "succeeded", record: submitted, resultImageUrl: immediateImage, resultImageUrls: [immediateImage] });
+    workflowSetNodeData(node.id, { status: "succeeded", record: submitted });
+    createWorkflowGeneratedResultNode(node, {
+      record: submitted,
+      imageUrl: immediateImage,
+      imageUrls: [immediateImage],
+    }, "image");
     return { taskId: "", imageUrl: immediateImage, record: submitted };
   }
   workflowSetNodeData(node.id, { status: submitted.status || "submitted", record: submitted, taskId });
@@ -536,10 +635,14 @@ async function runWorkflowImageNode(node = {}) {
     status: "succeeded",
     record: finalRecord,
     taskId,
-    resultImageUrl: imageUrl,
-    resultImageUrls: generationImageResultUrls(finalRecord),
-    posterUrl: generationPosterUrl(finalRecord),
   });
+  createWorkflowGeneratedResultNode(node, {
+    record: finalRecord,
+    taskId,
+    imageUrl,
+    imageUrls: generationImageResultUrls(finalRecord),
+    posterUrl: generationPosterUrl(finalRecord),
+  }, "image");
   return { taskId, imageUrl, record: finalRecord };
 }
 
@@ -550,7 +653,7 @@ async function runWorkflowVideoNode(node = {}) {
     throw new Error("Add a prompt or connect reference media first.");
   }
   state.workflowMessage = `Running ${model.label}...`;
-  workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", record: null, resultVideoUrl: "", posterUrl: "" });
+  workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", record: null });
   workflowLog(`Submitting ${model.label}.`);
   const payload = await requestJson("/api/advanced/generate", { method: "POST", body });
   if (payload.user) setUser(payload.user);
@@ -563,7 +666,13 @@ async function runWorkflowVideoNode(node = {}) {
   if (!finalRecord || !isSucceededGenerationStatus(finalRecord.status)) throw new Error(finalRecord?.error || `${model.label} failed.`);
   const videoUrl = generationVideoUrl(finalRecord) || workflowNodeResultVideo(node);
   if (!videoUrl) throw new Error(`${model.label} completed without a result video.`);
-  workflowSetNodeData(node.id, { status: "succeeded", record: finalRecord, taskId, resultVideoUrl: videoUrl, posterUrl: generationPosterUrl(finalRecord) });
+  workflowSetNodeData(node.id, { status: "succeeded", record: finalRecord, taskId });
+  createWorkflowGeneratedResultNode(node, {
+    record: finalRecord,
+    taskId,
+    videoUrl,
+    posterUrl: generationPosterUrl(finalRecord),
+  }, "video");
   return { taskId, videoUrl, record: finalRecord };
 }
 
@@ -620,7 +729,7 @@ async function runWorkflowNodeLegacyDisabled(node = {}, { previousFrameUrl = "",
   state.workflowActiveNodeId = node.id;
   state.workflowSelectedNodeId = node.id;
   state.workflowMessage = `Preparing ${model.label}...`;
-  workflowSetNodeData(node.id, { status: "preparing", error: "", taskId: "", record: null, resultVideoUrl: "", posterUrl: "", lastFrameUrl: "" });
+  workflowSetNodeData(node.id, { status: "preparing", error: "", taskId: "", record: null, lastFrameUrl: "" });
   workflowThrowIfCancelled();
 
   const continuityImage = previousFrameUrl || sourceImage;
@@ -671,7 +780,7 @@ async function runWorkflowNodeLegacyDisabled(node = {}, { previousFrameUrl = "",
       };
 
   state.workflowMessage = `Running ${model.label}...`;
-  workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", record: null, resultVideoUrl: "", posterUrl: "", lastFrameUrl: "" });
+  workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", record: null, lastFrameUrl: "" });
   workflowLog(`Submitting ${model.label}.`);
   workflowThrowIfCancelled();
 

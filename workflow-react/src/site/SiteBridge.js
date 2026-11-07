@@ -22,11 +22,12 @@ function isSiteGenerationNode(node = {}) {
   return IMAGE_NODE_TYPES.has(node.type) || VIDEO_NODE_TYPES.has(node.type);
 }
 
-function toReactFlowNode(node = {}) {
+function toReactFlowNode(node = {}, selectedNodeId = "") {
   const isVideo = VIDEO_NODE_TYPES.has(node.type);
   return {
     id: String(node.id || ""),
     type: isVideo ? SITE_NODE_TYPES.video : SITE_NODE_TYPES.image,
+    selected: String(node.id || "") === String(selectedNodeId || ""),
     position: { x: Number(node.x || 0), y: Number(node.y || 0) },
     data: {
       siteNodeId: String(node.id || ""),
@@ -46,9 +47,12 @@ function toReactFlowEdge(edge = {}, index = 0) {
 }
 
 function toReactFlowGraph(workflow = siteWorkflow()) {
+  const selectedNodeId = typeof window.activeWorkflowSelectedNodeId === "function"
+    ? window.activeWorkflowSelectedNodeId()
+    : "";
   const nodes = (Array.isArray(workflow.nodes) ? workflow.nodes : [])
     .filter(isSiteGenerationNode)
-    .map(toReactFlowNode);
+    .map((node) => toReactFlowNode(node, selectedNodeId));
   const nodeIds = new Set(nodes.map((node) => node.id));
   const seenEdges = new Set();
   const edges = (Array.isArray(workflow.edges) ? workflow.edges : [])
@@ -93,8 +97,15 @@ function writeEdges(edges = []) {
     .map((edge) => ({ from: String(edge.source), to: String(edge.target) }));
   const signature = (items) => (items || []).map((edge) => `${edge.from}->${edge.to}`).sort().join("|");
   if (signature(workflow.edges) === signature(nextEdges)) return false;
+  const affectedTargets = new Set([
+    ...(Array.isArray(workflow.edges) ? workflow.edges : []).map((edge) => String(edge.to || "")),
+    ...nextEdges.map((edge) => String(edge.to || "")),
+  ].filter(Boolean));
   workflow.edges = nextEdges;
   if (typeof window.persistWorkflowState === "function") window.persistWorkflowState();
+  affectedTargets.forEach((nodeId) => {
+    window.dispatchEvent(new CustomEvent("workflow-react-node-change", { detail: { nodeId } }));
+  });
   return true;
 }
 

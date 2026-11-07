@@ -3,10 +3,6 @@ function workflowExecutionClearPatch() {
     status: "",
     taskId: "",
     record: null,
-    resultVideoUrl: "",
-    resultImageUrl: "",
-    resultImageUrls: [],
-    posterUrl: "",
     lastFrameUrl: "",
     keyframeImageUrl: "",
     keyframeTaskId: "",
@@ -24,6 +20,7 @@ function workflowExecutionClearPatch() {
 
 function workflowClearNodeExecution(node = null) {
   if (!node) return;
+  if (["upload", "generated"].includes(node.data?.source)) return;
   node.data = { ...(node.data || {}), ...workflowExecutionClearPatch() };
 }
 
@@ -69,8 +66,17 @@ function workflowNodeRunState(node = {}) {
   };
 }
 
-function workflowNodeResultVideos(node = {}) {
+function workflowGeneratedResultChildren(node = {}) {
+  if (!node?.id) return [];
+  return (ensureWorkflowState().nodes || []).filter((item) => (
+    item?.id !== node.id
+    && String(item.data?.generatedFromNodeId || "") === String(node.id)
+  ));
+}
+
+function workflowNodeOwnResultVideos(node = {}) {
   const data = node.data || {};
+  const uploadSource = data.source === "upload";
   const direct = Array.isArray(data.resultVideoUrls) ? data.resultVideoUrls : [];
   const taskVideos = Array.isArray(data.videoUrls) ? data.videoUrls : [];
   const record = data.record || {};
@@ -82,27 +88,53 @@ function workflowNodeResultVideos(node = {}) {
   const single = [
     data.resultVideoUrl,
     data.videoUrl,
-    record.cdnVideoUrl,
-    record.remoteVideoUrl,
-    record.providerVideoUrl,
-    record.upstreamVideoUrl,
-    record.videoUrl,
-    record.localVideoUrl,
-    typeof generationVideoUrl === "function" ? generationVideoUrl(record) : "",
+    ...(!uploadSource ? [
+      record.cdnVideoUrl,
+      record.remoteVideoUrl,
+      record.providerVideoUrl,
+      record.upstreamVideoUrl,
+      record.videoUrl,
+      record.localVideoUrl,
+      typeof generationVideoUrl === "function" ? generationVideoUrl(record) : "",
+    ] : []),
   ];
-  return [...new Set([...direct, ...taskVideos, ...recordVideos, ...single].map(String).filter(Boolean))];
+  return [...new Set([...direct, ...taskVideos, ...(!uploadSource ? recordVideos : []), ...single]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean))];
+}
+
+function workflowNodeResultVideos(node = {}) {
+  if (node?.data?.source === "generated") return workflowNodeOwnResultVideos(node);
+  return [...new Set([
+    ...workflowNodeOwnResultVideos(node),
+    ...workflowGeneratedResultChildren(node).flatMap((child) => workflowNodeOwnResultVideos(child)),
+  ])];
 }
 
 function workflowNodeResultVideo(node = {}) {
   return workflowNodeResultVideos(node)[0] || "";
 }
 
-function workflowNodeResultImages(node = {}) {
+function workflowNodeOwnResultImages(node = {}) {
+  const uploadSource = node.data?.source === "upload";
   const direct = Array.isArray(node.data?.resultImageUrls) ? node.data.resultImageUrls : [];
   const record = typeof generationImageResultUrls === "function" ? generationImageResultUrls(node.data?.record || {}) : [];
-  const single = [node.data?.resultImageUrl, typeof generationImageResultUrl === "function" ? generationImageResultUrl(node.data?.record || {}) : ""];
+  const single = [
+    node.data?.resultImageUrl,
+    ...(!uploadSource ? [typeof generationImageResultUrl === "function" ? generationImageResultUrl(node.data?.record || {}) : ""] : []),
+  ];
   if (node.type === "imageResult") single.unshift(node.data?.imageUrl);
-  return [...new Set([...direct, ...record, ...single].map(String).filter(Boolean))];
+  return [...new Set([...direct, ...(!uploadSource ? record : []), ...single]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean))];
+}
+
+function workflowNodeResultImages(node = {}) {
+  if (node?.data?.source === "generated") return workflowNodeOwnResultImages(node);
+  return [...new Set([
+    ...workflowNodeOwnResultImages(node),
+    ...workflowGeneratedResultChildren(node).flatMap((child) => workflowNodeOwnResultImages(child)),
+  ])];
 }
 
 function workflowNodeResultImage(node = {}) {
@@ -743,20 +775,18 @@ function workflowNodeReferences(node = {}, field = "referenceImages") {
 function workflowNodeIncomingMedia(node = {}) {
   const images = [];
   const videos = [];
-  const visited = new Set();
-  const collect = (nodeId = "") => {
-    if (!nodeId || visited.has(nodeId)) return;
-    visited.add(nodeId);
-    workflowIncomingEdges(nodeId).forEach((edge) => {
-      const source = workflowNodeById(edge.from);
-      if (!source) return;
-    const image = workflowNodeResultImage(source);
-    const video = workflowNodeResultVideo(source);
-    if (image) images.push(image);
-    if (video) videos.push(video);
-    });
-  };
-  collect(node.id);
+  const sources = workflowIncomingEdges(node.id)
+    .map((edge, edgeIndex) => ({ source: workflowNodeById(edge.from), edgeIndex }))
+    .filter((item) => item.source)
+    .sort((left, right) => (
+      Number(left.source.y || 0) - Number(right.source.y || 0)
+      || Number(left.source.x || 0) - Number(right.source.x || 0)
+      || left.edgeIndex - right.edgeIndex
+    ));
+  sources.forEach(({ source }) => {
+    images.push(...workflowNodeResultImages(source));
+    videos.push(...workflowNodeResultVideos(source));
+  });
   return { images: [...new Set(images)], videos: [...new Set(videos)] };
 }
 
@@ -1064,8 +1094,10 @@ window.workflowNodeModel = workflowNodeModel;
 window.workflowNodeRunState = workflowNodeRunState;
 window.workflowNodeResultImage = workflowNodeResultImage;
 window.workflowNodeResultImages = workflowNodeResultImages;
+window.workflowNodeOwnResultImages = workflowNodeOwnResultImages;
 window.workflowNodeResultVideo = workflowNodeResultVideo;
 window.workflowNodeResultVideos = workflowNodeResultVideos;
+window.workflowNodeOwnResultVideos = workflowNodeOwnResultVideos;
 window.workflowNodePoster = workflowNodePoster;
 window.workflowNodeReferences = workflowNodeReferences;
 window.workflowNodeIncomingMedia = workflowNodeIncomingMedia;
@@ -1168,9 +1200,8 @@ async function uploadWorkflowFile(file, nodeId = "") {
 
 const WORKFLOW_UPLOAD_NODE_TYPES = new Set(["imageGenerate", "unifiedVideoGen"]);
 
-function workflowUploadFieldForFile(file = {}) {
-  const mime = String(file.type || "").toLowerCase();
-  return mime.startsWith("video/") ? "referenceVideos" : "referenceImages";
+function workflowUploadKindForFile(file = {}) {
+  return String(file.type || "").toLowerCase().startsWith("video/") ? "video" : "image";
 }
 
 function workflowUploadAcceptsFile(node = {}, file = {}) {
@@ -1178,6 +1209,37 @@ function workflowUploadAcceptsFile(node = {}, file = {}) {
   const mime = String(file.type || "").toLowerCase();
   if (mime.startsWith("image/")) return true;
   return mime.startsWith("video/") && node.type !== "imageGenerate";
+}
+
+function workflowUploadedPreviewPatch(file = {}, uploaded = {}) {
+  if (workflowUploadKindForFile(file) === "video") {
+    return {
+      source: "upload",
+      status: "succeeded",
+      error: "",
+      resultVideoUrl: uploaded.url,
+      resultVideoAssetId: uploaded.assetId || "",
+      posterUrl: "",
+    };
+  }
+  return {
+    source: "upload",
+    status: "succeeded",
+    error: "",
+    resultImageUrl: uploaded.url,
+    resultImageUrls: [uploaded.url],
+    resultImageAssetId: uploaded.assetId || "",
+    posterUrl: uploaded.url,
+  };
+}
+
+function workflowUploadedNodePosition(source = {}) {
+  const nodeWidth = typeof WORKFLOW_NODE_WIDTH === "number" ? WORKFLOW_NODE_WIDTH : 420;
+  const nodeGap = typeof WORKFLOW_NODE_GAP === "number" ? WORKFLOW_NODE_GAP : 36;
+  return {
+    x: Number(source.x || 0) - nodeWidth - nodeGap,
+    y: Number(source.y || 0),
+  };
 }
 
 async function uploadWorkflowFilesToNode(files = [], nodeId = "") {
@@ -1196,19 +1258,23 @@ async function uploadWorkflowFilesToNode(files = [], nodeId = "") {
       if (String(state.workflowActiveCanvasId || "") !== canvasId) return false;
       const current = workflowNodeById(node.id);
       if (!current || !WORKFLOW_UPLOAD_NODE_TYPES.has(current.type)) return false;
-      const field = workflowUploadFieldForFile(file);
-      const assetField = `${field}AssetIds`;
-      current.data = {
-        ...(current.data || {}),
-        [field]: [...workflowNodeReferences(current, field), uploaded.url],
-        [assetField]: [
-          ...(Array.isArray(current.data?.[assetField]) ? current.data[assetField] : []),
-          uploaded.assetId,
-        ].filter(Boolean),
+      const action = workflowUploadKindForFile(file) === "video" ? "add-video" : "add-image";
+      const newNode = createWorkflowNode(action, workflowUploadedNodePosition(current));
+      if (!newNode) throw new Error("Failed to create uploaded media node.");
+      newNode.data = {
+        ...(newNode.data || {}),
+        ...workflowUploadedPreviewPatch(file, uploaded),
       };
-      clearWorkflowExecutionResults({ fromNodeId: current.id, message: "Input updated. Run the node again.", render: false });
+      window.connectWorkflowNodes?.(newNode.id, current.id);
+      clearWorkflowExecutionResults({
+        fromNodeId: current.id,
+        message: "Input updated. Run the node again.",
+        render: false,
+      });
+      state.workflowSelectedNodeId = newNode.id;
       persistWorkflowState();
       window.WorkflowReactCanvas?.sync?.();
+      window.WorkflowReactCanvas?.selectNode?.(newNode.id);
     }
     state.workflowMessage = "";
     return true;

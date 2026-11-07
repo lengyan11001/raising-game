@@ -222,7 +222,9 @@ function setActiveWorkflowCanvas(canvas = {}, { preserveLocalEdits = false, base
       ? mergeWorkflowCanvasWithLocalEdits(canvas.workflow, previousWorkflow, baselineWorkflow)
       : workflowCanvasStateFromPayload(canvas.workflow))
     : cloneWorkflowDefault();
-  state.workflowSelectedNodeId = state.workflow.nodes[0]?.id || "";
+  // Opening a saved canvas starts with no node selected so generation controls
+  // stay hidden until the user creates or clicks a node.
+  state.workflowSelectedNodeId = "";
   state.workflowPickerNodeId = "";
   state.workflowPickerSearch = "";
   state.workflowMessage = "";

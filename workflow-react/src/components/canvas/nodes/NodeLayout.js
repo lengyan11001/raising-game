@@ -13,9 +13,10 @@ export const NodeLayout = memo(({
   showOutputHandle = true,
   inputHandleId,
   isValidConnection,
+  selected = false,
 }) => {
   return (
-    <div className="site-generation-card" data-node-id={id} data-node-type={type}>
+    <div className={`site-generation-card${selected ? ' is-selected' : ''}`} data-node-id={id} data-node-type={type}>
       {showInputHandle && (
         <Handle
           type="target"

@@ -11,7 +11,8 @@ const server = read("server.js");
 const ui = read("platform.ui.js");
 const create = read("platform.create.js");
 const explore = read("platform.explore.js");
-const workflowReact = read("platform.workflow-react.js");
+const siteCanvas = read("workflow-react/src/components/canvas/siteNodes/GenerationResultMedia.js");
+const siteNode = read("workflow-react/src/components/canvas/siteNodes/useSiteNode.js");
 const css = read("platform.css");
 
 test("generated media defaults to on-demand storage", () => {
@@ -177,8 +178,9 @@ test("media transfer status is rendered in result, history, and detail surfaces"
   assert.match(create, /advancedDownloadDisabled = !canAdvancedDownload \|\| advancedDownloadState === "preparing"/);
   assert.match(explore, /\$\{advancedDownloadStatusPill\(record, \{ detail: true \}\)\}/);
   assert.match(explore, /advancedDownloadDisabled = !canAdvancedDownload \|\| advancedDownloadState === "preparing"/);
-  assert.match(workflowReact, /已完成 · 素材加速中…/);
-  assert.match(workflowReact, /已完成 · 素材加速失败，可重试 download2/);
+  assert.match(siteCanvas, /application\/x-workflow-media-result/);
+  assert.match(siteCanvas, /sourceNodeId/);
+  assert.match(siteNode, /window\.runWorkflowSingleNode/);
   assert.match(css, /\.media-transfer-state\.is-preparing svg \{[\s\S]*?animation: spin/);
   assert.match(css, /\.media-transfer-state\.is-failed \{/);
   assert.match(css, /\.history-r2-download\.is-preparing,/);

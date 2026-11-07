@@ -6,13 +6,25 @@ import { SiteNodeUpload } from './SiteNodeUpload';
 
 function videoResults(node = {}, nodeId = '') {
   const sourceNode = (typeof window.workflowNodeById === 'function' && window.workflowNodeById(nodeId)) || node;
+  if (typeof window.workflowNodeOwnResultVideos === 'function') return window.workflowNodeOwnResultVideos(sourceNode);
   if (typeof window.workflowNodeResultVideos === 'function') return window.workflowNodeResultVideos(sourceNode);
   if (typeof window.workflowNodeResultVideo === 'function') return [window.workflowNodeResultVideo(sourceNode)].filter(Boolean);
   const data = sourceNode.data || {};
   return [...new Set([...(data.resultVideoUrls || []), ...(data.videoUrls || []), data.resultVideoUrl, data.videoUrl].filter(Boolean))];
 }
 
-export function SiteVideoGenerationNode({ id }) {
+function canvasReferences(node = {}, nodeId = '') {
+  const sourceNode = (typeof window.workflowNodeById === 'function' && window.workflowNodeById(nodeId)) || node;
+  if (typeof window.workflowNodeCanvasReferences === 'function') return window.workflowNodeCanvasReferences(sourceNode);
+  const data = sourceNode.data || {};
+  return {
+    images: Array.isArray(data.referenceImages) ? data.referenceImages.filter(Boolean) : [],
+    videos: Array.isArray(data.referenceVideos) ? data.referenceVideos.filter(Boolean) : [],
+    audios: Array.isArray(data.referenceAudios) ? data.referenceAudios.filter(Boolean) : [],
+  };
+}
+
+export function SiteVideoGenerationNode({ id, selected = false }) {
   const { node, update, run } = useSiteNode(id);
   const data = node?.data || {};
   const [prompt, setPrompt] = useState(data.prompt || '');
@@ -25,6 +37,17 @@ export function SiteVideoGenerationNode({ id }) {
   const durations = optionsFrom(typeof window.workflowVideoDurationOptions === 'function' ? window.workflowVideoDurationOptions(model, data.resolution) : [5], { '-1': '自动' });
   const modes = (typeof window.workflowVideoModeOptions === 'function' ? window.workflowVideoModeOptions(model) : []);
   const results = useMemo(() => videoResults(node, id), [node, id]);
+  const references = useMemo(() => canvasReferences(node, id), [node, id]);
+  const isSeedance = ['seedance', 'seedance25', 'seedance-nsfw'].includes(model.id);
+  const frameMode = ['first_frame', 'first_last_frame'].includes(String(data.mode || model.mode || ''));
+  const showReferenceLabels = isSeedance && !frameMode;
+  const referenceValues = [...references.images, ...references.videos];
+  const referenceLabels = showReferenceLabels
+    ? [
+      ...references.images.map((_, index) => `Image ${index + 1}`),
+      ...references.videos.map((_, index) => `Video ${index + 1}`),
+    ]
+    : [];
   const poster = typeof window.workflowNodePoster === 'function' ? window.workflowNodePoster(node) : (data.posterUrl || '');
   const busy = ['submitting', 'preparing', 'processing', 'running'].includes(data.status);
   const runState = typeof window.workflowNodeRunState === 'function'
@@ -61,6 +84,7 @@ export function SiteVideoGenerationNode({ id }) {
       inputHandleLabel="图片"
       showOutputHandle
       showDuplicateButton={false}
+      selected={selected}
     >
       <div className="site-generation-node is-video">
         <div className="site-generation-result">
@@ -68,12 +92,12 @@ export function SiteVideoGenerationNode({ id }) {
             kind="video"
             urls={results}
             poster={poster}
-            status={data.status}
-            error={data.error}
+            status={results.length ? 'succeeded' : data.status}
+            error={results.length ? '' : data.error}
             sourceNodeId={id}
           />
         </div>
-        <div className="site-generation-controls">
+        <div className="site-generation-controls is-selected-only">
           <label className="site-field site-prompt-field">
             <span>提示词</span>
             <textarea
@@ -88,7 +112,8 @@ export function SiteVideoGenerationNode({ id }) {
           <SiteNodeUpload
             id={id}
             accept="image/*,video/*"
-            references={[...(data.referenceImages || []), ...(data.referenceVideos || [])]}
+            references={referenceValues}
+            referenceLabels={referenceLabels}
             label="参考素材"
             emptyLabel="可拖入图片/视频或点击上传"
           />
