@@ -1,3 +1,9 @@
+## Canvas generated-image 1:1 thumbnail crop fix (2026-11-07)
+
+- User reported generated 1:1 images were still not fully visible inside canvas result cards.
+- Root cause was `.site-image-result img { object-fit: cover; }`, which cropped media inside the square result tile. Changed it to `object-fit: contain` so the complete generated image is visible.
+- Verification: targeted workflow suite 29/29; production webpack build passes with existing bundle-size warnings; `git diff --check` passes.
+
 ## Canvas preview intrinsic-size crash fix (2026-11-07)
 
 - User reported the media preview still had the wrong aspect ratio and clicking a generated image/video cleared the entire canvas. Reproduction showed `fitPreviewDimensions()` received `null` before media metadata loaded and dereferenced `size.width`, throwing inside the preview portal and unmounting the editor.
