@@ -3,7 +3,7 @@
 - User asked to control the preview popup size rather than letting media fill the entire viewport.
 - Canvas media preview stage is now capped at `960 × 680` on desktop, uses `calc(100vw - 48px)` / `calc(100vh - 80px)` bounds, scales down with a mobile breakpoint, preserves image aspect ratio, and renders video at `16:9`.
 - Verification: workflow canvas tests pass 26/26; `git diff --check` passes; webpack production build succeeds with existing size warnings.
-- Deployment: pending.
+- Deployment: `old-site` `66a2b6a`; `platform-release` `3298b20`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned `200 {"ok":true}`. Production `workflow-react/dist/canvas.js` SHA-256 matches local (`b21abeda3c8b850c1a3ef785cb6a404e24ca1f3b0a28b9f545ae64e743062656`) and contains the `960 × 680` preview bounds. Live was not deployed.
 
 ## Canvas media preview instead of download (2026-11-07)
 
