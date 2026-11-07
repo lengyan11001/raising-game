@@ -1273,6 +1273,7 @@ function normalizeAdvancedProvider(value = "") {
   if (["qwenimage3", "qwenimage30", "qwenimage3pro", "qwenimage30pro"].includes(normalized) || normalized.includes("qwenimage3.0")) return "qwen-image3";
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return "seedance-nsfw";
+  if (["seedancefast", "seedance20fast", "seedance2.0fast", "vipeak2fast", "vp2fast", "ep20260429142538fkm9d"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("fast")) || (normalized.includes("vipeak2") && normalized.includes("fast"))) return "seedance";
   if (["seedance20vega", "seedance2.0vega", "vega10pro", "vega1.0pro", "vega10", "vega1.0"].includes(normalized) || (normalized.includes("seedance20") && normalized.includes("vega")) || (normalized.includes("seedance2.0") && normalized.includes("vega"))) return "seedance20-vega";
   if (["seedance25vega", "seedance2.5vega"].includes(normalized) || (normalized.includes("seedance25") && normalized.includes("vega")) || (normalized.includes("seedance2.5") && normalized.includes("vega"))) return "seedance25-vega";
   if (["h3vega", "h3"].includes(normalized) || normalized.includes("h3vega")) return "h3-vega";
@@ -1291,6 +1292,7 @@ function normalizeAdvancedProvider(value = "") {
 
 function advancedProviderLabel(provider = currentAdvancedProvider()) {
   const normalized = normalizeAdvancedProvider(provider);
+  if (String(els.advancedProvider?.value || "").trim().toLowerCase() === "seedance-fast" || /seedance20fast|seedance2\.0fast|vipeak2fast|vp2fast/i.test(String(provider || ""))) return "Seedance 2.0 Fast";
   const capability = currentAdvancedVideoCapability(provider);
   if (normalized === "papaya") return "Papaya 1.0";
   if (normalized === "byteplus-language") return "BytePlus Language";
@@ -1395,7 +1397,7 @@ function advancedEngineValueResolved(provider = els.advancedProvider?.value || "
   if (normalizedCapability.startsWith("wan30-")) return "wan30";
   if (normalizedCapability.startsWith("wan27-")) return "wan27";
   const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
-  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "seedance-nsfw", "wan30", "wan30-prime", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(raw)) return raw;
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance-fast", "seedance25", "seedance-nsfw", "wan30", "wan30-prime", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(raw)) return raw;
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
   return normalizeAdvancedProvider(provider);
 }

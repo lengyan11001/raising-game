@@ -942,7 +942,11 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
     && advancedBoolFromValue(params.wan_prompt_optimize ?? params.wanPromptOptimize ?? params.parameters?.wan_prompt_optimize ?? params.parameters?.wanPromptOptimize, false);
   if (els.advancedSeedanceTier) {
     const model = String(record.model || params.model || "").toLowerCase();
-    els.advancedSeedanceTier.value = model.includes("fast") || params.seedanceTier === "fast" ? "fast" : "standard";
+    const fast = model.includes("fast") || params.seedanceTier === "fast";
+    els.advancedSeedanceTier.value = fast ? "fast" : "standard";
+    if (fast && els.advancedProvider && Array.from(els.advancedProvider.options).some((option) => option.value === "seedance-fast")) {
+      els.advancedProvider.value = "seedance-fast";
+    }
   }
   if (provider === "qwen-image3") {
     if (els.advancedQwenTier) els.advancedQwenTier.value = params.qwenTier === "standard" || record.model === "qwen-image-3.0" ? "standard" : "pro";

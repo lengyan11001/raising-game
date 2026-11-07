@@ -652,7 +652,7 @@ function advancedProviderMatchesCustomKind(value = "", kind = state.advancedCust
   const provider = String(value || "").trim().toLowerCase();
   if (kind === "image") return ["wan27-image-edit", "seedream5-image", "qwen-image3", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider);
   if (kind === "conversation") return ["byteplus-language", "papaya", "qwen37-flash"].includes(provider);
-  return ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance", "seedance25"].includes(provider) || isVegaProviderId(provider);
+  return ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance", "seedance-fast", "seedance25"].includes(provider) || isVegaProviderId(provider);
 }
 
 function syncAdvancedProviderExposure() {
@@ -778,11 +778,9 @@ function updateAdvancedModelControls() {
   }
   if (els.advancedSeedanceTier) {
     const active = provider === "seedance";
-    els.advancedSeedanceTier.closest(".field")?.toggleAttribute("hidden", !active);
-    if (!active) els.advancedSeedanceTier.value = "standard";
-    if (active && ["1080p", "4k"].includes(currentAdvancedResolution()) && currentSeedanceTier() === "fast") {
-      els.advancedSeedanceTier.value = "standard";
-    }
+    const explicitlyFast = String(els.advancedProvider?.value || "").trim().toLowerCase() === "seedance-fast";
+    els.advancedSeedanceTier.closest(".field")?.toggleAttribute("hidden", true);
+    els.advancedSeedanceTier.value = active && explicitlyFast ? "fast" : "standard";
   }
   if (els.advancedSeedreamTier) {
     els.advancedSeedreamTier.value = "pro";
@@ -861,14 +859,14 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || (!["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !vegaProvider);
   });
-  els.advancedSeedanceTier?.closest(".field")?.toggleAttribute("hidden", provider !== "seedance");
+  els.advancedSeedanceTier?.closest(".field")?.toggleAttribute("hidden", true);
   if (els.advancedSeedanceMediaPanel) {
     els.advancedSeedanceMediaPanel.hidden = simpleAction || simpleEdit
       || (vegaProvider
         ? !vegaUsesFirstFrame && !vegaUsesLastFrame
         : !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(seedanceMode));
   }
-  if (els.advancedFrameEngineLabel) els.advancedFrameEngineLabel.textContent = isVegaAdvancedProvider(provider) ? advancedProviderLabel(provider) : provider === "wan30" ? "Wan 3.0" : provider === "seedance-nsfw" ? "Seedance 2.5" : provider === "seedance25" ? "Seedance 2.5" : "Seedance 2.0";
+  if (els.advancedFrameEngineLabel) els.advancedFrameEngineLabel.textContent = isVegaAdvancedProvider(provider) || String(els.advancedProvider?.value || "").trim().toLowerCase() === "seedance-fast" ? advancedProviderLabel(provider) : provider === "wan30" ? "Wan 3.0" : provider === "seedance-nsfw" ? "Seedance 2.5" : provider === "seedance25" ? "Seedance 2.5" : "Seedance 2.0";
   document.querySelectorAll(".advanced-seedream5-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isSeedreamImage;
   });

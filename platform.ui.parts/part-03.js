@@ -447,7 +447,10 @@ function currentAdvancedProvider() {
 }
 
 function currentSeedanceTier() {
-  return (String(els.advancedSeedanceTier?.value || "").trim().toLowerCase() === "fast") ? "fast" : "standard";
+  return String(els.advancedProvider?.value || "").trim().toLowerCase() === "seedance-fast"
+    || String(els.advancedSeedanceTier?.value || "").trim().toLowerCase() === "fast"
+    ? "fast"
+    : "standard";
 }
 
 function currentSeedreamTier() {
@@ -475,6 +478,7 @@ function advancedVideoSettingsVisible() {
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
+  if (String(els.advancedProvider?.value || "").trim().toLowerCase() === "seedance-fast" || (normalizeAdvancedProvider(provider) === "seedance" && currentSeedanceTier() === "fast")) return ["480p", "720p"];
   if (isVegaProviderId(normalizeAdvancedProvider(provider))) return [...(vegaCapabilities(normalizeAdvancedProvider(provider))?.resolutions || VEGA_ALL_RESOLUTIONS)];
   if (normalizeAdvancedProvider(provider) === "qwen-image3") return ["1K", "2K"];
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return ["1K", "2K"];

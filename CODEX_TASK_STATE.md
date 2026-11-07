@@ -1281,3 +1281,13 @@ CODEX_TASK_STATE.md
 - Strictly after that release time: 0 failed/error records created or updated.
 - Last 24h error groups: 37 content-moderation/copyright/sensitive-content; 19 Wan 3.0 `Failed to download file: HTTP 502` (latest `2026-11-06 23:16:28`, all predating the signed-media deployment); 6 timeout; 3 invalid duration; remaining isolated upstream errors.
 - Last 24h: 0 HTTP 403 failures, 0 post-release literal `"undefined"` prompts. No new fix made from this inspection.
+
+## Seedance 2.0 Fast independent option and 1.5x pricing (2026-11-07)
+
+- Generate now exposes an independent `Seedance 2.0 Fast` option while keeping the existing `seedance` provider and `seedanceTier: fast` request contract. It routes to `ep-20260429142538-fkm9d`; Standard routing is unchanged.
+- Fast supports only `480p` and `720p`. The old nested Seedance tier selector stays hidden; history restore maps fast records back to the independent option.
+- Upstream basis: BytePlus Seedance 2.0 Fast output `$5.6/M tokens`, input video `$3.3/M tokens`, `24fps`. Purchase estimates are `5.4432`/`11.53152` output credits/s and `3.2076`/`6.79536` input-video credits/s at 480p/720p.
+- Sale prices are exactly 1.5x purchase cost: `8.1648`/`17.29728` output credits/s and `4.8114`/`10.19304` input-video credits/s. Legacy Fast defaults migrate automatically without overwriting custom admin prices.
+- Admin/public labels use `Seedance 2.0 Fast`; Fast price fields retain six decimals. The new test is `test/seedance-fast-pricing.test.js`.
+- Verification: targeted pricing/Vega/Seedance tests pass 50/50; all changed JS files pass `node --check`; `git diff --check` passes. Full `npm test` remains 750/775 with 25 pre-existing source-shape failures, so it is not claimed green.
+- Unrelated existing worktree changes in workflow tests and `workflow-react/node_modules` are excluded from this commit.

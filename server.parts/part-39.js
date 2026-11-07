@@ -240,7 +240,7 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
   const rateKey = ["vega10-lite", "seedance20-vega"].includes(normalizedProvider)
     ? String(resolution || "").trim().toLowerCase().replace(/^2160p$/, "4k")
     : normalizeAdvancedResolution(resolution);
-  return pricingNumber(table[rateKey], 0);
+  return pricingNumber(table[rateKey], 0, 0, isFast ? 6 : 4);
 }
 
 function advancedSaleImageCredits(pricing = DEFAULT_ADVANCED_PRICING) {
@@ -440,6 +440,17 @@ function seedanceOfficialInputUsdPerSecond(resolution = "720p", seedanceTier = "
   return pricingNumber(baseUsdPerSecond * ratio, baseUsdPerSecond, 0, 6);
 }
 
+function seedanceFastOfficialUsdPerSecond(resolution = "720p", rateKind = "output") {
+  const publicResolution = normalizeAdvancedResolution(resolution);
+  const { width, height } = seedanceOfficialPixelDimensions(publicResolution, "16:9");
+  const tokensPerSecond = Math.ceil((ADVANCED_SEEDANCE_FPS * width * height) / 1024);
+  const usdPerMillionTokens = seedanceUsdPerMillionTokens(publicResolution, {
+    seedanceTier: "fast",
+    rateKind,
+  });
+  return pricingNumber((tokensPerSecond * usdPerMillionTokens) / 1000000, 0, 0, 8);
+}
+
 async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard", capability = "", mode = "", model = "", variant = "") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const publicResolution = normalizeAdvancedResolution(resolution);
@@ -510,6 +521,15 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
       usdPerSecond: purchase?.usdPerSecond ?? null,
       source: "aliyun_singapore_official_model_pricing",
       message: purchase ? `Alibaba Cloud Model Studio Singapore official per-second price.${promotionMessage}` : "Official Singapore price is unavailable for this rate.",
+    };
+  }
+  if (normalizedProvider === "seedance" && normalizeSeedanceTier(seedanceTier) === "fast") {
+    const usdPerSecond = seedanceFastOfficialUsdPerSecond(publicResolution, rateKind);
+    return {
+      creditsPerSecond: pricingNumber(usdPerSecond * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      usdPerSecond,
+      source: "byteplus_official_token_pricing",
+      message: `BytePlus Seedance 2.0 Fast token pricing at ${publicResolution} 16:9 and ${ADVANCED_SEEDANCE_FPS}fps${rateKind === "video_input" ? " for input video" : ""}; actual billing follows completion_tokens.`,
     };
   }
   if (USE_GATEWAY_UPSTREAM) {
@@ -868,7 +888,7 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     if (!Number.isFinite(rawCredits) || rawCredits < 0 || (definedRow?.provider === "wan30" && rawCredits <= 0)) {
       throw pricingPayloadError(`Invalid sale price for ${key}`);
     }
-    const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") || key.startsWith("seedance-nsfw-") || key.startsWith("h3-vega-") || key.startsWith("vega10-lite-") || key.startsWith("vega15-pro-") ? 6 : 4);
+    const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") || key.startsWith("seedance-nsfw-") || key.startsWith("seedance-fast-") || key.startsWith("h3-vega-") || key.startsWith("vega10-lite-") || key.startsWith("vega15-pro-") ? 6 : 4);
     if (key === "wan27-720p") next.wan27CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "wan27-1080p") next.wan27CreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "wan30-480p") next.wan30CreditsPerSecondByResolution["480p"] = credits;

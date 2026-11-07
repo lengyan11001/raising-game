@@ -437,6 +437,7 @@ if (require.main === module) {
 module.exports = {
   advancedModelPricing,
   publicAdvancedPricingRows,
+  adminAdvancedPricingView,
   publicGenerationRecord,
   publicUserAsset,
   signedOssCdnUrlForDelivery,
