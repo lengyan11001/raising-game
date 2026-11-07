@@ -818,7 +818,7 @@ function generationRecordProviderDownloadTarget(record = {}) {
     record.remoteImageUrl,
     record.providerImageUrl,
     record.upstreamImageUrl,
-  ].map((item) => String(item || "").trim()).filter((item) => isPublicHttpUrl(item)))];
+  ].map((item) => String(item || "").trim()).filter((item) => isPublicHttpUrl(item) && isGenerationImageOutputUrl(item)))];
   const providerImageUrl = providerImageUrls[0] || generationRecordProviderImageUrl(record);
   if (!providerImageUrl) return null;
   if (!isSucceededStatus(record.status) && !providerVideoUrl) return null;
@@ -842,7 +842,7 @@ function generationRecordProviderImageUrls(record = {}) {
     record.remoteImageUrl,
     record.providerImageUrl,
     record.upstreamImageUrl,
-  ].map((item) => String(item || "").trim()).filter((item) => isPublicHttpUrl(item)))];
+  ].map((item) => String(item || "").trim()).filter((item) => isPublicHttpUrl(item) && isGenerationImageOutputUrl(item)))];
 }
 
 const advancedDownloadPreparationQueued = new Set();
@@ -1091,17 +1091,16 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
 }
 
 function generationImageResultUrl(record = {}, savedImage = null) {
-  return String(
-    savedImage?.cdnImageUrl
-    || generationRecordProviderImageUrl(record)
-    || record.remoteImageUrl
-    || record.providerImageUrl
-    || record.upstreamImageUrl
-    || savedImage?.localImageUrl
-    || record.localImageUrl
-    || record.imageResultUrl
-    || "",
-  ).trim();
+  return [
+    savedImage?.cdnImageUrl,
+    generationRecordProviderImageUrl(record),
+    record.remoteImageUrl,
+    record.providerImageUrl,
+    record.upstreamImageUrl,
+    savedImage?.localImageUrl,
+    record.localImageUrl,
+    record.imageResultUrl,
+  ].map((value) => String(value || "").trim()).find(isGenerationImageOutputUrl) || "";
 }
 
 function generationRecordHasR2Download(record = {}) {

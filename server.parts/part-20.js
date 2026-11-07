@@ -916,26 +916,29 @@ function generationRecordVideoUrl(record = {}, options = {}) {
 }
 
 function generationRecordImageUrl(record = {}) {
-  return String(
-    record.cdnImageUrl ||
-    record.remoteImageUrl ||
-    record.providerImageUrl ||
-    record.upstreamImageUrl ||
-    record.localImageUrl ||
-    record.imageResultUrl ||
-    "",
-  ).trim();
+  return [
+    record.cdnImageUrl,
+    record.remoteImageUrl,
+    record.providerImageUrl,
+    record.upstreamImageUrl,
+    record.localImageUrl,
+    record.imageResultUrl,
+  ].map((value) => String(value || "").trim()).find(isGenerationImageOutputUrl) || "";
+}
+
+function isGenerationImageOutputUrl(value = "") {
+  const url = String(value || "").trim();
+  return Boolean(url) && !isLikelyVideoUrl(url);
 }
 
 function generationRecordProviderImageUrl(record = {}) {
-  return String(
-    record.remoteImageUrl ||
-    record.providerImageUrl ||
-    record.upstreamImageUrl ||
-    collectOutputImageUrls(record.queryResponse)[0] ||
-    collectOutputImageUrls(record.createResponse)[0] ||
-    "",
-  ).trim();
+  return [
+    record.remoteImageUrl,
+    record.providerImageUrl,
+    record.upstreamImageUrl,
+    ...collectOutputImageUrls(record.queryResponse),
+    ...collectOutputImageUrls(record.createResponse),
+  ].map((value) => String(value || "").trim()).find(isGenerationImageOutputUrl) || "";
 }
 
 function isChatCompletionGenerationRecord(record = {}) {
@@ -1095,12 +1098,12 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(Array.isArray(record.providerImageUrls) ? record.providerImageUrls : []),
     ...collectOutputImageUrls(record.queryResponse),
     ...collectOutputImageUrls(record.createResponse),
-  ].map((item) => String(item || "").trim()).filter(Boolean))];
+  ].map((item) => String(item || "").trim()).filter(isGenerationImageOutputUrl))];
   const storedImageUrls = [...new Set([
     ...(Array.isArray(record.imageResultUrls) ? record.imageResultUrls : []),
     ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
-  ].map((item) => String(item || "").trim()).filter(Boolean))];
+  ].map((item) => String(item || "").trim()).filter(isGenerationImageOutputUrl))];
   const deliveryImageUrls = storedImageUrls.map((url) => signedOssCdnUrlForDelivery(url) || url);
   const publicImageUrls = (providerOnlyOutputs || providerOnlyImageUrl) && providerImageUrls.length
     ? providerImageUrls

@@ -397,14 +397,20 @@ function generationExpiredPlaceholderUrl() {
   return GENERATION_EXPIRED_PLACEHOLDER_URL;
 }
 
+function isGenerationImageOutputUrl(value) {
+  const url = String(value || "").trim();
+  return Boolean(url) && !/\.(mp4|webm|mov|m4v)(?:[?#]|$)/i.test(url);
+}
+
 function generationImageResultUrl(record) {
-  return record?.cdnImageUrl
-    || record?.remoteImageUrl
-    || record?.providerImageUrl
-    || record?.upstreamImageUrl
-    || record?.imageResultUrl
-    || record?.localImageUrl
-    || "";
+  return [
+    record?.cdnImageUrl,
+    record?.remoteImageUrl,
+    record?.providerImageUrl,
+    record?.upstreamImageUrl,
+    record?.imageResultUrl,
+    record?.localImageUrl,
+  ].map((item) => String(item || "").trim()).find(isGenerationImageOutputUrl) || "";
 }
 
 function generationImageResultUrls(record = {}) {

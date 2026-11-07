@@ -23,3 +23,10 @@ test("image and poster previews also prefer stored R2 URLs", () => {
   assert.match(admin, /record\.cdnImageUrl \|\| record\.remoteImageUrl/);
   assert.match(admin, /record\.cdnPosterUrl \|\| record\.cdnCoverUrl \|\| record\.providerPosterUrl/);
 });
+
+test("video output URLs never leak into image result fields", () => {
+  assert.match(server, /function isGenerationImageOutputUrl\(value = ""\) \{[\s\S]*?!isLikelyVideoUrl\(url\)/);
+  assert.match(server, /\.filter\(isGenerationImageOutputUrl\)/);
+  assert.match(server, /isPublicHttpUrl\(item\) && isGenerationImageOutputUrl\(item\)/);
+  assert.match(server, /\.filter\(isGenerationImageOutputUrl\)\)\];/);
+});

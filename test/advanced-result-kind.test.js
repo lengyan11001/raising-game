@@ -7,6 +7,7 @@ const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
 const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
+const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 const explore = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 const source = create.match(/function advancedResultKind\(record = \{\}\) \{[\s\S]*?\n\}/)?.[0] || "";
 assert.ok(source, "advancedResultKind should exist");
@@ -62,4 +63,11 @@ test("image result cards are rendered before video posters and have no play icon
   assert.ok(videoBranch > imageBranch, "image URLs must win over poster/video rendering");
   const imageMarkup = body.slice(imageBranch, videoBranch);
   assert.doesNotMatch(imageMarkup, /data-lucide="play"/);
+});
+
+test("front-end image helpers reject upstream video URLs", () => {
+  const helper = ui.match(/function isGenerationImageOutputUrl\(value\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(helper, "isGenerationImageOutputUrl should exist");
+  assert.match(helper, /mp4\|webm\|mov\|m4v/);
+  assert.match(ui, /\.filter\(isGenerationImageOutputUrl\)/);
 });
