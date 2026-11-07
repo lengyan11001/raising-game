@@ -14,12 +14,15 @@ function coverUrl(project) {
   return project.thumbnailUrl || project.thumbnail_url || project.coverUrl || project.cover_url || '';
 }
 
-function previewNodes(project) {
-  return Array.isArray(project.previewNodes) ? project.previewNodes.filter((node) => node && node.id) : [];
+function projectPreviewMedia(project) {
+  const image = coverUrl(project);
+  if (image) return { kind: 'image', url: image };
+  const video = project.thumbnailVideoUrl || project.thumbnail_video_url || '';
+  return video ? { kind: 'video', url: video } : null;
 }
 
-function projectPreviewImage(project) {
-  return coverUrl(project) || '';
+function previewNodes(project) {
+  return Array.isArray(project.previewNodes) ? project.previewNodes.filter((node) => node && node.id) : [];
 }
 
 export function WorkflowLibrary({ onOpen, onCreate, createSignal = 0, className = '' }) {
@@ -155,7 +158,7 @@ export function WorkflowLibrary({ onOpen, onCreate, createSignal = 0, className 
               <div className="InspirationCanvas-masonry-column" key={`canvas-column-${columnIndex}`}>
               {column.map((project) => {
                 const isMenuOpen = openProjectMenuId === project.id;
-                const image = projectPreviewImage(project);
+                const preview = projectPreviewMedia(project);
                 const miniNodes = previewNodes(project);
                 const isRenaming = renaming?.id === project.id;
                 return (
@@ -176,8 +179,19 @@ export function WorkflowLibrary({ onOpen, onCreate, createSignal = 0, className 
                   >
                     <div className="InspirationCanvas-card-content is-mine-project">
                       <div className="InspirationCanvas-card-thumbnail">
-                        {image ? (
-                          <img src={image} alt={project.name} loading="lazy" decoding="async" />
+                        {preview ? (
+                          preview.kind === 'video' ? (
+                            <video
+                              className="InspirationCanvas-card-thumbnail-video"
+                              src={preview.url}
+                              muted
+                              playsInline
+                              preload="metadata"
+                              aria-label={project.name}
+                            />
+                          ) : (
+                            <img src={preview.url} alt={project.name} loading="lazy" decoding="async" />
+                          )
                         ) : miniNodes.length ? (
                           <div className="InspirationCanvas-card-mini-canvas" aria-hidden="true">
                             <span className="InspirationCanvas-card-mini-grid" />

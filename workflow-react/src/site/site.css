@@ -131,6 +131,31 @@
   background: var(--site-canvas-pink-soft);
 }
 
+.site-generation-delete {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 999px;
+  color: #b9b9c2;
+  background: rgba(12, 12, 15, .72);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+
+.site-generation-delete:hover,
+.site-generation-delete:focus-visible {
+  border-color: rgba(255, 79, 163, .72);
+  color: #fff;
+  background: rgba(255, 79, 163, .26);
+  outline: none;
+}
+
 .site-generation-card-content {
   min-width: 0;
 }

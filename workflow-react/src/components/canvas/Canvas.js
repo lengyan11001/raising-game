@@ -52,10 +52,14 @@ const CanvasInner = ({
   const [nodes, setNodes] = useState(initialNodes);
   const [edges, setEdges] = useState(initialEdges);
   const [panMode, setPanMode] = useState(true);
+  const canvasRootRef = useRef(null);
   const {
     screenToFlowPosition,
     getViewport,
     setViewport,
+    getNodes,
+    getEdges,
+    deleteElements,
     getNodesBounds,
     fitView,
     viewportInitialized,
@@ -267,6 +271,34 @@ const CanvasInner = ({
       window.removeEventListener('workflow-react:select-node', select);
     };
   }, []);
+
+  // React Flow's default backspace handler treats every selected element as
+  // deletable. Keep the same interaction but own the keyboard path so an
+  // empty selection can never mutate or clear the canvas.
+  useEffect(() => {
+    if (readOnly) return undefined;
+    const handleDeleteKeyDown = (event) => {
+      if (!['Backspace', 'Delete'].includes(event.key) || event.defaultPrevented) return;
+      const target = event.target;
+      if (target?.closest?.('input, textarea, select, button, a, video, audio, [contenteditable], [contenteditable="true"]')) return;
+      const root = canvasRootRef.current;
+      const targetInsideCanvas = root?.contains(target);
+      const focusInsideCanvas = root?.contains(document.activeElement);
+      if (!targetInsideCanvas && !focusInsideCanvas && target !== document.body) return;
+
+      const selectedNodes = getNodes().filter((node) => node.selected);
+      const selectedEdges = getEdges().filter((edge) => edge.selected);
+      if (!selectedNodes.length && !selectedEdges.length) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      deleteElements({ nodes: selectedNodes, edges: selectedEdges }).catch((error) => {
+        console.warn('Unable to delete selected canvas elements', error);
+      });
+    };
+    document.addEventListener('keydown', handleDeleteKeyDown, true);
+    return () => document.removeEventListener('keydown', handleDeleteKeyDown, true);
+  }, [deleteElements, getEdges, getNodes, readOnly]);
   const isMountedRef = useRef(true); // 追踪组件是否已挂载
   const displayEdges = useMemo(
     () => buildConnectionGuideEdges(edges, nodes),
@@ -488,7 +520,7 @@ const CanvasInner = ({
 
   return (
     <NodeDropzoneProvider>
-      <div className="Canvas-wrapper reactflow-wrapper">{/* 添加 reactflow-wrapper 供引导定位 */}
+      <div ref={canvasRootRef} className="Canvas-wrapper reactflow-wrapper">{/* 添加 reactflow-wrapper 供引导定位 */}
         <ReactFlow
           nodes={nodes}
           nodesFocusable
@@ -510,7 +542,7 @@ const CanvasInner = ({
           isValidConnection={isValidConnection}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          deleteKeyCode={readOnly ? null : ['Backspace', 'Delete']}
+          deleteKeyCode={null}
           nodesDraggable={!readOnly}
           nodesConnectable={!readOnly}
           elementsSelectable={true}

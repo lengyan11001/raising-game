@@ -1266,11 +1266,6 @@ async function uploadWorkflowFilesToNode(files = [], nodeId = "") {
         ...workflowUploadedPreviewPatch(file, uploaded),
       };
       window.connectWorkflowNodes?.(newNode.id, current.id);
-      clearWorkflowExecutionResults({
-        fromNodeId: current.id,
-        message: "Input updated. Run the node again.",
-        render: false,
-      });
       state.workflowSelectedNodeId = newNode.id;
       persistWorkflowState();
       window.WorkflowReactCanvas?.sync?.();
@@ -1367,7 +1362,6 @@ async function handleWorkflowFileInput(input) {
             uploaded.assetId,
           ].filter(Boolean) }),
     };
-    clearWorkflowExecutionResults({ fromNodeId: current.id, message: "Input updated. Run the node again.", render: false });
     persistWorkflowState();
     window.WorkflowReactCanvas?.sync?.();
   }

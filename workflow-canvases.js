@@ -151,9 +151,63 @@ function publicWorkflowCanvasView(record = {}) {
   };
 }
 
+function workflowThumbnailValues(value) {
+  if (Array.isArray(value)) return value.flatMap(workflowThumbnailValues);
+  const url = String(value || "").trim();
+  return url ? [url] : [];
+}
+
+function workflowNodeThumbnail(node = {}) {
+  const data = node.data && typeof node.data === "object" ? node.data : {};
+  const record = data.record && typeof data.record === "object" ? data.record : {};
+  const imageUrl = [
+    data.posterUrl,
+    data.thumbnailUrl,
+    data.coverUrl,
+    data.lastFrameUrl,
+    data.stripTargetImageUrl,
+    data.keyframeImageUrl,
+    data.resultImageUrl,
+    data.imageUrl,
+    data.resultImageUrls,
+    data.imageUrls,
+    record.posterUrl,
+    record.thumbnailUrl,
+    record.coverUrl,
+    record.poster_url,
+    record.thumbnail_url,
+    record.cover_url,
+    record.resultImageUrl,
+    record.imageUrl,
+    record.resultImageUrls,
+    record.imageUrls,
+    record.cdnImageUrls,
+  ].flatMap(workflowThumbnailValues)[0] || "";
+  if (imageUrl) return { kind: "image", url: imageUrl, posterUrl: "" };
+
+  const videoUrl = [
+    data.resultVideoUrl,
+    data.videoUrl,
+    data.resultVideoUrls,
+    data.videoUrls,
+    record.resultVideoUrl,
+    record.videoUrl,
+    record.cdnVideoUrl,
+    record.remoteVideoUrl,
+    record.providerVideoUrl,
+    record.upstreamVideoUrl,
+    record.localVideoUrl,
+    record.resultVideoUrls,
+    record.videoUrls,
+    record.cdnVideoUrls,
+  ].flatMap(workflowThumbnailValues)[0] || "";
+  return videoUrl ? { kind: "video", url: "", posterUrl: videoUrl } : null;
+}
+
 function publicWorkflowCanvasSummary(record = {}) {
   const workflow = record.workflow && typeof record.workflow === "object" ? record.workflow : {};
-  const previewNodes = (Array.isArray(workflow.nodes) ? workflow.nodes : [])
+  const workflowNodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+  const previewNodes = workflowNodes
     .filter((node) => node && node.id)
     .slice(0, 8)
     .map((node) => ({
@@ -162,12 +216,17 @@ function publicWorkflowCanvasSummary(record = {}) {
       x: Number(node.x || 0),
       y: Number(node.y || 0),
     }));
+  const thumbnailNode = [...workflowNodes].reverse()
+    .map(workflowNodeThumbnail)
+    .find(Boolean) || null;
   return {
     id: String(record.id || "").trim(),
     name: normalizeWorkflowCanvasName(record.name),
     createdAt: String(record.createdAt || record.created_at || "").trim(),
     updatedAt: String(record.updatedAt || record.updated_at || "").trim(),
     previewNodes,
+    thumbnailUrl: thumbnailNode?.kind === "image" ? thumbnailNode.url : "",
+    thumbnailVideoUrl: thumbnailNode?.kind === "video" ? thumbnailNode.posterUrl : "",
   };
 }
 

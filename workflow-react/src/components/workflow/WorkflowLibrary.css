@@ -108,7 +108,8 @@
   transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
-.InspirationCanvas-card-thumbnail img {
+.InspirationCanvas-card-thumbnail img,
+.InspirationCanvas-card-thumbnail-video {
   display: block;
   width: 100%;
   height: 100%;
@@ -121,7 +122,8 @@
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.26);
 }
 
-.InspirationCanvas-masonry-item:hover .InspirationCanvas-card-thumbnail img {
+.InspirationCanvas-masonry-item:hover .InspirationCanvas-card-thumbnail img,
+.InspirationCanvas-masonry-item:hover .InspirationCanvas-card-thumbnail-video {
   transform: scale(1.035);
 }
 
