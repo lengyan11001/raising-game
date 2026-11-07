@@ -429,19 +429,28 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 git fetch origin {args.branch}{(" " + shlex.quote(args.audit_base)) if args.audit_base else ""}
 {forbidden_path_check}
-if git show-ref --verify --quiet refs/heads/{args.branch}; then
-  git checkout {args.branch}
-else
-  git checkout -b {args.branch} "origin/{args.branch}"
-fi
-git pull --ff-only origin {args.branch}
+# Release branches are generated snapshots, not conventional histories. After
+# a force-updated snapshot, the server's old local branch intentionally diverges
+# from the pushed branch. Check out the exact fetched release commit instead of
+# trying to merge or fast-forward the stale local branch.
+release_target=$(git rev-parse "origin/{args.branch}")
+git checkout --detach "$release_target"
 {pre_restart_check}
 {"true" if args.no_restart else f"systemctl restart {args.service}"}
 sleep 2
 git status --short
 git log -1 --oneline
 {"true" if args.no_restart else f"systemctl status {args.service} --no-pager -l | head -25"}
-health_code=$(curl -sS --max-time 10 -o /tmp/raising-game-health -w '%{{http_code}}' {args.health_url}) || {{ echo "Health check failed: {args.health_url}"; exit 27; }}
+health_code=000
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  health_code=$(curl -sS --max-time 10 -o /tmp/raising-game-health -w '%{{http_code}}' {args.health_url}) || health_code=000
+  if [ "$health_code" = "200" ]; then
+    break
+  fi
+  if [ "$attempt" -lt 10 ]; then
+    sleep 1
+  fi
+done
 echo "http=$health_code"
 cat /tmp/raising-game-health 2>/dev/null || true
 echo

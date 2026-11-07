@@ -58,5 +58,5 @@ test("server exposes a PostgreSQL-backed incremental message cursor", () => {
 });
 
 test("live message cache assets use the new cache key", () => {
-  assert.match(html, /live\.js\?v=2026110205/);
+  assert.match(html, /live\.js\?v=2026110301/);
 });

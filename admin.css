@@ -1696,6 +1696,14 @@ input[type="file"][hidden] {
   object-fit: contain;
   padding: 7px;
 }
+.adm-record-reference-audio {
+  min-height: 150px;
+}
+.adm-record-reference-grid audio {
+  display: block;
+  width: calc(100% - 14px);
+  margin: 54px 7px 0;
+}
 .adm-record-reference-download {
   position: absolute;
   top: 7px;

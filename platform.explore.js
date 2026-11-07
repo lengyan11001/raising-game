@@ -108,6 +108,10 @@ function setTab(tab) {
   document.querySelectorAll("[data-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.panel !== nextTab;
   });
+  if (els.sameStylePanel) {
+    els.sameStylePanel.hidden = nextTab !== "cases"
+      && !(nextTab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+  }
   if (typeof syncUndressAmbientVideo === "function") syncUndressAmbientVideo(nextTab === DEFAULT_PLATFORM_TAB);
   document.querySelectorAll("[data-history-expiry-info]").forEach((control) => {
     control.hidden = nextTab !== "history";
@@ -144,6 +148,7 @@ function setTab(tab) {
   if (nextTab === "access") loadApiSubtokens();
   if (nextTab === "advanced") {
     renderAdvanced();
+    scheduleAutoSizeAdvancedPrompt();
     if (state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) loadAdvancedAssets();
     renderAdvancedResultPanel();
     // renderAdvanced/setAdvancedSideTab schedules one authoritative detail
@@ -152,7 +157,21 @@ function setTab(tab) {
   if (nextTab === "workflow") {
     renderWorkflowPanel();
     loadWorkflowPresets();
-    loadWorkflowCanvases();
+    // Workflow canvases are a deferred module. Render the shell immediately,
+    // then hydrate it as soon as the module is available. This covers a fast
+    // click before the idle loader has finished.
+    const loadCanvases = () => {
+      if (state.tab !== "workflow") return;
+      if (typeof loadWorkflowCanvases === "function") {
+        Promise.resolve(loadWorkflowCanvases()).catch((error) => {
+          state.workflowCanvasMessage = error.message || String(error);
+          renderWorkflowPanel();
+        });
+      }
+    };
+    const deferred = window.PlatformDeferredModules?.load?.();
+    if (deferred?.then) deferred.then(loadCanvases).catch(() => {});
+    else loadCanvases();
   }
   closeAccountMenu();
   closeMobileDrawer();
@@ -162,7 +181,7 @@ function setTab(tab) {
 function syncMainTabState() {
   const customActive = state.tab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
   document.body.classList.toggle("home-active", state.tab === "home");
-  document.querySelectorAll("[data-tab]").forEach((button) => {
+  document.querySelectorAll(".top-tabs [data-tab]").forEach((button) => {
     const buttonTab = button.dataset.tab || "";
     const active = buttonTab === "custom"
       ? customActive
@@ -171,91 +190,12 @@ function syncMainTabState() {
         && (buttonTab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
     button.classList.toggle("is-active", active);
   });
-  syncSideNavigationMore();
-}
-
-function syncSideNavigationMore() {
-  const tabs = document.querySelector(".top-tabs");
-  const moreButton = document.getElementById("sideNavMoreBtn");
-  const menu = document.getElementById("sideNavMoreMenu");
-  if (!tabs || !moreButton || !menu) return;
-  const isMobile = window.matchMedia("(max-width: 720px)").matches;
-  const menuWasOpen = !menu.hidden;
-  menu.hidden = true;
-  moreButton.setAttribute("aria-expanded", "false");
-  tabs.classList.remove("is-nav-overflowing");
-  tabs.querySelectorAll(".is-nav-overflow-item").forEach((item) => item.classList.remove("is-nav-overflow-item"));
-  menu.replaceChildren();
-  tabs.classList.add("is-nav-overflowing");
-  const moreHeight = Number.parseFloat(getComputedStyle(moreButton).minHeight) || 44;
-  if (isMobile) {
-    tabs.classList.remove("is-nav-overflowing");
-    return;
-  }
-  const candidates = Array.from(tabs.querySelectorAll(".top-tab:not(.top-tab-more)")).filter((item) => !item.hidden);
-  if (!candidates.length) return;
-  const tabHeights = candidates.map((item) => item.getBoundingClientRect().height || 44);
-  const navRow = tabs.closest(".side-rail") || tabs;
-  const utility = document.querySelector(".side-utility-nav");
-  const tabsTop = tabs.getBoundingClientRect().top;
-  const available = utility
-    ? Math.max(0, utility.getBoundingClientRect().top - tabsTop - 10)
-    : Math.max(0, navRow.getBoundingClientRect().bottom - tabsTop - 120);
-  const totalHeight = tabHeights.reduce((sum, height) => sum + height + 3, 0) + moreHeight + 3;
-  if (totalHeight <= available) return;
-  let used = moreHeight + 3;
-  const overflow = [];
-  const minimumVisible = Math.min(4, candidates.length);
-  candidates.forEach((item, index) => {
-    const height = tabHeights[index];
-    const mustShow = index < minimumVisible;
-    if (mustShow || used + height + 3 <= available) {
-      used += height + 3;
-    } else {
-      overflow.push(item);
-    }
+  const sameStyleActive = state.tab === "cases"
+    || (state.tab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+  document.querySelectorAll("[data-same-style-entry]").forEach((entry) => {
+    entry.classList.toggle("is-active", sameStyleActive);
   });
-  if (!overflow.length) {
-    tabs.classList.remove("is-nav-overflowing");
-    return;
-  }
-  overflow.forEach((item) => item.classList.add("is-nav-overflow-item"));
-  overflow.forEach((item) => {
-    const clone = item.cloneNode(true);
-    clone.removeAttribute("id");
-    clone.classList.remove("is-nav-overflow-item", "is-active");
-    clone.removeAttribute("hidden");
-    clone.setAttribute("type", "button");
-    clone.querySelectorAll("[id]").forEach((element) => element.removeAttribute("id"));
-    menu.appendChild(clone);
-  });
-  menu.hidden = true;
-  moreButton.setAttribute("aria-expanded", "false");
-  menu.hidden = !menuWasOpen;
-  moreButton.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
-  moreButton.classList.toggle("is-active", overflow.some((item) => item.classList.contains("is-active")));
 }
-
-function toggleSideNavigationMore() {
-  const menu = document.getElementById("sideNavMoreMenu");
-  const button = document.getElementById("sideNavMoreBtn");
-  if (!menu || !button) return;
-  menu.hidden = !menu.hidden;
-  button.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
-}
-
-document.getElementById("sideNavMoreBtn")?.addEventListener("click", (event) => {
-  event.stopPropagation();
-  toggleSideNavigationMore();
-});
-document.addEventListener("click", (event) => {
-  const menu = document.getElementById("sideNavMoreMenu");
-  const button = document.getElementById("sideNavMoreBtn");
-  if (!menu || menu.hidden || menu.contains(event.target) || button?.contains(event.target)) return;
-  menu.hidden = true;
-  button?.setAttribute("aria-expanded", "false");
-});
-window.addEventListener("resize", () => syncSideNavigationMore());
 
 function setCategory(category) {
   state.category = category;
@@ -290,6 +230,10 @@ function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
+  if (state.tab !== DEFAULT_PLATFORM_TAB) {
+    setTab(DEFAULT_PLATFORM_TAB);
+    return;
+  }
   const nextHash = galleryModeHash(state.galleryMode);
   window.history.replaceState(null, "", `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`);
   renderTemplates();
@@ -1184,7 +1128,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
         : playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images"))
     : "";
   const pendingTaskId = `pending-playflux-${Date.now().toString(36)}`;
-  state.advancedResultMediaKind = isVideo ? "video" : "image";
+  setAdvancedResultMediaKind(isVideo ? "video" : "image");
   mergeAdvancedResultRecord(playfluxTemplateRecordBase(effectiveTemplate, pendingTaskId, provider));
   state.advancedResultTaskId = pendingTaskId;
   renderAdvancedResultPanel();
@@ -1485,7 +1429,10 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
     if (els.advancedResolution) els.advancedResolution.value = "1K";
     if (els.advancedRatio) els.advancedRatio.value = "9:16";
   }
-  if (els.advancedPrompt) els.advancedPrompt.value = template.prompt || "";
+  if (els.advancedPrompt) {
+    window.setAdvancedPromptValue?.(template.prompt || "", { emitInput: false });
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
+  }
   setTab("advanced");
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
@@ -2155,11 +2102,11 @@ function renderGalleryCharacterCard(item = {}, index = 0) {
   const deletable = mine || custom;
   const imageReady = Boolean(characterUsableImage(item));
   const generating = isMyCharacterGenerating(item);
-  const tags = characterTags(item, 2);
+  const tags = characterTags(item, 1);
   const profileLine = characterProfileLine(item);
   const stats = uniqueTruthy([
     `${compactNumber(item.likeCount)} likes`,
-    `${videoCount} videos`,
+    `${videoCount} ${videoCount === 1 ? "video" : "videos"}`,
   ]).join(" / ");
   const chatTenant = typeof isTenantTool === "function" && isTenantTool("chat");
   const actionMarkup = chatTenant
@@ -3549,7 +3496,8 @@ async function useHomeCharacter(characterId = "") {
   }] : [];
   state.advancedUploadDataUrl = imageUrl || "";
   if (els.advancedPrompt) {
-    els.advancedPrompt.value = `Use Image 1 as the main character reference. Create a cinematic video featuring ${item.name || "the character"}.`;
+    window.setAdvancedPromptValue?.(`Use Image 1 as the main character reference. Create a cinematic video featuring ${item.name || "the character"}.`, { emitInput: false });
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
   setTab("advanced");
   updateAdvancedModelControls();
@@ -3806,8 +3754,14 @@ function publicHistoryParams(value) {
 function openHistoryDetail(index) {
   const record = state.historyRecords?.[Number(index || 0)];
   if (!record || !els.historyDetailDialog || !els.historyDetailBody) return;
+  // mediaAssets is the server-planned canonical input set. Do not expand it
+  // from legacy params/upstream placeholders, which can contain asset://
+  // identities instead of browser-previewable addresses.
+  const detailRecord = Array.isArray(record.mediaAssets) && record.mediaAssets.length
+    ? { ...record, params: { ...(record.params || {}), referenceImages: [], referenceVideos: [], referenceAudios: [] }, upstreamPayload: null }
+    : record;
   prepareModalOpen();
-  const title = publicModelText(record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle"));
+  const title = publicModelText(publicGenerationDisplayTitle(record, t("history.detailTitle")));
   const videoUrl = generationVideoUrl(record);
   // The local generated copy is served by the site's optimized static
   // handler and supports byte ranges. Prefer it for the detail preview when
@@ -3817,11 +3771,13 @@ function openHistoryDetail(index) {
   const previewVideoUrl = localVideoUrl || videoUrl;
   const imageResultUrl = generationImageResultUrl(record);
   const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
-  const images = recordImageAssets(record);
-  const videos = recordVideoAssets(record);
+  const images = recordImageAssets(detailRecord);
+  const videos = recordVideoAssets(detailRecord);
   const canDownload = canDownloadGenerationRecord(record);
   const canAdvancedDownload = canAdvancedDownloadGenerationRecord(record);
-  const advancedDownloadState = record?.r2DownloadReady ? "ready" : "idle";
+  const advancedDownloadState = advancedDownloadUiState(record);
+  const advancedDownloadLabel = advancedDownloadButtonLabel(record);
+  const advancedDownloadDisabled = !canAdvancedDownload || advancedDownloadState === "preparing";
   els.historyDetailTitle.textContent = title || t("history.detailTitle");
   stopModalMedia(els.historyDetailBody);
   els.historyDetailBody.innerHTML = `
@@ -3829,14 +3785,15 @@ function openHistoryDetail(index) {
       <header>
         <strong>${escapeHtml(t("history.result"))}</strong>
         <span>${escapeHtml(record.taskId || "")}</span>
+        ${advancedDownloadStatusPill(record, { detail: true })}
         ${canDownload ? `
           <button class="history-download history-detail-download" type="button" data-history-detail-download>
             <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
           </button>
         ` : ""}
         ${videoUrl || imageResultUrl ? `
-          <button class="history-download history-detail-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-history-detail-r2-download data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
-            <i data-lucide="cloud-download"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "download2 可下载" : "download2 available") : t("history.advancedDownload"))}
+          <button class="history-download history-detail-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}${advancedDownloadState === "preparing" ? " is-preparing" : ""}" type="button" data-history-detail-r2-download data-download-state="${advancedDownloadState}" ${advancedDownloadDisabled ? "disabled" : ""}>
+            <i data-lucide="${advancedDownloadState === "preparing" ? "loader-circle" : advancedDownloadState === "failed" ? "circle-alert" : "cloud-download"}"></i>${escapeHtml(advancedDownloadLabel)}
           </button>
         ` : ""}
       </header>
@@ -3977,13 +3934,51 @@ function syncGalleryShortcutNav() {
       countEl.textContent = !disabled && isPlayfluxGalleryMode(mode) ? String(allPlayfluxTemplates().filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
     }
   });
+  renderGalleryModeTabs();
+}
+
+function galleryTopTabsVisible() {
+  return state.tab === "cases"
+    || (state.tab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+}
+
+function galleryTopTabItems() {
+  const items = [{
+    id: "cases",
+    label: state.lang === "zh" ? "案例" : "Case",
+    icon: "layout-grid",
+    active: state.tab === "cases",
+  }];
+  [
+    { id: "playflux-video", labelKey: "playflux.videoTab", fallback: "Video", icon: "film" },
+    { id: "playflux-anime", labelKey: "playflux.animeTab", fallback: "Anime", icon: "sparkles" },
+    { id: "playflux-image", labelKey: "playflux.imageTab", fallback: "Image", icon: "image" },
+  ].forEach((item) => {
+    if (!isGalleryModeAllowed(item.id)) return;
+    items.push({
+      ...item,
+      label: t(item.labelKey, {}, item.fallback),
+      active: state.tab === DEFAULT_PLATFORM_TAB && normalizeGalleryMode(state.galleryMode) === item.id,
+    });
+  });
+  return items;
 }
 
 function renderGalleryModeTabs() {
   if (!els.galleryModeTabs) return;
-  els.galleryModeTabs.hidden = true;
-  els.galleryModeTabs.innerHTML = "";
-  syncGalleryShortcutNav();
+  const visible = galleryTopTabsVisible();
+  els.galleryModeTabs.hidden = !visible;
+  if (!visible) {
+    els.galleryModeTabs.innerHTML = "";
+    return;
+  }
+  els.galleryModeTabs.innerHTML = galleryTopTabItems().map((item) => `
+    <button class="gallery-mode-tab${item.active ? " is-active" : ""}" type="button" role="tab"
+      aria-selected="${item.active ? "true" : "false"}" data-gallery-top-tab="${escapeHtml(item.id)}">
+      <i data-lucide="${escapeHtml(item.icon)}"></i><span>${escapeHtml(item.label)}</span>
+    </button>
+  `).join("");
+  refreshIcons();
 }
 
 function advancedCaseOutputVideo(item = {}) {
@@ -4058,8 +4053,10 @@ function fillAdvancedCasePrompt(item = {}) {
     updateAdvancedModelControls();
   }
   if (els.advancedPrompt) {
-    els.advancedPrompt.value = prompt;
-    els.advancedPrompt.focus?.();
+    window.setAdvancedPromptValue?.(prompt, { emitInput: false });
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
+    if (window.VipeakPromptEditorAdapter?.rich) window.VipeakPromptEditorAdapter.focus?.("end");
+    else els.advancedPrompt.focus?.();
   }
   state.activeAdvancedCaseId = "";
   updateAdvancedButtonCost();
@@ -4302,6 +4299,18 @@ function selectedBillingProduct() {
   const products = Array.isArray(state.billing?.products) ? state.billing.products : [];
   if (!products.length) return null;
   return products.find((item) => item.id === state.selectedProductId) || null;
+}
+
+function isMembershipBillingPlan(plan = {}) {
+  return Boolean(plan && (
+    plan.id === "plan-main-creator" ||
+    String(plan.intervalUnit || "").toLowerCase() === "lifetime" ||
+    (Array.isArray(plan.benefits) && plan.benefits.includes("topup-bonus"))
+  ));
+}
+
+function membershipBenefitCopy(key, fallback = "") {
+  return t(key, {}, fallback);
 }
 
 function selectBillingPlan(planId = "") {
@@ -4557,15 +4566,32 @@ function renderTopupSummary() {
   const selectedPlan = selectedBillingPlan();
   const selectedProduct = selectedBillingProduct();
   const selectedPackage = selectedTopupPackage();
+  const membershipPlan = isMembershipBillingPlan(selectedPlan) ? selectedPlan : null;
   const amount = selectedProduct?.amount || selectedPlan?.amount || selectedPackage?.amount || DEFAULT_TOPUP_AMOUNT;
-  const credits = selectedProduct?.includedCredits || selectedPlan?.includedCredits || selectedPackage?.credits || walletCreditsForAmount(amount);
+  const credits = membershipPlan
+    ? 0
+    : Number(selectedProduct?.includedCredits ?? selectedPlan?.includedCredits ?? selectedPackage?.credits ?? walletCreditsForAmount(amount));
   const asset = state.wallet?.asset || "USDT";
   const selected = ensureSelectedWalletOption();
   const network = selected?.network || state.wallet?.network || "TRC20";
-  if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits });
+  els.topupPanel.classList.toggle("is-membership-checkout", Boolean(membershipPlan));
+  if (els.topupMembershipCheckout) els.topupMembershipCheckout.hidden = !membershipPlan;
+  if (els.topupExpiryNote) els.topupExpiryNote.hidden = Boolean(membershipPlan);
+  if (els.topupCredits) {
+    els.topupCredits.textContent = membershipPlan
+      ? membershipBenefitCopy("membership.checkoutPrice", "$99 lifetime benefits")
+      : t("cost.credits", { credits });
+  }
+  if (els.topupSelectedLabel) {
+    els.topupSelectedLabel.textContent = membershipPlan
+      ? membershipBenefitCopy("membership.checkoutSelected", "One-time membership")
+      : t("topup.selectedPackage");
+  }
   if (els.topupSelectedPackage) {
-    els.topupSelectedPackage.textContent = selectedProduct
-      ? `${selectedProduct.name || "API Documentation Access"} / $${formatCredits(selectedProduct.amount)} / ${formatCredits(selectedProduct.includedCredits)} ${t("common.credits")}`
+    els.topupSelectedPackage.textContent = membershipPlan
+      ? `$${formatCredits(membershipPlan.amount)} / ${membershipBenefitCopy("membership.checkoutLifetime", "Lifetime")} / ${membershipBenefitCopy("membership.checkoutNoCreditsShort", "No credits included")}`
+      : selectedProduct
+      ? `${selectedProduct.name || "Billing product"} / $${formatCredits(selectedProduct.amount)} / ${formatCredits(selectedProduct.includedCredits)} ${t("common.credits")}`
       : selectedPlan
       ? `${selectedPlan.name || "Pro"} / $${formatCredits(selectedPlan.amount)} / ${formatCredits(selectedPlan.includedCredits)} ${t("common.credits")}`
       : selectedPackage
@@ -4577,7 +4603,9 @@ function renderTopupSummary() {
   syncTopupBackButtons();
   if (els.topupRate) {
     els.topupRate.textContent = state.user
-      ? state.topupStep === "packages"
+      ? membershipPlan
+        ? membershipBenefitCopy("membership.checkoutRate", "One-time payment. Lifetime access. No credits included.")
+        : state.topupStep === "packages"
         ? t("topup.packages")
         : state.topupMethod === "stripe"
         ? t("topup.stripeReady", {}, "Continue on the secure payment page.")
@@ -4636,7 +4664,15 @@ function handleTopupBack() {
 function renderTopupOrder(order) {
   if (!order) return;
   const isStripe = order.paymentProvider === "stripe" || order.network === "Stripe";
-  if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits: order.creditAmount || 0 });
+  const membershipOrder = order.orderKind === "subscription" && (
+    order.billingPlanId === "plan-main-creator" ||
+    String(order.billingIntervalUnit || "").toLowerCase() === "lifetime"
+  );
+  if (els.topupCredits) {
+    els.topupCredits.textContent = membershipOrder
+      ? membershipBenefitCopy("membership.checkoutPrice", "$99 lifetime benefits")
+      : t("cost.credits", { credits: order.creditAmount || 0 });
+  }
   if (isStripe) {
     if (els.topupRate) {
       els.topupRate.textContent = `${t("topup.stripeOrder", {}, "Stripe order")}: ${order.stripeCheckoutSessionId || order.id || ""}`;
@@ -4856,23 +4892,10 @@ async function createTopupOrder() {
 }
 
 function renderAccessGuides() {
-  const enabled = tenantFeature("apiAccess", true) && membershipProgramEnabled();
-  const active = apiDocsAccessActive();
-  if (els.apiDocsPurchaseCard) els.apiDocsPurchaseCard.hidden = !enabled || active;
-  if (els.apiDocsUnlockedContent) els.apiDocsUnlockedContent.hidden = !enabled || !active;
-  if (els.buyApiDocsBtn) {
-    els.buyApiDocsBtn.disabled = !state.user || active;
-    els.buyApiDocsBtn.innerHTML = state.user
-      ? '<i data-lucide="lock-keyhole-open"></i>Unlock docs'
-      : '<i data-lucide="log-in"></i>Sign in to unlock';
-  }
-  if (els.apiDocsPurchaseStatus) {
-    els.apiDocsPurchaseStatus.textContent = active
-      ? "API documentation access is active."
-      : state.user ? "" : "Sign in before purchasing access.";
-  }
+  const enabled = tenantFeature("apiAccess", true);
+  if (els.apiDocsUnlockedContent) els.apiDocsUnlockedContent.hidden = !enabled;
   ensureActiveAccessGuide();
-  if (!enabled || !active || !state.user) {
+  if (!enabled) {
     if (state.apiDocsCenter) {
       state.apiDocsCenter = null;
       state.apiDocsCenterActiveId = "";
@@ -4901,7 +4924,7 @@ function renderAccessGuides() {
     els.accessDocs.hidden = true;
     els.accessDocs.innerHTML = "";
   }
-  if (els.apiDocsCenter) els.apiDocsCenter.hidden = !enabled || !active;
+  if (els.apiDocsCenter) els.apiDocsCenter.hidden = !enabled;
   renderTokenDisplays();
   renderApiSubtokens();
   refreshIcons();

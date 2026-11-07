@@ -50,6 +50,8 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deployPull, /--forbid-changed-path/);
   assert.match(deployPull, /--verify-status/);
   assert.match(deployPull, /Deployed commit mismatch/);
+  assert.match(deployPull, /for attempt in 1 2 3 4 5 6 7 8 9 10/);
+  assert.match(deploySite, /git", "rev-parse", f"refs\/remotes\/origin\/\{target\['branch'\]\}"/);
 });
 
 test("integration branches are rejected before any SSH connection", () => {

@@ -66,7 +66,13 @@ TARGETS = {
             "assets/chat-live/welcome-newcomer*", "test/live-*.test.js",
             "verification/live-transaction/**",
         ),
-        "forbidden_env_patterns": (r"^TOS_",),
+        "forbidden_env_patterns": (
+            r"^TOS_",
+            r"^OSS_REGION=\"?oss-cn-",
+            r"^OSS_ENDPOINT=\"?https?://[^/]*oss-cn-",
+            r"^OSS_CDN_REGION=\"?oss-cn-",
+            r"^OSS_CDN_BASE_URL=\"?https?://[^/]*(oss-cn-|aliyuncs\.com)",
+        ),
         "required_env_patterns": (
             r"^R2_ACCESS_KEY_ID=.+$",
             r"^R2_SECRET_ACCESS_KEY=.+$",
@@ -112,7 +118,13 @@ TARGETS = {
         "required_file_counts": (),
         "password_env": ("LIVE_SITE_SSH_PASSWORD", "OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
         "forbidden_changed_paths": ("platform.html", "platform.css", "platform*.js", "admin.html", "admin.css", "admin.js"),
-        "forbidden_env_patterns": (r"^TOS_",),
+        "forbidden_env_patterns": (
+            r"^TOS_",
+            r"^OSS_REGION=\"?oss-cn-",
+            r"^OSS_ENDPOINT=\"?https?://[^/]*oss-cn-",
+            r"^OSS_CDN_REGION=\"?oss-cn-",
+            r"^OSS_CDN_BASE_URL=\"?https?://[^/]*(oss-cn-|aliyuncs\.com)",
+        ),
         "required_env_patterns": (
             r"^R2_ACCESS_KEY_ID=.+$",
             r"^R2_SECRET_ACCESS_KEY=.+$",
@@ -137,6 +149,10 @@ TARGETS = {
             r"^TOS_BUCKET=\"?fal-task\"?$",
             r"^TOS_PUBLIC_DOMAIN=\"?https://cdn-video\.51sux\.com\"?$",
             r"^TOS_",
+            r"^OSS_REGION=\"?oss-cn-",
+            r"^OSS_ENDPOINT=\"?https?://[^/]*oss-cn-",
+            r"^OSS_CDN_REGION=\"?oss-cn-",
+            r"^OSS_CDN_BASE_URL=\"?https?://[^/]*(oss-cn-|aliyuncs\.com)",
         ),
         "required_env_patterns": (
             r"^R2_ACCESS_KEY_ID=.+$",
@@ -168,7 +184,9 @@ LIVE_RELEASE_PATHS = (
 PLATFORM_RELEASE_PATHS = (
     "platform.html",
     "platform.css",
+    "platform.prompt-editor.css",
     "platform*.js",
+    "vendor/vipeak-prompt-editor.js",
     "admin.html",
     "admin.css",
     "admin.js",
@@ -177,6 +195,10 @@ PLATFORM_RELEASE_PATHS = (
     "chat.js",
     "chat-live.js",
     "server.js",
+    "server-source.js",
+    "server.parts/**",
+    "platform.ui.parts/**",
+    "platform.create.parts/**",
     "db.js",
     "package.json",
     "lib-*.js",
@@ -325,7 +347,7 @@ def main() -> None:
         check=True,
     )
     expected_commit = subprocess.run(
-        ["git", "rev-parse", f"origin/{target['branch']}"],
+        ["git", "rev-parse", f"refs/remotes/origin/{target['branch']}"],
         cwd=repo_root,
         check=True,
         capture_output=True,

@@ -1,0 +1,27 @@
+.ConnectionGuideEdge-guide-layer {
+  pointer-events: none;
+}
+
+.ConnectionGuideEdge-highlight {
+  fill: none;
+  stroke: var(--canvas-green-strong, #70a33d);
+  stroke-linecap: round;
+  stroke-width: 4;
+  opacity: 0.36;
+  vector-effect: non-scaling-stroke;
+}
+
+.ConnectionGuideEdge-particle {
+  fill: var(--canvas-green-strong, #70a33d);
+  stroke: #fff;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 3px rgba(112, 163, 61, 0.72));
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ConnectionGuideEdge-particle {
+    display: none;
+  }
+}

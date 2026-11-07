@@ -1,0 +1,181 @@
+/* Canvas 样式 */
+.Canvas-wrapper {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.Canvas-reactflow {
+  background: #f5f5f5;
+  width: 100%;
+  height: 100%;
+}
+
+/* React Flow 节点默认样式覆盖 */
+.react-flow__node {
+  cursor: grab;
+}
+
+.react-flow__node.selected {
+  box-shadow: 0 0 0 1px #667eea;
+  border-radius: 12px;
+}
+
+.react-flow__handle {
+  width: 12px;
+  height: 12px;
+  background: #667eea;
+  border: 2px solid white;
+}
+
+.react-flow__edge-path {
+  stroke: #667eea;
+  stroke-width: 2;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #3b82f6;
+  stroke-width: 3;
+}
+
+/* 保存状态指示器 */
+.Canvas-save-indicator {
+  position: absolute;
+  top: 16px;
+  right: 80px;
+  z-index: 10;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  animation: Canvas-save-indicator-fade-in 0.2s ease-out;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+@keyframes Canvas-save-indicator-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.Canvas-save-indicator-saving {
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #ffb74d;
+}
+
+.Canvas-save-indicator-saved {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #66bb6a;
+}
+
+/* 保存中的旋转动画 */
+.Canvas-save-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #e65100;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: Canvas-save-spinner-spin 0.8s linear infinite;
+}
+
+@keyframes Canvas-save-spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 已保存的对勾 */
+.Canvas-save-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 14px;
+  font-weight: bold;
+  color: #2e7d32;
+}
+
+/* 隐藏 React Flow 的品牌标识（保留缩略图） */
+.react-flow__attribution {
+  display: none !important;
+}
+
+/* 模式切换按钮 */
+.Canvas-mode-toggle {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 2px;
+  background: white;
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e0e0e0;
+}
+
+.Canvas-mode-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.Canvas-mode-button:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.Canvas-mode-button-active {
+  background: #667eea !important;
+  color: white !important;
+}
+
+.Canvas-mode-button-active:hover {
+  background: #5568d3 !important;
+}
+
+.Canvas-mode-icon {
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.Canvas-mode-icon-flip {
+  transform: scaleX(-1);
+}
+
+.Canvas-mode-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* 选择框样式 */
+.react-flow__selection {
+  background: rgba(102, 126, 234, 0.1);
+  border: 2px solid #667eea;
+}

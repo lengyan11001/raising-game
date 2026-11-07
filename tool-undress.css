@@ -81,7 +81,7 @@ body.tenant-tool-undress .undress-case-tabs {
   margin: 0 auto;
   padding: 4px;
   border: 1px solid var(--undress-line);
-  border-radius: 8px;
+  border-radius: 999px;
   background: #17181e;
 }
 
@@ -93,17 +93,17 @@ body.tenant-tool-undress .undress-case-tabs-nav {
   margin: 0;
   padding: 3px;
   border: 1px solid var(--undress-line);
-  border-radius: 8px;
+  border-radius: 999px;
   background: #15161b;
 }
 
 body.tenant-tool-undress .undress-case-tab {
   min-height: 40px;
   padding: 8px 6px;
-  border: 0;
-  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 999px;
   color: var(--undress-muted);
-  background: transparent;
+  background: rgba(255,255,255,.055);
   font: inherit;
   font-size: .82rem;
   font-weight: 750;
@@ -124,8 +124,10 @@ body.tenant-tool-undress .undress-case-tabs-nav .undress-case-tab {
 }
 
 body.tenant-tool-undress .undress-case-tab.is-active {
-  color: #0b0c0f;
-  background: #ff7a00;
+  border-color: rgba(255,79,163,.72);
+  color: #fff;
+  background: linear-gradient(135deg, rgba(255,79,163,.28), rgba(255,79,163,.2));
+  box-shadow: 0 8px 22px rgba(255,79,163,.13);
 }
 
 body.tenant-tool-undress .undress-case-stage {
@@ -1320,4 +1322,52 @@ body.tenant-tool-undress .inline-modal.is-undress-unlock .inline-actions {
   body.tenant-tool-undress .undress-ambient video {
     display: none;
   }
+}
+
+/* Shared tab language: match the Character page's pink selected state. */
+body.tenant-tool-undress .top-tabs,
+body.tenant-tool-undress .undress-tool-type-switch {
+  border-color: rgba(255,255,255,.09);
+  border-radius: 999px;
+  background: rgba(18,18,21,.82);
+  box-shadow: 0 10px 26px rgba(0,0,0,.18);
+}
+
+body.tenant-tool-undress .top-tab,
+body.tenant-tool-undress .undress-tool-type-option {
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 999px;
+  color: rgba(247,247,251,.7);
+  background: rgba(255,255,255,.055);
+  box-shadow: none;
+}
+
+body.tenant-tool-undress .top-tab:hover,
+body.tenant-tool-undress .undress-tool-type-option:hover {
+  border-color: rgba(255,79,163,.34);
+  color: #fff;
+  background: rgba(255,255,255,.095);
+}
+
+body.tenant-tool-undress .top-tab.is-active,
+body.tenant-tool-undress .undress-tool-type-option.is-active {
+  border-color: rgba(255,79,163,.72);
+  color: #fff;
+  background: linear-gradient(135deg, rgba(255,79,163,.28), rgba(255,79,163,.2));
+  box-shadow: 0 8px 22px rgba(255,79,163,.13);
+}
+
+body.tenant-tool-undress .top-tab.is-active svg,
+body.tenant-tool-undress .undress-tool-type-option.is-active svg {
+  color: #ff79bd;
+}
+
+body.tenant-tool-undress .top-tab strong {
+  color: rgba(247,247,251,.62);
+  background: rgba(255,255,255,.08);
+}
+
+body.tenant-tool-undress .top-tab.is-active strong {
+  color: #18181c;
+  background: #fff;
 }
