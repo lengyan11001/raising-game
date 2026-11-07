@@ -47,7 +47,7 @@
 - CSS cache key bumped to `generate-composer-design-20261107-1`.
 - Parameter chips now toggle closed when the same chip is clicked again; switching to another chip replaces the open picker. Picker content follows the supplied design: model rows with icon/title/description, mode rows, grouped ratio + resolution, and duration title above the slider.
 - Verification: real Chrome/CDP at 1440x1100 confirmed same-chip close, cross-chip switching, and model/mode/ratio/resolution/duration content. `node --check platform.create.parts/part-02.js` and `git diff --check` pass; the targeted Generate picker test passes 1/1. Closed-state and open-picker screenshots were visually checked against the source design.
-- Deployment: not deployed.
+- Deployment: `123vips.com` only. `old-site` `a6af8d0`; `platform-release` `f829a69`; deployed via `scripts/deploy_local.sh --site old`; `/api/health` returned `200 {"ok":true}`. Production Generate acceptance confirms visible parameter chips and Mode/Ratio pickers. Live was not deployed.
 
 ## Download signing on every click (2026-11-07)
 
@@ -1429,3 +1429,4 @@ CODEX_TASK_STATE.md
 - Verified through HTTP and real Chrome/CDP: `/api/config/public`, `/api/promo/1111`, `/api/ourdream/presets`, `/api/platform/estimates`, `/api/chat-live/characters`, `/docs/api.json`, and `/favicon.ico` all return 200; the visible `Request failed: 404` toast is gone and the Generate page renders.
 - Re-verified parameter pickers: opening Mode/Ratio/Duration shows the designed panels, switching chips closes the previous panel, and clicking the same chip again closes it.
 - Evidence: `/tmp/preview-after-proxy.png`, `/tmp/picker-final-proxy.png`, `/tmp/debug-preview-cdp.js`, and `/tmp/check-picker-cdp.js`.
+- Deployment: `123vips.com` only. `old-site` `a6af8d0`; `platform-release` `f829a69`; deployed via `scripts/deploy_local.sh --site old`; `/api/health` returned `200 {"ok":true}`. Production Chrome/CDP acceptance at `https://123vips.com/platform.html#custom` confirms the Generate chips render, Mode opens with all four reference modes, Mode closes on repeat click, and Ratio opens with ratio/resolution options. Production `/platform.css`, `/platform.js`, and `/platform.create.parts/part-02.js` hashes match the release. Live was not deployed.
