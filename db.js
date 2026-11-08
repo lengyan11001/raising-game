@@ -5912,7 +5912,7 @@ async function createUserSupportMessageInDb(record = {}) {
   if (!dbEnabled()) return null;
   const id = String(record.id || "").trim();
   const userId = String(record.userId || "").trim();
-  if (!id || !userId) return null;
+  if (!id) return null;
   await ensureSchema();
   const payload = { ...record, id, userId };
   const createdAt = record.createdAt || new Date().toISOString();
@@ -5935,14 +5935,16 @@ async function updateUserSupportMessageInDb(messageId = "", patch = {}) {
   if (!id) return null;
   await ensureSchema();
   const updatedAt = patch.updatedAt || new Date().toISOString();
+  const userId = String(patch.userId || "").trim();
   const cleanPatch = { ...(patch || {}), updatedAt };
   const { rows } = await query(`
     UPDATE app_support_messages
-    SET payload = payload || $2::jsonb,
-        updated_at = $3::timestamptz
+    SET user_id = CASE WHEN $2 <> '' THEN $2 ELSE user_id END,
+        payload = payload || $3::jsonb,
+        updated_at = $4::timestamptz
     WHERE id = $1 AND deleted_at IS NULL
     RETURNING *
-  `, [id, JSON.stringify(cleanPatch), updatedAt]);
+  `, [id, userId, JSON.stringify(cleanPatch), updatedAt]);
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
 }
 

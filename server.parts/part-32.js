@@ -1348,18 +1348,16 @@ async function persistTelegramBotSupportMessage(message = {}) {
   const record = await persistTelegramSupportMessage(message);
   const telegramUserId = String(message.from?.id || "").trim();
   if (!telegramUserId) return record;
-  const db = await readDb();
-  const user = await getUserByTelegramIdInDb(telegramUserId, UNDRESS_TOOL_TENANT_ID)
-    || telegramUserFromDb(db, telegramUserId);
+  const user = await getUserByTelegramIdInDb(telegramUserId, UNDRESS_TOOL_TENANT_ID);
   if (!user) return record;
-  const stored = (db.supportMessages || []).find((item) => item.id === record.id);
-  const target = stored || record;
-  target.userId = user.id;
-  target.tenantId = UNDRESS_TOOL_TENANT_ID;
-  target.source = "telegram-undress";
-  target.updatedAt = new Date().toISOString();
-  if (dbEnabled()) await replaceAppDbTables(db);
-  else await writeDb(db);
-  return target;
+  const updatedAt = new Date().toISOString();
+  const patch = {
+    userId: user.id,
+    tenantId: UNDRESS_TOOL_TENANT_ID,
+    source: "telegram-undress",
+    updatedAt,
+  };
+  const stored = await updateUserSupportMessageInDb(record.id, patch);
+  return stored || { ...record, ...patch };
 }
 

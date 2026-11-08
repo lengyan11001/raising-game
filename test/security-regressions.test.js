@@ -290,3 +290,24 @@ test("referral reward locks the referrer and reloads both users before granting"
   assert.match(reward, /patchUserPayloadInDb\(referredUser\.id, \{\s*referral: referredReferralPatch/);
   assert.doesNotMatch(reward, /updateUserInDb\(referredUser\)/);
 });
+
+test("Telegram support binding updates one message instead of rewriting all account tables", () => {
+  const auth = read("server.parts/part-32.js");
+  const db = read("db.js");
+  const binding = auth.match(/async function persistTelegramBotSupportMessage[\s\S]*?\n}\r?\n/);
+  assert.ok(binding, "Telegram support binding should exist");
+  assert.match(binding[0], /getUserByTelegramIdInDb\(telegramUserId, UNDRESS_TOOL_TENANT_ID\)/);
+  assert.match(binding[0], /updateUserSupportMessageInDb\(record\.id, patch\)/);
+  assert.doesNotMatch(binding[0], /replaceAppDbTables\(/);
+  assert.doesNotMatch(binding[0], /readDb\(/);
+
+  const create = db.match(/async function createUserSupportMessageInDb[\s\S]*?\n}\r?\n/);
+  assert.ok(create, "support message create helper should exist");
+  assert.match(create[0], /if \(!id\) return null;/);
+  assert.match(create[0], /ON CONFLICT \(id\) DO UPDATE SET[\s\S]*user_id = EXCLUDED\.user_id/);
+
+  const update = db.match(/async function updateUserSupportMessageInDb[\s\S]*?\n}\r?\n/);
+  assert.ok(update, "support message update helper should exist");
+  assert.match(update[0], /SET user_id = CASE WHEN \$2 <> '' THEN \$2 ELSE user_id END/);
+  assert.match(update[0], /payload = payload \|\| \$3::jsonb/);
+});
