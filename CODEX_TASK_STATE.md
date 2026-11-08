@@ -5,7 +5,10 @@
 - Fix: restored the previously deployed, defined `setTab("advanced")` routing in `restoreRecordToAdvancedCreate()` and `useAssetInAdvanced()`. Kept all unrelated Test/Vega/workflow changes out of the release.
 - Added `test/advanced-workspace-routing.test.js` to reject unexplained `setAdvancedWorkspaceTab(...)` calls in `part-04.js` and assert both regeneration/asset routes use `setTab("advanced")`.
 - Verification: targeted result/routing tests 10/10 pass; `node --check platform.create.parts/part-04.js` and `git diff --check` pass.
-- Status: prepared in isolated worktree from `origin/old-site`; deployment pending.
+- Published integration commit `old-site` / `c6eb122`; platform release `ebbbdc7` was pushed with lease from `5499b53` and deployed to old.
+- Production verification: `/api/health` is `200 {"ok":true}`; served `platform.create.parts/part-04.js` SHA-256 is `5d8c8be81e8d7e0b91b29e1c8420ed4a4c2aed670a4f2308756ba62ae9cd4cde`; both routing paths use `setTab("advanced")`; no `setAdvancedWorkspaceTab` remains.
+- Live release tree is unchanged by this platform-only fix; `https://live.123vipeak.com/api/health` is `{"ok":true}`. No Live platform files were mixed in.
+- Rollback: redeploy platform release to `5499b53` if needed. This would restore the bug, so use only for release-tool incidents, not as a behavioral rollback.
 
 ## Generate prompt C 方案：Tiptap 富文本 + textarea 兼容回滚（2026-11-07）
 
