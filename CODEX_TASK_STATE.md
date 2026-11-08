@@ -1824,3 +1824,14 @@ CODEX_TASK_STATE.md
 - Post-cleanup whole-filesystem search found no remaining `app-db*.json`, `generation-records*.json`, `app-config*.json`, or `character-assets*.json` copies (excluding no paths found). Manifest SHA-256: `d459ceddac44604e24ee8db7def63ceca5151ec57a512cc0e8c2b07df45f92f8`.
 - TOS identification: historical code used `TOS4-HMAC-SHA256`, `x-tos-content-sha256`, `x-tos-date`, and scope `<date>/<region>/tos/request`, which is Volcengine TOS (Volcano Engine Torch Object Storage). The old deploy guard named bucket `fal-task` and custom public domain `https://cdn-video.51sux.com`; the custom CDN domain does not change the storage platform identification.
 - Current `/etc/raising-game-demo.env` has no `TOS_*` entries; active object storage is Alibaba OSS Singapore (`OSS_REGION=oss-ap-southeast-1`, bucket redacted from notes).
+
+## 2026-11-09 session/media hardening pre-deploy
+
+- Goal: keep `123vips.com` production healthy while hardening authentication and private media; Old site only, never deploy or modify Live.
+- Existing logged-in users must not be displaced. `app_sessions.expires_at` is nullable and only newly created sessions receive a 90-day TTL (`SESSION_TTL_DAYS`, clamped 1-365). Historical rows with `expires_at IS NULL` remain valid indefinitely; no backfill, bulk expiry, or forced logout. Same-device login does not backfill an expiry onto an existing legacy row.
+- Session lookup rejects only explicitly expired rows. The `createSessionInDb()` conflict path preserves an existing row's `expires_at`.
+- Admin list/edit views now expose only `apiTokenPreview`; reusable primary API tokens are no longer embedded in `userView()`. The explicit `/api/access/token` flow remains unchanged.
+- Private voice-preview/admin 403 responses now use `private, no-store`, with CDN no-store headers, preventing error responses from being cached at the edge.
+- Focused regression suite passed 70/70: admin password reset, session semantics, auth risk, admin voice preview, media authorization, deploy targets, Nginx private media, and stalled-generation repair. JavaScript syntax, Python compilation, and `git diff --check` also passed.
+- Known unrelated working-tree changes remain excluded from the release. Full `npm test` still has pre-existing frontend/payment/Wan failures outside this security slice.
+- Deployment status: pending commit, snapshot, push to `platform-release`, and Old-only deployment at the time of this record.

@@ -187,13 +187,6 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function maskMiddle(value = "") {
-  const text = String(value || "");
-  if (!text) return "—";
-  if (text.length <= 16) return `${text.slice(0, 4)}...${text.slice(-4)}`;
-  return `${text.slice(0, 10)}...${text.slice(-8)}`;
-}
-
 function fmtDate(value) {
   if (!value) return "—";
   const d = new Date(value);
@@ -3327,7 +3320,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
                   <td><span class="adm-pill ${u.role === "admin" ? "is-admin" : ""}">${escapeHtml(u.role)}</span></td>
                   <td><strong>${escapeHtml(u.credits)}</strong></td>
                   <td>${statusPill(u.membership?.active ? "active" : "inactive")}</td>
-                  <td><span class="adm-muted adm-mono">${escapeHtml(maskMiddle(u.apiToken || ""))}</span></td>
+                  <td><span class="adm-muted adm-mono">${escapeHtml(u.apiTokenPreview || "")}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.pricingMultiplier))}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.apiPricingMultiplier))}</span></td>
                   <td>${escapeHtml(u.customCharacters || 0)}</td>
@@ -3395,7 +3388,7 @@ function openEditUserDialog(id, users) {
       <option value="quarantined" ${user.riskStatus === "quarantined" ? "selected" : ""}>隔离（禁止登录，保留数据）</option>
     </select></div>
     <div class="adm-form-row"><span>强制下线</span><label class="adm-check"><input id="editForceLogout" type="checkbox" /> 同时强制下线并吊销 API 子 Token（确认是机器人时使用）</label><small class="adm-muted">默认不踢掉已经登录的用户；仅隔离会阻止新登录和 API Token 调用。</small></div>
-    <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
+    <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiTokenPreview || "")}" disabled /><small class="adm-muted">后台只展示脱敏预览，完整 token 不由后台列表接口返回。</small></div>
     <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
     <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
   `;

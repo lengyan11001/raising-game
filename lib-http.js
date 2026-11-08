@@ -20,11 +20,16 @@ function sendJson(res, statusCode, payload, { cacheControl = "no-store" } = {}) 
 
 function sendText(res, statusCode, body, { cacheControl = "no-cache", head = false } = {}) {
   const text = String(body ?? "");
-  res.writeHead(statusCode, {
+  const headers = {
     "content-type": "text/plain; charset=utf-8",
     "cache-control": cacheControl,
     "content-length": Buffer.byteLength(text),
-  });
+  };
+  if (/no-store/i.test(cacheControl)) {
+    headers["cdn-cache-control"] = "no-store";
+    headers["cloudflare-cdn-cache-control"] = "no-store";
+  }
+  res.writeHead(statusCode, headers);
   res.end(head ? undefined : text);
 }
 

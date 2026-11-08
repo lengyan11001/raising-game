@@ -937,7 +937,6 @@ function userView(user) {
     },
     role: user.role || "user",
     credits: Number(user.credits || 0),
-    apiToken: "",
     apiTokenPreview: apiToken ? `${apiToken.slice(0, 8)}...${apiToken.slice(-6)}` : "",
     pricingMultiplier: normalizeUserPricingMultiplier(user, { channel: "web" }),
     apiPricingMultiplier: normalizeUserPricingMultiplier(user, { channel: "api" }),

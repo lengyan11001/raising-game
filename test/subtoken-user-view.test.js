@@ -55,7 +55,7 @@ const user = {
 
 test("a sub token never receives the parent account API token", () => {
   const view = buildUserView({ tokenSource: "subtoken", tokenRecord: { id: "sat-child" } })(user);
-  assert.equal(view.apiToken, "");
+  assert.equal(Object.hasOwn(view, "apiToken"), false);
   assert.equal(view.apiTokenPreview, "sk-paren...secret");
   assert.equal(view.id, user.id);
   assert.equal(view.credits, user.credits);
@@ -64,7 +64,7 @@ test("a sub token never receives the parent account API token", () => {
 test("user views expose only a preview, never the reusable primary token", () => {
   for (const tokenSource of ["api_token", "session", "subtoken"]) {
     const view = buildUserView({ tokenSource })(user);
-    assert.equal(view.apiToken, "");
+    assert.equal(Object.hasOwn(view, "apiToken"), false);
     assert.equal(view.apiTokenPreview, "sk-paren...secret");
     assert.equal(JSON.stringify(view).includes(user.apiToken), false);
   }

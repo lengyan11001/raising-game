@@ -176,7 +176,7 @@ test("admin endpoints reject API tokens while retaining browser sessions and sig
 
 test("primary API token is fetched explicitly and password resets keep browser sessions", () => {
   const part10 = read("server.parts/part-10.js");
-  assert.match(part10, /apiToken: ""/);
+  assert.doesNotMatch(part10, /apiToken: ""/);
   assert.match(part10, /apiTokenPreview:/);
   const routes = read("server.parts/part-42.js");
   assert.match(routes, /url\.pathname === "\/api\/access\/token"/);

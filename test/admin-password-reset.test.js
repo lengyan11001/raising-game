@@ -53,6 +53,7 @@ test("same device reuses its token while different devices stay signed in", asyn
   let writes = 0;
   const context = {
     crypto: require("node:crypto"),
+    process,
     DEFAULT_TENANT_ID: "main",
     normalizeTenantId: (value) => String(value || "main"),
     dbEnabled: () => false,
@@ -75,4 +76,19 @@ test("same device reuses its token while different devices stay signed in", asyn
   assert.equal(db.sessions.length, 3);
   assert.equal(db.sessions.filter((item) => item.token === first.token).length, 1);
   assert.equal(writes, 3);
+  for (const session of [first, second, legacy]) {
+    assert.ok(Date.parse(session.expiresAt) > Date.now());
+  }
+  const legacyExisting = { token: "legacy-token", userId: "user-1", tenantId: "main", deviceId: "browser-old", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" };
+  db.sessions.push(legacyExisting);
+  const reusedLegacy = await createSession(db, user, "main", "browser-old");
+  assert.equal(reusedLegacy.token, legacyExisting.token);
+  assert.equal(reusedLegacy.expiresAt, undefined);
+});
+
+test("legacy sessions without expiry remain valid while explicit expiry is enforced", () => {
+  const database = fs.readFileSync(path.resolve(__dirname, "..", "db.js"), "utf8");
+  assert.match(database, /expires_at TIMESTAMPTZ/);
+  assert.match(database, /expires_at IS NULL OR expires_at > NOW\(\)/);
+  assert.match(database, /expires_at = app_sessions\.expires_at/);
 });

@@ -3,7 +3,7 @@ async function serveStatic(req, res, url) {
   const voicePreviewPrefix = url.pathname === "/assets/admin/voice-preview"
     || url.pathname.startsWith("/assets/admin/voice-preview/");
   if (voicePreviewPrefix) {
-    return sendText(res, 403, "Forbidden");
+    return sendText(res, 403, "Forbidden", { cacheControl: "private, no-store" });
   }
   const tenant = requestTenantDescriptor(req);
   const chatTenantRequest = tenant.toolId === "chat";
@@ -15,7 +15,7 @@ async function serveStatic(req, res, url) {
     : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (pathname.startsWith("/assets/admin/") && !publicAdminMediaPath(pathname)) {
-    return sendText(res, 403, "Forbidden");
+    return sendText(res, 403, "Forbidden", { cacheControl: "private, no-store" });
   }
   if (isProtectedLocalMediaPath(pathname) && !verifyLocalMediaSignature(pathname, url.searchParams)) {
     return sendText(res, 403, "Forbidden", { cacheControl: "private, no-store" });

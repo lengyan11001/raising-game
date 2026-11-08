@@ -764,6 +764,11 @@ async function writeDb(db) {
 
 async function createSingleLoginSession(db, user, tenantId = DEFAULT_TENANT_ID, deviceId = "") {
   const now = new Date().toISOString();
+  // Only new sessions receive a finite lifetime. Existing rows that predate
+  // this field intentionally remain valid so this security change never signs
+  // out users who are already logged in.
+  const sessionTtlDays = Math.max(1, Math.min(365, Number(process.env.SESSION_TTL_DAYS || 90) || 90));
+  const expiresAt = new Date(Date.parse(now) + sessionTtlDays * 24 * 60 * 60 * 1000).toISOString();
   const userId = String(user?.id || "");
   const normalizedTenantId = normalizeTenantId(tenantId);
   const normalizedDeviceId = String(deviceId || "").trim().slice(0, 128);
@@ -780,6 +785,9 @@ async function createSingleLoginSession(db, user, tenantId = DEFAULT_TENANT_ID, 
     : null;
   if (existing?.token) {
     existing.updatedAt = now;
+    // Legacy sessions remain valid indefinitely. Do not backfill expiresAt on
+    // an existing row, otherwise a harmless same-device login would change the
+    // user's already-established session lifetime.
     if (dbEnabled()) await createSessionInDb(existing);
     return existing;
   }
@@ -789,6 +797,7 @@ async function createSingleLoginSession(db, user, tenantId = DEFAULT_TENANT_ID, 
     tenantId: normalizedTenantId,
     deviceId: normalizedDeviceId,
     accountKey: loginAccountKey(user),
+    expiresAt,
     createdAt: now,
     updatedAt: now,
   };
