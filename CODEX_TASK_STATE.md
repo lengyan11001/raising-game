@@ -8,8 +8,13 @@
 - 验证：优化器定向测试 36/36；`node --check`、`git diff --check` 通过。独立发布快照中 36 项为 33 通过，3 项失败来自既有 11.11 促销服务端块未在 `old-site` 提交，与本次功能无关。
 - 提交：`old-site` / `9fe94b5`；`platform-release` / `b58f9dc`，从 `ebbbdc7` 使用 `--force-with-lease` 更新。
 - 部署：仅执行 `scripts/deploy_local.sh --site old`，部署到 `123vips.com`；release boundary 通过，服务运行正常。未部署 Live，`live-release` 仍为 `bf1e01a`。
-- 线上验证：`/api/health` 返回 `200 {"ok":true}`；`platform.html` 含 `advancedPromptOptimizeBtn` 和缓存版本 `w3-prompt-optimizer-20261108-1`；`platform.js` 加载优化器脚本；线上 `platform.prompt-optimizer.js` 与本地 SHA-256 一致（`c10e92a1...`）；React `canvas.js` 哈希一致；未登录接口返回 `401 LOGIN_REQUIRED`，证明路由已上线且认证生效。
-- 回滚：部署前 `platform-release` 为 `ebbbdc7`；需要时仅按发布流程回退平台分支并重新部署 old 站。
+- 线上验证（首次发布）：`/api/health` 返回 `200 {"ok":true}`；`platform.html` 含 `advancedPromptOptimizeBtn`；线上 `platform.prompt-optimizer.js` 哈希一致；未登录接口返回 `401 LOGIN_REQUIRED`。
+- 修复后续（2026-11-08）：真实 Papaya 验证发现客户端发送 `document.documentElement.lang=en`，导致中文源提示词被整体翻成英文；同时负向约束未稳定转换成正向结尾约束。
+- 修复提交：`ab81343` 增加提示词语言检测、服务端中文语言锁定与中文失败重试；增加负向约束正向化及稳定结尾栈。`67ef301` 移除误入发布快照的 Test UI。定向测试 13/13 通过。
+- 真实 Papaya 输出已确认：中文为主；含 `00:00/00:03/00:06/00:09` 时间码、可量化动作、Dolly-in 镜头、Ambient 音频、正向结尾约束；`避免动作过快` 转为 `动作节奏平稳连续`。
+- 修复发布：`platform-release` / `3053c86`（源 `67ef301`），仅用 `scripts/deploy_local.sh --site old` 部署到 `123vips.com`；`live-release` 保持 `bf1e01a`，未部署 Live。
+- 线上复核：`/api/health` 为 `200 {"ok":true}`；页面含 AI 优化按钮；线上优化器 JS SHA-256 为 `8d030daae7ee6f4bb0f042804ad051baffb4323d70a6c273e56ca99f0da630df`，与本地一致；未登录优化接口为 `401 LOGIN_REQUIRED`。线上 CSS/JS 查询参数由服务端平台资源内容哈希动态改写为 `3e6774a63a71`，不能再用固定 `20261108-2` 作为线上版本判断。
+- 回滚：本次发布前 `platform-release` 为 `b58f9dc`；需要时仅按发布流程回退平台分支并重新部署 old 站。
 
 ## Fix undefined advanced workspace tab after regeneration (2026-11-08)
 
