@@ -1,3 +1,12 @@
+## Fix undefined advanced workspace tab after regeneration (2026-11-08)
+
+- User reported `Can't find variable: etAdvancedWorkspaceTab` (browser truncation of `setAdvancedWorkspaceTab`) on Regenerate, and local Generate appeared unresponsive.
+- Root cause: commit `125a828` accidentally published two unfinished Test-mode route calls in `platform.create.parts/part-04.js`; the function was only defined by unpublished Test-mode changes. A successful health check could not detect a browser-only JavaScript error.
+- Fix: restored the previously deployed, defined `setTab("advanced")` routing in `restoreRecordToAdvancedCreate()` and `useAssetInAdvanced()`. Kept all unrelated Test/Vega/workflow changes out of the release.
+- Added `test/advanced-workspace-routing.test.js` to reject unexplained `setAdvancedWorkspaceTab(...)` calls in `part-04.js` and assert both regeneration/asset routes use `setTab("advanced")`.
+- Verification: targeted result/routing tests 10/10 pass; `node --check platform.create.parts/part-04.js` and `git diff --check` pass.
+- Status: prepared in isolated worktree from `origin/old-site`; deployment pending.
+
 ## Generate prompt C 方案：Tiptap 富文本 + textarea 兼容回滚（2026-11-07）
 
 - 用户要求按 C 方案处理 Safari 输入框删除时光标视觉位置与实际位置错位；要求可以随时回滚，并记录方案。

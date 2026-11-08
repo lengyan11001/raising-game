@@ -928,7 +928,7 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   const restoredPresetFlow = hydrateAdvancedPresetsFromParams(params);
   const restoredKind = ADVANCED_CREATE_KINDS.some((item) => item.id === params.createKind) ? params.createKind : "";
   const restoredMode = restoredKind && advancedCreateModesForKind(restoredKind).some((item) => item.id === params.createMode) ? params.createMode : "";
-  setAdvancedWorkspaceTab();
+  setTab("advanced");
   state.advancedCreateKind = restoredPresetFlow && restoredKind ? restoredKind : "custom";
   state.advancedCreateMode = state.advancedCreateKind === "custom" ? ADVANCED_CUSTOM_MODE.id : (restoredMode || advancedCreateModesForKind(state.advancedCreateKind)[0]?.id || ADVANCED_CUSTOM_MODE.id);
   renderAdvancedCreateControls();
@@ -1661,7 +1661,7 @@ function useAssetInAdvanced(asset = {}, action = "use") {
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
     addAdvancedSeedanceMediaReference(asset, "video");
   }
-  setAdvancedWorkspaceTab();
+  setTab("advanced");
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
   if (els.advancedNote) {
