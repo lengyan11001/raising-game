@@ -1,6 +1,7 @@
 "use strict";
 
 const TOKEN_KEY = "raisingGameToken";
+const SESSION_DEVICE_KEY = "raisingGameSessionDevice";
 const LANG_KEY = "raisingGameLanguage";
 const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";

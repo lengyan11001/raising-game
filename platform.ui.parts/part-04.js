@@ -839,6 +839,20 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function sessionDeviceId() {
+  try {
+    let deviceId = localStorage.getItem(SESSION_DEVICE_KEY) || "";
+    if (!deviceId) {
+      deviceId = globalThis.crypto?.randomUUID?.()
+        || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem(SESSION_DEVICE_KEY, deviceId);
+    }
+    return deviceId;
+  } catch {
+    return "";
+  }
+}
+
 async function requestJson(url, options = {}) {
   const headers = { "content-type": "application/json", ...(options.headers || {}) };
   // Public bootstrap data is shared by all visitors. Callers must be able to

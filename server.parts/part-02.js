@@ -601,30 +601,39 @@ async function writeDb(db) {
   return withAppStateWriteLock(() => replaceAppDbTables(db));
 }
 
-async function createSingleLoginSession(db, user, tenantId = DEFAULT_TENANT_ID) {
+async function createSingleLoginSession(db, user, tenantId = DEFAULT_TENANT_ID, deviceId = "") {
   const now = new Date().toISOString();
+  const userId = String(user?.id || "");
+  const normalizedTenantId = normalizeTenantId(tenantId);
+  const normalizedDeviceId = String(deviceId || "").trim().slice(0, 128);
+  if (!userId) throw new Error("Cannot create a login session without a user.");
+  // Every device keeps an independent persistent session. Re-login on the
+  // same browser reuses its token; a new browser gets a new token. Never
+  // delete another device's session as a side effect of login.
+  const existing = normalizedDeviceId
+    ? (db.sessions || []).find((item) => (
+      String(item.userId || "") === userId
+      && normalizeTenantId(item.tenantId || item.tenant_id || DEFAULT_TENANT_ID) === normalizedTenantId
+      && String(item.deviceId || "") === normalizedDeviceId
+    ))
+    : null;
+  if (existing?.token) {
+    existing.updatedAt = now;
+    if (dbEnabled()) await createSessionInDb(existing);
+    return existing;
+  }
   const session = {
     token: crypto.randomBytes(32).toString("hex"),
-    userId: String(user?.id || ""),
-    tenantId: normalizeTenantId(tenantId),
+    userId,
+    tenantId: normalizedTenantId,
+    deviceId: normalizedDeviceId,
     accountKey: loginAccountKey(user),
     createdAt: now,
     updatedAt: now,
   };
-  if (!session.userId) throw new Error("Cannot create a login session without a user.");
-  if (String(user?.role || "") === "admin") {
-    db.sessions = Array.isArray(db.sessions) ? db.sessions : [];
-    db.sessions.push(session);
-    if (dbEnabled()) await createSessionInDb(session);
-    else await writeDb(db);
-    return session;
-  }
-  db.sessions = (db.sessions || []).filter((item) => (
-    String(item.userId || "") !== session.userId
-    && (!session.accountKey || String(item.accountKey || "") !== session.accountKey)
-  ));
+  db.sessions = Array.isArray(db.sessions) ? db.sessions : [];
   db.sessions.push(session);
-  if (dbEnabled()) await replaceUserSessionInDb(session);
+  if (dbEnabled()) await createSessionInDb(session);
   else await writeDb(db);
   return session;
 }

@@ -574,7 +574,7 @@ async function registerWithBody(req, res, body = {}) {
   } else {
     await writeDb(db);
   }
-  const session = await createSingleLoginSession(db, user, tenantId);
+  const session = await createSingleLoginSession(db, user, tenantId, body.deviceId || body.device_id || "");
   if (referrer?.id) {
     const wasMember = userHasCreatorMembership(referrer);
     await ensureCreatorMembershipFromReferrals(db, referrer);
@@ -610,7 +610,7 @@ async function loginWithBody(req, res, body = {}, { registerIfMissing = false } 
   } else {
     await writeDb(db);
   }
-  const session = await createSingleLoginSession(db, user, tenantId);
+  const session = await createSingleLoginSession(db, user, tenantId, body.deviceId || body.device_id || "");
   return sendJson(res, 200, { ok: true, token: session.token, user: userView(user) });
 }
 
@@ -715,7 +715,7 @@ async function createEmailSession(req, res, email, body = {}) {
   }
   if (dbEnabled()) await updateUserInDb(user);
   else await writeDb(db);
-  const session = await createSingleLoginSession(db, user, tenantId);
+  const session = await createSingleLoginSession(db, user, tenantId, body.deviceId || body.device_id || "");
   return sendJson(res, 200, { ok: true, token: session.token, user: userView(user) });
 }
 
@@ -938,7 +938,7 @@ async function handleGoogleLogin(req, res) {
       referralCode: body.referralCode || body.referral || body.ref || "",
       attribution: body.attribution || null,
     });
-    const session = await createSingleLoginSession(account.db, account.user, tenant.tenantId);
+    const session = await createSingleLoginSession(account.db, account.user, tenant.tenantId, body.deviceId || body.device_id || "");
     return sendJson(res, 200, { ok: true, token: session.token, user: userView(account.user) });
   } catch (error) {
     return sendJson(res, error.statusCode || 401, { ok: false, code: error.code || "GOOGLE_LOGIN_INVALID", message: error.message || "Google login failed." });
@@ -1189,23 +1189,23 @@ async function ensureTelegramUserAccount(telegramUser = {}, {
   return { db, user, telegram: { id: telegramUserId, label: telegramBotUserLabel(telegramUser) } };
 }
 
-async function createTelegramUserSession(account, tenantId = UNDRESS_TOOL_TENANT_ID) {
+async function createTelegramUserSession(account, tenantId = UNDRESS_TOOL_TENANT_ID, deviceId = "") {
   const normalizedTenant = normalizeTenantId(tenantId);
-  const session = await createSingleLoginSession(account.db, account.user, normalizedTenant);
+  const session = await createSingleLoginSession(account.db, account.user, normalizedTenant, deviceId);
   return { token: session.token, user: account.user, telegram: account.telegram, tenantId: normalizedTenant };
 }
 
-async function telegramUserSessionFromInitData(initData = "", { tenantId = UNDRESS_TOOL_TENANT_ID, host = "", referralCode = "", attribution = null } = {}) {
+async function telegramUserSessionFromInitData(initData = "", { tenantId = UNDRESS_TOOL_TENANT_ID, host = "", referralCode = "", attribution = null, deviceId = "" } = {}) {
   const parsed = parseTelegramWebAppInitData(initData, TELEGRAM_BOT_TOKEN);
   const account = await ensureTelegramUserAccount(parsed.user || {}, { tenantId, host, registrationMedium: "telegram-mini-app", referralCode, attribution });
-  return createTelegramUserSession(account, tenantId);
+  return createTelegramUserSession(account, tenantId, deviceId);
 }
 
 async function handleTelegramWebAppAuth(req, res) {
   if (!TELEGRAM_BOT_TOKEN) return sendJson(res, 503, { ok: false, message: "Telegram login is not configured." });
   const tenant = requestTenantDescriptor(req);
   const body = await readJson(req);
-  const result = await telegramUserSessionFromInitData(body.initData || "", { tenantId: tenant.tenantId, host: requestHostname(req), referralCode: body.referralCode || body.referral || body.ref || "", attribution: body.attribution || null });
+  const result = await telegramUserSessionFromInitData(body.initData || "", { tenantId: tenant.tenantId, host: requestHostname(req), referralCode: body.referralCode || body.referral || body.ref || "", attribution: body.attribution || null, deviceId: body.deviceId || body.device_id || "" });
   return sendJson(res, 200, {
     ok: true,
     token: result.token,
@@ -1267,7 +1267,7 @@ async function handleTelegramLogin(req, res) {
     referralCode: body.referralCode || body.referral || body.ref || "",
     attribution: body.attribution || null,
   });
-  const result = await createTelegramUserSession(account, tenant.tenantId);
+  const result = await createTelegramUserSession(account, tenant.tenantId, body.deviceId || body.device_id || "");
   return sendJson(res, 200, {
     ok: true,
     token: result.token,

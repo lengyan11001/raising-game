@@ -810,6 +810,7 @@ async function submitLogin() {
         username,
         password,
         referralCode,
+        deviceId: sessionDeviceId(),
         channel: registrationAttribution.channel || "direct",
         attribution: registrationAttribution,
       },
@@ -849,6 +850,7 @@ async function verifyEmailLogin() {
         email,
         code,
         referralCode: localStorage.getItem(REFERRAL_CODE_KEY) || "",
+        deviceId: sessionDeviceId(),
         channel: registrationAttribution.channel || "direct",
         attribution: registrationAttribution,
       },
@@ -884,7 +886,10 @@ async function verifyAccountEmail() {
 }
 
 async function loadMe() {
-  if (!state.token) return;
+  if (!state.token) {
+    setUser(null);
+    return;
+  }
   try {
     const payload = await requestJson("/api/auth/me");
     setUser(payload.user);

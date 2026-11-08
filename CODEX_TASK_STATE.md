@@ -1,3 +1,12 @@
+## Persistent multi-device login (2026-11-08)
+
+- User request: determine login lifetime, fix frequent logouts, and make login state effectively permanent.
+- Root cause: `app_sessions` has no expiry; normal-user login deleted every prior session via `replaceUserSessionInDb`, causing other browsers to receive `401 SESSION_REPLACED`.
+- Decision: independent permanent sessions per browser/device. Same browser re-login reuses its token; different devices receive separate tokens. Login never deletes another device's session. Logout revokes only the current token. Password reset, admin reset, and ban/deletion still revoke all sessions.
+- Changed: `server.parts/part-02.js`, `server.parts/part-32.js`, `platform.config.js`, `platform.ui.parts/part-04.js`, `platform.create.parts/part-06.js`, `platform.google.js`, `platform.telegram.js`, `test/admin-password-reset.test.js`.
+- Verification: auth tests 4/4; auth+Telegram 13/13; chat-live diagnostics 13/13; mobile tool UX 11/11; syntax checks and `git diff --check` pass.
+- Deployment: pending.
+
 ## Wan 系列 AI 提示词优化器（2026-11-08）
 
 - 用户要求：所有 Wan 系列提示词控件加入“AI 优化”按钮；弹窗展示优化结果，用户确认后才填回；按 W3 文档规则改写；使用 Papaya；18+ 产品，不加入合规/审核/净化限制。
