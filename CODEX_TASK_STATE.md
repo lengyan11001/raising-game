@@ -1,3 +1,16 @@
+## Wan 系列 AI 提示词优化器（2026-11-08）
+
+- 用户要求：所有 Wan 系列提示词控件加入“AI 优化”按钮；弹窗展示优化结果，用户确认后才填回；按 W3 文档规则改写；使用 Papaya；18+ 产品，不加入合规/审核/净化限制。
+- 实现：新增共享 `platform.prompt-optimizer.js` 弹窗和 Wan provider 识别；Advanced/Custom、React Flow、旧工作流、React bridge 均接入。原提示词只读，优化结果可编辑，只有点击“填入提示词”才写回。
+- 服务端：新增认证接口 `POST /api/advanced/prompt-optimize`，调用现有 `papayaLanguageRequest`，模型 `carrothub-papaya-1.0`，5000 字符限制；不扣积分、不创建生成记录。
+- Skill：`/Users/x042/.codex/skills/w3-prompt-optimizer/SKILL.md` 及 `references/w3-guidelines.md`，用于按 W3 结构、节拍、物理动作、镜头、连续性、音频和稳定性改写。该目录在仓库外，不进入发布。
+- 18+：保留用户已有成人意图和明确内容；服务端、客户端和 Skill 均未加入合规、审核、未成年人、政策、净化、消音或删减限制。
+- 验证：优化器定向测试 36/36；`node --check`、`git diff --check` 通过。独立发布快照中 36 项为 33 通过，3 项失败来自既有 11.11 促销服务端块未在 `old-site` 提交，与本次功能无关。
+- 提交：`old-site` / `9fe94b5`；`platform-release` / `b58f9dc`，从 `ebbbdc7` 使用 `--force-with-lease` 更新。
+- 部署：仅执行 `scripts/deploy_local.sh --site old`，部署到 `123vips.com`；release boundary 通过，服务运行正常。未部署 Live，`live-release` 仍为 `bf1e01a`。
+- 线上验证：`/api/health` 返回 `200 {"ok":true}`；`platform.html` 含 `advancedPromptOptimizeBtn` 和缓存版本 `w3-prompt-optimizer-20261108-1`；`platform.js` 加载优化器脚本；线上 `platform.prompt-optimizer.js` 与本地 SHA-256 一致（`c10e92a1...`）；React `canvas.js` 哈希一致；未登录接口返回 `401 LOGIN_REQUIRED`，证明路由已上线且认证生效。
+- 回滚：部署前 `platform-release` 为 `ebbbdc7`；需要时仅按发布流程回退平台分支并重新部署 old 站。
+
 ## Fix undefined advanced workspace tab after regeneration (2026-11-08)
 
 - User reported `Can't find variable: etAdvancedWorkspaceTab` (browser truncation of `setAdvancedWorkspaceTab`) on Regenerate, and local Generate appeared unresponsive.
