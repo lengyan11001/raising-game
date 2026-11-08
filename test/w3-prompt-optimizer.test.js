@@ -52,9 +52,13 @@ const helpers = new Function([
   "const W3_PROMPT_OPTIMIZER_MODEL = \"carrothub-papaya-1.0\";",
   `const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = ${JSON.stringify(server.slice(server.indexOf("const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `") + "const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `".length, server.indexOf("`;\n\nfunction w3PromptOptimizerText")))};`,
   extractFunction(server, "w3ParseOptimizerJson"),
+  extractFunction(server, "w3PromptHasChinese"),
+  extractFunction(server, "w3NormalizeConstraintStack"),
   extractFunction(server, "w3TruncatePrompt"),
+  extractFunction(server, "w3PromptIsMostlyChinese"),
+  extractFunction(server, "w3PromptOptimizerLanguage"),
   extractFunction(server, "w3PromptOptimizerRequest"),
-  "return { w3ParseOptimizerJson, w3TruncatePrompt, w3PromptOptimizerRequest };",
+  "return { w3ParseOptimizerJson, w3TruncatePrompt, w3PromptIsMostlyChinese, w3PromptOptimizerLanguage, w3PromptOptimizerRequest, w3NormalizeConstraintStack };",
 ].join("\n"))();
 
 test("optimizer route is authenticated in front of generate and uses Papaya", () => {
@@ -64,7 +68,7 @@ test("optimizer route is authenticated in front of generate and uses Papaya", ()
   assert.match(route, /handleAdvancedPromptOptimize\(req, res\)/);
   assert.match(server, /carrothub-papaya-1\.0/);
   assert.match(server, /const auth = await requireUser\(req, res\);\s*if \(!auth\) return;/);
-  assert.match(server, /papayaLanguageRequest\(request\.body/);
+  assert.match(server, /papayaLanguageRequest\(requestAttempt\.body/);
 });
 
 test("optimizer validates prompt length and does not create generation records", () => {
@@ -92,8 +96,36 @@ test("optimizer normalizes caller parameters and preserves adult intent in the s
   assert.equal(req.duration, 30);
   assert.match(req.body.messages[0].content, /18\+ adult product/);
   assert.match(req.body.messages[0].content, /Preserve the user's explicit adult intent/);
+  assert.match(req.body.messages[0].content, /LANGUAGE LOCK/);
   assert.match(req.body.messages[1].content, /Preserve every explicit adult intention/);
   assert.doesNotMatch(req.body.messages[0].content, /moderation|compliance|minor|未成年|审核|合规|净化|sanitize/i);
+});
+
+test("Chinese source language wins over page language and is locked in the request", () => {
+  const prompt = "情侣在酒店房间内接吻，女生轻轻抱住男生，镜头慢慢靠近，气氛暧昧，灯光柔和，画面稳定。";
+  assert.equal(helpers.w3PromptIsMostlyChinese(prompt), true);
+  assert.equal(helpers.w3PromptOptimizerLanguage({ language: "en" }, prompt), "zh");
+  const req = helpers.w3PromptOptimizerRequest({ prompt, language: "en" });
+  assert.equal(req.language, "zh");
+  assert.match(req.body.messages[1].content, /Source language: zh/);
+  assert.match(req.body.messages[1].content, /Keep the optimized prompt predominantly Chinese/);
+  assert.match(req.body.messages[1].content, /Do not translate actions, descriptions, dialogue, ambience, or mood into English/);
+});
+
+test("client detects prompt language instead of sending page language", () => {
+  const scope = { window: {}, document: { documentElement: { lang: "en" } }, localStorage: { getItem() { return ""; } } };
+  new Function("window", "document", "localStorage", client)(scope.window, scope.document, scope.localStorage);
+  assert.match(client, /language: options\.language \|\| detectPromptLanguage\(prompt\)/);
+  assert.doesNotMatch(client, /language: options\.language \|\| document\.documentElement\.lang/);
+});
+
+test("negative residue is converted into a positive final constraint stack", () => {
+  const result = helpers.w3NormalizeConstraintStack("保持清晰的轮廓，避免动作过快，避免剧烈的动作变化，确保光影过渡自然，避免背景杂乱。");
+  assert.doesNotMatch(result, /避免/);
+  assert.match(result, /动作节奏平稳连续/);
+  assert.match(result, /背景干净简洁/);
+  assert.match(result, /Camera static\./);
+  assert.match(result, /镜头稳定/);
 });
 
 test("5000-character truncation keeps a positive final constraint stack and sentence boundary", () => {

@@ -20,6 +20,13 @@
     return WAN_PROVIDERS.has(provider) || provider.startsWith("wan-");
   }
 
+  function detectPromptLanguage(value = "") {
+    const source = String(value || "");
+    const chinese = (source.match(/[\u3400-\u9fff]/g) || []).length;
+    const latin = (source.match(/[A-Za-z]/g) || []).length;
+    return chinese >= 4 && chinese >= latin * 0.45 ? "zh" : (latin > 0 ? "en" : "zh");
+  }
+
   function requestHeaders() {
     const headers = { "content-type": "application/json" };
     try {
@@ -185,7 +192,7 @@
       duration: options.duration,
       resolution: options.resolution,
       mode: options.mode,
-      language: options.language || document.documentElement.lang || "zh",
+      language: options.language || detectPromptLanguage(prompt),
     };
     const apply = options.onApply || (() => {});
     if (!modal.dialog.open) modal.dialog.showModal();
