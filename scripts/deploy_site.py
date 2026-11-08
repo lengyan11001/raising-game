@@ -41,6 +41,9 @@ TARGETS = {
             "https://123vips.com/site-landing.js",
             "https://123vips.com/downloads/vipeak-live.apk",
         ),
+        # A real private object must never be anonymously readable through
+        # Nginx. The release deployer turns this into a post-health check.
+        "verify_private_media": True,
         "verify_status": (
             "https://123vips.com/live.html=404",
             "https://123vips.com/live.css=404",
@@ -453,6 +456,8 @@ def main() -> None:
         command.extend(["--verify-not-contains", verify_not_contains])
     for verify_status in target.get("verify_status", ()):
         command.extend(["--verify-status", verify_status])
+    if target.get("verify_private_media"):
+        command.append("--verify-private-media")
     for pre_restart_command in target.get("pre_restart_commands", ()):
         command.extend(["--pre-restart-command", pre_restart_command])
     raise SystemExit(subprocess.call(command, env=env))

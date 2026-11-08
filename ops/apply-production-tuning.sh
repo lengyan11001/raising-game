@@ -309,20 +309,31 @@ server {
         proxy_send_timeout 60s;
     }
 
+    # Generated character/panorama media may contain private user content.
+    # Proxy through Node and reuse the signed-media allowlist instead of
+    # exposing a broad direct-file directory from Nginx.
     location ^~ /assets/generated/characters/ {
-        alias /opt/raising-game-demo/assets/generated/characters/;
-        access_log off;
-        expires 7d;
-        add_header Cache-Control "public, max-age=604800, immutable" always;
-        try_files $uri =404;
+        proxy_pass http://raising_game_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
     }
 
     location ^~ /assets/generated/panoramas/ {
-        alias /opt/raising-game-demo/assets/generated/panoramas/;
-        access_log off;
-        expires 7d;
-        add_header Cache-Control "public, max-age=604800, immutable" always;
-        try_files $uri =404;
+        proxy_pass http://raising_game_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
     }
 
     location ^~ /__protected_assets__/ {

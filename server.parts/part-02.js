@@ -467,7 +467,23 @@ function localMediaSigningSecret() {
   return String(process.env.SESSION_SECRET || "").trim();
 }
 
-function normalizedUserUploadPath(value = "") {
+const PROTECTED_LOCAL_MEDIA_PREFIXES = Object.freeze([
+  "/assets/user-uploads/",
+  "/assets/user-characters/",
+  "/assets/generated/characters/apiz/",
+  "/assets/generated/panoramas/",
+]);
+
+function protectedLocalMediaPrefix(pathname = "") {
+  const value = String(pathname || "");
+  return PROTECTED_LOCAL_MEDIA_PREFIXES.find((prefix) => value.startsWith(prefix)) || "";
+}
+
+function isProtectedLocalMediaPath(value = "") {
+  return Boolean(protectedLocalMediaPrefix(String(value || "")));
+}
+
+function normalizedProtectedLocalMediaPath(value = "") {
   const text = String(value || "").trim();
   if (!text || text.includes("\0") || text.includes("\\")) return "";
   let pathname = "";
@@ -476,18 +492,23 @@ function normalizedUserUploadPath(value = "") {
   } catch {
     return "";
   }
-  if (!pathname.startsWith("/assets/user-uploads/")) return "";
+  if (!protectedLocalMediaPrefix(pathname)) return "";
   if (/%2e|%2f|%5c/i.test(pathname)) return "";
   try {
     pathname = decodeURIComponent(pathname);
   } catch {
     return "";
   }
-  if (!pathname.startsWith("/assets/user-uploads/") || pathname.includes("\\")) return "";
+  if (!protectedLocalMediaPrefix(pathname) || pathname.includes("\\")) return "";
   const normalized = path.posix.normalize(pathname);
   if (normalized !== pathname || normalized.includes("//")) return "";
   if (normalized.split("/").some((segment) => segment === "." || segment === ".." || segment.startsWith("."))) return "";
   return normalized;
+}
+
+function normalizedUserUploadPath(value = "") {
+  const pathname = normalizedProtectedLocalMediaPath(value);
+  return pathname.startsWith("/assets/user-uploads/") ? pathname : "";
 }
 
 function configuredAssetHostname(value = "") {
@@ -513,8 +534,15 @@ function isManagedAssetHostname(hostname = "") {
     || configuredHosts.includes(host);
 }
 
-function signLocalUserUploadPath(pathname = "", expiresAt = Date.now() + LOCAL_MEDIA_SIGNATURE_TTL_MS) {
-  const normalizedPath = normalizedUserUploadPath(pathname);
+function isLocalApplicationAssetHostname(hostname = "") {
+  const host = String(hostname || "").toLowerCase();
+  if (!host) return false;
+  const configuredHost = configuredAssetHostname(configuredPublicBaseUrl());
+  return host === "123vips.com" || host === "www.123vips.com" || (configuredHost && host === configuredHost);
+}
+
+function signLocalMediaPath(pathname = "", expiresAt = Date.now() + LOCAL_MEDIA_SIGNATURE_TTL_MS) {
+  const normalizedPath = normalizedProtectedLocalMediaPath(pathname);
   const secret = localMediaSigningSecret();
   if (!normalizedPath || !secret) return "";
   const expiry = Math.max(Date.now() + 60 * 1000, Number(expiresAt) || 0);
@@ -524,22 +552,31 @@ function signLocalUserUploadPath(pathname = "", expiresAt = Date.now() + LOCAL_M
   return { expires: expiry, signature };
 }
 
-function isLocalUserUploadAssetUrl(value = "") {
+function signLocalUserUploadPath(pathname = "", expiresAt = Date.now() + LOCAL_MEDIA_SIGNATURE_TTL_MS) {
+  return signLocalMediaPath(pathname, expiresAt);
+}
+
+function isLocalProtectedMediaAssetUrl(value = "") {
   const text = String(value || "").trim();
-  const normalizedPath = normalizedUserUploadPath(text);
+  const normalizedPath = normalizedProtectedLocalMediaPath(text);
   if (!normalizedPath) return false;
   if (!isPublicHttpUrl(text)) return true;
   try {
-    return isManagedAssetHostname(new URL(text).hostname);
+    return isLocalApplicationAssetHostname(new URL(text).hostname);
   } catch {
     return false;
   }
 }
 
-function localUserUploadDeliveryUrl(value = "", { absolute = false } = {}) {
-  if (!isLocalUserUploadAssetUrl(value)) return "";
-  const normalizedPath = normalizedUserUploadPath(value);
-  const signed = signLocalUserUploadPath(normalizedPath);
+function isLocalUserUploadAssetUrl(value = "") {
+  return isLocalProtectedMediaAssetUrl(value)
+    && normalizedProtectedLocalMediaPath(value).startsWith("/assets/user-uploads/");
+}
+
+function localMediaDeliveryUrl(value = "", { absolute = false } = {}) {
+  if (!isLocalProtectedMediaAssetUrl(value)) return "";
+  const normalizedPath = normalizedProtectedLocalMediaPath(value);
+  const signed = signLocalMediaPath(normalizedPath);
   if (!signed) return "";
   const pathWithSignature = `${normalizedPath}?expires=${signed.expires}&signature=${encodeURIComponent(signed.signature)}`;
   if (!absolute) return pathWithSignature;
@@ -547,8 +584,12 @@ function localUserUploadDeliveryUrl(value = "", { absolute = false } = {}) {
   return `${base.replace(/\/+$/, "")}${pathWithSignature}`;
 }
 
-function verifyLocalUserUploadSignature(pathname = "", searchParams = null) {
-  const normalizedPath = normalizedUserUploadPath(pathname);
+function localUserUploadDeliveryUrl(value = "", options = {}) {
+  return localMediaDeliveryUrl(value, options);
+}
+
+function verifyLocalMediaSignature(pathname = "", searchParams = null) {
+  const normalizedPath = normalizedProtectedLocalMediaPath(pathname);
   const secret = localMediaSigningSecret();
   if (!normalizedPath || !secret) return false;
   const params = searchParams instanceof URLSearchParams
@@ -563,6 +604,10 @@ function verifyLocalUserUploadSignature(pathname = "", searchParams = null) {
   const actualBuffer = Buffer.from(signature);
   const expectedBuffer = Buffer.from(expected);
   return actualBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function verifyLocalUserUploadSignature(pathname = "", searchParams = null) {
+  return verifyLocalMediaSignature(pathname, searchParams);
 }
 
 function publicUrlForAssetPath(localUrl = "") {
@@ -610,14 +655,20 @@ function publicAssetUrlsForClient(value, key = "") {
   if (typeof value === "string") {
     const text = value.trim();
     if (shouldRewritePublicAssetField(key, text)) {
+      // A protected path on the application origin is a local-only fallback.
+      // Sign it before R2/OSS rewriting so a missing mirror cannot turn into
+      // either a bare local path or a dead unsigned CDN URL.
+      const localDeliveryUrl = localMediaDeliveryUrl(text, { absolute: isPublicHttpUrl(text) });
+      if (localDeliveryUrl) return localDeliveryUrl;
       // OSS is private. Serialization must mint a fresh CDN signature instead
       // of exposing a stale or unsigned stored URL. Key fields remain untouched.
       const publicUrl = publicUrlForAssetPath(text);
       const deliveryUrl = signedOssCdnUrlForDelivery(publicUrl || text);
       if (deliveryUrl) return deliveryUrl;
+      // For protected local paths, never fall back to an unsigned CDN/origin
+      // URL when signing is unavailable. Let the caller fail closed.
+      if (isProtectedLocalMediaPath(text)) return "";
       if (publicUrl && publicUrl !== text) return publicUrl;
-      const localDeliveryUrl = localUserUploadDeliveryUrl(text, { absolute: isPublicHttpUrl(text) });
-      if (localDeliveryUrl) return localDeliveryUrl;
     }
     return value;
   }

@@ -62,6 +62,8 @@ PLATFORM_PATTERNS = (
     "assets/admin/**",
     "workflow-react/**",
     "ops/apply-production-tuning.sh",
+    "ops/harden_old_nginx_private_media.py",
+    "ops/harden-old-nginx-private-media.sh",
 )
 LIVE_SHARED_PATHS = (
     "chat-live.js",

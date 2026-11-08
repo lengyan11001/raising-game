@@ -625,10 +625,20 @@ function publicUserAsset(asset = {}) {
   const kind = mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : (WAN30_DOCUMENT_MIMES.has(mime) || documentMimeFromKnownPath(asset.name || asset.fileName)) ? "document" : "image";
   const isCharacterAsset = Boolean(asset.characterPrompt || asset.characterFinalPrompt || asset.characterModel || asset.characterTaskId);
   const rawLocalUrl = String(asset.localUrl || "").trim();
-  const readableLocalUrl = (value, { absolute = false } = {}) => localUserUploadDeliveryUrl(value, { absolute }) || value;
+  const readableLocalUrl = (value, { absolute = false } = {}) => {
+    const text = String(value || "").trim();
+    const signed = localUserUploadDeliveryUrl(text, { absolute });
+    if (signed) return signed;
+    return isLocalProtectedMediaAssetUrl(text) ? "" : text;
+  };
   const localUrl = readableLocalUrl(rawLocalUrl);
+  // Protected local media must not be rewritten to a public R2/OSS URL when
+  // the signing key is unavailable. The absolute local URL is only safe when
+  // it is the signed application-origin URL itself.
   const localHttpUrl = localUserUploadDeliveryUrl(rawLocalUrl, { absolute: true })
-    || readableLocalUrl(publicUrlForAssetPath(rawLocalUrl), { absolute: true });
+    || (isLocalProtectedMediaAssetUrl(rawLocalUrl)
+      ? ""
+      : readableLocalUrl(publicUrlForAssetPath(rawLocalUrl), { absolute: true }));
   // A user asset may retain both the local ingest copy and an object-storage
   // mirror. Keep the durable public mirror as the primary URL; the signed
   // local URL is only a fallback for files that were never mirrored.

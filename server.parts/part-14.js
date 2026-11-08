@@ -626,30 +626,26 @@ function publicSceneVideo(entry = {}) {
   const posterUrl = String(DISABLE_GENERATED_R2_STORAGE
     ? (entry.remotePosterUrl || entry.posterUrl || entry.cdnPosterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "")
     : (entry.cdnPosterUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "")).trim();
-  const signedVideoUrl = signedOssCdnUrlForDelivery(videoUrl, {
-    key: entry.storageKey || entry.objectStorageKey || entry.r2Key || "",
-  }) || videoUrl;
-  const signedPosterUrl = signedOssCdnUrlForDelivery(posterUrl, {
-    key: entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "",
-  }) || posterUrl;
+  const deliveryMediaUrl = (value, key = "") => {
+    const text = String(value || "").trim();
+    const signedObject = signedOssCdnUrlForDelivery(text, { key });
+    if (signedObject) return signedObject;
+    const signedLocal = localMediaDeliveryUrl(text);
+    if (signedLocal) return signedLocal;
+    return isLocalProtectedMediaAssetUrl(text) ? "" : text;
+  };
+  const signedVideoUrl = deliveryMediaUrl(videoUrl, entry.storageKey || entry.objectStorageKey || entry.r2Key || "");
+  const signedPosterUrl = deliveryMediaUrl(posterUrl, entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "");
   return {
     sceneId: entry.sceneId || "",
     sceneName: entry.sceneName || "",
     videoUrl: signedVideoUrl,
     posterUrl: signedPosterUrl,
-    cdnVideoUrl: signedOssCdnUrlForDelivery(entry.cdnVideoUrl, {
-      key: entry.storageKey || entry.objectStorageKey || entry.r2Key || "",
-    }) || entry.cdnVideoUrl || "",
-    cdnPosterUrl: signedOssCdnUrlForDelivery(entry.cdnPosterUrl, {
-      key: entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "",
-    }) || entry.cdnPosterUrl || "",
-    localPosterUrl: entry.localPosterUrl || signedPosterUrl || "",
-    coverUrl: signedOssCdnUrlForDelivery(entry.coverUrl, {
-      key: entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "",
-    }) || entry.coverUrl || signedPosterUrl || "",
-    thumbnailUrl: signedOssCdnUrlForDelivery(entry.thumbnailUrl, {
-      key: entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "",
-    }) || entry.thumbnailUrl || signedPosterUrl || "",
+    cdnVideoUrl: deliveryMediaUrl(entry.cdnVideoUrl, entry.storageKey || entry.objectStorageKey || entry.r2Key || ""),
+    cdnPosterUrl: deliveryMediaUrl(entry.cdnPosterUrl, entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || ""),
+    localPosterUrl: deliveryMediaUrl(entry.localPosterUrl, entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "") || signedPosterUrl || "",
+    coverUrl: deliveryMediaUrl(entry.coverUrl, entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "") || signedPosterUrl || "",
+    thumbnailUrl: deliveryMediaUrl(entry.thumbnailUrl, entry.posterStorageKey || entry.posterObjectStorageKey || entry.posterR2Key || "") || signedPosterUrl || "",
     taskId: entry.taskId || "",
     status: entry.status || "",
     sceneEntryId: entry.sceneEntryId || "default",

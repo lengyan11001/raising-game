@@ -675,25 +675,36 @@ const USER_CHARACTER_DIR = path.join(ROOT, "assets", "user-characters");
 function publicUserCharacter(character) {
   if (!character) return null;
   const creator = plainObject(character.creator);
-  const posterUrl = character.publicImageUrl || character.cdnImageUrl || character.posterUrl || character.localImageUrl || "";
-  const sourceImageUrl = character.publicImageUrl || character.cdnImageUrl || character.sourceImageUrl || character.localImageUrl || character.posterUrl || "";
-  const videoUrl = DISABLE_GENERATED_R2_STORAGE
+  const safeMedia = (value = "", { absolute = false } = {}) => {
+    const text = String(value || "").trim();
+    const signed = localMediaDeliveryUrl(text, { absolute });
+    if (signed) return signed;
+    return isLocalProtectedMediaAssetUrl(text) ? "" : text;
+  };
+  const localImageUrl = safeMedia(character.localImageUrl || "");
+  const localPosterUrl = safeMedia(character.posterUrl || character.localImageUrl || "");
+  const localSourceImageUrl = safeMedia(character.sourceImageUrl || character.localImageUrl || character.posterUrl || "");
+  const publicImageUrl = safeMedia(character.publicImageUrl || "", { absolute: isPublicHttpUrl(character.publicImageUrl || "") });
+  const cdnImageUrl = safeMedia(character.cdnImageUrl || "", { absolute: isPublicHttpUrl(character.cdnImageUrl || "") });
+  const posterUrl = publicImageUrl || cdnImageUrl || localPosterUrl || localImageUrl || "";
+  const sourceImageUrl = publicImageUrl || cdnImageUrl || localSourceImageUrl || localImageUrl || localPosterUrl || "";
+  const videoUrl = safeMedia(DISABLE_GENERATED_R2_STORAGE
     ? (character.remoteVideoUrl || character.videoUrl || character.cdnVideoUrl || character.localVideoUrl || "")
-    : (character.cdnVideoUrl || character.videoUrl || character.localVideoUrl || character.remoteVideoUrl || "");
+    : (character.cdnVideoUrl || character.videoUrl || character.localVideoUrl || character.remoteVideoUrl || ""));
   return {
     id: character.id,
     name: character.name || "My character",
     title: character.title || "My drama",
     posterUrl,
-    localImageUrl: character.localImageUrl || "",
+    localImageUrl,
     sourceImageUrl,
-    publicImageUrl: character.publicImageUrl || "",
-    cdnImageUrl: character.cdnImageUrl || "",
+    publicImageUrl,
+    cdnImageUrl,
     imageTaskId: character.imageTaskId || "",
     imageRemoteUrl: character.imageRemoteUrl || "",
     videoUrl,
-    remoteVideoUrl: character.remoteVideoUrl || "",
-    cdnVideoUrl: character.cdnVideoUrl || "",
+    remoteVideoUrl: safeMedia(character.remoteVideoUrl || "", { absolute: isPublicHttpUrl(character.remoteVideoUrl || "") }),
+    cdnVideoUrl: safeMedia(character.cdnVideoUrl || "", { absolute: isPublicHttpUrl(character.cdnVideoUrl || "") }),
     taskId: character.taskId || "",
     status: character.status || "",
     error: character.error || "",

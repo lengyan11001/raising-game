@@ -1,19 +1,16 @@
-## 2026-11-09 production media boundary close-out (implemented, awaiting safe restart)
+## 2026-11-09 production private-media hardening (new wave, pre-deploy)
 
-- User priority: production path must remain healthy and secure. Do not evict logged-in users, clear sessions, rotate user tokens, or shorten existing login validity.
-- Deployed production currently runs release `e3d1cf6` sourced from `old-site` `d0b6c89`; `/api/health` is healthy and the service has no restarts.
-- Confirmed high-risk gap: Nginx serves private media directly from disk, bypassing Node authorization:
-  - `/assets/admin/voice-preview/` is anonymously readable.
-  - `/assets/user-uploads/` is anonymously readable.
-  - Other `/assets/admin/` paths are also directly served; public references only require `/assets/admin/home/`, `/assets/admin/advanced-cases/`, and `/assets/admin/platform-templates/`. Public production references found: 5 home, 14 advanced-case, 14 platform-template, and 6 user-upload URLs.
-- Implemented narrow fix: keep the three public admin media groups readable; reject voice previews unless an admin browser session is present; require short-lived HMAC signatures for local user-upload media; proxy both private prefixes through Node instead of Nginx aliases. Existing sessions and historical local files remain valid.
-- Media delivery precedence is OSS/CDN signature first, then signed local fallback. This preserves dual-copy historical assets and avoids replacing valid R2/OSS media with expiring local URLs.
-- Dedicated `MEDIA_URL_SIGNING_SECRET` is created by `scripts/ensure_media_signing_secret.py` before service restart; fallback is `SESSION_SECRET`. No session/cookie behavior changes.
-- SSH state recorded from current production: password authentication off, root login without-password, MaxAuthTries 3, fail2ban active, env file mode 600 root:root. Historical notes saying root password login is allowed are superseded.
-- Production data audit: 21,695 user-asset rows and 79,584 generation media entries; 20,998 asset `localUrl` and 60,396 record `localUrl` are relative local paths, while many public/cdn fields point at R2. No user-upload files exist in the local checkout (production holds them), so deployment must not delete or migrate them.
-- Verification: 183/183 targeted tests pass, including media authorization, deployment target, admin voice preview, static allowlist, auth risk/lockout, OSS/R2 signed delivery, Wan 3.0, Vega, media preparation/input, generated assets, workflow canvas, and normal-user dual-copy asset handling. JS syntax, Python compilation, and `git diff --check` pass.
-- Production safety gate: 3 Seedance tasks were still `running` in the last 30 minutes; deployment is intentionally deferred until they converge. Do not restart while active generation remains.
-- Not yet committed or deployed from this close-out. Remaining sequence: precise stage/commit to `old-site`, build release snapshot, push only `platform-release`, run old deployment, apply production tuning once, then validate health, session count >= 879, unsigned media 401/403, signed media 200, anonymous voice 401/403, public admin media 200, and generation/history media compatibility.
+- User priority remains: keep the Old production generation chain healthy and secure; never evict logged-in users, rotate their tokens, shorten existing login validity, or touch Live.
+- Target: Old / `123vips.com`, service `raising-game-demo`, root `/opt/raising-game-demo`. Known-good pre-wave release was `platform-release` `d59114aa74c1939ee14ce52770126eb19d5a4cfd` from source `old-site` `a52e7c6`; production had zero Node restarts and 879 sessions before this wave.
+- Newly found exposure: `/assets/user-characters/` was anonymously readable (`200 image/png`; 520 files), as was `/assets/generated/characters/apiz/`; Nginx also directly aliased private generated-character and panorama directories. Manual Cloudflare purge remains required for every private prefix because previously public edge objects may persist.
+- Code fix: generalized signing covers `/assets/user-uploads/`, `/assets/user-characters/`, `/assets/generated/characters/apiz/`, and `/assets/generated/panoramas/`. Built-in generated characters (including `aria360` and `official-2d`) remain public and unsigned.
+- Fail-closed fix: protected local media is never rewritten to a public R2/OSS URL when local signing is unavailable. User assets, characters, scene videos, client serialization, and upstream media preparation now either sign the exact path or return empty.
+- Cache hardening: valid protected-media responses now send `private, no-store` plus `cdn-cache-control: no-store` and `cloudflare-cdn-cache-control: no-store`; unsigned/tampered/expired requests remain `403 private, no-store`.
+- Nginx hardening: `ops/harden_old_nginx_private_media.py` removes broad private aliases, proxies private prefixes through `raising_game_app`, and leaves only `assets/admin/{home,advanced-cases,platform-templates}` on direct disk serving. `ops/harden-old-nginx-private-media.sh` creates backups in `/root/raising-game-config-backups/`, validates with `nginx -t`, and reloads Nginx without restarting Node.
+- Deploy checks: release tooling now verifies all five private prefixes anonymously return 403 and fails if Nginx still aliases their directories.
+- Verification before deploy: media/site/admin/voice/Wan suite 32/32 pass; deploy-target suite 9/9 pass; JS syntax, Python compilation, and `git diff --check` pass.
+- Deployment status: NOT YET DEPLOYED for this wave. Planned sequence: precise commit on `old-site`; build snapshot from committed `old-site`; push only `platform-release`; deploy Old; immediately apply Nginx hardening; run production acceptance. The prior `d59114a` deployment and its `/assets/user-uploads/`/voice-preview fixes remain verified. Live was not touched.
+
 
 ## Upstream reference image 403 investigation (2026-11-08/09)
 

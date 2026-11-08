@@ -137,16 +137,19 @@ function publicHttpUrlForUpstream(value = "") {
   if (!text) return "";
   if (isPublicHttpUrl(text)) {
     const publicUrl = publicUrlForAssetPath(text);
-    return signedOssCdnUrlForDelivery(text) || signedOssCdnUrlForDelivery(publicUrl)
-      || localUserUploadDeliveryUrl(text, { absolute: true })
-      || (publicUrl !== text ? publicUrl : text);
+    const signedObjectUrl = signedOssCdnUrlForDelivery(text) || signedOssCdnUrlForDelivery(publicUrl);
+    if (signedObjectUrl) return signedObjectUrl;
+    // A protected application-origin URL must never be sent upstream bare.
+    const protectedLocalDelivery = localMediaDeliveryUrl(text, { absolute: true });
+    if (protectedLocalDelivery) return protectedLocalDelivery;
+    return publicUrl !== text ? publicUrl : text;
   }
   if (text.startsWith("/")) {
+    const localDeliveryUrl = localMediaDeliveryUrl(text, { absolute: true });
+    if (localDeliveryUrl) return localDeliveryUrl;
     const configured = publicUrlForAssetPath(text);
     const signedConfigured = signedOssCdnUrlForDelivery(configured);
     if (signedConfigured) return signedConfigured;
-    const localDeliveryUrl = localUserUploadDeliveryUrl(text, { absolute: true });
-    if (localDeliveryUrl) return localDeliveryUrl;
     if (!configured) return `https://123vips.com/${text.replace(/^\/+/, "")}`;
     return configured;
   }

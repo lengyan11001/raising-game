@@ -17,8 +17,8 @@ async function serveStatic(req, res, url) {
   if (pathname.startsWith("/assets/admin/") && !publicAdminMediaPath(pathname)) {
     return sendText(res, 403, "Forbidden");
   }
-  if (pathname.startsWith("/assets/user-uploads/") && !verifyLocalUserUploadSignature(pathname, url.searchParams)) {
-    return sendText(res, 403, "Forbidden");
+  if (isProtectedLocalMediaPath(pathname) && !verifyLocalMediaSignature(pathname, url.searchParams)) {
+    return sendText(res, 403, "Forbidden", { cacheControl: "private, no-store" });
   }
   if (!publicStaticPath(pathname)) return sendText(res, 404, "Not Found");
   if (shouldBlockLiveOwnedStatic({
@@ -105,7 +105,7 @@ async function serveStatic(req, res, url) {
     !pathname.startsWith("/assets/showcase/") &&
     !pathname.startsWith("/assets/generated/") &&
     !pathname.startsWith("/assets/admin/voice-preview/") &&
-    !pathname.startsWith("/assets/user-uploads/") &&
+    !isProtectedLocalMediaPath(pathname) &&
     !DISABLE_R2_STORAGE &&
     R2.publicDomain &&
     !OSS_STORAGE_ENABLED;
@@ -129,7 +129,7 @@ async function serveStatic(req, res, url) {
     const contentType = mimeTypes.get(path.extname(filePath).toLowerCase()) || "application/octet-stream";
     const stat = await fs.stat(filePath);
     const range = req.headers.range;
-    const isPrivateUserUpload = pathname.startsWith("/assets/user-uploads/");
+    const isProtectedMedia = isProtectedLocalMediaPath(pathname);
 
     if (contentType.startsWith("video/") && sendInternalAsset(res, filePath, contentType, stat)) return;
     if (filePath.startsWith(path.normalize(GENERATED_POSTER_DIR)) && sendInternalAsset(res, filePath, contentType, stat)) return;
@@ -150,7 +150,7 @@ async function serveStatic(req, res, url) {
         "content-length": chunkEnd - chunkStart + 1,
         "content-range": `bytes ${chunkStart}-${chunkEnd}/${stat.size}`,
         "accept-ranges": "bytes",
-        "cache-control": isPrivateUserUpload ? "private, max-age=3600" : "public, max-age=604800, immutable",
+        "cache-control": isProtectedMedia ? "private, no-store" : "public, max-age=604800, immutable",
       });
 
       if (req.method === "HEAD") return res.end();
@@ -190,8 +190,8 @@ async function serveStatic(req, res, url) {
       "content-type": contentType,
       "content-length": stat.size,
       "accept-ranges": contentType.startsWith("video/") || contentType.startsWith("audio/") ? "bytes" : "none",
-      "cache-control": isPrivateUserUpload
-        ? "private, max-age=3600"
+      "cache-control": isProtectedMedia
+        ? "private, no-store"
         : isNoStoreResponse
         ? "no-store, no-cache, must-revalidate, max-age=0"
         : isServiceWorker
@@ -201,7 +201,7 @@ async function serveStatic(req, res, url) {
           : contentType.startsWith("text/")
             ? "no-cache"
             : "public, max-age=60",
-      ...(isNoStoreResponse || isServiceWorker ? {
+      ...(isNoStoreResponse || isServiceWorker || isProtectedMedia ? {
         pragma: "no-cache",
         expires: "0",
         "cdn-cache-control": "no-store",

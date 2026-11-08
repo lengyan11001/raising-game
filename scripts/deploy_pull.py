@@ -266,6 +266,11 @@ def main() -> None:
         help="Require an exact HTTP status. Format: URL=CODE. The URL must also be passed to --verify-url.",
     )
     parser.add_argument(
+        "--verify-private-media",
+        action="store_true",
+        help="Fail when a real user upload or voice-preview file is anonymously readable from Nginx.",
+    )
+    parser.add_argument(
         "--verify-contains",
         action="append",
         default=[],
@@ -444,6 +449,32 @@ rm -f "$verify_body"
 echo "Verified page: {verify_url}"
 """)
     verification_check = "\n".join(verification_checks) or "true"
+    if args.verify_private_media:
+        verification_check += r"""
+private_probe() {
+  local prefix="$1" url code
+  url=$(find "$2" -type f -print -quit 2>/dev/null || true)
+  if [ -z "$url" ]; then
+    echo "Private media verification skipped: no file under $2" >&2
+    return 0
+  fi
+  code=$(curl -ksS --max-time 15 --resolve 123vips.com:443:127.0.0.1 -o /dev/null -w '%{http_code}' "https://123vips.com${url}?verify-private=$(date +%s%N)") || code=000
+  if [ "$code" != "403" ]; then
+    echo "Private media bypass detected: $prefix returned HTTP $code" >&2
+    return 1
+  fi
+  echo "Private media denied anonymously: $prefix"
+}
+private_probe /assets/user-uploads/ /opt/raising-game-demo/assets/user-uploads
+private_probe /assets/admin/voice-preview/ /opt/raising-game-demo/assets/admin/voice-preview
+private_probe /assets/user-characters/ /opt/raising-game-demo/assets/user-characters
+private_probe /assets/generated/characters/apiz/ /opt/raising-game-demo/assets/generated/characters/apiz
+private_probe /assets/generated/panoramas/ /opt/raising-game-demo/assets/generated/panoramas
+if nginx -T 2>/dev/null | grep -Eq '^[[:space:]]*alias[[:space:]]+/opt/raising-game-demo/assets/(user-uploads|admin/voice-preview|user-characters|generated/characters|generated/panoramas)/'; then
+  echo "Private media directory is still aliased by Nginx" >&2
+  exit 35
+fi
+"""
 
     pre_restart_check = "\n".join(args.pre_restart_command) or "true"
 
