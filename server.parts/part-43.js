@@ -478,6 +478,8 @@ module.exports = {
   adminAdvancedPricingView,
   publicGenerationRecord,
   publicUserAsset,
+  signLocalUserUploadPath,
+  verifyLocalUserUploadSignature,
   signedOssCdnUrlForDelivery,
   canonicalOssStorageUrlForCache,
   publicHttpUrlForUpstream,

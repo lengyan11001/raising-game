@@ -1,3 +1,20 @@
+## 2026-11-09 production media boundary close-out (implemented, awaiting safe restart)
+
+- User priority: production path must remain healthy and secure. Do not evict logged-in users, clear sessions, rotate user tokens, or shorten existing login validity.
+- Deployed production currently runs release `e3d1cf6` sourced from `old-site` `d0b6c89`; `/api/health` is healthy and the service has no restarts.
+- Confirmed high-risk gap: Nginx serves private media directly from disk, bypassing Node authorization:
+  - `/assets/admin/voice-preview/` is anonymously readable.
+  - `/assets/user-uploads/` is anonymously readable.
+  - Other `/assets/admin/` paths are also directly served; public references only require `/assets/admin/home/`, `/assets/admin/advanced-cases/`, and `/assets/admin/platform-templates/`. Public production references found: 5 home, 14 advanced-case, 14 platform-template, and 6 user-upload URLs.
+- Implemented narrow fix: keep the three public admin media groups readable; reject voice previews unless an admin browser session is present; require short-lived HMAC signatures for local user-upload media; proxy both private prefixes through Node instead of Nginx aliases. Existing sessions and historical local files remain valid.
+- Media delivery precedence is OSS/CDN signature first, then signed local fallback. This preserves dual-copy historical assets and avoids replacing valid R2/OSS media with expiring local URLs.
+- Dedicated `MEDIA_URL_SIGNING_SECRET` is created by `scripts/ensure_media_signing_secret.py` before service restart; fallback is `SESSION_SECRET`. No session/cookie behavior changes.
+- SSH state recorded from current production: password authentication off, root login without-password, MaxAuthTries 3, fail2ban active, env file mode 600 root:root. Historical notes saying root password login is allowed are superseded.
+- Production data audit: 21,695 user-asset rows and 79,584 generation media entries; 20,998 asset `localUrl` and 60,396 record `localUrl` are relative local paths, while many public/cdn fields point at R2. No user-upload files exist in the local checkout (production holds them), so deployment must not delete or migrate them.
+- Verification: 183/183 targeted tests pass, including media authorization, deployment target, admin voice preview, static allowlist, auth risk/lockout, OSS/R2 signed delivery, Wan 3.0, Vega, media preparation/input, generated assets, workflow canvas, and normal-user dual-copy asset handling. JS syntax, Python compilation, and `git diff --check` pass.
+- Production safety gate: 3 Seedance tasks were still `running` in the last 30 minutes; deployment is intentionally deferred until they converge. Do not restart while active generation remains.
+- Not yet committed or deployed from this close-out. Remaining sequence: precise stage/commit to `old-site`, build release snapshot, push only `platform-release`, run old deployment, apply production tuning once, then validate health, session count >= 879, unsigned media 401/403, signed media 200, anonymous voice 401/403, public admin media 200, and generation/history media compatibility.
+
 ## Upstream reference image 403 investigation (2026-11-08/09)
 
 ### 2026-11-09 production safety and generation-record fix

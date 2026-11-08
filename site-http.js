@@ -84,6 +84,28 @@ const PUBLIC_STATIC_DIRECTORY_EXTENSIONS = new Map([
   ["/workflow-react/vendor/", new Set([".css", ".js"])],
 ]);
 
+const PUBLIC_ADMIN_MEDIA_PREFIXES = Object.freeze([
+  "/assets/admin/home/",
+  "/assets/admin/advanced-cases/",
+  "/assets/admin/platform-templates/",
+]);
+
+function normalizedPublicMediaPath(pathname = "") {
+  const raw = String(pathname || "");
+  if (!raw.startsWith("/") || raw.includes("\0") || raw.includes("\\")) return "";
+  if (/%2e|%2f|%5c/i.test(raw)) return "";
+  const normalized = path.posix.normalize(raw);
+  if (normalized !== raw || normalized.includes("//")) return "";
+  if (normalized.split("/").some((segment) => segment === "." || segment === ".." || segment.startsWith("."))) return "";
+  return normalized;
+}
+
+function publicAdminMediaPath(pathname = "") {
+  const normalized = normalizedPublicMediaPath(pathname);
+  if (!normalized) return false;
+  return PUBLIC_ADMIN_MEDIA_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
 const PUBLIC_STATIC_ROOT_PATTERNS = [
   /^\/platform(?:\.[a-z0-9-]+)?\.js$/i,
   /^\/google[0-9a-f]+\.html$/i,
@@ -154,4 +176,5 @@ module.exports = {
   httpsRedirectLocation,
   requestProtocol,
   publicStaticPath,
+  publicAdminMediaPath,
 };

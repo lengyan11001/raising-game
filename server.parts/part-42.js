@@ -1,5 +1,10 @@
 async function serveStatic(req, res, url) {
   const requestHost = requestHostname(req);
+  const voicePreviewPrefix = url.pathname === "/assets/admin/voice-preview"
+    || url.pathname.startsWith("/assets/admin/voice-preview/");
+  if (voicePreviewPrefix) {
+    return sendText(res, 403, "Forbidden");
+  }
   const tenant = requestTenantDescriptor(req);
   const chatTenantRequest = tenant.toolId === "chat";
   const liveTenantRequest = tenant.toolId === "live";
@@ -9,6 +14,12 @@ async function serveStatic(req, res, url) {
     ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : liveTenantRequest ? "/live.html" : defaultPageForHostname(requestHost))
     : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
+  if (pathname.startsWith("/assets/admin/") && !publicAdminMediaPath(pathname)) {
+    return sendText(res, 403, "Forbidden");
+  }
+  if (pathname.startsWith("/assets/user-uploads/") && !verifyLocalUserUploadSignature(pathname, url.searchParams)) {
+    return sendText(res, 403, "Forbidden");
+  }
   if (!publicStaticPath(pathname)) return sendText(res, 404, "Not Found");
   if (shouldBlockLiveOwnedStatic({
     pathname,
@@ -94,6 +105,7 @@ async function serveStatic(req, res, url) {
     !pathname.startsWith("/assets/showcase/") &&
     !pathname.startsWith("/assets/generated/") &&
     !pathname.startsWith("/assets/admin/voice-preview/") &&
+    !pathname.startsWith("/assets/user-uploads/") &&
     !DISABLE_R2_STORAGE &&
     R2.publicDomain &&
     !OSS_STORAGE_ENABLED;
@@ -117,6 +129,7 @@ async function serveStatic(req, res, url) {
     const contentType = mimeTypes.get(path.extname(filePath).toLowerCase()) || "application/octet-stream";
     const stat = await fs.stat(filePath);
     const range = req.headers.range;
+    const isPrivateUserUpload = pathname.startsWith("/assets/user-uploads/");
 
     if (contentType.startsWith("video/") && sendInternalAsset(res, filePath, contentType, stat)) return;
     if (filePath.startsWith(path.normalize(GENERATED_POSTER_DIR)) && sendInternalAsset(res, filePath, contentType, stat)) return;
@@ -137,7 +150,7 @@ async function serveStatic(req, res, url) {
         "content-length": chunkEnd - chunkStart + 1,
         "content-range": `bytes ${chunkStart}-${chunkEnd}/${stat.size}`,
         "accept-ranges": "bytes",
-        "cache-control": "public, max-age=604800, immutable",
+        "cache-control": isPrivateUserUpload ? "private, max-age=3600" : "public, max-age=604800, immutable",
       });
 
       if (req.method === "HEAD") return res.end();
@@ -177,7 +190,9 @@ async function serveStatic(req, res, url) {
       "content-type": contentType,
       "content-length": stat.size,
       "accept-ranges": contentType.startsWith("video/") || contentType.startsWith("audio/") ? "bytes" : "none",
-      "cache-control": isNoStoreResponse
+      "cache-control": isPrivateUserUpload
+        ? "private, max-age=3600"
+        : isNoStoreResponse
         ? "no-store, no-cache, must-revalidate, max-age=0"
         : isServiceWorker
           ? "no-cache, must-revalidate, max-age=0"
@@ -1172,6 +1187,26 @@ async function handleRequest(req, res) {
     }
     if (adminChatLiveLookMatch && req.method === "DELETE") {
       return await handleAdminDeleteChatLiveLook(req, res, decodeURIComponent(adminChatLiveLookMatch[1]));
+    }
+
+    const adminVoicePreviewMatch = url.pathname.match(/^\/api\/admin\/voice-preview\/([^/]+)$/);
+    if ((req.method === "GET" || req.method === "HEAD") && adminVoicePreviewMatch) {
+      const admin = await requireAdmin(req, res);
+      if (!admin) return;
+      const fileName = path.basename(decodeURIComponent(adminVoicePreviewMatch[1]));
+      if (!fileName || !["\.m4a", "\.wav"].includes(path.extname(fileName).toLowerCase())) {
+        return sendText(res, 404, "Not Found");
+      }
+      const filePath = safePathWithin(path.join(ROOT, "assets", "admin", "voice-preview"), path.join(ROOT, "assets", "admin", "voice-preview", fileName));
+      if (!filePath) return sendText(res, 404, "Not Found");
+      try {
+        const stat = await fs.stat(filePath);
+        if (!stat.isFile()) return sendText(res, 404, "Not Found");
+        const contentType = path.extname(fileName).toLowerCase() === ".wav" ? "audio/wav" : "audio/mp4";
+        return sendMediaFile(req, res, filePath, { contentType, stat, headers: { "cache-control": "private, no-store, max-age=0" } });
+      } catch {
+        return sendText(res, 404, "Not Found");
+      }
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/overview") {

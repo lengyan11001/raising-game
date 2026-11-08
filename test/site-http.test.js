@@ -7,6 +7,7 @@ const {
   PUBLIC_SECURITY_HEADERS,
   applyPublicSecurityHeaders,
   httpsRedirectLocation,
+  publicAdminMediaPath,
   publicStaticPath,
 } = require("../site-http");
 
@@ -62,6 +63,30 @@ test("static allowlist blocks source, secrets, documentation, maps, dotfiles, an
     "/assets/image.jpg/secret.txt", "/assets/%2e%2e/server.js", "/assets/..%2fserver.js",
   ]) {
     assert.equal(publicStaticPath(pathname), false, pathname);
+  }
+});
+
+test("admin media exposes only the three public reference directories", () => {
+  for (const pathname of [
+    "/assets/admin/home/default-hero.jpg",
+    "/assets/admin/advanced-cases/example.mp4",
+    "/assets/admin/platform-templates/example.jpg",
+  ]) {
+    assert.equal(publicAdminMediaPath(pathname), true, pathname);
+  }
+  for (const pathname of [
+    "/assets/admin/voice-preview/joanna-scene-23s-a-bfa45922.m4a",
+    "/assets/admin/undress-examples/example.png",
+    "/assets/admin/private/report.json",
+    "/assets/admin/",
+    "/assets/admin/home/../voice-preview/joanna-scene-23s-a-bfa45922.m4a",
+    "/assets/admin/home/%2e%2e/voice-preview/joanna-scene-23s-a-bfa45922.m4a",
+    "/assets/admin/home/..%2fvoice-preview/joanna-scene-23s-a-bfa45922.m4a",
+    "/assets/admin/home/%2E%2E/voice-preview/joanna-scene-23s-a-bfa45922.m4a",
+    "/assets/admin/home/.%2e/voice-preview/joanna-scene-23s-a-bfa45922.m4a",
+    "/assets/admin/home/voice-preview\\..\\private.m4a",
+  ]) {
+    assert.equal(publicAdminMediaPath(pathname), false, pathname);
   }
 });
 

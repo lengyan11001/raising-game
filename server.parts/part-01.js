@@ -350,6 +350,7 @@ const {
 const {
   applyPublicSecurityHeaders,
   httpsRedirectLocation,
+  publicAdminMediaPath,
   publicStaticPath,
 } = require("./site-http");
 const {

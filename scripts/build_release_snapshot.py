@@ -61,6 +61,7 @@ PLATFORM_PATTERNS = (
     "assets/user-characters/**",
     "assets/admin/**",
     "workflow-react/**",
+    "ops/apply-production-tuning.sh",
 )
 LIVE_SHARED_PATHS = (
     "chat-live.js",
@@ -93,12 +94,11 @@ LIVE_RELEASE_PATHS = (*LIVE_ONLY_PATHS, *LIVE_SHARED_PATHS)
 RELEASE_TOOLS = (
     "DEPLOY.md",
     "scripts/build_release_snapshot.py",
+    "scripts/ensure_media_signing_secret.py",
     "scripts/deploy_pull.py",
     "scripts/deploy_site.py",
     "scripts/materialize_static_release.py",
 )
-
-
 def run(args: list[str], cwd: Path, *, input_text: str | None = None) -> str:
     result = subprocess.run(
         args,

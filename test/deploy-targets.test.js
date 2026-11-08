@@ -241,8 +241,9 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
   run("git", ["config", "user.name", "Test"], { cwd: source });
 
   const files = [
-    "DEPLOY.md", "scripts/build_release_snapshot.py", "scripts/deploy_pull.py",
-    "scripts/deploy_site.py", "scripts/materialize_static_release.py",
+    "DEPLOY.md", "scripts/build_release_snapshot.py", "scripts/ensure_media_signing_secret.py",
+    "scripts/deploy_pull.py", "scripts/deploy_site.py", "scripts/materialize_static_release.py",
+    "ops/apply-production-tuning.sh",
     "live.html", "live.css", "live.js", "chat-live.js", "qrcode.js",
     "site-landing.html", "site-landing.css", "site-landing.js",
     "downloads/vipeak-live.apk", "mobile/live-android/MainActivity.java",
@@ -263,7 +264,7 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
   for (const file of ["live.html", "live.css", "live.js", "downloads/vipeak-live.apk", "test/live-upload-poster-nav.test.js"]) {
     assert.equal(platformTree.includes(file), false, file);
   }
-  for (const file of ["platform.html", "admin.html", "server.js", "db.js", "package.json"]) {
+  for (const file of ["platform.html", "admin.html", "server.js", "db.js", "package.json", "scripts/ensure_media_signing_secret.py", "ops/apply-production-tuning.sh"]) {
     assert.equal(liveTree.includes(file), false, file);
   }
   for (const file of ["live.html", "chat-live.js", "assets/chat-live/moans/joanna.wav"]) {

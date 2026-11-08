@@ -939,14 +939,17 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
 }
 
 function publicUrlForLocalAsset(asset = {}) {
+  const directLocalDeliveryUrl = localUserUploadDeliveryUrl(asset.localUrl, { absolute: true });
+  if (directLocalDeliveryUrl) return directLocalDeliveryUrl;
   const storedUrl = isPublicHttpUrl(asset.wan30PublicUrl)
     ? asset.wan30PublicUrl
     : (isPublicHttpUrl(asset.publicUrl) ? asset.publicUrl : publicUrlForAssetPath(asset.localUrl));
+  const localDeliveryUrl = localUserUploadDeliveryUrl(storedUrl, { absolute: isPublicHttpUrl(storedUrl) });
   return signedOssCdnUrlForDelivery(storedUrl, {
     key: isPublicHttpUrl(asset.wan30PublicUrl)
       ? (asset.wan30R2Key || asset.wan30StorageKey || "")
       : (asset.storageKey || asset.objectStorageKey || asset.r2Key || ""),
-  }) || storedUrl;
+  }) || localDeliveryUrl || storedUrl;
 }
 
 async function ensureWan30R2MirrorForUserMediaAsset(db, userAsset) {

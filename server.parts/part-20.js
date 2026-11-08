@@ -1273,7 +1273,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     publicRecord.finalPrompt = "";
     delete publicRecord.upstreamPayload;
   }
-  return publicRecord;
+  return publicAssetUrlsForClient(publicRecord);
 }
 
 function adminGenerationRecordView(record = {}, userMap = new Map()) {
@@ -1286,7 +1286,7 @@ function adminGenerationRecordView(record = {}, userMap = new Map()) {
     username: user?.username || "",
     source: String(record.source || ""),
     mediaMode: String(record.mediaMode || record.params?.mediaMode || ""),
-    mediaAssets: listGenerationRecordValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : []),
+    mediaAssets: publicAssetUrlsForClient(listGenerationRecordValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : [])),
     params: listGenerationRecordValue(record.params || null),
     model: String(record.model || ""),
     provider: String(inferredProvider || ""),

@@ -40,7 +40,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "41.5 秒",
     expectedDuration: 41.5,
     seekMarkers: [23.0, 32.0],
-    src: "/assets/admin/voice-preview/joanna-scene-23s-a-bfa45922.m4a?v=20261030-voice-preview-12",
+    src: "/api/admin/voice-preview/joanna-scene-23s-a-bfa45922.m4a?v=20261030-voice-preview-12",
   },
   {
     id: "user-rule-f",
@@ -50,7 +50,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "46.8 秒",
     expectedDuration: 46.8,
     seekMarkers: [23.0, 32.0],
-    src: "/assets/admin/voice-preview/joanna-scene-23s-b-5c58fa85.m4a?v=20261030-voice-preview-12",
+    src: "/api/admin/voice-preview/joanna-scene-23s-b-5c58fa85.m4a?v=20261030-voice-preview-12",
   },
   {
     id: "qwen3-serena-once",
@@ -60,7 +60,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "64.2 秒",
     expectedDuration: 64.16,
     seekMarkers: [32.0, 48.0],
-    src: "/assets/admin/voice-preview/qwen3-serena-scene-once-cc25477e.m4a?v=20261031-qwen3-serena-once",
+    src: "/api/admin/voice-preview/qwen3-serena-scene-once-cc25477e.m4a?v=20261031-qwen3-serena-once",
   },
   {
     id: "qwen3-serena-more-moans-a",
@@ -70,7 +70,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "51.8 秒",
     expectedDuration: 51.84,
     seekMarkers: [16.0, 32.0],
-    src: "/assets/admin/voice-preview/qwen3-serena-more-moans-a-488ec19b.m4a?v=20261102-qwen3-serena-more-moans-a",
+    src: "/api/admin/voice-preview/qwen3-serena-more-moans-a-488ec19b.m4a?v=20261102-qwen3-serena-more-moans-a",
   },
   {
     id: "qwen3-serena-more-moans-b",
@@ -80,7 +80,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "93.5 秒",
     expectedDuration: 93.52,
     seekMarkers: [31.0, 62.0],
-    src: "/assets/admin/voice-preview/qwen3-serena-more-moans-b-b3ec15c9.m4a?v=20261102-qwen3-serena-more-moans-b",
+    src: "/api/admin/voice-preview/qwen3-serena-more-moans-b-b3ec15c9.m4a?v=20261102-qwen3-serena-more-moans-b",
   },
 ];
 
@@ -7123,7 +7123,9 @@ async function loadVoicePreviewAudio(audio) {
     if (status) status.textContent = `正在载入完整音频（约 ${expectedDuration.toFixed(1)} 秒）...`;
     // Download the whole short audition file before playback. Browser range decoding
     // of long WAV files was stopping the admin player after only a few seconds.
-    const response = await fetch(source);
+    const response = await fetch(source, {
+      headers: state.token ? { authorization: `Bearer ${state.token}` } : {},
+    });
     if (!response.ok) throw new Error(`音频请求失败（HTTP ${response.status}）`);
     const bytes = await response.arrayBuffer();
     if (bytes.byteLength < 100000) throw new Error(`音频下载不完整（${bytes.byteLength} 字节）`);

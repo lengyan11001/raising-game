@@ -457,6 +457,114 @@ function configuredPublicBaseUrl() {
   return (PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 }
 
+const LOCAL_MEDIA_SIGNATURE_TTL_MS = 60 * 60 * 1000;
+
+function localMediaSigningSecret() {
+  const dedicated = String(process.env.MEDIA_URL_SIGNING_SECRET || "").trim();
+  if (dedicated) return dedicated;
+  // Session cookies are opaque random tokens, so an existing deployment's
+  // secret is an independent media key without changing login behaviour.
+  return String(process.env.SESSION_SECRET || "").trim();
+}
+
+function normalizedUserUploadPath(value = "") {
+  const text = String(value || "").trim();
+  if (!text || text.includes("\0") || text.includes("\\")) return "";
+  let pathname = "";
+  try {
+    pathname = isPublicHttpUrl(text) ? new URL(text).pathname : text.split(/[?#]/, 1)[0];
+  } catch {
+    return "";
+  }
+  if (!pathname.startsWith("/assets/user-uploads/")) return "";
+  if (/%2e|%2f|%5c/i.test(pathname)) return "";
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    return "";
+  }
+  if (!pathname.startsWith("/assets/user-uploads/") || pathname.includes("\\")) return "";
+  const normalized = path.posix.normalize(pathname);
+  if (normalized !== pathname || normalized.includes("//")) return "";
+  if (normalized.split("/").some((segment) => segment === "." || segment === ".." || segment.startsWith("."))) return "";
+  return normalized;
+}
+
+function configuredAssetHostname(value = "") {
+  try {
+    return value ? new URL(String(value)).hostname.toLowerCase() : "";
+  } catch {
+    return "";
+  }
+}
+
+function isManagedAssetHostname(hostname = "") {
+  const host = String(hostname || "").toLowerCase();
+  if (!host) return false;
+  const configuredHosts = [
+    configuredAssetHostname(configuredPublicBaseUrl()),
+    configuredAssetHostname(R2.publicDomain),
+    configuredAssetHostname(OSS.cdnBaseUrl),
+    configuredAssetHostname(OSS.endpoint),
+  ].filter(Boolean);
+  return host === "123vips.com"
+    || host === "www.123vips.com"
+    || host === "media.123vips.com"
+    || configuredHosts.includes(host);
+}
+
+function signLocalUserUploadPath(pathname = "", expiresAt = Date.now() + LOCAL_MEDIA_SIGNATURE_TTL_MS) {
+  const normalizedPath = normalizedUserUploadPath(pathname);
+  const secret = localMediaSigningSecret();
+  if (!normalizedPath || !secret) return "";
+  const expiry = Math.max(Date.now() + 60 * 1000, Number(expiresAt) || 0);
+  const signature = crypto.createHmac("sha256", secret)
+    .update(`${normalizedPath}\n${expiry}`)
+    .digest("base64url");
+  return { expires: expiry, signature };
+}
+
+function isLocalUserUploadAssetUrl(value = "") {
+  const text = String(value || "").trim();
+  const normalizedPath = normalizedUserUploadPath(text);
+  if (!normalizedPath) return false;
+  if (!isPublicHttpUrl(text)) return true;
+  try {
+    return isManagedAssetHostname(new URL(text).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function localUserUploadDeliveryUrl(value = "", { absolute = false } = {}) {
+  if (!isLocalUserUploadAssetUrl(value)) return "";
+  const normalizedPath = normalizedUserUploadPath(value);
+  const signed = signLocalUserUploadPath(normalizedPath);
+  if (!signed) return "";
+  const pathWithSignature = `${normalizedPath}?expires=${signed.expires}&signature=${encodeURIComponent(signed.signature)}`;
+  if (!absolute) return pathWithSignature;
+  const base = configuredPublicBaseUrl() || "https://123vips.com";
+  return `${base.replace(/\/+$/, "")}${pathWithSignature}`;
+}
+
+function verifyLocalUserUploadSignature(pathname = "", searchParams = null) {
+  const normalizedPath = normalizedUserUploadPath(pathname);
+  const secret = localMediaSigningSecret();
+  if (!normalizedPath || !secret) return false;
+  const params = searchParams instanceof URLSearchParams
+    ? searchParams
+    : new URLSearchParams(String(searchParams || ""));
+  const expires = Number(params.get("expires") || 0);
+  const signature = String(params.get("signature") || "");
+  if (!Number.isFinite(expires) || expires < Date.now() || !signature) return false;
+  const expected = crypto.createHmac("sha256", secret)
+    .update(`${normalizedPath}\n${expires}`)
+    .digest("base64url");
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
 function publicUrlForAssetPath(localUrl = "") {
   const value = String(localUrl || "").trim();
   if (!value) return "";
@@ -508,6 +616,8 @@ function publicAssetUrlsForClient(value, key = "") {
       const deliveryUrl = signedOssCdnUrlForDelivery(publicUrl || text);
       if (deliveryUrl) return deliveryUrl;
       if (publicUrl && publicUrl !== text) return publicUrl;
+      const localDeliveryUrl = localUserUploadDeliveryUrl(text, { absolute: isPublicHttpUrl(text) });
+      if (localDeliveryUrl) return localDeliveryUrl;
     }
     return value;
   }

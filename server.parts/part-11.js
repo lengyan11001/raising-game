@@ -136,12 +136,19 @@ function publicHttpUrlForUpstream(value = "") {
   const text = String(value || "").trim();
   if (!text) return "";
   if (isPublicHttpUrl(text)) {
-    return signedOssCdnUrlForDelivery(text) || text;
+    const publicUrl = publicUrlForAssetPath(text);
+    return signedOssCdnUrlForDelivery(text) || signedOssCdnUrlForDelivery(publicUrl)
+      || localUserUploadDeliveryUrl(text, { absolute: true })
+      || (publicUrl !== text ? publicUrl : text);
   }
   if (text.startsWith("/")) {
     const configured = publicUrlForAssetPath(text);
+    const signedConfigured = signedOssCdnUrlForDelivery(configured);
+    if (signedConfigured) return signedConfigured;
+    const localDeliveryUrl = localUserUploadDeliveryUrl(text, { absolute: true });
+    if (localDeliveryUrl) return localDeliveryUrl;
     if (!configured) return `https://123vips.com/${text.replace(/^\/+/, "")}`;
-    return signedOssCdnUrlForDelivery(configured) || configured;
+    return configured;
   }
   return "";
 }

@@ -624,16 +624,24 @@ function publicUserAsset(asset = {}) {
   const mime = String(asset.mime || "").toLowerCase();
   const kind = mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : (WAN30_DOCUMENT_MIMES.has(mime) || documentMimeFromKnownPath(asset.name || asset.fileName)) ? "document" : "image";
   const isCharacterAsset = Boolean(asset.characterPrompt || asset.characterFinalPrompt || asset.characterModel || asset.characterTaskId);
-  const localUrl = String(asset.localUrl || "").trim();
-  const localHttpUrl = publicUrlForAssetPath(localUrl);
-  const storedPublicUrl = String(asset.publicUrl || "").trim();
-  const storedCdnUrl = String(asset.cdnUrl || "").trim();
+  const rawLocalUrl = String(asset.localUrl || "").trim();
+  const readableLocalUrl = (value, { absolute = false } = {}) => localUserUploadDeliveryUrl(value, { absolute }) || value;
+  const localUrl = readableLocalUrl(rawLocalUrl);
+  const localHttpUrl = localUserUploadDeliveryUrl(rawLocalUrl, { absolute: true })
+    || readableLocalUrl(publicUrlForAssetPath(rawLocalUrl), { absolute: true });
+  // A user asset may retain both the local ingest copy and an object-storage
+  // mirror. Keep the durable public mirror as the primary URL; the signed
+  // local URL is only a fallback for files that were never mirrored.
+  const rawPublicUrl = String(asset.publicUrl || "").trim();
+  const rawCdnUrl = String(asset.cdnUrl || "").trim();
+  const storedPublicUrl = isPublicHttpUrl(rawPublicUrl) ? rawPublicUrl : readableLocalUrl(rawPublicUrl);
+  const storedCdnUrl = isPublicHttpUrl(rawCdnUrl) ? rawCdnUrl : readableLocalUrl(rawCdnUrl);
   const storedUrl = storedPublicUrl || storedCdnUrl || localHttpUrl;
   const deliveryUrl = signedOssCdnUrlForDelivery(storedUrl, {
     key: asset.storageKey || asset.objectStorageKey || asset.r2Key || "",
   }) || storedPublicUrl || storedCdnUrl || localHttpUrl;
-  const localPosterUrl = String(asset.localPosterUrl || "").trim();
-  const storedPosterUrl = String(asset.posterUrl || asset.thumbnailUrl || asset.coverUrl || publicUrlForAssetPath(localPosterUrl) || "").trim();
+  const localPosterUrl = readableLocalUrl(String(asset.localPosterUrl || "").trim());
+  const storedPosterUrl = readableLocalUrl(String(asset.posterUrl || asset.thumbnailUrl || asset.coverUrl || publicUrlForAssetPath(localPosterUrl) || "").trim(), { absolute: isPublicHttpUrl(asset.posterUrl || asset.thumbnailUrl || asset.coverUrl) });
   const deliveryPosterUrl = signedOssCdnUrlForDelivery(storedPosterUrl, {
     key: asset.posterStorageKey || asset.posterObjectStorageKey || asset.posterR2Key || "",
   }) || storedPosterUrl;

@@ -72,6 +72,9 @@ TARGETS = {
             "assets/chat-live/welcome-newcomer*", "test/live-*.test.js",
             "verification/live-transaction/**",
         ),
+        "pre_restart_commands": (
+            "/usr/bin/python3 /opt/raising-game-demo/scripts/ensure_media_signing_secret.py --env-file /etc/raising-game-demo.env",
+        ),
         "forbidden_env_patterns": (
             r"^TOS_",
             r"^OSS_REGION=\"?oss-cn-",
