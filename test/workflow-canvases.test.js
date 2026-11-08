@@ -742,6 +742,27 @@ test("workflow delete keys only remove selected canvas elements", () => {
   assert.match(css, /\.site-generation-delete \{/);
 });
 
+test("canvas generation nodes download their generated content", () => {
+  const layout = read("workflow-react/src/components/canvas/nodes/NodeLayout.js");
+  const imageNode = read("workflow-react/src/components/canvas/siteNodes/SiteImageGenerationNode.js");
+  const videoNode = read("workflow-react/src/components/canvas/siteNodes/SiteVideoGenerationNode.js");
+  const part = read("platform.ui.parts/part-06.js");
+  const css = read("workflow-react/src/site/site.css");
+
+  assert.match(layout, /className="nodrag nopan site-generation-download"/);
+  assert.match(layout, /aria-label="下载节点生成内容"/);
+  assert.match(layout, /window\.downloadWorkflowNodeResult\?\.\(id\)/);
+  assert.match(imageNode, /canDownload=\{results\.length > 0\}/);
+  assert.match(videoNode, /canDownload=\{results\.length > 0\}/);
+  assert.match(part, /async function downloadWorkflowNodeResult\(nodeId = ""\)/);
+  assert.match(part, /workflowNodeOwnResultVideos\(node\)/);
+  assert.match(part, /workflowNodeOwnResultImages\(node\)/);
+  assert.match(part, /downloadGenerationRecord\(record\)/);
+  assert.match(part, /window\.downloadWorkflowNodeResult = downloadWorkflowNodeResult/);
+  assert.match(css, /\.site-generation-download,/);
+  assert.match(css, /\.site-generation-download:disabled/);
+});
+
 test("workflow project summary uses the last content-bearing node as its thumbnail", () => {
   const { publicWorkflowCanvasSummary } = require("../workflow-canvases");
   const summary = publicWorkflowCanvasSummary({

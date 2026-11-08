@@ -131,11 +131,18 @@
   background: var(--site-canvas-pink-soft);
 }
 
+.site-generation-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.site-generation-download,
 .site-generation-delete {
   display: grid;
   width: 22px;
   height: 22px;
-  margin-left: auto;
   padding: 0;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, .12);
@@ -148,12 +155,27 @@
   transition: color .15s ease, border-color .15s ease, background .15s ease;
 }
 
+.site-generation-download:disabled {
+  opacity: .34;
+  cursor: default;
+}
+
+.site-generation-download:not(:disabled):hover,
+.site-generation-download:not(:disabled):focus-visible,
 .site-generation-delete:hover,
 .site-generation-delete:focus-visible {
   border-color: rgba(255, 79, 163, .72);
   color: #fff;
   background: rgba(255, 79, 163, .26);
   outline: none;
+}
+
+.site-generation-download i.bi-arrow-repeat {
+  animation: site-generation-spin .8s linear infinite;
+}
+
+@keyframes site-generation-spin {
+  to { transform: rotate(360deg); }
 }
 
 .site-generation-card-content {

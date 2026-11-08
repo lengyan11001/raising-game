@@ -97,6 +97,7 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
       showOutputHandle
       showDuplicateButton={false}
       selected={selected}
+      canDownload={results.length > 0}
     >
       <div className="site-generation-node is-video">
         <div className="site-generation-result">

@@ -53,6 +53,7 @@ export function SiteImageGenerationNode({ id, selected = false }) {
       showDuplicateButton={false}
       inputHandleLabel=""
       selected={selected}
+      canDownload={results.length > 0}
     >
       <div className="site-generation-node">
         <div className="site-generation-result-head">

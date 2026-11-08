@@ -437,6 +437,32 @@ function createWorkflowGeneratedResultNode(sourceNode = {}, result = {}, kind = 
 
 window.createWorkflowGeneratedResultNode = createWorkflowGeneratedResultNode;
 
+async function downloadWorkflowNodeResult(nodeId = "") {
+  const node = workflowNodeById(nodeId);
+  if (!node) return false;
+  const data = node.data || {};
+  const videos = workflowNodeOwnResultVideos(node);
+  const images = workflowNodeOwnResultImages(node);
+  const generatedUrl = videos[0] || images[0] || "";
+  if (!generatedUrl) {
+    workflowLog("No generated content to download.");
+    return false;
+  }
+  if (typeof downloadGenerationRecord !== "function") {
+    workflowLog("Download is unavailable.");
+    return false;
+  }
+  const taskId = String(data.taskId || data.record?.taskId || "").trim();
+  const record = {
+    ...(data.record || {}),
+    taskId,
+    ...(videos[0] ? { videoUrl: videos[0] } : { imageResultUrl: images[0] }),
+  };
+  return downloadGenerationRecord(record);
+}
+
+window.downloadWorkflowNodeResult = downloadWorkflowNodeResult;
+
 function workflowNodeHasStartedGeneration(node = {}) {
   return ["submitting", "preparing", "processing", "running", "queued"].includes(String(node.data?.status || ""));
 }

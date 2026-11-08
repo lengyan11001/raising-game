@@ -15,8 +15,21 @@ export const NodeLayout = memo(({
   inputHandleId,
   isValidConnection,
   selected = false,
+  canDownload = false,
 }) => {
   const { deleteElements } = useReactFlow();
+  const [downloading, setDownloading] = React.useState(false);
+  const downloadNode = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!canDownload || downloading) return;
+    setDownloading(true);
+    try {
+      await window.downloadWorkflowNodeResult?.(id);
+    } finally {
+      setDownloading(false);
+    }
+  };
   const removeNode = (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -66,19 +79,32 @@ export const NodeLayout = memo(({
           <i className={`bi ${type === 'unifiedVideoGen' ? 'bi-camera-video' : 'bi-image'}`} />
         </span>
         <span>{title}</span>
-        <button
-          type="button"
-          className="nodrag nopan site-generation-delete"
-          aria-label="删除节点"
-          title="删除节点"
-          onPointerDown={removeNode}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-          }}
-        >
-          <i className="bi bi-trash3" aria-hidden="true" />
-        </button>
+        <span className="site-generation-card-actions">
+          <button
+            type="button"
+            className="nodrag nopan site-generation-download"
+            aria-label="下载节点生成内容"
+            title={canDownload ? '下载节点生成内容' : '暂无可下载内容'}
+            disabled={!canDownload || downloading}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={downloadNode}
+          >
+            <i className={`bi ${downloading ? 'bi-arrow-repeat' : 'bi-download'}`} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="nodrag nopan site-generation-delete"
+            aria-label="删除节点"
+            title="删除节点"
+            onPointerDown={removeNode}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            <i className="bi bi-trash3" aria-hidden="true" />
+          </button>
+        </span>
       </div>
 
       <div className="site-generation-card-content">{children}</div>
