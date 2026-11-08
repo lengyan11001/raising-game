@@ -13,7 +13,8 @@
 - Fix implemented: private OSS/CDN URLs are freshly signed only at the download/delivery boundary; PostgreSQL keeps the unsigned canonical URL. Seedance and Aliyun media-preparation failures now persist a free failed generation record (`status=failed`, `failureStage=preparation`, `preparationErrorCode`, `billingStatus=free`, zero pre-deducted/final credits) before returning the error.
 - Normal-user regression: the committed normal-user end-to-end acceptance remains at `6824f79`; no session cleanup, token rotation, login-expiry shortening, or forced logout is performed.
 - Verification: `git diff --check` and syntax checks pass; targeted regression suite passes 66/66 (including signed OSS media, local retention, media inputs, generation-record refresh, URL priority, and character reference restore).
-- Deployment status: local fix is ready; release snapshot and old-site deployment are pending.
+- Release/deployment: `old-site` code commit `9e905b8`; `platform-release` remote `64e88d2`; deployed only `123vips.com` with `scripts/deploy_local.sh --site old`. Release boundary passed and production is running `64e88d2`; Live and `live-release` were not deployed.
+- Production acceptance: `/api/health` returned `200 {"ok":true}`. A sampled historical user image key had an unsigned CDN URL returning 403, while the freshly signed delivery URL returned `200 image/jpeg` (62521 bytes). Recent 10m generation statuses were 4 succeeded and 2 running with no new preparation failures. Session count remained intact; no sessions were cleared, tokens rotated, or users forced out.
 
 ## Security incident and auth risk controls (2026-11-08)
 
