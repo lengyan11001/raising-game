@@ -17,6 +17,31 @@ function handleWorkflowClick(event) {
     event.preventDefault();
     return;
   }
+  const promptOptimizeButton = event.target.closest("[data-workflow-optimize-prompt]");
+  if (promptOptimizeButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const node = workflowNodeById(promptOptimizeButton.dataset.workflowOptimizePrompt || "");
+    const model = node ? workflowVideoModelById(node.data?.modelId) : null;
+    if (!node || !model || !window.isWanPromptOptimizerProvider?.(model.id)) return;
+    const editor = promptOptimizeButton.closest(".workflow-video-editor");
+    const textarea = editor?.querySelector("[data-workflow-video-prompt]");
+    const prompt = textarea?.value ?? node.data?.prompt ?? "";
+    window.openPromptOptimizer?.({
+      prompt,
+      provider: model.id,
+      providerLabel: model.label || model.id,
+      duration: Number(node.data?.duration || model.duration || 0) || undefined,
+      resolution: node.data?.resolution || model.resolution || "",
+      mode: node.data?.mode || model.mode || "",
+      onApply: (value) => {
+        if (textarea) textarea.value = value;
+        workflowSetNodeData(node.id, { prompt: value });
+        renderWorkflowPanel({ focusNodeId: node.id });
+      },
+    });
+    return;
+  }
   const openPickerButton = event.target.closest("[data-workflow-open-picker]");
   if (openPickerButton) {
     event.stopPropagation();

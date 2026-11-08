@@ -1020,6 +1020,10 @@ async function handleRequest(req, res) {
       return await handleAdvancedAccessRequest(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/advanced/prompt-optimize") {
+      return await handleAdvancedPromptOptimize(req, res);
+    }
+
     if (req.method === "POST" && url.pathname === "/api/advanced/generate") {
       return await handleAdvancedGenerate(req, res);
     }

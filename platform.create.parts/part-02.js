@@ -718,6 +718,9 @@ function updateAdvancedModelControls() {
   applyAdvancedCreateMode({ syncForm: false });
   syncAdvancedProviderExposure();
   const provider = currentAdvancedProvider();
+  if (els.advancedPromptOptimizeBtn) {
+    els.advancedPromptOptimizeBtn.hidden = !window.isWanPromptOptimizerProvider?.(provider);
+  }
   syncAdvancedVideoCapabilityOptions();
   syncAdvancedSeedanceModeOptions(provider);
   const capability = currentAdvancedVideoCapability();

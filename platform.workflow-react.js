@@ -487,7 +487,35 @@
       h("div", { className: "workflow-react-model-line" }, h("span", null, model.label || "Video model"), h("strong", null, (typeof window.workflowCostLabel === "function" ? window.workflowCostLabel(node) : "0") + " 积分")),
       h("div", { className: "workflow-react-result" }, result ? Preview(node, result.url, result.kind) : h("div", { className: "workflow-react-empty-result" }, icon("play"), h("span", null, "生成结果会显示在这里"))),
       selected ? h("div", { className: "workflow-react-editor" },
-        h("label", { className: "nodrag workflow-react-prompt-field", onPointerDown: stopNodeEvent }, h("span", null, "提示词"), textArea(node, node.data && node.data.prompt, "描述你想生成的视频...")),
+        h("label", { className: "nodrag workflow-react-prompt-field", onPointerDown: stopNodeEvent }, h("span", null, "提示词"), textArea(node, node.data && node.data.prompt, "描述你想生成的视频..."),
+          typeof window.isWanPromptOptimizerProvider === "function" && window.isWanPromptOptimizerProvider(model.id)
+            ? h("button", {
+              type: "button",
+              className: "prompt-optimizer-trigger workflow-prompt-optimizer-trigger",
+              onPointerDown: stopNodeEvent,
+              onClick: function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                var prompt = String((node.data && node.data.prompt) || "");
+                window.openPromptOptimizer?.({
+                  prompt: prompt,
+                  provider: model.id,
+                  providerLabel: model.label || model.id,
+                  duration: Number(node.data && node.data.duration || model.duration || 0) || undefined,
+                  resolution: String(node.data && node.data.resolution || model.resolution || ""),
+                  mode: String(node.data && node.data.mode || model.mode || ""),
+                  onApply: function (value) {
+                    if (!node.data) node.data = {};
+                    node.data.prompt = value;
+                    if (typeof window.persistWorkflowState === "function") window.persistWorkflowState();
+                    if (typeof window.updateWorkflowCanvasSaveStatus === "function") window.updateWorkflowCanvasSaveStatus();
+                    window.WorkflowReactCanvas?.sync?.();
+                  },
+                });
+              },
+            }, icon("sparkles"), "AI 优化")
+            : null
+        ),
         h("div", { className: "workflow-react-fields" },
           field("模型", selectControl(node, "workflowVideoModel", node.data && node.data.modelId || model.id, window.WORKFLOW_VIDEO_MODEL_LIBRARY || [])),
           field("比例", selectControl(node, "workflowRatio", node.data && node.data.ratio || model.ratio, ratios)),

@@ -1451,6 +1451,7 @@ const els = {
   advancedPromptHighlight: document.querySelector("#advancedPromptHighlight"),
   advancedPromptResizeHandle: document.querySelector("#advancedPromptResizeHandle"),
   advancedPromptMentions: document.querySelector("#advancedPromptMentions"),
+  advancedPromptOptimizeBtn: document.querySelector("#advancedPromptOptimizeBtn"),
   advancedImage: document.querySelector("#advancedImage"),
   advancedUploadBox: document.querySelector("#advancedUploadBox"),
   advancedUploadPreview: document.querySelector("#advancedUploadPreview"),

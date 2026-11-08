@@ -1248,6 +1248,27 @@ els.advancedRatio?.addEventListener("change", () => {
   updateAdvancedButtonCost();
   syncAdvancedParameterChips();
 });
+els.advancedPromptOptimizeBtn?.addEventListener("click", () => {
+  const provider = currentAdvancedProvider();
+  if (!window.isWanPromptOptimizerProvider?.(provider)) return;
+  const prompt = window.getAdvancedPromptValue?.() || els.advancedPrompt?.value || "";
+  window.openPromptOptimizer?.({
+    prompt,
+    provider,
+    providerLabel: typeof advancedProviderLabel === "function" ? advancedProviderLabel(provider) : "",
+    duration: Number(els.advancedDuration?.value || 0) || undefined,
+    resolution: typeof currentAdvancedResolution === "function" ? currentAdvancedResolution() : "",
+    mode: els.advancedVideoCapability?.value || els.advancedSeedanceMediaMode?.value || "",
+    onApply: (value) => {
+      if (!window.setAdvancedPromptValue?.(value, { emitInput: true, focus: true })) {
+        if (els.advancedPrompt) {
+          els.advancedPrompt.value = value;
+          els.advancedPrompt.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      }
+    },
+  });
+});
 els.advancedResolution?.addEventListener("change", () => {
   updateAdvancedModelControls();
   updateAdvancedButtonCost();

@@ -900,7 +900,7 @@ function renderWorkflowVideoEditor(node = {}) {
         <span class="workflow-editor-reference-note">连接图片/视频输入节点；点击左侧空接口可自动补节点</span>
       </div>
       <div class="workflow-editor-input-summary"><span>${imageCount} 图片</span><span>${videoCount} 视频</span><span>${audioCount} 音频</span></div>
-      <label class="workflow-editor-prompt"><span>提示词</span><textarea rows="3" data-workflow-video-prompt="${escapeHtml(node.id)}" placeholder="描述你想生成的视频...">${escapeHtml(node.data?.prompt || "")}</textarea></label>
+      <label class="workflow-editor-prompt"><span>提示词</span><textarea rows="3" data-workflow-video-prompt="${escapeHtml(node.id)}" placeholder="描述你想生成的视频...">${escapeHtml(node.data?.prompt || "")}</textarea>${typeof window.isWanPromptOptimizerProvider === "function" && window.isWanPromptOptimizerProvider(modelValue) ? `<button class="prompt-optimizer-trigger workflow-prompt-optimizer-trigger" type="button" data-workflow-optimize-prompt="${escapeHtml(node.id)}"><i data-lucide="sparkles"></i>AI 优化</button>` : ""}</label>
       <div class="workflow-editor-fields">
         <label><span>模型</span><select data-workflow-video-model="${escapeHtml(node.id)}">${workflowSelectOptions(WORKFLOW_VIDEO_MODEL_LIBRARY, modelValue)}</select></label>
         <label><span>比例</span><select data-workflow-ratio="${escapeHtml(node.id)}">${workflowSelectOptions(ratioOptions, node.data?.ratio || model.ratio)}</select></label>

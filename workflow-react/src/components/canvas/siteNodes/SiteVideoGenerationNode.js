@@ -121,6 +121,26 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
               onChange={setPrompt}
               onBlur={savePrompt}
             />
+            {typeof window.isWanPromptOptimizerProvider === 'function' && window.isWanPromptOptimizerProvider(model.id) && (
+              <button
+                type="button"
+                className="prompt-optimizer-trigger site-prompt-optimizer-trigger"
+                onClick={() => window.openPromptOptimizer?.({
+                  prompt,
+                  provider: model.id,
+                  providerLabel: model.label || model.id,
+                  duration: Number(data.duration || model.duration || 0) || undefined,
+                  resolution: data.resolution || model.resolution || '',
+                  mode: data.mode || model.mode || '',
+                  onApply: (value) => {
+                    setPrompt(value);
+                    update({ prompt: value });
+                  },
+                })}
+              >
+                <i className="bi bi-stars" /> AI 优化
+              </button>
+            )}
           </label>
           <SiteNodeUpload
             id={id}

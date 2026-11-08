@@ -23,6 +23,7 @@
     "platform.create.parts/part-06.js",
     "vendor/vipeak-prompt-editor.js",
     "platform.prompt-editor.js",
+    "platform.prompt-optimizer.js",
     "platform.main.js",
   ];
   // These modules are only needed after the user opens a non-gallery tool.
