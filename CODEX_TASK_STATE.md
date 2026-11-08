@@ -1649,3 +1649,12 @@ CODEX_TASK_STATE.md
 - Regression coverage: `test/media-url-priority.test.js` and `test/advanced-result-kind.test.js`. Targeted suite passed 71/71; syntax and `git diff --check` passed.
 - Release: `old-site` `05e397c`; `platform-release` `0e7f572`; deployed only `123vips.com` with `scripts/deploy_local.sh --site old`. Health returned `200 {"ok":true}`.
 - Production verification on logged-in Chrome/CDP: task record has no video URL in image fields; Result card uses `advanced-result-media`, poster URL is `.../posters/cgt-20261107212551-c42b11.jpg?...Signature=...`, image loaded at 480x854, and no `.mp4` image source remains. Live was not deployed.
+
+## Canvas node download deployed (2026-11-08)
+
+- Added the node result download button immediately before the delete button in `NodeLayout.js`; the action is disabled until the node has its own image/video result.
+- `downloadWorkflowNodeResult(nodeId)` downloads only the selected node's generated result through the existing signed generation-record download flow.
+- Integration commit: `995a32c` (`Add canvas node result downloads`). Release snapshot: `platform-release` / `5499b53`.
+- Verification: targeted workflow canvas tests `31/31`; JS syntax and `git diff --check` pass; production bundle rebuilt successfully.
+- Production bundle SHA-256: `70420f28461bbefc44bd7f8904173278b96e7c3f1204b15908e07f6822976f09`.
+- Deployed to `123vips.com` only via `scripts/deploy_local.sh --site old`. Health endpoint returned HTTP 200 `{"ok":true}`; served bundle hash matches local and contains `downloadWorkflowNodeResult`; download marker precedes delete markers in the built component.
