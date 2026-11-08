@@ -1,5 +1,7 @@
 "use strict";
 
+const path = require("node:path");
+
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -26,6 +28,82 @@ const PUBLIC_SECURITY_HEADERS = Object.freeze({
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
 });
+
+
+const PUBLIC_STATIC_ROOT_FILES = new Set([
+  "/",
+  "/admin.css",
+  "/admin.html",
+  "/admin.js",
+  "/app.js",
+  "/bingsiteauth.xml",
+  "/chat-live.js",
+  "/chat.css",
+  "/chat.html",
+  "/chat.js",
+  "/embed.html",
+  "/favicon.ico",
+  "/favicon.svg",
+  "/game.css",
+  "/game.html",
+  "/game.js",
+  "/index.html",
+  "/live.css",
+  "/live.html",
+  "/live.js",
+  "/pay.css",
+  "/pay.html",
+  "/pay.js",
+  "/platform-sw.js",
+  "/platform.css",
+  "/platform.html",
+  "/platform.prompt-editor.css",
+  "/platform.vitals.js",
+  "/qrcode.js",
+  "/site-123vipfans.css",
+  "/site-123vipfans.js",
+  "/site-landing.css",
+  "/site-landing.html",
+  "/site-landing.js",
+  "/styles.css",
+  "/tool-undress.css",
+  "/tool-video.css",
+  "/vendor/vipeak-prompt-editor.js",
+]);
+
+const PUBLIC_STATIC_DIRECTORY_EXTENSIONS = new Map([
+  ["/assets/", new Set([
+    ".aac", ".css", ".gif", ".ico", ".jpeg", ".jpg", ".js", ".m4a", ".m4v", ".mov",
+    ".mp3", ".mp4", ".ogg", ".png", ".svg", ".ttf", ".wav", ".webm", ".webp", ".woff", ".woff2",
+  ])],
+  ["/downloads/", new Set([".apk", ".mobileconfig"])],
+  ["/platform.create.parts/", new Set([".js"])],
+  ["/platform.ui.parts/", new Set([".js"])],
+  ["/vendor/", new Set([".css", ".gif", ".ico", ".jpeg", ".jpg", ".js", ".png", ".svg", ".ttf", ".webp", ".woff", ".woff2"])],
+  ["/workflow-react/dist/", new Set([".css", ".gif", ".ico", ".jpeg", ".jpg", ".js", ".png", ".svg", ".txt", ".webp", ".woff", ".woff2"])],
+  ["/workflow-react/vendor/", new Set([".css", ".js"])],
+]);
+
+const PUBLIC_STATIC_ROOT_PATTERNS = [
+  /^\/platform(?:\.[a-z0-9-]+)?\.js$/i,
+  /^\/google[0-9a-f]+\.html$/i,
+];
+
+function publicStaticPath(pathname = "") {
+  const normalized = String(pathname || "").replace(/\\/g, "/");
+  if (!normalized.startsWith("/") || normalized.includes("\0")) return false;
+  if (/%2e|%2f|%5c/i.test(normalized)) return false;
+  const segments = normalized.split("/");
+  if (segments.some((segment) => segment.startsWith("."))) return false;
+  if (PUBLIC_STATIC_ROOT_FILES.has(normalized.toLowerCase())) return true;
+  if (PUBLIC_STATIC_ROOT_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
+  const extension = path.extname(normalized).toLowerCase();
+  if (!extension) return false;
+  for (const [prefix, extensions] of PUBLIC_STATIC_DIRECTORY_EXTENSIONS) {
+    if (normalized.startsWith(prefix)) return extensions.has(extension);
+  }
+  return false;
+}
 
 function firstForwardedValue(value = "") {
   return String(value || "").split(",")[0].trim().toLowerCase();
@@ -75,4 +153,5 @@ module.exports = {
   applyPublicSecurityHeaders,
   httpsRedirectLocation,
   requestProtocol,
+  publicStaticPath,
 };

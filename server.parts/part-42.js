@@ -9,7 +9,7 @@ async function serveStatic(req, res, url) {
     ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : chatTenantRequest ? "/chat.html" : liveTenantRequest ? "/live.html" : defaultPageForHostname(requestHost))
     : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
-  if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
+  if (!publicStaticPath(pathname)) return sendText(res, 404, "Not Found");
   if (shouldBlockLiveOwnedStatic({
     pathname,
     toolId: tenant.toolId,

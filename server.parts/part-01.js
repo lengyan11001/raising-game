@@ -344,6 +344,7 @@ const {
 const {
   applyPublicSecurityHeaders,
   httpsRedirectLocation,
+  publicStaticPath,
 } = require("./site-http");
 const {
   resolveLiveStaticRoot,

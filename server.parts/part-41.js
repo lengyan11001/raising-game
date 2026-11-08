@@ -1879,36 +1879,6 @@ async function handleGetSceneVideo(req, res, taskId) {
   });
 }
 
-const PRIVATE_STATIC_ROOT_FILES = new Set([
-  "/.env.example",
-  "/.gitignore",
-  "/agents.md",
-  "/aliyun-video.js",
-  "/db.js",
-  "/deploy.md",
-  "/design_v1.md",
-  "/media-inputs.js",
-  "/package-lock.json",
-  "/package.json",
-  "/qwen-image3.js",
-  "/readme.md",
-  "/seedance25.js",
-  "/seedance25-direct.js",
-  "/server.js",
-  "/server-source.js",
-  "/session_handoff_2026-06-06.md",
-  "/site-http.js",
-  "/site-seo.js",
-  "/telegram-bot.js",
-  "/video-tools.js",
-]);
-
-function privateStaticPath(pathname = "") {
-  const normalized = String(pathname || "").replace(/\\/g, "/").toLowerCase();
-  return PRIVATE_STATIC_ROOT_FILES.has(normalized)
-    || ["/.git/", "/data/", "/mobile/", "/scripts/", "/server.parts/", "/test/", "/tmp/"].some((prefix) => normalized.startsWith(prefix));
-}
-
 function renderAdminHtml(html = "") {
   return String(html).replace(
     /(\.\/admin\.(?:css|js))\?v=[^"'\s>]*/g,
