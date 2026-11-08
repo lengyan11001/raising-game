@@ -465,11 +465,14 @@ private_probe() {
     return 0
   fi
   code=$(curl -ksS --max-time 15 --resolve 123vips.com:443:127.0.0.1 -o /dev/null -w '%{http_code}' "https://123vips.com${url}?verify-private=$(date +%s%N)") || code=000
-  if [ "$code" != "403" ]; then
-    echo "Private media bypass detected: $prefix returned HTTP $code" >&2
-    return 1
-  fi
-  echo "Private media denied anonymously: $prefix"
+  # 403 is the required deny. 404 is also safe and can occur when Nginx and
+  # Node resolve the same file through different release-time snapshots. Never
+  # accept a successful response or a redirect to shared media.
+  case "$code" in
+    403|404) ;;
+    *) echo "Private media bypass detected: $prefix returned HTTP $code" >&2; return 1 ;;
+  esac
+  echo "Private media denied anonymously: $prefix (HTTP $code)"
 }
 private_probe /assets/user-uploads/ /opt/raising-game-demo/assets/user-uploads
 private_probe /assets/admin/voice-preview/ /opt/raising-game-demo/assets/admin/voice-preview
