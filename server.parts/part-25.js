@@ -559,8 +559,9 @@ function platformApizPayload({ template, prompt, imageUrl, overrides = {} }) {
 async function handlePlatformGenerate(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "platform_generate", limit: 30, windowMs: 10 * 60_000 })) return;
 
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   const config = await readAppConfig();
   const template = findPlatformTemplate(config, body.templateId);
   if (template && !isExternalPlatformTemplate(template)) {

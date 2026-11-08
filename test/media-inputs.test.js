@@ -115,7 +115,7 @@ test("R2 failures are terminal and never silently fall back to the origin", () =
     server.indexOf("async function publishLocalAssetUrlToObjectStorage"),
   );
   assert.match(localMirrorSource, /const upload = await uploadStaticAssetToObjectStorage/);
-  assert.match(localMirrorSource, /R2 upload completed without a public URL/);
+  assert.match(localMirrorSource, /upload completed without a public URL/);
   assert.doesNotMatch(localMirrorSource, /catch \(error\) \{[\s\S]*?publicUrl: ""/);
   assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?const videoUpload = await uploadStaticAssetToObjectStorage/);
   assert.match(server, /async function saveGeneratedImageFile[\s\S]*?const upload = await uploadStaticAssetToObjectStorage/);
@@ -124,7 +124,7 @@ test("R2 failures are terminal and never silently fall back to the origin", () =
   assert.match(server, /async function uploadStaticAssetToR2[\s\S]*?signal: AbortSignal\.timeout\(uploadTimeoutMs\)/);
   assert.match(server, /R2 upload timed out after \$\{Math\.ceil\(uploadTimeoutMs \/ 1000\)\} seconds/);
   assert.match(server, /uploadError\.retryable = false/);
-  assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?generated-video-r2-upload-failed/);
+  assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?generated-video-object-storage-upload-failed/);
   assert.match(server, /storableRecord\.error = ""/);
   assert.match(server, /publicUrlMatchesStorageBase\(userAsset\.publicUrl, objectStoragePublicDomain\(\)\)[\s\S]*?userAsset\.wan30PublicUrl = userAsset\.publicUrl/);
 });
@@ -136,8 +136,8 @@ test("generated image R2 failures preserve the successful generation status", ()
   assert.notEqual(end, -1);
   const source = server.slice(start, end);
   assert.match(source, /try \{[\s\S]*?uploadStaticAssetToObjectStorage[\s\S]*?catch \(error\) \{/);
-  assert.match(source, /result\.cdnError = error\.message \|\| "Generated image R2 upload failed\."/);
-  assert.match(source, /\[generated-image-r2-upload-failed\]/);
+  assert.match(source, /result\.cdnError = error\.message \|\| "Generated image object storage upload failed\."/);
+  assert.match(source, /\[generated-image-object-storage-upload-failed\]/);
   assert.doesNotMatch(source, /catch \(error\) \{[\s\S]*?throw error;/);
 });
 
@@ -226,7 +226,7 @@ test("all multimodal adapters deduplicate compatibility aliases before counting 
 test("public asset ingestion retries transient source failures and reports them as gateway errors", () => {
   assert.match(server, /label: "asset",[\s\S]*?retryCount: 2,[\s\S]*?retryDelayMs: 750/);
   assert.match(server, /const retryableStatus = \[408, 425, 429\]\.includes\(response\.status\) \|\| response\.status >= 500/);
-  assert.match(server, /error\.statusCode = 502;[\s\S]*?error\.code = "REMOTE_DOWNLOAD_FAILED"/);
+  assert.match(server, /error\.statusCode = \[408, 425, 429\]\.includes\(response\.status\) \|\| response\.status >= 500 \? 502 : 400;[\s\S]*?error\.code = error\.statusCode === 502 \? "REMOTE_DOWNLOAD_FAILED" : "INVALID_REMOTE_MEDIA"/);
 });
 
 test("BytePlus CreateAsset relays source URLs upstream and V3 reuses the returned asset id", () => {

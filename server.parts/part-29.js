@@ -73,9 +73,10 @@ async function recordAdvancedPreparationFailure(req, res, auth, {
 async function handleAdvancedGenerate(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "advanced_generate", limit: 30, windowMs: 10 * 60_000 })) return;
   const externalApiCaller = auth.tokenSource === "api_token" || auth.tokenSource === "subtoken" || auth.isApiToken === true;
 
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   const config = await readAppConfig();
   const advanced = config.platform?.advanced || {};
   const cases = Array.isArray(advanced.cases) ? advanced.cases : [];
@@ -1721,7 +1722,7 @@ async function handleRegenerateGenerationRecord(req, res, taskId) {
 async function handleAdminUploadPlatformCover(req, res) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   const { mime, bytes } = decodeImageDataUrl(body.dataUrl || "");
   if (bytes.byteLength > 4 * 1024 * 1024) {
     return sendJson(res, 400, { ok: false, message: "Cover image must be 4MB or smaller." });

@@ -983,7 +983,7 @@ function applyLanguage() {
   if (state.tab === "spending") loadSpendingRecords();
   if (state.tab === "referral") renderReferral();
   if (state.tab === "assets") loadUserAssets();
-  if (state.tab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) loadAdvancedAssets();
+  if (isAdvancedWorkspaceTab() && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) loadAdvancedAssets();
   if (state.tab === "access") loadApiSubtokens();
   refreshIcons();
 }
@@ -996,6 +996,8 @@ function setLanguage(lang) {
 }
 
 function setUser(user, { refreshHistory = false, skipReferralRefresh = false } = {}) {
+  const pendingAdminTab = state.pendingAdminTab || "";
+  state.pendingAdminTab = "";
   const previousMultiplier = Number(state.user?.pricingMultiplier || 1);
   const previousUserId = state.user?.id || "";
   const nextUserId = user?.id || "";
@@ -1053,7 +1055,11 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     : t("nav.login");
   if (els.accountMenuLabel) els.accountMenuLabel.textContent = accountLabel;
   applyTenantFeatures();
-  if (!isTabAllowed(state.tab)) setTab(tenantDefaultTab());
+  if (pendingAdminTab === "test") {
+    setTab(isTabAllowed("test") ? "#test" : tenantDefaultTab());
+  } else if (!isTabAllowed(state.tab)) {
+    setTab(tenantDefaultTab());
+  }
   renderTokenDisplays();
   renderTopupSummary();
   renderPricing();
@@ -1065,7 +1071,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   if (userChanged && state.tab === "topups") loadTopupRecords(1);
   if (userChanged && state.tab === "spending") loadSpendingRecords(1);
   if (userChanged && state.tab === "assets") loadUserAssets();
-  if (userChanged && state.tab === "advanced") loadAdvancedAssets();
+  if (userChanged && isAdvancedWorkspaceTab()) loadAdvancedAssets();
   if (userChanged && state.tab === "access") loadApiSubtokens({ force: true });
   if (userChanged && state.tab === "chat") loadChatConversations({ selectFirst: true });
   if (userChanged && state.tab === "workflow" && typeof loadWorkflowCanvases === "function") loadWorkflowCanvases({ force: true });
@@ -1101,10 +1107,28 @@ function maskToken(token = "") {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
+async function ensurePrimaryApiToken() {
+  if (!state.token || !state.user) return "";
+  if (state.user.apiToken) return state.user.apiToken;
+  if (state.apiTokenLoading) return state.apiTokenLoading;
+  state.apiTokenLoading = requestJson("/api/access/token")
+    .then((payload) => {
+      const token = String(payload.apiToken || "");
+      if (!token) throw new Error("API token is unavailable.");
+      state.user = { ...state.user, apiToken: token, apiTokenPreview: payload.apiTokenPreview || maskToken(token) };
+      return token;
+    })
+    .finally(() => {
+      state.apiTokenLoading = null;
+    });
+  return state.apiTokenLoading;
+}
+
 function currentTokenLabel(showFull = false) {
-  const token = state.user?.apiToken || "";
-  if (!state.token || !state.user || !token) return t("access.tokenLogin");
-  return showFull ? token : maskToken(token);
+  const fullToken = state.user?.apiToken || "";
+  const preview = state.user?.apiTokenPreview || maskToken(fullToken);
+  if (!state.token || !state.user || !preview) return t("access.tokenLogin");
+  return showFull && fullToken ? fullToken : preview;
 }
 
 function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
@@ -1119,7 +1143,8 @@ function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
   return tenantScopedAccessText(source).replaceAll("<user-token>", tokenLabel);
 }
 
-function fullAccessCopy() {
+async function fullAccessCopy() {
+  await ensurePrimaryApiToken();
   return hydrateAccessCopy(activeAccessGuide.copy, { revealToken: true });
 }
 
@@ -1133,6 +1158,7 @@ function allParameterDocsMarkdown({ revealToken = false } = {}) {
 }
 
 async function fetchLatestModelDocsMarkdown({ revealToken = false } = {}) {
+  if (revealToken) await ensurePrimaryApiToken();
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
   const docsUrl = apiUrl("/docs/api.md");
   try {

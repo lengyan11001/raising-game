@@ -249,9 +249,16 @@ async function handlePosterImage(req, res, url) {
 }
 
 async function handleRequest(req, res) {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-
+  let url = null;
   try {
+    try {
+      url = new URL(req.url, `http://${req.headers.host}`);
+    } catch {
+      const error = new Error("Malformed request URL.");
+      error.statusCode = 400;
+      error.code = "MALFORMED_URL";
+      throw error;
+    }
     applyPublicSecurityHeaders(req, res);
     if (sendHttpsRedirect(req, res, url)) return;
     if (sendCanonicalRedirect(req, res, url)) return;
@@ -839,6 +846,10 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/access/subtokens") {
       if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleListApiSubtokens(req, res);
+    }
+    if (req.method === "GET" && url.pathname === "/api/access/token") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
+      return await handleGetPrimaryApiToken(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/access/subtokens") {
@@ -1466,18 +1477,20 @@ async function handleRequest(req, res) {
 
     return await serveStatic(req, res, url);
   } catch (error) {
-    const statusCode = error.statusCode || (error.code === "MISSING_ARK_API_KEY" ? 503 : 500);
+    const malformedUrl = error instanceof URIError || error.code === "ERR_INVALID_URL";
+    const statusCode = error.statusCode || (malformedUrl ? 400 : error.code === "MISSING_ARK_API_KEY" ? 503 : 500);
+    const code = malformedUrl ? "MALFORMED_URL" : error.code || "SERVER_ERROR";
     console.error("[api-error]", {
       method: req.method,
-      path: url.pathname,
+      path: url?.pathname || req.url || "",
       code: error.code || "SERVER_ERROR",
       message: error.message,
       cause: error.cause?.code || error.cause?.message || "",
     });
     return sendJson(res, statusCode, {
       ok: false,
-      code: error.code || "SERVER_ERROR",
-      message: error.message || "Server error",
+      code,
+      message: malformedUrl ? "Malformed request URL." : (error.message || "Server error"),
       detail: error.payload?.error?.message || error.payload?.message || error.cause?.message || "",
     });
   }

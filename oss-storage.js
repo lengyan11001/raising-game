@@ -255,8 +255,9 @@ function signedRequestOptions({ method, key, body = Buffer.alloc(0), contentType
 
 function responseError(label, response, text = "") {
   const error = new Error(`${label}: ${response.status} ${String(text || "").slice(0, 500)}`);
-  error.statusCode = 502;
-  error.retryable = response.status === 429 || response.status >= 500;
+  error.statusCode = response.status;
+  error.upstreamStatus = response.status;
+  error.retryable = [408, 425, 429].includes(response.status) || response.status >= 500;
   return error;
 }
 
@@ -542,6 +543,7 @@ module.exports = {
   headObject,
   deleteObject,
   signedRequestOptions,
+  responseError,
   canonicalOssQuery,
   encodeRfc3986,
 };

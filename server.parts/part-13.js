@@ -335,6 +335,39 @@ async function claimDoubleTopupOnce(user, orderId) {
   return true;
 }
 
+async function releaseDoubleTopupClaim(user, orderId) {
+  if (!user?.id || !orderId) return false;
+  if (dbEnabled()) {
+    const { rows } = await dbQuery(
+      `UPDATE app_users
+       SET payload = jsonb_set(
+         COALESCE(payload, '{}'::jsonb),
+         '{doubleTopupPromo}',
+         (COALESCE(payload->'doubleTopupPromo', '{}'::jsonb) - 'claimedAt' - 'claimedOrderId'),
+         true
+       ),
+       updated_at = NOW()
+       WHERE id = $1
+         AND COALESCE(payload#>>'{doubleTopupPromo,claimedOrderId}', '') = $2
+       RETURNING id`,
+      [user.id, orderId],
+    );
+    if (rows?.length) {
+      user.doubleTopupPromo = { ...doubleTopupState(user) };
+      delete user.doubleTopupPromo.claimedAt;
+      delete user.doubleTopupPromo.claimedOrderId;
+    }
+    return Boolean(rows?.length);
+  }
+  const current = doubleTopupState(user);
+  if (current.claimedOrderId !== orderId) return false;
+  const next = { ...current };
+  delete next.claimedAt;
+  delete next.claimedOrderId;
+  user.doubleTopupPromo = next;
+  return true;
+}
+
 async function applyDoubleTopupPromoSettlement(db, order) {
   if (!order || order.promoId !== DOUBLE_TOPUP_PROMO.id || order.orderKind === "subscription") return;
   const user = (db.users || []).find((entry) => entry.id === order.userId) || await getUserByIdInDb(order.userId);
@@ -514,7 +547,7 @@ async function createDoubleTopupCheckout(req, res) {
   }
 }
 
-async function settleWalletOrderPayment(db, order, config, meta = {}) {
+async function settleWalletOrderPaymentUnlocked(db, order, config, meta = {}) {
   if (!order) {
     const error = new Error("Payment order not found.");
     error.statusCode = 404;
@@ -578,7 +611,9 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
     : order.orderKind === "product" && order.productId === API_DOCS_PRODUCT_ID
       ? "api_docs_test_credit"
       : "wallet_topup";
-  const user = await changeUserCredits(db, order.userId, creditDelta, creditType, {
+  let user;
+  try {
+    user = await changeUserCredits(db, order.userId, creditDelta, creditType, {
     orderId: order.id,
     tenantId: order.tenantId || DEFAULT_TENANT_ID,
     orderKind: order.orderKind || "topup",
@@ -590,9 +625,20 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
     provider: order.paymentProvider || "manual",
     paypalOrderId: order.paypalOrderId || "",
     paypalCaptureId: order.paypalCaptureId || "",
-    transactionHash: order.transactionHash || "",
-    chain: order.chain || order.network || "",
-  });
+      transactionHash: order.transactionHash || "",
+      chain: order.chain || order.network || "",
+    });
+  } catch (error) {
+    if (order.promoId === DOUBLE_TOPUP_PROMO.id && order.promoBonusApplied) {
+      await releaseDoubleTopupClaim(
+        (db.users || []).find((entry) => entry.id === order.userId) || await getUserByIdInDb(order.userId),
+        order.id,
+      ).catch((releaseError) => {
+        console.error("[double-topup-claim-release-failed]", order.id, releaseError.message || releaseError);
+      });
+    }
+    throw error;
+  }
   if (subscriptionPlan) await activatePaidSubscription(db, order, subscriptionPlan);
   if (order.orderKind === "product" && order.productId === API_DOCS_PRODUCT_ID) {
     await grantApiDocsAccess(db, user, { orderId: order.id, source: order.paymentProvider || "payment" });
@@ -606,6 +652,43 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
   await maybeGrantReferralReward(db, order.userId, order);
   await maybeGrantReferralCommission(db, order.userId, order);
   return { settled: true, user };
+}
+
+async function settleWalletOrderPayment(db, order, config, meta = {}) {
+  if (!order?.id) {
+    const error = new Error("Payment order not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  if (!dbEnabled()) return settleWalletOrderPaymentUnlocked(db, order, config, meta);
+  return withWalletOrderSettlementLockInDb(order.id, async (currentOrder) => {
+    if (!currentOrder) {
+      const error = new Error("Payment order not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    Object.assign(order, currentOrder);
+    if (currentOrder.status === "paid") {
+      const freshUser = await getUserByIdInDb(currentOrder.userId);
+      return { value: { settled: false, user: freshUser } };
+    }
+    /* Order locks stop duplicate callbacks for one order. The user lock also
+       serializes different orders for the same payer so a later stale snapshot
+       cannot overwrite credits, membership, API-doc access, or referral state. */
+    return withWalletUserSettlementLockInDb(currentOrder.userId, async () => {
+      const freshUser = await getUserByIdInDb(currentOrder.userId);
+      if (!freshUser) {
+        const error = new Error("Payment user not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      const cachedUser = (db.users || []).find((entry) => entry.id === currentOrder.userId);
+      if (cachedUser) Object.assign(cachedUser, freshUser);
+      const result = await settleWalletOrderPaymentUnlocked(db, currentOrder, config, meta);
+      Object.assign(order, currentOrder);
+      return { value: result };
+    });
+  });
 }
 
 async function safeSettleWalletOrderPayment(db, order, config, meta = {}) {
@@ -952,10 +1035,8 @@ async function normalizeSeedanceVideoFileForRequest(sourcePath = "", targetPath 
 function localPathForUserAsset(asset = {}) {
   const localUrl = String(asset.localUrl || "").trim();
   if (!localUrl) return "";
-  const localPath = path.resolve(ROOT, localUrl.replace(/^\/+/, ""));
-  const rootPath = path.resolve(ROOT);
-  const relative = path.relative(rootPath, localPath);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+  const localPath = safeAssetPathFromUrl(localUrl);
+  if (!localPath) {
     throw advancedValidationError("INVALID_ASSET_PATH", "Asset path is invalid.", { assetId: asset.id || "" });
   }
   return localPath;
@@ -1115,10 +1196,8 @@ async function ensureLocalAssetUrlFile(localUrl = "", {
 } = {}) {
   const value = String(localUrl || "").trim().split("?")[0];
   if (!value || !value.startsWith("/assets/")) return "";
-  const localPath = path.resolve(ROOT, value.replace(/^\/+/, ""));
-  const rootPath = path.resolve(ROOT);
-  const relative = path.relative(rootPath, localPath);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+  const localPath = safeAssetPathFromUrl(value);
+  if (!localPath) {
     const error = new Error("Asset path is invalid.");
     error.statusCode = 400;
     throw error;

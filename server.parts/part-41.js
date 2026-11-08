@@ -755,9 +755,8 @@ function localDownloadPathFromRecord(record = {}, isVideo = true, url = "") {
   for (const candidate of candidates) {
     const text = String(candidate || "").trim();
     if (!text) continue;
-    const filePath = path.normalize(path.isAbsolute(text) ? text : path.join(ROOT, text.replace(/^\/+/, "")));
-    const relative = path.relative(ROOT, filePath);
-    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) continue;
+    const filePath = safePathWithin(ASSETS_ROOT, path.isAbsolute(text) ? text : path.join(ROOT, text.replace(/^\/+/, "")));
+    if (!filePath) continue;
     return filePath;
   }
   return "";
@@ -848,6 +847,8 @@ function generationRecordProviderImageUrls(record = {}) {
 const advancedDownloadPreparationQueued = new Set();
 
 function isRetryableMediaIngestError(error = {}) {
+  if (error?.retryable === false) return false;
+  if (error?.retryable === true) return true;
   const message = String(error?.message || error || "");
   const status = Number(error?.statusCode || error?.status || 0);
   if (status === 408 || status === 425 || status === 429 || status >= 500) return true;
@@ -993,9 +994,9 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
       force: true,
     });
     if (!cdn.cdnVideoUrl) {
-      const error = new Error(cdn.cdnError || "R2 upload failed.");
+      const error = new Error(cdn.cdnError || "Object storage upload failed.");
       error.statusCode = 502;
-      error.code = "R2_UPLOAD_FAILED";
+      error.code = "OBJECT_STORAGE_UPLOAD_FAILED";
       throw error;
     }
     const updated = await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
@@ -1043,7 +1044,7 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
       if (!upload.publicUrl) {
         const error = new Error("Object storage upload completed without a public URL.");
         error.statusCode = 502;
-        error.code = "R2_UPLOAD_FAILED";
+        error.code = "OBJECT_STORAGE_PUBLIC_URL_MISSING";
         throw error;
       }
       await markPublishedFileSafely(saved.localImagePath);
@@ -1081,7 +1082,7 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
   });
   if (errors.length) {
     const error = new Error(errors.join("; "));
-    error.code = "R2_UPLOAD_FAILED";
+    error.code = "OBJECT_STORAGE_UPLOAD_FAILED";
     throw error;
   }
   return {
@@ -1378,7 +1379,7 @@ async function handleDownloadGenerationRecord(req, res, taskId, url = null) {
     return sendJson(res, 404, { ok: false, message: "Generated media file is missing." });
   }
 
-  const response = await fetch(target.url, { redirect: "follow", signal: AbortSignal.timeout(15 * 60 * 1000) });
+  const response = await fetchPublicRemoteUrl(target.url, { signal: AbortSignal.timeout(15 * 60 * 1000) }, { label: "Generated media" });
   if (!response.ok || !response.body) {
     return sendJson(res, 502, { ok: false, message: `Failed to download generated media: ${response.status}` });
   }
@@ -1405,7 +1406,7 @@ async function handleCreateCharacterImage(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
 
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   const config = await readAppConfig();
   let userAsset = null;
   let publicInputImageUrl = "";
@@ -1545,6 +1546,7 @@ async function handleGetCharacterImage(req, res, taskId) {
 async function handleCreateSceneVideo(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "scene_video_create", limit: 10, windowMs: 10 * 60_000 })) return;
 
   const body = await readJson(req);
   let config = await readAppConfig();

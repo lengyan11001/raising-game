@@ -1,5 +1,35 @@
 ## Upstream reference image 403 investigation (2026-11-08/09)
 
+### 2026-11-09 proactive production audit addendum
+
+- Real production listener is `127.0.0.1:4174`; `/api/health` returns `{"ok":true}`. Earlier checks against port 3000 were invalid.
+- Service remains `root` with weak systemd hardening (`NoNewPrivileges=no`, `PrivateTmp=no`, `ProtectSystem=no`, `ProtectHome=no`). Three stale root test processes were terminated (PIDs 359303/359304, 2083103/2083104, 2083461/2083462); DB connections dropped to about 21 and the processes are gone.
+- `app_sessions` has no `expires_at`; it currently has 877 sessions for 657 users. Session tokens are stored in browser `localStorage`. Existing users must not be logged out, so expiry/cookie migration is a staged hardening item rather than an immediate destructive change.
+- Last 24h risk events: 33 auth_rate_limited, 6 auth_login_failed, 1 registration attempt, 1 registration created. Login-failure table currently has only `test06` at 1 failure, unlocked. Quarantine count is 154; 879 active/non-deleted accounts.
+- Public nginx audit: `/assets/admin` is exposed as a whole, including advanced-cases (68MB), platform-templates (54MB), undress-examples (24MB), home (12MB), voice-preview (1.6MB). `home` is required for public page/template assets; the other directories need business-use confirmation before being restricted. `/assets/user-uploads/...` is anonymously readable and may be required as an upstream URL; preferred fix is signed/controlled asset URLs. `/__protected_assets__/` is internal-only and safe externally.
+- Credential work still pending: rotate IGNEX API key, mainland bypass token, Telegram support bot token/webhook secret; then remove old backup files containing previous values. SSH allows root password login and `MaxAuthTries 3`; fail2ban is active (about 52 bans, 1381 cumulative failures). A dedicated deploy user/key must be created before disabling root password login.
+- Verified: app DB role is non-superuser without role/db creation or RLS bypass; daily PostgreSQL backups are 50-69MB and mode 600; security headers are complete; Cloudflare real-IP handling is configured; sensitive paths (`/.git`, `/.env`, `/data`, `server.parts`, `LOCAL_CREDENTIALS.md`, backups) return non-200; homepage and health return 200.
+- Reconciliation count mismatch remains: 512 paid orders, 492 with ledger, 20 detailed zero-credit orders, aggregate query reported 23. Three aggregate-only rows require follow-up.
+- Current code changes are not committed or deployed. Live is untouched.
+
+### 2026-11-09 deployment-blocking payment concurrency fix
+
+- Fixed same-user payment settlement races: order advisory lock remains, and a second user-level settlement advisory lock serializes different orders for the same payer.
+- Membership and API-docs entitlements now use targeted JSONB payload patches instead of writing a stale full user snapshot.
+- Referral reward now re-reads both users under a referrer mutation lock, rechecks ledger idempotency, patches only the referred user's referral field, and no longer overwrites credits/membership/entitlements.
+- Added database helper `patchUserPayloadInDb()` and `withWalletUserSettlementLockInDb()`.
+- Verification: targeted security suite 67/67 passed; syntax and `git diff --check` passed. Full suite baseline has pre-existing unrelated frontend/page assertion failures; current tree has the same class of failures and no new security-suite failures.
+- Current production remains old commit `64e88d2` until this security release is deployed.
+
+### 2026-11-09 security follow-up in progress
+
+- Highest-priority finding: `userView()` exposed the full long-lived primary API token in `/api/auth/me`, login, payment, generation, and other browser responses. This is now changed to `apiToken: ""` plus `apiTokenPreview`; the owner fetches the full token only through `GET /api/access/token` (`cache-control: no-store`, primary token/browser session only, subtokens rejected). Frontend keeps it only in memory after an explicit show/copy action.
+- Password reset and admin password reset now rotate `apiToken` but intentionally preserve existing browser sessions, matching the requirement not to kick normal logged-in users. Explicit admin `forceLogout` remains the separate destructive action.
+- Targeted regression after these changes: subtoken/user view, admin password reset, security regressions, auth risk = 31/31 pass; syntax checks pass.
+- Production checks already completed: data directory changed from 777 to 700; Aegis unit reset but AliYunDun processes left running; PostgreSQL app roles are non-superuser; Nginx 502 burst was limited to the restart window; poster retry log storm awaits deployment of the bounded retry code.
+- Payment reconciliation still needs exact explanation of aggregate `paid_no_ledger=23` vs 20 detailed rows. Detailed 20 are zero-credit subscription/entitlement orders with no wallet ledger by design; 3-row difference must be resolved. One historical order has order credits 2034.06 and ledger 2000 + adjustment 34.06, totaling correctly; verify business reason.
+- Remaining production audit: deployment script/data permissions, repo/server key and sensitive-file permissions, pending wallet order abuse/DoS, fail2ban/SSH constraints, CSP/XSS exposure, and normal-user login/generation/upload regression after deployment.
+
 - User report: generation fails with `Failed to download Upstream reference image: 403`; admin generation history cannot find the failed requests. Existing logged-in users must remain logged in.
 - Production: `123vips.com` / `47.84.76.131`, service `raising-game-demo`, deployed commit `7076763`, restarted 2026-11-08 20:58:33 CST.
 - Failure times from journal: 2026-11-09 00:21:13, 00:22:03, 00:23:53, 00:36:36 CST. Requests: `POST /api/advanced/generate`. Error code `INVALID_REMOTE_MEDIA`; message `Failed to download Upstream reference image: 403`.
@@ -1742,3 +1772,31 @@ CODEX_TASK_STATE.md
 - Verification: targeted workflow canvas tests `31/31`; JS syntax and `git diff --check` pass; production bundle rebuilt successfully.
 - Production bundle SHA-256: `70420f28461bbefc44bd7f8904173278b96e7c3f1204b15908e07f6822976f09`.
 - Deployed to `123vips.com` only via `scripts/deploy_local.sh --site old`. Health endpoint returned HTTP 200 `{"ok":true}`; served bundle hash matches local and contains `downloadWorkflowNodeResult`; download marker precedes delete markers in the built component.
+
+## Credential timeline correction (2026-11-09)
+
+- User clarified that the exact test01/test02 password-change time is unknown. Do not infer it from the 2026-11-08 attack/login timestamps.
+- Evidence boundary: `app_users` and `app_sessions` have no `passwordChangedAt`; `updatedAt` is overwritten by unrelated account changes, email binding, reset, and admin remediation. Successful login proves a password was usable at that time, not when it was last changed.
+- Quarantined backup `/var/backups/raising-game-demo/quarantine-20261108/app-db.json`: file mtime `2026-06-30 20:11:54 +08`; embedded test01/test02 `updatedAt` values are `2026-05-06`. test02 main-tenant current password hash equals this old backup hash, so it is unchanged from at least that snapshot through the observed attack. test01 main-tenant current hash differs, so it changed sometime after the snapshot; the exact date is unknowable from current DB/audit data.
+- test01 main tenant: attacker at `50.7.21.105` successfully used the existing password before takeover (`/api/auth/login-or-register` at 18:49:23/18:50:07, `/api/auth/login` at 20:01:15/20:01:20), then bound email `kentkouh+spdix@gmail.com` at 20:16:37, reset password at 20:17:13, and logged in at 20:17:16. The reset time is proven; the prior password-change time is not.
+- test02 main tenant: `94.177.131.198` successfully logged in at `2026-11-08 18:26:49 +08`; that login created the current session. No successful reset/change request for test02 exists in retained nginx logs.
+- Old JSON exposure remains plausible for test02 because its current password hash equals the quarantined snapshot, but no successful nginx download of `/data/app-db.json` or its backups was found. Keep this as a plausible source, not a proven leak.
+- Charged-token evidence (CST): midnight API burst `00:11-00:36` = 17 tasks / `4041.6205` credits (xiong 8 / `1663.2429`; test01 4 / `734.4592`; test02 5 / `1643.9184`). Earlier xiong subtoken tasks `18:18:06`, `18:25:10` = `136.4864`; earlier xiong main-token successful tasks add `220`. test03 later API task = `50`. `fhlllll` used the main API token for 10 image tasks / `100`, probable but not yet IP-attributed to the same actor.
+- Control weakness to correct separately with approval: password reset deletes sessions but does not rotate the main API token; the main token has no expiry/IP binding; `/api/auth/me` exposes the full main token to browser/session callers.
+
+## Quarantined legacy DB sensitive-content audit (2026-11-09)
+
+- User asked what other sensitive information the old DB contains. Investigation only; no production data mutation, revocation, rotation, or deployment.
+- Quarantined `/var/backups/raising-game-demo/quarantine-20261108/app-db.json` is a small 15 KB legacy snapshot, not the current PostgreSQL database. It contains 4 users with `passwordHash` (PBKDF2 format), 16 raw session `token` values, 9 wallet orders (4 with non-empty address; 1 crypto address pattern), 1 user character with prompts and local/TOS media keys, and 1 credit-ledger entry. All 16 legacy session tokens have 0 matches in current `app_sessions`; 3 of 4 user IDs still exist, one password hash is unchanged and two differ.
+- `generation-records.json` in the same quarantine directory contains 19 records with user IDs, prompts/final prompts, model/scene/companion IDs, local/remote video paths and URLs. `character-assets.json` contains one character asset with a local image path and asset URI.
+- The adjacent `app-config.json` backups contain wallet receiving address/QR options, home-video media paths and TOS keys, character model settings, and `platform.analytics.googleMeasurementId`; they do not contain obvious cloud access keys, private keys, bearer/JWT tokens, or credential-bearing URLs based on pattern scan.
+- No values, hashes, tokens, addresses, or other secrets were printed.
+- Current PostgreSQL is materially broader and contains 881 users, 26 user emails in payload, 36,898 credit-ledger rows, 29,577 generation records, 66 user-character rows, and 210 wallet orders with addresses. Do not conflate the small legacy snapshot with a full current-database export.
+
+## Legacy sensitive backup cleanup and TOS identification (2026-11-09)
+
+- User asked to handle the sensitive legacy data and identify TOS.
+- Production cleanup completed: created `/var/backups/raising-game-demo/legacy-sensitive-backup-manifest-20261109.json` (0600 root:root) containing only filenames, sizes, and SHA-256 digests; permanently shredded the six plaintext files in `/var/backups/raising-game-demo/quarantine-20261108/` with `shred -u -z -n 3`; removed the quarantine directory.
+- Post-cleanup whole-filesystem search found no remaining `app-db*.json`, `generation-records*.json`, `app-config*.json`, or `character-assets*.json` copies (excluding no paths found). Manifest SHA-256: `d459ceddac44604e24ee8db7def63ceca5151ec57a512cc0e8c2b07df45f92f8`.
+- TOS identification: historical code used `TOS4-HMAC-SHA256`, `x-tos-content-sha256`, `x-tos-date`, and scope `<date>/<region>/tos/request`, which is Volcengine TOS (Volcano Engine Torch Object Storage). The old deploy guard named bucket `fal-task` and custom public domain `https://cdn-video.51sux.com`; the custom CDN domain does not change the storage platform identification.
+- Current `/etc/raising-game-demo.env` has no `TOS_*` entries; active object storage is Alibaba OSS Singapore (`OSS_REGION=oss-ap-southeast-1`, bucket redacted from notes).

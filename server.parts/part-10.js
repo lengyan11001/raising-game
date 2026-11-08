@@ -912,11 +912,12 @@ function replaceHomeVideoItem(homeVideo = {}, item) {
 
 function userView(user) {
   if (!user) return null;
-  // A sub token authenticates with its parent user's account context so that
-  // balances and records stay shared. Never expose the parent's primary API
-  // token to the sub token caller through any endpoint that reuses userView().
-  const auth = currentAuthContext();
-  const isSubtokenRequest = String(auth?.tokenSource || "").toLowerCase() === "subtoken";
+  // userView() is reused by login, profile, payment, and generation responses.
+  // Never put the long-lived primary token in those payloads: a single XSS,
+  // browser extension, or response log would otherwise leak it. The owner can
+  // retrieve it explicitly from /api/access/token when they choose to view or
+  // copy it.
+  const apiToken = String(user.apiToken || "");
   return {
     id: user.id,
     tenantId: recordTenantId(user),
@@ -936,7 +937,8 @@ function userView(user) {
     },
     role: user.role || "user",
     credits: Number(user.credits || 0),
-    apiToken: isSubtokenRequest ? "" : String(user.apiToken || ""),
+    apiToken: "",
+    apiTokenPreview: apiToken ? `${apiToken.slice(0, 8)}...${apiToken.slice(-6)}` : "",
     pricingMultiplier: normalizeUserPricingMultiplier(user, { channel: "web" }),
     apiPricingMultiplier: normalizeUserPricingMultiplier(user, { channel: "api" }),
     advancedAccess: user.advancedAccess === true,
@@ -1009,8 +1011,9 @@ async function handleAccountProfile(req, res) {
 
 async function handleAccountProfileMedia(req, res) {
   const auth = await requireUser(req, res); if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "account_profile_media", limit: 20, windowMs: 60 * 60_000 })) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "照片上传需要数据库服务。" });
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   if (body.kind === "voice") {
     let decoded;
     try { decoded = decodeWanMediaDataUrl(body.dataUrl || ""); } catch { return sendJson(res, 400, { ok: false, message: "只支持 MP3、WAV、M4A、OGG、WEBM 音频。" }); }

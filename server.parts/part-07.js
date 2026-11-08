@@ -10,6 +10,7 @@ async function handleListChatLiveRoomMessages(req, res, roomId = "") {
 async function handleChatLiveRoomMessage(req, res, roomId = "") {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "chat_live_room_message", limit: 30, windowMs: 60_000 })) return;
   const room = await getChatLiveRoomInDb(roomId);
   if (!room || room.enabled === false || room.status !== "active") return sendJson(res, 404, { ok: false, message: "房间不存在或已关闭。" });
   const body = await readJson(req);
@@ -125,7 +126,7 @@ async function handleAdminDeleteChatLiveGift(req, res, giftId = "") {
 async function handleAdminUploadChatLiveAsset(req, res, options = {}) {
   const auth = options.auth || await requireAdmin(req, res);
   if (!auth) return;
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   let decoded;
   const requestedKind = String(body.kind || "avatar");
   try {

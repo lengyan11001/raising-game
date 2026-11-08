@@ -1092,7 +1092,7 @@ async function handleAdminList(req, res) {
 async function handleAdminUploadHomeImage(req, res) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   const { mime, bytes } = decodeDataUrl(body.dataUrl || "");
   const ext = imageExtFromMime(mime);
   const fileName = `home-${Date.now()}-${crypto.randomBytes(3).toString("hex")}${ext}`;

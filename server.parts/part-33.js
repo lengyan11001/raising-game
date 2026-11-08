@@ -3,10 +3,10 @@ async function handleTelegramBotWebhook(req, res) {
   if (!telegramBotEnabled()) return sendJson(res, 404, { ok: false, message: "Telegram Undress bot is not enabled." });
   const pathSecret = String(req.url || "").split("?")[0].split("/").pop() || "";
   const headerSecret = String(req.headers["x-telegram-bot-api-secret-token"] || "");
-  if (pathSecret !== TELEGRAM_BOT_WEBHOOK_SECRET && headerSecret !== TELEGRAM_BOT_WEBHOOK_SECRET) {
+  if (!timingSafeEqualString(pathSecret, TELEGRAM_BOT_WEBHOOK_SECRET) && !timingSafeEqualString(headerSecret, TELEGRAM_BOT_WEBHOOK_SECRET)) {
     return sendJson(res, 403, { ok: false, message: "Invalid Telegram webhook secret." });
   }
-  const update = await readJson(req);
+  const update = await readJson(req, 128 * 1024);
   const updateId = Number(update.update_id || 0);
   if (updateId > 0) {
     const now = Date.now();
@@ -689,6 +689,7 @@ async function handleAdminUpdateMembershipActivationCode(req, res, codeId) {
 async function handleCreateSupportMessage(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "support_message_create", limit: 5, windowMs: 60 * 60_000 })) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "问题反馈需要数据库服务。" });
   const body = await readJson(req);
   const email = String(body.email || auth.user.email || "").trim();
@@ -1139,8 +1140,8 @@ async function processTelegramSupportUpdate(update = {}) {
 
 async function handleTelegramSupportWebhook(req, res, secret) {
   if (!telegramSupportEnabled()) return sendJson(res, 404, { ok: false, message: "Telegram support is not enabled." });
-  if (!secret || secret !== TELEGRAM_SUPPORT_WEBHOOK_SECRET) return sendJson(res, 403, { ok: false, message: "Invalid webhook secret." });
-  const update = await readJson(req);
+  if (!secret || !timingSafeEqualString(secret, TELEGRAM_SUPPORT_WEBHOOK_SECRET)) return sendJson(res, 403, { ok: false, message: "Invalid webhook secret." });
+  const update = await readJson(req, 128 * 1024);
   await processTelegramSupportUpdate(update);
   return sendJson(res, 200, { ok: true });
 }
@@ -1236,6 +1237,20 @@ async function handleListApiSubtokens(req, res) {
   return sendJson(res, 200, {
     ok: true,
     subtokens: subtokens.map(apiSubtokenView).filter(Boolean),
+  });
+}
+
+async function handleGetPrimaryApiToken(req, res) {
+  const auth = await requirePrimaryTokenOwner(req, res);
+  if (!auth) return;
+  ensureUserApiToken(auth.user, auth.db);
+  if (dbEnabled()) await updateUserInDb(auth.user);
+  else await writeDb(auth.db);
+  res.setHeader("cache-control", "no-store");
+  return sendJson(res, 200, {
+    ok: true,
+    apiToken: String(auth.user.apiToken || ""),
+    apiTokenPreview: String(auth.user.apiToken || "").slice(0, 8) + "..." + String(auth.user.apiToken || "").slice(-6),
   });
 }
 

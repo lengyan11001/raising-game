@@ -30,6 +30,32 @@ function loadRiskModule() {
   return sandbox.__risk;
 }
 
+function loadBusinessRiskModule({ hits = 1, unavailable = false } = {}) {
+  const source = read("server.parts/part-46.js");
+  const calls = [];
+  const sandbox = {
+    console,
+    crypto: require("node:crypto"),
+    process,
+    dbEnabled: () => true,
+    requestTenantId: () => "main",
+    sendJson: (_res, status, body) => ({ status, body }),
+    incrementRateLimitInDb: async (key, options) => {
+      calls.push({ key, options });
+      if (unavailable) throw new Error("database unavailable");
+      return { hits: typeof hits === "function" ? hits() : hits, retryAfterSeconds: 17 };
+    },
+    recordRiskEventInDb: async () => ({}),
+    getLoginFailureStateInDb: async () => ({ lockedUntil: null, retryAfterSeconds: 0 }),
+    recordLoginFailureInDb: async () => ({ failures: 1, lockedUntil: null }),
+    clearLoginFailuresInDb: async () => undefined,
+  };
+  vm.runInNewContext(`${source}\n;globalThis.__risk = { enforceBusinessRateLimit, authRateLimitedResponse };`, sandbox, {
+    filename: "server.parts/part-46.js",
+  });
+  return { ...sandbox.__risk, calls };
+}
+
 test("forged CF-Connecting-IP is ignored when request comes directly from a public client", () => {
   const { authClientIp } = loadRiskModule();
   assert.equal(authClientIp({
@@ -184,4 +210,52 @@ test("existing users with legacy short passwords can still submit the login form
   assert.match(login[0], /if \(!username \|\| !password\)/);
   assert.doesNotMatch(login[0], /password\.length\s*<\s*(?:6|10)/);
   assert.match(createUi, /new password \(at least 10 characters\)/i);
+});
+
+
+test("business rate limits are account scoped, return Retry-After, and fail closed when storage is unavailable", async () => {
+  const limited = loadBusinessRiskModule({ hits: 31 });
+  const headers = {};
+  const res = { setHeader: (name, value) => { headers[name] = value; } };
+  const req = { socket: { remoteAddress: "8.8.8.8" }, headers: {} };
+  const allowed = await limited.enforceBusinessRateLimit(req, res, { user: { id: "u1" } }, { action: "image_generate", limit: 30, windowMs: 600000 });
+  assert.equal(allowed, false);
+  assert.equal(headers["Retry-After"], "17");
+  assert.equal(limited.calls[0].key.includes("business:image_generate:main:"), true);
+  assert.equal(limited.calls[0].key.includes("8.8.8.8"), false);
+
+  const unavailable = loadBusinessRiskModule({ unavailable: true });
+  const unavailableRes = { setHeader: () => {} };
+  const denied = await unavailable.enforceBusinessRateLimit(req, unavailableRes, { user: { id: "u1" } }, { action: "image_generate", limit: 30, windowMs: 600000 });
+  assert.equal(denied, false);
+  assert.equal(unavailable.calls.length, 1);
+});
+
+test("normal and media request bodies have separated size limits", () => {
+  const source = read("server.parts/part-01.js");
+  assert.match(source, /JSON_BODY_MAX_BYTES = Math\.floor\(clampNumber\(process\.env\.JSON_BODY_MAX_MB, 1, 1, 8\)/);
+  assert.match(source, /JSON_MEDIA_BODY_MAX_BYTES = Math\.floor\(clampNumber\(process\.env\.JSON_MEDIA_BODY_MAX_MB, 140, 16, 200\)/);
+  const mediaRoutes = [
+    "server.parts/part-07.js",
+    "server.parts/part-09.js",
+    "server.parts/part-10.js",
+    "server.parts/part-17.js",
+    "server.parts/part-25.js",
+    "server.parts/part-29.js",
+    "server.parts/part-36.js",
+    "server.parts/part-38.js",
+    "server.parts/part-39.js",
+    "server.parts/part-41.js",
+  ];
+  for (const file of mediaRoutes) assert.match(read(file), /readJson\(req, JSON_MEDIA_BODY_MAX_BYTES\)/, file);
+  const jsonSource = read("server.parts/part-24.js");
+  const start = jsonSource.indexOf("async function readRawBody");
+  const end = jsonSource.indexOf("function clampNumber", start);
+  const readRawBody = new Function("JSON_BODY_MAX_BYTES", `${jsonSource.slice(start, end)}\nreturn readRawBody;`)(1024);
+  const exact = require("node:stream").Readable.from([Buffer.alloc(1024, 97)]);
+  const tooLarge = require("node:stream").Readable.from([Buffer.alloc(1025, 97)]);
+  return readRawBody(exact).then((body) => {
+    assert.equal(Buffer.byteLength(body), 1024);
+    return assert.rejects(readRawBody(tooLarge), (error) => error.statusCode === 413 && error.code === "REQUEST_BODY_TOO_LARGE");
+  });
 });

@@ -3,8 +3,10 @@ const crypto = require("node:crypto");
 const { AsyncLocalStorage } = require("node:async_hooks");
 const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
+const net = require("node:net");
 const path = require("node:path");
 const tls = require("node:tls");
+const dns = require("node:dns");
 const chatLiveComponent = require("./chat-live-component");
 const { execFile } = require("node:child_process");
 const { Readable } = require("node:stream");
@@ -232,6 +234,7 @@ const {
   redeemMembershipActivationCodeInDb,
   updateWalletOrderInDb,
   updateUserInDb,
+  patchUserPayloadInDb,
   upsertUserAssetInDb,
   getUserAssetFromDb,
   getUserAssetsByIdsFromDb,
@@ -265,6 +268,9 @@ const {
   getChatCharacterMemoryInDb,
   upsertChatCharacterMemoryInDb,
   withChatLiveSessionSettlementLockInDb,
+  withWalletOrderSettlementLockInDb,
+  withWalletUserSettlementLockInDb,
+  withUserMutationLockInDb,
   allocateChatLiveFreeSecondsInDb,
   finalizeChatLiveFreeAllocationInDb,
   cancelChatLiveFreeAllocationInDb,
@@ -431,6 +437,46 @@ const {
   requestOriginFromHeaders,
 } = require("./lib-http");
 const ROOT = __dirname;
+const ASSETS_ROOT = path.join(ROOT, "assets");
+
+function pathWithin(root, target, { allowRoot = false } = {}) {
+  const rootPath = path.resolve(String(root || ""));
+  const targetPath = path.resolve(String(target || ""));
+  const relative = path.relative(rootPath, targetPath);
+  if (!relative) return allowRoot;
+  return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function safePathWithin(root, target, options = {}) {
+  if (!pathWithin(root, target, options)) return "";
+  const rootPath = path.resolve(String(root || ""));
+  let rootReal = rootPath;
+  try {
+    rootReal = fsSync.realpathSync.native(rootPath);
+  } catch {}
+  let probe = path.resolve(String(target || ""));
+  const suffix = [];
+  while (true) {
+    try {
+      const real = fsSync.realpathSync.native(probe);
+      const resolved = path.join(real, ...suffix.reverse());
+      return pathWithin(rootReal, resolved, options) ? path.resolve(String(target || "")) : "";
+    } catch {
+      const parent = path.dirname(probe);
+      if (parent === probe) return "";
+      suffix.push(path.basename(probe));
+      probe = parent;
+    }
+  }
+}
+
+function safeAssetPathFromUrl(value = "") {
+  const text = String(value || "").trim().split("?")[0];
+  if (!text.startsWith("/assets/")) return "";
+  const target = path.resolve(ASSETS_ROOT, text.replace(/^\/+/, "").replace(/^assets\//, ""));
+  return safePathWithin(ASSETS_ROOT, target);
+}
+
 const LIVE_STATIC_ROOT = resolveLiveStaticRoot(ROOT, process.env.LIVE_STATIC_ROOT);
 const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.html",
@@ -1236,7 +1282,8 @@ const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADV
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT, 3, 1, 3));
 const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT, 3, 1, 3));
 const SEEDANCE_PREPROCESS_REFERENCE_VERSION = "preserve-source-v2";
-const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 140, 1, 200) * 1024 * 1024);
+const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 1, 1, 8) * 1024 * 1024);
+const JSON_MEDIA_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_MEDIA_BODY_MAX_MB, 140, 16, 200) * 1024 * 1024);
 const IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
 const MEDIA_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const VEGA_10_LITE_IMAGE_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;

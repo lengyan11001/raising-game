@@ -1352,7 +1352,7 @@ els.requestAccountEmailCodeBtn?.addEventListener("click", requestAccountEmailCod
 els.verifyAccountEmailBtn?.addEventListener("click", verifyAccountEmail);
 els.languageSelect?.addEventListener("change", () => setLanguage(els.languageSelect.value));
 els.copyAccessBtn?.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(fullAccessCopy());
+  await navigator.clipboard.writeText(await fullAccessCopy());
   els.copyAccessBtn.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("common.copied"))}`;
   refreshIcons();
   setTimeout(() => {
@@ -1360,12 +1360,15 @@ els.copyAccessBtn?.addEventListener("click", async () => {
     refreshIcons();
   }, 1600);
 });
-els.toggleAccessTokenBtn?.addEventListener("click", () => {
+els.toggleAccessTokenBtn?.addEventListener("click", async () => {
+  if (!state.showAccessToken && !state.user?.apiToken) {
+    try { await ensurePrimaryApiToken(); } catch { return openLogin(); }
+  }
   state.showAccessToken = !state.showAccessToken;
   renderAccessGuides();
 });
 els.copyTokenBtn?.addEventListener("click", async () => {
-  if (!state.token || !state.user?.apiToken) return openLogin();
+  if (!state.token || !state.user) return openLogin();
   const markdown = await tokenAccessPackageMarkdown();
   await navigator.clipboard.writeText(markdown);
   els.copyTokenBtn.innerHTML = `<i data-lucide="check"></i>Copied token + docs`;
@@ -1425,8 +1428,9 @@ els.mobileDrawerLoginBtn?.addEventListener("click", () => {
 });
 els.mobileDrawerLogoutBtn?.addEventListener("click", logout);
 els.menuCopyTokenBtn?.addEventListener("click", async () => {
-  if (!state.token || !state.user?.apiToken) return openLogin();
-  await navigator.clipboard.writeText(state.user.apiToken);
+  if (!state.token || !state.user) return openLogin();
+  const token = await ensurePrimaryApiToken();
+  await navigator.clipboard.writeText(token);
   closeAccountMenu();
 });
 els.menuLoginBtn?.addEventListener("click", () => {
@@ -1437,13 +1441,17 @@ els.menuEmailBindBtn?.addEventListener("click", () => {
   closeAccountMenu();
   openAccount({ focusEmail: true });
 });
-els.toggleAccountTokenBtn?.addEventListener("click", () => {
+els.toggleAccountTokenBtn?.addEventListener("click", async () => {
+  if (!state.showAccountToken && !state.user?.apiToken) {
+    try { await ensurePrimaryApiToken(); } catch { return openLogin(); }
+  }
   state.showAccountToken = !state.showAccountToken;
   renderTokenDisplays();
 });
 els.copyAccountTokenBtn?.addEventListener("click", async () => {
-  if (!state.token || !state.user?.apiToken) return openLogin();
-  await navigator.clipboard.writeText(state.user.apiToken);
+  if (!state.token || !state.user) return openLogin();
+  const token = await ensurePrimaryApiToken();
+  await navigator.clipboard.writeText(token);
   els.copyAccountTokenBtn.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("common.copied"))}`;
   refreshIcons();
   setTimeout(() => {

@@ -786,9 +786,12 @@ async function handlePasswordReset(req, res) {
   if (!email || password.length < 10 || !await consumeEmailCode("reset", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid code or password. Password must be at least 10 characters." });
   const db = await readDb(); const user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
   if (!user) return sendJson(res, 400, { ok: false, message: "Invalid code or password." });
-  user.passwordHash = hashPassword(password); user.updatedAt = new Date().toISOString();
-  db.sessions = (db.sessions || []).filter((session) => session.userId !== user.id);
-  if (dbEnabled()) { await updateUserInDb(user); await deleteUserSessionsInDb(user.id); } else await writeDb(db);
+  user.passwordHash = hashPassword(password);
+  // A reset revokes copied API tokens, but existing browser sessions are
+  // intentionally preserved so normal users are not logged out.
+  user.apiToken = makeUniqueApiToken(db);
+  user.updatedAt = new Date().toISOString();
+  if (dbEnabled()) await updateUserInDb(user); else await writeDb(db);
   return sendJson(res, 200, { ok: true });
 }
 

@@ -8,11 +8,12 @@ const vm = require("node:vm");
 
 const server = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-40.js"), "utf8");
 
-test("admin password reset invalidates every session for the target user", () => {
+test("admin password reset rotates the API token without ending browser sessions", () => {
   const handler = server.match(/async function handleAdminResetPassword[\s\S]*?\n}\r?\n\r?\nasync function handleAdminDeleteUser/);
   assert.ok(handler, "admin password reset handler should be present");
-  assert.match(handler[0], /auth\.db\.sessions = \(auth\.db\.sessions \|\| \[\]\)\.filter\(\(s\) => s\.userId !== userId\)/);
-  assert.match(handler[0], /await deleteUserSessionsInDb\(userId\)/);
+  assert.match(handler[0], /user\.apiToken = makeUniqueApiToken\(auth\.db\)/);
+  assert.doesNotMatch(handler[0], /auth\.db\.sessions =/);
+  assert.doesNotMatch(handler[0], /deleteUserSessionsInDb\(userId\)/);
   assert.doesNotMatch(handler[0], /auth\.session/);
 });
 

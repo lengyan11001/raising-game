@@ -650,7 +650,7 @@ async function applyPayPalWebhookToOrder(db, event, config) {
 async function handlePayPalWebhook(req, res) {
   let event;
   try {
-    const raw = await readRawBody(req);
+    const raw = await readRawBody(req, 2 * 1024 * 1024);
     event = raw ? JSON.parse(raw) : {};
   } catch {
     return sendJson(res, 400, { ok: false, message: "Invalid PayPal webhook body." });
@@ -1170,9 +1170,8 @@ function localAssetUrlForGameMedia(value = "") {
   if (!text || /^https?:\/\//i.test(text)) return "";
   const clean = text.split("?")[0].replace(/^\/+/, "");
   if (!clean) return "";
-  const filePath = path.normalize(path.join(ROOT, clean));
-  const rootWithSep = ROOT.endsWith(path.sep) ? ROOT : `${ROOT}${path.sep}`;
-  if (filePath !== ROOT && !filePath.startsWith(rootWithSep)) return "";
+  const filePath = safeAssetPathFromUrl(`/${clean}`);
+  if (!filePath) return "";
   return { filePath, localUrl: `/${clean}` };
 }
 

@@ -435,6 +435,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  pathWithin,
+  safePathWithin,
+  safeAssetPathFromUrl,
   advancedModelPricing,
   publicAdvancedPricingRows,
   adminAdvancedPricingView,
@@ -443,6 +446,12 @@ module.exports = {
   signedOssCdnUrlForDelivery,
   canonicalOssStorageUrlForCache,
   publicHttpUrlForUpstream,
+  isPrivateVegaHostname,
+  isPrivateIpAddress,
+  resolvePublicRemoteUrl,
+  fetchPublicRemoteUrl,
+  downloadRemoteFileToBuffer,
+  readResponseBodyWithLimit,
   objectStorageKeyFromPublicUrl,
   handleAdvancedVegaGenerate,
   repairStalledGenerationRecords,

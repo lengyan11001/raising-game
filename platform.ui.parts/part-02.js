@@ -1,5 +1,5 @@
 async function tokenAccessPackageMarkdown() {
-  const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
+  const token = await ensurePrimaryApiToken();
   const baseUrl = API_ORIGIN || window.location.origin || "";
   const docsUrl = apiUrl("/docs/api.md");
   const docsJsonUrl = apiUrl("/docs/api.json");
@@ -298,7 +298,7 @@ function renderTokenDisplays() {
     els.toggleAccessTokenBtn.disabled = !state.token || !state.user;
   }
   if (els.copyTokenBtn) {
-    els.copyTokenBtn.disabled = !state.token || !state.user?.apiToken;
+    els.copyTokenBtn.disabled = !state.token || !state.user;
     els.copyTokenBtn.hidden = !apiAccessEnabled;
     els.copyTokenBtn.innerHTML = `<i data-lucide="key-round"></i>Copy token + docs`;
   }
@@ -319,11 +319,11 @@ function renderTokenDisplays() {
   if (els.accountToken) els.accountToken.textContent = currentTokenLabel(state.showAccountToken);
   if (els.toggleAccountTokenBtn) {
     els.toggleAccountTokenBtn.textContent = state.showAccountToken ? t("common.hide") : t("common.showFull");
-    els.toggleAccountTokenBtn.disabled = !state.token || !state.user?.apiToken;
+    els.toggleAccountTokenBtn.disabled = !state.token || !state.user;
     els.toggleAccountTokenBtn.hidden = !apiAccessEnabled;
   }
   if (els.copyAccountTokenBtn) {
-    els.copyAccountTokenBtn.disabled = !state.token || !state.user?.apiToken;
+    els.copyAccountTokenBtn.disabled = !state.token || !state.user;
     els.copyAccountTokenBtn.hidden = !apiAccessEnabled;
   }
 }
@@ -345,7 +345,7 @@ function renderAccountMenu() {
   if (els.menuEmailBindBtn) {
     els.menuEmailBindBtn.hidden = !loggedIn || !state.config?.auth?.email?.enabled || Boolean(String(state.user?.email || "").trim());
   }
-  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user?.apiToken;
+  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user;
   if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.hidden = !apiAccessEnabled || !loggedIn;
   if (els.menuLogoutBtn) {
     els.menuLogoutBtn.hidden = !loggedIn;
@@ -420,7 +420,7 @@ function generationImageResultUrls(record = {}) {
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
     ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
     generationImageResultUrl(record),
-  ].map((item) => String(item || "").trim()).filter(Boolean))];
+  ].map((item) => String(item || "").trim()).filter(isGenerationImageOutputUrl))];
 }
 
 function generationPosterUrl(record) {
@@ -1136,7 +1136,7 @@ async function refreshGenerationCompletionRecords() {
       renderHistory(state.historyRecords);
       historyRecordsSignature = generationRecordsSignature(state.historyRecords);
     }
-    if (state.tab === "advanced" && state.advancedSideTab === "result" && typeof renderAdvancedResultPanel === "function") {
+    if (isAdvancedWorkspaceTab() && state.advancedSideTab === "result" && typeof renderAdvancedResultPanel === "function") {
       renderAdvancedResultPanel();
     }
   } catch {

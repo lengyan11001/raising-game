@@ -1199,7 +1199,7 @@ async function downloadGeneratedCharacterSheet(taskId, imageUrl) {
     // Continue and download.
   }
 
-  const response = await fetch(imageUrl);
+  const response = await fetchPublicRemoteUrl(imageUrl, { signal: AbortSignal.timeout(180000) }, { label: "Character sheet" });
   if (!response.ok) {
     const error = new Error(`Failed to download character sheet: ${response.status}`);
     error.statusCode = 502;

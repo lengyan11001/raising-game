@@ -1342,13 +1342,66 @@ async function appendCreditLedger(db, user, delta, type, meta = {}) {
 }
 
 async function maybeGrantReferralReward(db, referredUserId = "", order = {}) {
-  const referredUser = (db.users || []).find((entry) => entry.id === referredUserId);
-  const referral = referralPayload(referredUser);
-  const referrerId = String(referral.referredByUserId || "").trim();
-  if (!referredUser || !referrerId || referrerId === referredUser.id) return null;
+  const cleanReferredUserId = String(referredUserId || "").trim();
+  if (!cleanReferredUserId) return null;
+  const initialReferredUser = (db.users || []).find((entry) => entry.id === cleanReferredUserId);
+  const referrerId = String(referralPayload(initialReferredUser).referredByUserId || "").trim();
+  if (!initialReferredUser || !referrerId || referrerId === cleanReferredUserId) return null;
+  if (!dbEnabled()) {
+    return maybeGrantReferralRewardInMemory(db, initialReferredUser, referrerId, order);
+  }
+  /* The reward is ledger-idempotent, but its metadata is a user snapshot write.
+     Hold the referrer lock around both the duplicate check and metadata patch. */
+  return withUserMutationLockInDb(referrerId, async (referrer) => {
+    if (!referrer) return { value: null };
+    const referredUser = await getUserByIdInDb(cleanReferredUserId);
+    if (!referredUser || referrerId === referredUser.id) return { value: null };
+    if (await referralRewardAlreadyGranted(db, referrer.id, referredUser.id)) return { value: null };
+    const now = new Date().toISOString();
+    const rewardMeta = {
+      referrerUserId: referrer.id,
+      referredUserId: referredUser.id,
+      referredUsername: referredUser.username || "",
+      orderId: order.id || "",
+      orderProvider: order.paymentProvider || "manual",
+    };
+    await changeUserCredits(db, referrer.id, REFERRAL_REWARD_CREDITS, "referral_reward", rewardMeta);
+    const freshReferrer = await getUserByIdInDb(referrer.id) || referrer;
+    const referredReferral = referralPayload(referredUser);
+    freshReferrer.referral = {
+      ...referralPayload(freshReferrer),
+      invitedUserId: referredUser.id,
+      invitedUsername: referredUser.username || "",
+      rewardedAt: now,
+      rewardOrderId: order.id || "",
+      rewardCredits: REFERRAL_REWARD_CREDITS,
+      rewardCount: Math.max(0, Number(referralPayload(freshReferrer).rewardCount || 0)) + 1,
+    };
+    const referredReferralPatch = {
+      ...referredReferral,
+      firstPaidAt: referredReferral.firstPaidAt || now,
+      firstPaidOrderId: referredReferral.firstPaidOrderId || order.id || "",
+      rewardGrantedAt: now,
+    };
+    await patchUserPayloadInDb(referredUser.id, {
+      referral: referredReferralPatch,
+      updatedAt: now,
+    });
+    const cachedReferredUser = (db.users || []).find((entry) => entry.id === referredUser.id);
+    if (cachedReferredUser) cachedReferredUser.referral = referredReferralPatch;
+    freshReferrer.updatedAt = now;
+    return { user: freshReferrer, value: freshReferrer };
+  });
+}
+
+function maybeGrantReferralRewardInMemory(db, referredUser, referrerId, order) {
   const referrer = (db.users || []).find((entry) => entry.id === referrerId);
   if (!referrer) return null;
-  if (await referralRewardAlreadyGranted(db, referrer.id, referredUser.id)) return null;
+  if ((db.creditLedger || []).some((entry) => (
+    entry.type === "referral_reward"
+    && String(entry.userId || entry.meta?.referrerUserId || "") === referrer.id
+    && String(entry.meta?.referredUserId || "") === referredUser.id
+  ))) return null;
   const now = new Date().toISOString();
   const rewardMeta = {
     referrerUserId: referrer.id,
@@ -1357,29 +1410,36 @@ async function maybeGrantReferralReward(db, referredUserId = "", order = {}) {
     orderId: order.id || "",
     orderProvider: order.paymentProvider || "manual",
   };
-  await changeUserCredits(db, referrer.id, REFERRAL_REWARD_CREDITS, "referral_reward", rewardMeta);
-  const referrerReferral = referralPayload(referrer);
+  const ledger = {
+    id: randomId("ledger"),
+    userId: referrer.id,
+    username: referrer.username || "",
+    delta: REFERRAL_REWARD_CREDITS,
+    balanceAfter: creditsAmount(Number(referrer.credits || 0) + REFERRAL_REWARD_CREDITS),
+    type: "referral_reward",
+    meta: rewardMeta,
+    createdAt: now,
+  };
+  referrer.credits = creditsAmount(Number(referrer.credits || 0) + REFERRAL_REWARD_CREDITS);
   referrer.referral = {
-    ...referrerReferral,
+    ...referralPayload(referrer),
     invitedUserId: referredUser.id,
     invitedUsername: referredUser.username || "",
     rewardedAt: now,
     rewardOrderId: order.id || "",
     rewardCredits: REFERRAL_REWARD_CREDITS,
-    rewardCount: Math.max(0, Number(referrerReferral.rewardCount || 0)) + 1,
+    rewardCount: Math.max(0, Number(referralPayload(referrer).rewardCount || 0)) + 1,
   };
   referredUser.referral = {
-    ...referral,
-    firstPaidAt: referral.firstPaidAt || now,
-    firstPaidOrderId: referral.firstPaidOrderId || order.id || "",
+    ...referralPayload(referredUser),
+    firstPaidAt: referralPayload(referredUser).firstPaidAt || now,
+    firstPaidOrderId: referralPayload(referredUser).firstPaidOrderId || order.id || "",
     rewardGrantedAt: now,
   };
   referrer.updatedAt = now;
   referredUser.updatedAt = now;
-  if (dbEnabled()) {
-    await updateUserInDb(referrer);
-    await updateUserInDb(referredUser);
-  }
+  db.creditLedger = Array.isArray(db.creditLedger) ? db.creditLedger : [];
+  db.creditLedger.unshift(ledger);
   return referrer;
 }
 

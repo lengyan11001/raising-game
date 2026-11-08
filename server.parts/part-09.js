@@ -551,10 +551,11 @@ async function transcribeChatLiveVoice(audioBase64, mime) {
 async function handleChatLiveVoice(req, res, sessionId = "") {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "chat_live_voice", limit: 20, windowMs: 60_000 })) return;
   const session = await getChatLiveSessionInDb(String(sessionId || "").trim());
   if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
   if (session.mode !== "component") return sendJson(res, 400, { ok: false, code: "NOT_COMPONENT_SESSION", message: "这一路请直接开麦说话。" });
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   let text = "";
   try {
     text = await transcribeChatLiveVoice(body.audioBase64, body.mime);
@@ -583,6 +584,7 @@ async function handleChatLiveVoice(req, res, sessionId = "") {
 
 async function handleChatLiveGift(req, res, sessionId = "") {
   const auth = await requireUser(req, res); if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "chat_live_gift", limit: 30, windowMs: 60_000 })) return;
   let session = await getChatLiveSessionInDb(String(sessionId || "").trim());
   if (!session || session.userId !== auth.user.id) return sendJson(res, 404, { ok: false, message: "会话不存在。" });
   const settled = session.settled === true || String(session.settled || "").toLowerCase() === "true";

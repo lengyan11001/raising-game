@@ -160,9 +160,12 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
 
 function verifyPassword(password, stored) {
   const [salt, expected] = String(stored || "").split(":");
-  if (!salt || !expected) return false;
+  if (!salt || !/^[a-f0-9]{64}$/i.test(expected || "")) return false;
   const actual = hashPassword(password, salt).split(":")[1];
-  return crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+  const actualBytes = Buffer.from(actual, "hex");
+  const expectedBytes = Buffer.from(expected, "hex");
+  return actualBytes.length === expectedBytes.length
+    && crypto.timingSafeEqual(actualBytes, expectedBytes);
 }
 
 function makeApiToken() {
@@ -265,6 +268,23 @@ function lightweightAuthDb() {
 
 // Qualifying purchases earn the inviter a 20% USD commission. The order id is
 // recorded on the inviter to make the grant idempotent across webhook retries.
+function applyReferralCommissionToUser(referrer, amount, orderId) {
+  if (!referrer?.id || !orderId) return null;
+  const current = referralPayload(referrer);
+  const orderIds = Array.isArray(current.commissionOrderIds) ? current.commissionOrderIds.map(String) : [];
+  if (orderIds.includes(String(orderId))) return null;
+  const commission = Math.round(Number(amount || 0) * 0.2 * 100) / 100;
+  if (!Number.isFinite(commission) || commission <= 0) return null;
+  referrer.referral = {
+    ...current,
+    totalCommissionUsd: Math.round((Number(current.totalCommissionUsd || 0) + commission) * 100) / 100,
+    commissionOrderIds: [...orderIds, String(orderId)].slice(-500),
+    lastCommissionAt: new Date().toISOString(),
+  };
+  referrer.updatedAt = new Date().toISOString();
+  return referrer;
+}
+
 async function maybeGrantReferralCommission(db, referredUserId = "", order = {}) {
   const amount = Number(order?.baseAmount || 0);
   const qualifies = (order?.orderKind === "subscription" && String(order?.billingPlanId || "") === CREATOR_MEMBERSHIP_PLAN_ID)
@@ -272,21 +292,17 @@ async function maybeGrantReferralCommission(db, referredUserId = "", order = {})
   if (!qualifies || !Number.isFinite(amount) || amount <= 0) return null;
   const referredUser = (db.users || []).find((entry) => entry.id === referredUserId);
   const referrerId = String(referralPayload(referredUser).referredByUserId || "").trim();
+  if (!referredUser || !referrerId || referrerId === referredUser.id || !order.id) return null;
+  if (dbEnabled()) {
+    return withUserMutationLockInDb(referrerId, async (referrer) => {
+      if (!referrer) return { value: null };
+      const updated = applyReferralCommissionToUser(referrer, amount, order.id);
+      return updated ? { user: updated, value: updated } : { value: referrer };
+    });
+  }
   const referrer = (db.users || []).find((entry) => entry.id === referrerId);
-  if (!referredUser || !referrer || referrer.id === referredUser.id || !order.id) return null;
-  const current = referralPayload(referrer);
-  const orderIds = Array.isArray(current.commissionOrderIds) ? current.commissionOrderIds.map(String) : [];
-  if (orderIds.includes(String(order.id))) return referrer;
-  const commission = Math.round(amount * 0.2 * 100) / 100;
-  referrer.referral = {
-    ...current,
-    totalCommissionUsd: Math.round((Number(current.totalCommissionUsd || 0) + commission) * 100) / 100,
-    commissionOrderIds: [...orderIds, String(order.id)].slice(-500),
-    lastCommissionAt: new Date().toISOString(),
-  };
-  referrer.updatedAt = new Date().toISOString();
-  if (dbEnabled()) await updateUserInDb(referrer);
-  return referrer;
+  if (!referrer) return null;
+  return applyReferralCommissionToUser(referrer, amount, order.id) || referrer;
 }
 
 function findUserChatUnlock(db, userId, itemId) {
@@ -336,6 +352,9 @@ async function getAuth(req, options = {}) {
       if (!recordBelongsToTenant(user, tenantId)) {
         return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null };
       }
+      if (user?.riskStatus === "quarantined") {
+        return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
+      }
       const auth = { db, user, session, ...authUserContext(user, token, "session", null) };
       const store = requestContext.getStore();
       if (store) store.auth = auth;
@@ -378,6 +397,9 @@ async function getAuth(req, options = {}) {
     if (!recordBelongsToTenant(user, tenantId)) {
       return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null };
     }
+    if (user?.riskStatus === "quarantined") {
+      return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
+    }
     const auth = { db, user, session, ...authUserContext(user, token, "session", null) };
     const store = requestContext.getStore();
     if (store) store.auth = auth;
@@ -416,7 +438,7 @@ async function getAuth(req, options = {}) {
 
 async function requireUser(req, res, options = {}) {
   const auth = await getAuth(req, options);
-  if (auth.user?.riskStatus === "quarantined" && auth.tokenSource !== "session") {
+  if (auth.user?.riskStatus === "quarantined") {
     sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
     return null;
   }
@@ -452,6 +474,14 @@ async function requireAdmin(req, res, options = {}) {
   if (!auth) return null;
   if (auth.user.role !== "admin") {
     sendJson(res, 403, { ok: false, code: "ADMIN_REQUIRED", message: "需要管理员权限。" });
+    return null;
+  }
+  if (auth.tokenSource !== "session") {
+    sendJson(res, 403, {
+      ok: false,
+      code: "ADMIN_SESSION_REQUIRED",
+      message: "管理后台仅接受浏览器登录会话，请勿使用 API token 访问。",
+    });
     return null;
   }
   return auth;

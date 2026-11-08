@@ -495,7 +495,15 @@ async function readRawBody(req, maxBytes = JSON_BODY_MAX_BYTES) {
 
 async function readJson(req, maxBytes = JSON_BODY_MAX_BYTES) {
   const raw = await readRawBody(req, maxBytes);
-  return raw ? JSON.parse(raw) : {};
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const error = new Error("Request body must be valid JSON.");
+    error.statusCode = 400;
+    error.code = "INVALID_JSON";
+    throw error;
+  }
 }
 
 function clampNumber(value, fallback, min, max) {
@@ -798,8 +806,8 @@ function gatewayAbsoluteAssetUrl(value = "") {
 async function dataUrlForLocalAssetUrl(localUrl = "", fallbackMime = "application/octet-stream") {
   const value = String(localUrl || "").trim();
   if (!value || !value.startsWith("/")) return "";
-  const localPath = path.normalize(path.join(ROOT, value.replace(/^\/+/, "")));
-  if (!localPath.startsWith(ROOT)) {
+  const localPath = safeAssetPathFromUrl(value);
+  if (!localPath) {
     const error = new Error("Asset path is invalid.");
     error.statusCode = 400;
     throw error;
@@ -814,7 +822,12 @@ async function gatewaySeedanceReferenceFromUri(uri = "", label = "Reference") {
   if (/^data:/i.test(value)) return { dataUrl: value, fileName: `${label}.bin`, name: label };
   if (value.startsWith("asset://")) return { url: value, name: label };
   if (value.startsWith("/")) {
-    const localPath = path.normalize(path.join(ROOT, value.replace(/^\/+/, "")));
+    const localPath = safeAssetPathFromUrl(value);
+    if (!localPath) {
+      const error = new Error("Reference asset path is invalid.");
+      error.statusCode = 400;
+      throw error;
+    }
     return { url: await publishLocalAssetUrlToObjectStorage(value), fileName: path.basename(localPath), name: label };
   }
   return { url: publicHttpUrlForUpstream(value) || gatewayAbsoluteAssetUrl(value), name: label };

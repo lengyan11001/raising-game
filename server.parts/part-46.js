@@ -158,19 +158,31 @@ function authAuditMetadata(req = null, body = {}, extra = {}) {
   };
 }
 
-async function authRateLimit(req, { action = "", limit = 1, windowMs = 60_000, includeAccount = "", includeIp = true } = {}) {
+async function authRateLimit(req, { action = "", limit = 1, windowMs = 60_000, includeAccount = "", includeIp = true, eventType = "auth_rate_limited", code = "AUTH_RATE_LIMITED" } = {}) {
   if (!dbEnabled()) return { ok: true };
   const ip = authClientIp(req);
   const tenantId = requestTenantId(req);
   const windowBucket = Math.floor(Date.now() / Math.max(1000, Number(windowMs) || 60_000));
   const subject = String(includeAccount || "").trim().toLowerCase();
   const subjectKey = subject ? `${includeIp ? `${ip}:` : ""}${subject}` : ip;
-  const key = `auth:${String(action)}:${tenantId}:${authRiskKey(subjectKey)}:${windowBucket}`;
-  const result = await incrementRateLimitInDb(key, { windowMs });
+  const key = `${eventType === "business_rate_limited" ? "business" : "auth"}:${String(action)}:${tenantId}:${authRiskKey(subjectKey)}:${windowBucket}`;
+  let result;
+  try {
+    result = await incrementRateLimitInDb(key, { windowMs });
+  } catch (error) {
+    console.error(`[auth-risk] rate limit check failed: ${error.message}`);
+    return {
+      ok: false,
+      ip,
+      result: { hits: 0, retryAfterSeconds: 30 },
+      retryAfterSeconds: 30,
+      response: { ok: false, code: "RATE_LIMIT_UNAVAILABLE", message: "Request protection is temporarily unavailable. Please try again shortly." },
+    };
+  }
   if (result.hits <= limit) return { ok: true, ip, result };
   try {
     await recordRiskEventInDb({
-      eventType: "auth_rate_limited",
+      eventType,
       scopeKey: key,
       tenantId,
       subject: includeAccount,
@@ -186,8 +198,24 @@ async function authRateLimit(req, { action = "", limit = 1, windowMs = 60_000, i
     ip,
     result,
     retryAfterSeconds: result.retryAfterSeconds,
-    response: { ok: false, code: "AUTH_RATE_LIMITED", message: "Too many requests. Please try again later." },
+    response: { ok: false, code, message: "Too many requests. Please try again later." },
   };
+}
+
+async function enforceBusinessRateLimit(req, res, auth, { action = "", limit = 30, windowMs = 60_000 } = {}) {
+  if (!auth?.user?.id) return true;
+  const rate = await authRateLimit(req, {
+    action,
+    limit,
+    windowMs,
+    includeAccount: auth.user.id,
+    includeIp: false,
+    eventType: "business_rate_limited",
+    code: "BUSINESS_RATE_LIMITED",
+  });
+  if (rate.ok) return true;
+  authRateLimitedResponse(res, rate);
+  return false;
 }
 
 function authRateLimitedResponse(res, rate = {}) {

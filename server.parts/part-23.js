@@ -563,6 +563,7 @@ async function scanGenerationRecordMissingPosterBackfill(reason = "timer") {
             posterMaintenanceAttempts: previousAttempts + 1,
             posterMaintenanceRetryAt: "",
             posterMaintenanceError: "",
+            posterMaintenanceTerminalAt: "",
             posterMaintenanceCompletedAt: new Date().toISOString(),
             posterMaintenanceLastDurationMs: Math.max(0, Date.now() - repairStartedAt),
           });
@@ -572,12 +573,9 @@ async function scanGenerationRecordMissingPosterBackfill(reason = "timer") {
       } catch (error) {
         failed += 1;
         const now = Date.now();
-        const retryAt = new Date(now + GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS * (previousAttempts + 1)).toISOString();
         await upsertGenerationRecord({
           taskId: current.taskId,
-          posterMaintenanceAttempts: previousAttempts + 1,
-          posterMaintenanceRetryAt: retryAt,
-          posterMaintenanceError: String(error?.message || error || "Poster backfill failed.").slice(0, 500),
+          ...posterMaintenanceFailureUpdates(previousAttempts, error, now),
           posterMaintenanceLastDurationMs: Math.max(0, now - repairStartedAt),
         }).catch(() => {});
       }
@@ -1140,27 +1138,25 @@ function undressToolExampleLocalPath(record = {}, definition = {}, side = "input
       record.sourceImageUrl,
       record.imageUrl,
     ];
-  const assetsRoot = path.resolve(ROOT, "assets");
   for (const candidate of candidates) {
     const value = String(candidate || "").trim();
     if (!value) continue;
-    let filePath = "";
     if (value.startsWith("/assets/")) {
-      filePath = path.resolve(ROOT, value.replace(/^\/+/, ""));
-    } else if (path.isAbsolute(value)) {
-      filePath = path.normalize(value);
-    } else {
-      let pathname = value;
-      if (isPublicHttpUrl(value)) {
-        try { pathname = new URL(value).pathname; } catch { pathname = ""; }
-      }
-      if (pathname.startsWith("/assets/")) {
-        filePath = path.resolve(ROOT, pathname.replace(/^\/+/, ""));
-      }
+      const filePath = safeAssetPathFromUrl(value);
+      if (filePath) return filePath;
+      continue;
     }
-    if (!filePath) continue;
-    const relative = path.relative(assetsRoot, filePath);
-    if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) return filePath;
+    if (path.isAbsolute(value)) {
+      const filePath = safePathWithin(ASSETS_ROOT, value);
+      if (filePath) return filePath;
+      continue;
+    }
+    if (isPublicHttpUrl(value)) {
+      try {
+        const filePath = safeAssetPathFromUrl(new URL(value).pathname);
+        if (filePath) return filePath;
+      } catch {}
+    }
   }
   return "";
 }

@@ -767,9 +767,8 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
 async function localBytesForResolvedMedia(item = {}) {
   const localUrl = String(item.localUrl || "").trim();
   if (!localUrl) return null;
-  const localPath = path.normalize(path.join(ROOT, localUrl.replace(/^\//, "")));
-  const rootWithSep = ROOT.endsWith(path.sep) ? ROOT : `${ROOT}${path.sep}`;
-  if (localPath !== ROOT && !localPath.startsWith(rootWithSep)) return null;
+  const localPath = safeAssetPathFromUrl(localUrl);
+  if (!localPath) return null;
   try {
     return await fs.readFile(localPath);
   } catch {

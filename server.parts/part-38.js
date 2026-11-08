@@ -238,7 +238,12 @@ async function ensureCharacterReferenceForRecord(record) {
   }
 
   const localUrl = record.syntheticReferenceLocalUrl || record.localImageUrl || record.posterUrl;
-  const localPath = path.join(ROOT, localUrl.replace(/^\//, ""));
+  const localPath = safeAssetPathFromUrl(localUrl);
+  if (!localPath) {
+    const error = new Error("Seedance character reference path is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
   const refBytes = await fs.readFile(localPath);
   validateSeedanceImageBytes(refBytes, "Seedance character reference image");
   const localRefPublicUrl = publicUrlForAssetPath(localUrl);
@@ -409,8 +414,8 @@ async function handleSaveMyCharacterDraft(req, res) {
     localUrl = `/assets/user-characters/${auth.user.id}/${fileName}`;
     objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
   } else {
-    const localPath = path.join(ROOT, localUrl.replace(/^\//, ""));
-    bytes = await fs.readFile(localPath).catch(() => null);
+    const localPath = safeAssetPathFromUrl(localUrl);
+    bytes = localPath ? await fs.readFile(localPath).catch(() => null) : null;
     if (!bytes) return sendJson(res, 400, { ok: false, message: "Draft source image could not be read." });
     if (bytes.byteLength > IMAGE_UPLOAD_MAX_BYTES) {
       return sendJson(res, 400, { ok: false, message: "Image must be 20MB or smaller." });
@@ -459,7 +464,7 @@ async function handleSaveMyCharacterDraft(req, res) {
 async function handleGenerateMyCharacterImage(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   const userPrompt = String(body.prompt || "").trim();
   if (!userPrompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   let sourceImageAsset = null;
@@ -633,7 +638,8 @@ async function handleGenerateMyCharacterImage(req, res) {
 async function handleCreateMyCharacter(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const body = await readJson(req);
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "my_character_create", limit: 10, windowMs: 10 * 60_000 })) return;
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   const { mime, bytes } = decodeDataUrl(body.dataUrl || "");
   if (bytes.byteLength > IMAGE_UPLOAD_MAX_BYTES) {
     return sendJson(res, 400, { ok: false, message: "Image must be 20MB or smaller." });
@@ -940,6 +946,7 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
 async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "my_character_scene_video", limit: 10, windowMs: 10 * 60_000 })) return;
   const body = await readJson(req);
   const sceneId = String(body.sceneId || "").trim();
   if (!sceneId) return sendJson(res, 400, { ok: false, message: "Missing sceneId." });

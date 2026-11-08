@@ -510,6 +510,7 @@ async function handleListChatConversations(req, res) {
 async function handleCreateChatConversation(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "chat_conversation_create", limit: 30, windowMs: 10 * 60_000 })) return;
   const body = await readJson(req);
   const responseLanguage = chatResponseLanguage(body.language);
   const requestedCharacterId = String(body.characterId || "");
@@ -616,9 +617,10 @@ async function handleUpdateChatConversation(req, res, conversationId) {
 async function handleCreateChatImage(req, res, conversationId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "chat_image_generate", limit: 10, windowMs: 10 * 60_000 })) return;
   const conversation = await getChatConversationInDb(conversationId, auth.user.id);
   if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   const mode = body.mode === "scene" ? "scene" : "image";
   const userPrompt = String(body.prompt || "").trim().slice(0, 4000);
   if (mode === "image" && !userPrompt) return sendJson(res, 400, { ok: false, message: "Describe the image you want." });
@@ -719,6 +721,7 @@ function chatGiftMessageId(taskId = "", kind = "gift") {
 async function handleChatGift(req, res, conversationId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "chat_gift", limit: 30, windowMs: 60_000 })) return;
   const conversation = await getChatConversationInDb(conversationId, auth.user.id);
   if (!conversation) return sendJson(res, 404, { ok: false, message: "Chat not found." });
   const live = chatLiveConfigValue(await readAppConfig());
@@ -850,6 +853,7 @@ function chatReplyDelayMs() {
 async function handleSendChatMessage(req, res, conversationId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "chat_message_send", limit: 60, windowMs: 60_000 })) return;
   const chatLive = chatLiveConfigValue(await readAppConfig());
   const usePapayaChat = chatLive.languageModel === "papaya";
   if (usePapayaChat && !String(process.env.MULEROUTER_API_KEY || "").trim()) return sendJson(res, 503, { ok: false, code: "MISSING_MULEROUTER_API_KEY", message: "Papaya is not configured." });

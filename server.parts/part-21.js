@@ -280,7 +280,9 @@ async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectSt
   const recovered = await recoverGenerationRecordR2Urls(record);
   if (!recovered?.localVideoUrl) return recovered;
   record = recovered;
-  const localVideoPath = record.localVideoPath || path.join(ROOT, String(record.localVideoUrl || "").replace(/^\//, ""));
+  const localVideoPath = safePathWithin(ASSETS_ROOT, record.localVideoPath)
+    || safeAssetPathFromUrl(record.localVideoUrl || "");
+  if (!localVideoPath) return record;
   const currentVideoUrl = generationRecordVideoUrl(record);
   try {
     await fs.access(localVideoPath);
@@ -342,6 +344,22 @@ async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectSt
 
 const GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS = 3;
 const GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS = 30 * 60 * 1000;
+function posterMaintenanceFailureUpdates(previousAttempts = 0, error = null, now = Date.now()) {
+  const attempts = Math.min(
+    GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS,
+    Math.max(0, Number(previousAttempts || 0)) + 1,
+  );
+  const terminal = attempts >= GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS;
+  return {
+    posterMaintenanceAttempts: attempts,
+    posterMaintenanceRetryAt: terminal
+      ? ""
+      : new Date(now + GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS * attempts).toISOString(),
+    posterMaintenanceError: String(error?.message || error || "Poster maintenance failed.").slice(0, 500),
+    posterMaintenanceTerminalAt: terminal ? new Date(now).toISOString() : "",
+  };
+}
+
 const generatedMediaMaintenanceQueue = [];
 const generatedMediaMaintenanceQueued = new Set();
 let generatedMediaMaintenanceRunning = false;
@@ -363,6 +381,16 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
       return;
     }
     const downloaded = await downloadGeneratedVideo(cleanTaskId, remote, { forceLocal: repairPoster, posterOnly: repairPoster });
+    if (repairPoster && !String(downloaded.localPosterUrl || downloaded.cdnPosterUrl || "").trim()) {
+      throw new Error("Poster frame was not created.");
+    }
+    const posterMaintenanceUpdates = repairPoster ? {
+      posterMaintenanceAttempts: Number(current.posterMaintenanceAttempts || 0),
+      posterMaintenanceRetryAt: "",
+      posterMaintenanceError: "",
+      posterMaintenanceCompletedAt: new Date().toISOString(),
+      posterMaintenanceTerminalAt: "",
+    } : {};
     await upsertAndSettleGenerationRecord({
       taskId: cleanTaskId,
       status: current.status,
@@ -375,9 +403,18 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
       cdnPosterUrl: downloaded.cdnPosterUrl || "",
       cdnError: downloaded.cdnError || "",
       error: current.error || "",
+      ...posterMaintenanceUpdates,
     }, reason);
-  }).catch((error) => {
+  }).catch(async (error) => {
     console.warn("[generated-video-background-download-failed]", cleanTaskId, error.message || error);
+    if (!repairPoster) return;
+    const current = await getGenerationRecord(cleanTaskId).catch(() => null);
+    if (!current) return;
+    await upsertGenerationRecord({
+      taskId: cleanTaskId,
+      ...posterMaintenanceFailureUpdates(current.posterMaintenanceAttempts, error),
+      posterMaintenanceLastDurationMs: 0,
+    }).catch(() => {});
   }).finally(() => {
     generatedVideoDownloadQueued.delete(cleanTaskId);
   }));
@@ -515,17 +552,16 @@ async function recoverGenerationRecordR2Urls(record = {}) {
 }
 
 function generationRecordNeedsPosterMaintenance(record = {}) {
+  if (!record?.taskId || generationRecordIsApiTask(record)) return false;
+  if (!isSucceededStatus(record.status) || !generationRecordIsVideoOutput(record)) return false;
+  if (String(record.cdnPosterUrl || '').trim() || String(record.localPosterUrl || '').trim()) return false;
+  if (String(record.posterMaintenanceTerminalAt || "").trim()) return false;
+  if (Number(record.posterMaintenanceAttempts || 0) >= GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS) return false;
+  const retryAt = Date.parse(record.posterMaintenanceRetryAt || '');
+  if (retryAt && retryAt > Date.now()) return false;
   return Boolean(
-    record?.taskId
-    && !generationRecordIsApiTask(record)
-    && isSucceededStatus(record.status)
-    && generationRecordIsVideoOutput(record)
-    && !String(record.cdnPosterUrl || "").trim()
-    && !String(record.localPosterUrl || "").trim()
-    && Boolean(
-      generationRecordProviderVideoUrl(record)
-      || String(record.localVideoUrl || "").trim()
-    )
+    generationRecordProviderVideoUrl(record)
+    || String(record.localVideoUrl || '').trim()
   );
 }
 

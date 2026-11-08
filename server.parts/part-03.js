@@ -218,7 +218,11 @@ async function activateCreatorMembership(db, user, { source = "payment", orderId
   };
   user.updatedAt = now;
   if (dbEnabled()) {
-    await updateUserInDb(user);
+    const saved = await patchUserPayloadInDb(user.id, {
+      membership: user.membership,
+      updatedAt: user.updatedAt,
+    });
+    if (saved) Object.assign(user, saved);
     const existing = await getUserSubscriptionInDb(user.id, DEFAULT_TENANT_ID);
     await upsertUserSubscriptionInDb({
       ...existing,
@@ -255,7 +259,13 @@ async function grantApiDocsAccess(db, user, { orderId = "", source = "payment" }
     updatedAt: now,
   };
   user.updatedAt = now;
-  if (dbEnabled()) await updateUserInDb(user);
+  if (dbEnabled()) {
+    const saved = await patchUserPayloadInDb(user.id, {
+      apiDocsAccess: user.apiDocsAccess,
+      updatedAt: user.updatedAt,
+    });
+    if (saved) Object.assign(user, saved);
+  }
   return user;
 }
 

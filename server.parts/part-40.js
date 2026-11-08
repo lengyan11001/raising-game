@@ -938,11 +938,12 @@ async function handleAdminResetPassword(req, res, userId) {
     return sendJson(res, 400, { ok: false, message: "密码至少 10 位。" });
   }
   user.passwordHash = hashPassword(password);
+  // A password change revokes the old primary API token, but not existing
+  // browser sessions. Admins can still use the explicit forceLogout action.
+  user.apiToken = makeUniqueApiToken(auth.db);
   user.updatedAt = new Date().toISOString();
-  auth.db.sessions = (auth.db.sessions || []).filter((s) => s.userId !== userId);
   if (dbEnabled()) await updateUserInDb(user);
   else await writeDb(auth.db);
-  await deleteUserSessionsInDb(userId);
   return sendJson(res, 200, { ok: true, user: userView(user) });
 }
 

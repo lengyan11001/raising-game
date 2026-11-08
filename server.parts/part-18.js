@@ -389,7 +389,7 @@ async function refreshWan27ImageGenerationRecord(record = {}, { reason = "query"
 }
 
 async function downloadHomeReferenceImage(imageUrl, itemId) {
-  const response = await fetch(imageUrl, { signal: AbortSignal.timeout(180000) });
+  const response = await fetchPublicRemoteUrl(imageUrl, { signal: AbortSignal.timeout(180000) }, { label: "Synthetic reference image" });
   if (!response.ok) {
     const error = new Error(`Failed to download synthetic reference: ${response.status}`);
     error.statusCode = 502;
@@ -416,7 +416,12 @@ async function createHomeSyntheticReference(item) {
     throw error;
   }
 
-  const sourcePath = path.join(ROOT, sourceUrl.replace(/^\//, ""));
+  const sourcePath = safeAssetPathFromUrl(sourceUrl);
+  if (!sourcePath) {
+    const error = new Error("Home character source path is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
   const bytes = await fs.readFile(sourcePath);
   const localSourcePublicUrl = publicUrlForAssetPath(sourceUrl);
   let uploaded = { publicUrl: localSourcePublicUrl, key: "" };
@@ -593,7 +598,12 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
     return config;
   }
 
-  const localPath = path.join(ROOT, localUrl.replace(/^\//, ""));
+  const localPath = safeAssetPathFromUrl(localUrl);
+  if (!localPath) {
+    const error = new Error("Home image path is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
   const bytes = await fs.readFile(localPath);
   validateSeedanceImageBytes(bytes, "Seedance home image");
   const localPublicUrl = publicUrlForAssetPath(localUrl);
@@ -632,10 +642,73 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
   return config;
 }
 
-function isPublicHttpUrl(value) {
+function isPrivateIpv4Address(address = "") {
+  const parts = String(address || "").split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b, c] = parts;
+  return a === 0
+    || a === 10
+    || a === 127
+    || (a === 100 && b >= 64 && b <= 127)
+    || (a === 169 && b === 254)
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && b === 0 && c === 0)
+    || (a === 192 && b === 0 && c === 2)
+    || (a === 192 && b === 168)
+    || (a === 198 && (b === 18 || b === 19))
+    || (a === 198 && b === 51 && c === 100)
+    || (a === 203 && b === 0 && c === 113)
+    || a >= 224;
+}
+
+function ipv4FromMappedIpv6(address = "") {
+  const normalized = String(address || "").toLowerCase().replace(/^\[|\]$/g, "");
+  const prefix = "::ffff:";
+  if (!normalized.startsWith(prefix)) return "";
+  const tail = normalized.slice(prefix.length);
+  if (net.isIP(tail) === 4) return tail;
+  const words = tail.split(":");
+  if (words.length !== 2 || words.some((word) => !/^[0-9a-f]{1,4}$/.test(word))) return "";
+  const high = Number.parseInt(words[0], 16);
+  const low = Number.parseInt(words[1], 16);
+  return `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+}
+
+function isPrivateIpAddress(address = "") {
+  const value = String(address || "").trim().toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
+  const version = net.isIP(value);
+  if (version === 4) return isPrivateIpv4Address(value);
+  if (version !== 6) return false;
+  const mappedIpv4 = ipv4FromMappedIpv6(value);
+  if (mappedIpv4) return isPrivateIpv4Address(mappedIpv4);
+  const first = value.split(":")[0] || "";
+  return value === "::"
+    || value === "::1"
+    || /^f[cd][0-9a-f]{0,2}$/.test(first)
+    || /^fe[89ab][0-9a-f]{0,2}$/.test(first)
+    || /^ff[0-9a-f]{0,2}$/.test(first)
+    || value.startsWith("2001:db8:")
+    || value === "2001:db8::"
+    || value.startsWith("2001:2:")
+    || value.startsWith("2001:10:")
+    || value.startsWith("2001:20:")
+    || value.startsWith("64:ff9b:");
+}
+
+function isPrivateVegaHostname(value = "") {
+  const hostname = String(value || "").trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (!hostname) return true;
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || hostname.endsWith(".internal")) return true;
+  return isPrivateIpAddress(hostname);
+}
+
+function isPublicHttpUrl(value = "") {
   try {
     const url = new URL(String(value || ""));
-    return ["http:", "https:"].includes(url.protocol) && !["127.0.0.1", "localhost", "::1"].includes(url.hostname);
+    return ["http:", "https:"].includes(url.protocol)
+      && !url.username
+      && !url.password
+      && !isPrivateVegaHostname(url.hostname);
   } catch {
     return false;
   }

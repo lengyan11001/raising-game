@@ -70,8 +70,8 @@ async function handleStreamUnlockVideo(req, res, token) {
   if (!videoUrl) return sendJson(res, 409, { ok: false, message: "Unlock video is still generating." });
   if (/^https?:\/\//i.test(videoUrl)) return res.writeHead(302, { location: videoUrl }).end();
 
-  const localPath = path.normalize(path.join(ROOT, videoUrl.replace(/^\//, "")));
-  if (!localPath.startsWith(ROOT)) return sendJson(res, 403, { ok: false, message: "Forbidden." });
+  const localPath = safeAssetPathFromUrl(videoUrl);
+  if (!localPath) return sendJson(res, 403, { ok: false, message: "Forbidden." });
   const contentType = mimeTypes.get(path.extname(localPath).toLowerCase()) || "";
   if (!contentType.startsWith("video/")) return sendJson(res, 403, { ok: false, message: "Forbidden." });
   return streamVideoFile(req, res, localPath);
@@ -100,9 +100,8 @@ async function handleStreamPublicGameVideo(req, res, token) {
   if (!videoUrl) return sendJson(res, 409, { ok: false, message: "Video is unavailable." });
   if (/^https?:\/\//i.test(videoUrl)) return res.writeHead(302, { location: videoUrl }).end();
 
-  const localPath = path.normalize(path.join(ROOT, videoUrl.replace(/^\//, "")));
-  const rootWithSep = ROOT.endsWith(path.sep) ? ROOT : `${ROOT}${path.sep}`;
-  if (localPath !== ROOT && !localPath.startsWith(rootWithSep)) return sendJson(res, 403, { ok: false, message: "Forbidden." });
+  const localPath = safeAssetPathFromUrl(videoUrl);
+  if (!localPath) return sendJson(res, 403, { ok: false, message: "Forbidden." });
   const contentType = mimeTypes.get(path.extname(localPath).toLowerCase()) || "";
   if (!contentType.startsWith("video/")) return sendJson(res, 403, { ok: false, message: "Forbidden." });
   return streamVideoFile(req, res, localPath, { useInternalAsset: false });
@@ -111,8 +110,16 @@ async function handleStreamPublicGameVideo(req, res, token) {
 async function handleUploadUserAsset(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  const uploadRate = await authRateLimit(req, {
+    action: "user_asset_upload",
+    limit: 120,
+    windowMs: 10 * 60_000,
+    includeAccount: auth.user.id,
+    includeIp: false,
+  });
+  if (!uploadRate.ok) return authRateLimitedResponse(res, uploadRate);
 
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   const uploadProvider = normalizeAdvancedProvider(body.provider || "");
   const publicUrl = String(body.url || body.imageUrl || body.videoUrl || body.audioUrl || "").trim();
   if (publicUrl) {
@@ -175,6 +182,14 @@ async function handleUploadVideoToolAsset(req, res) {
   if (!dbEnabled()) {
     return sendJson(res, 503, { ok: false, message: "Video tool uploads require database storage." });
   }
+  const chunkRate = await authRateLimit(req, {
+    action: "video_tool_upload_chunk",
+    limit: 300,
+    windowMs: 10 * 60_000,
+    includeAccount: auth.user.id,
+    includeIp: false,
+  });
+  if (!chunkRate.ok) return authRateLimitedResponse(res, chunkRate);
 
   const fileName = decodedUploadFileName(req.headers["x-file-name"] || "");
   const declaredMime = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
@@ -252,6 +267,14 @@ async function handleUploadVideoToolAsset(req, res) {
         chunkCount,
       });
     }
+    const completeRate = await authRateLimit(req, {
+      action: "video_tool_upload_complete",
+      limit: 30,
+      windowMs: 60 * 60_000,
+      includeAccount: auth.user.id,
+      includeIp: false,
+    });
+    if (!completeRate.ok) return authRateLimitedResponse(res, completeRate);
 
     const partPaths = Array.from({ length: chunkCount }, (_, index) => path.join(uploadPartsDir, `${String(index).padStart(3, "0")}.part`));
     const partStats = [];
@@ -372,7 +395,7 @@ async function handleUploadSeedanceCharacter(req, res) {
     }
   }
 
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   let userAsset = null;
   const assetId = String(firstPresent(body.assetId, body.userAssetId, body.imageAssetId, "") || "").trim();
   if (assetId) {
@@ -454,9 +477,8 @@ function generationRecordAssetName(record = {}) {
 async function bytesForGenerationRecordVideo(record = {}) {
   const localUrl = record.localVideoUrl || "";
   if (localUrl && !/^https?:\/\//i.test(localUrl)) {
-    const localPath = path.normalize(path.join(ROOT, localUrl.replace(/^\//, "")));
-    const assetsRoot = path.normalize(path.join(ROOT, "assets"));
-    if (!localPath.startsWith(assetsRoot)) {
+    const localPath = safeAssetPathFromUrl(localUrl);
+    if (!localPath) {
       const error = new Error("Generation video path is not allowed.");
       error.statusCode = 403;
       throw error;
@@ -474,9 +496,8 @@ async function bytesForGenerationRecordVideo(record = {}) {
     throw error;
   }
   if (!/^https?:\/\//i.test(videoUrl)) {
-    const localPath = path.normalize(path.join(ROOT, videoUrl.replace(/^\//, "")));
-    const assetsRoot = path.normalize(path.join(ROOT, "assets"));
-    if (!localPath.startsWith(assetsRoot)) {
+    const localPath = safeAssetPathFromUrl(videoUrl);
+    if (!localPath) {
       const error = new Error("Generation video path is not allowed.");
       error.statusCode = 403;
       throw error;
@@ -501,9 +522,8 @@ async function bytesForGenerationRecordVideo(record = {}) {
 async function bytesForGenerationRecordImage(record = {}) {
   const localUrl = record.localImageUrl || record.imageResultUrl || "";
   if (localUrl && !/^https?:\/\//i.test(localUrl)) {
-    const localPath = path.normalize(path.join(ROOT, localUrl.replace(/^\//, "")));
-    const assetsRoot = path.normalize(path.join(ROOT, "assets"));
-    if (!localPath.startsWith(assetsRoot)) {
+    const localPath = safeAssetPathFromUrl(localUrl);
+    if (!localPath) {
       const error = new Error("Generation image path is not allowed.");
       error.statusCode = 403;
       throw error;
@@ -521,9 +541,8 @@ async function bytesForGenerationRecordImage(record = {}) {
     throw error;
   }
   if (!/^https?:\/\//i.test(imageUrl)) {
-    const localPath = path.normalize(path.join(ROOT, imageUrl.replace(/^\//, "")));
-    const assetsRoot = path.normalize(path.join(ROOT, "assets"));
-    if (!localPath.startsWith(assetsRoot)) {
+    const localPath = safeAssetPathFromUrl(imageUrl);
+    if (!localPath) {
       const error = new Error("Generation image path is not allowed.");
       error.statusCode = 403;
       throw error;
@@ -701,9 +720,8 @@ async function localAssetUrlExists(value = "") {
     } catch {}
   }
   if (!publicPath || !publicPath.startsWith("/assets/")) return false;
-  const filePath = path.normalize(path.join(ROOT, publicPath.replace(/^\/+/, "")));
-  const assetsRoot = path.normalize(path.join(ROOT, "assets"));
-  if (!filePath.startsWith(assetsRoot)) return false;
+  const filePath = safeAssetPathFromUrl(publicPath);
+  if (!filePath) return false;
   try {
     const stat = await fs.stat(filePath);
     return stat.isFile();
@@ -738,10 +756,11 @@ async function systemCharacterImageUrl(item = {}) {
 async function handleGenerateUserCharacterImage(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "user_character_image_generate", limit: 10, windowMs: 10 * 60_000 })) return;
   if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
   }
-  const body = await readJson(req);
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
   const userPrompt = String(body.prompt || "").trim();
   if (!userPrompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
 

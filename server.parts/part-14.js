@@ -249,8 +249,8 @@ async function ensureUserAssetVideoPoster(db, asset = {}) {
   if (!asset || !String(asset.mime || "").startsWith("video/")) return asset;
   const localPosterUrl = String(asset.localPosterUrl || "").trim();
   if (localPosterUrl) {
-    const localPosterPath = path.resolve(ROOT, localPosterUrl.replace(/^\/+/, ""));
-    const stat = await fs.stat(localPosterPath).catch(() => null);
+    const localPosterPath = safeAssetPathFromUrl(localPosterUrl);
+    const stat = localPosterPath ? await fs.stat(localPosterPath).catch(() => null) : null;
     if (stat?.isFile() && stat.size > 0) return asset;
   }
   let videoPath = "";
@@ -1133,9 +1133,9 @@ async function uploadLocalAssetMirrorToObjectStorage({ localUrl = "", bytes, mim
   if (!key) return { publicUrl: "", key: "", error: "" };
   const upload = await uploadStaticAssetToObjectStorage({ key, bytes, mime });
   if (!upload.publicUrl) {
-    const error = new Error("R2 upload completed without a public URL.");
+    const error = new Error(`${objectStorageProvider() === "oss" ? "OSS" : "R2"} upload completed without a public URL.`);
     error.statusCode = 502;
-    error.code = "R2_PUBLIC_URL_MISSING";
+    error.code = objectStorageProvider() === "oss" ? "OSS_PUBLIC_URL_MISSING" : "R2_PUBLIC_URL_MISSING";
     throw error;
   }
   return { publicUrl: upload.publicUrl, key: upload.key || key, error: "" };
@@ -1148,9 +1148,8 @@ async function publishLocalAssetUrlToObjectStorage(localUrl = "") {
     error.statusCode = 400;
     throw error;
   }
-  const localPath = path.resolve(ROOT, value.replace(/^\/+/, ""));
-  const relative = path.relative(path.resolve(ROOT), localPath);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+  const localPath = safeAssetPathFromUrl(value);
+  if (!localPath) {
     const error = new Error("Asset path is invalid.");
     error.statusCode = 400;
     throw error;

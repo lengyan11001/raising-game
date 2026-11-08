@@ -3354,6 +3354,25 @@ async function updateWalletOrderInDb(order = {}) {
   return order;
 }
 
+/* Merge only selected user payload fields so unrelated concurrent updates
+   (credits, memberships, entitlements) cannot be rolled back by an old snapshot. */
+async function patchUserPayloadInDb(userId = "", patch = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(userId || "").trim();
+  if (!id || !patch || typeof patch !== "object" || Array.isArray(patch)) return null;
+  await ensureSchema();
+  const updatedAt = new Date().toISOString();
+  const cleanPatch = { ...patch, updatedAt };
+  const { rows } = await query(`
+    UPDATE app_users
+    SET payload = payload || $2::jsonb,
+        updated_at = $3::timestamptz
+    WHERE id = $1 AND deleted_at IS NULL
+    RETURNING *
+  `, [id, JSON.stringify(cleanPatch), updatedAt]);
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
 async function updateUserInDb(user = {}) {
   if (!dbEnabled()) return null;
   const id = String(user.id || "").trim();
@@ -4003,6 +4022,77 @@ async function updateChatLiveSessionInDb(session = {}) {
     payload.updatedAt || new Date().toISOString(),
   ]);
   return payload;
+}
+
+/* Serialize read/modify/write updates for one user snapshot. The callback must
+   return { user } for an update or { value } for a read-only result. */
+async function withUserMutationLockInDb(userId = "", handler = null) {
+  const id = String(userId || "").trim();
+  if (!dbEnabled()) return null;
+  if (!id || typeof handler !== "function") return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  const lockKey = `user-mutation:${id}`;
+  let locked = false;
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+    locked = true;
+    const current = await getUserByIdInDb(id);
+    const result = await handler(current);
+    if (result?.user?.id) await updateUserInDb(result.user);
+    return result?.value === undefined ? result : result.value;
+  } finally {
+    if (locked) await client.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]).catch(() => {});
+    client.release();
+  }
+}
+
+/* Serialize all settlement work that mutates one payer. Unlike the generic
+   user mutation lock this does not read or rewrite a user snapshot, so callers
+   can safely compose it with other user/referral locks. */
+async function withWalletUserSettlementLockInDb(userId = "", handler = null) {
+  if (!dbEnabled()) return null;
+  const id = String(userId || "").trim();
+  if (!id || typeof handler !== "function") return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  const lockKey = `wallet-user-settlement:${id}`;
+  let locked = false;
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+    locked = true;
+    return await handler();
+  } finally {
+    if (locked) await client.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]).catch(() => {});
+    client.release();
+  }
+}
+
+/* Serialize payment settlement across every webhook/scanner/admin path.
+   This is a session-level lock because settlement itself uses the normal pool
+   write helpers; a transaction-level lock would be released too early. */
+async function withWalletOrderSettlementLockInDb(orderId = "", handler = null) {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  if (!id || typeof handler !== "function") return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  const lockKey = `wallet-order-settlement:${id}`;
+  let locked = false;
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+    locked = true;
+    const current = await getWalletOrderByIdInDb(id);
+    const result = await handler(current);
+    if (result?.order?.id) await updateWalletOrderInDb(result.order);
+    return result?.value === undefined ? result : result.value;
+  } finally {
+    if (locked) await client.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]).catch(() => {});
+    client.release();
+  }
 }
 
 /* Serialize a whole read/settle/write transaction for one chat-live session.
@@ -6104,6 +6194,7 @@ async function getGenerationRecordsNeedingPosterMaintenanceFromDb({
       )
       AND COALESCE(payload->>'kind', '') NOT ILIKE '%image%'
       AND COALESCE(payload->>'provider', '') NOT ILIKE '%image%'
+      AND COALESCE(payload->>'posterMaintenanceTerminalAt', '') = ''
       AND COALESCE(NULLIF(payload->>'posterMaintenanceAttempts', '')::int, 0) < $1
       AND (
         COALESCE(payload->>'posterMaintenanceRetryAt', '') = ''
@@ -7882,6 +7973,7 @@ module.exports = {
   redeemMembershipActivationCodeInDb,
   updateWalletOrderInDb,
   updateUserInDb,
+  patchUserPayloadInDb,
   upsertUserAssetInDb,
   getUserAssetFromDb,
   getUserAssetsByIdsFromDb,
@@ -7916,6 +8008,9 @@ module.exports = {
   upsertChatCharacterMemoryInDb,
   updateChatLiveSessionInDb,
   withChatLiveSessionSettlementLockInDb,
+  withWalletOrderSettlementLockInDb,
+  withWalletUserSettlementLockInDb,
+  withUserMutationLockInDb,
   allocateChatLiveFreeSecondsInDb,
   finalizeChatLiveFreeAllocationInDb,
   cancelChatLiveFreeAllocationInDb,

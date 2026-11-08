@@ -103,8 +103,8 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
       const marker = await markPublishedFileSafely(localVideoPath);
       if (!marker) console.warn("[generated-video-r2-ready-marker-failed]", taskId, localVideoPath);
     } catch (error) {
-      errors.push(error.message || "Generated video R2 upload failed.");
-      console.warn("[generated-video-r2-upload-failed]", taskId, error.message || error);
+      errors.push(error.message || "Generated video object storage upload failed.");
+      console.warn("[generated-video-object-storage-upload-failed]", taskId, error.message || error);
     }
   }
   if (localPosterPath) {
@@ -123,8 +123,8 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
       const marker = await markPublishedFileSafely(localPosterPath);
       if (!marker) console.warn("[generated-poster-r2-ready-marker-failed]", taskId, localPosterPath);
     } catch (error) {
-      errors.push(error.message || "Generated poster R2 upload failed.");
-      console.warn("[generated-poster-r2-upload-failed]", taskId, error.message || error);
+      errors.push(error.message || "Generated poster object storage upload failed.");
+      console.warn("[generated-poster-object-storage-upload-failed]", taskId, error.message || error);
     }
   }
   result.cdnError = errors.join("; ");
@@ -192,17 +192,108 @@ function sendMediaFile(req, res, filePath, { contentType = "application/octet-st
   return fsSync.createReadStream(filePath).pipe(res);
 }
 
+const SAFE_REMOTE_FETCH_MAX_REDIRECTS = 5;
+
+function safeRemoteUrlError(label = "URL", message = "") {
+  const error = new Error(`${label} ${message || "must be a public HTTP(S) URL."}`.trim());
+  error.statusCode = 400;
+  error.code = "INVALID_REMOTE_MEDIA_URL";
+  return error;
+}
+
+async function resolvePublicRemoteUrl(value = "", label = "URL") {
+  let parsed;
+  try {
+    parsed = new URL(String(value || "").trim());
+  } catch {
+    throw safeRemoteUrlError(label, "must be a valid http or https URL.");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) throw safeRemoteUrlError(label, "must use http or https.");
+  if (parsed.username || parsed.password) throw safeRemoteUrlError(label, "must not contain credentials.");
+  if (isPrivateVegaHostname(parsed.hostname)) throw safeRemoteUrlError(label, "must not target a private or local host.");
+  let addresses;
+  try {
+    addresses = await dns.promises.lookup(parsed.hostname, { all: true, verbatim: true });
+  } catch {
+    throw safeRemoteUrlError(label, "hostname could not be resolved.");
+  }
+  if (!addresses.length) throw safeRemoteUrlError(label, "hostname could not be resolved.");
+  if (addresses.some((item) => isPrivateVegaHostname(item.address))) {
+    throw safeRemoteUrlError(label, "must not resolve to a private or local address.");
+  }
+  return { url: parsed, addresses };
+}
+
+async function requestPinnedPublicUrl(target, init = {}, label = "URL") {
+  const { url, addresses } = await resolvePublicRemoteUrl(target, label);
+  const selected = addresses.find((item) => item.family === 4) || addresses[0];
+  const transport = url.protocol === "https:" ? require("node:https") : require("node:http");
+  return new Promise((resolve, reject) => {
+    const request = transport.request({
+      protocol: url.protocol,
+      hostname: selected.address,
+      port: url.port || (url.protocol === "https:" ? 443 : 80),
+      // DNS is pinned to the validated address, but TLS must still validate the
+      // original hostname. Without SNI, multi-tenant certificates can fail or
+      // the wrong virtual host can be served.
+      servername: url.protocol === "https:" ? url.hostname : undefined,
+      path: `${url.pathname}${url.search}`,
+      method: init.method || "GET",
+      headers: {
+        host: url.host,
+        ...(init.headers || {}),
+      },
+      signal: init.signal,
+    }, (response) => {
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(response.headers)) {
+        if (Array.isArray(value)) value.forEach((item) => headers.append(name, item));
+        else if (value !== undefined) headers.set(name, String(value));
+      }
+      const body = response.statusCode === 204 || response.statusCode === 304 || init.method === "HEAD"
+        ? null
+        : Readable.toWeb(response);
+      resolve(new Response(body, {
+        status: response.statusCode || 502,
+        statusText: response.statusMessage || "",
+        headers,
+      }));
+    });
+    request.on("error", reject);
+    if (init.body !== undefined && init.body !== null) request.write(init.body);
+    request.end();
+  });
+}
+
+async function fetchPublicRemoteUrl(input, init = {}, { label = "URL", maxRedirects = SAFE_REMOTE_FETCH_MAX_REDIRECTS } = {}) {
+  let currentUrl = String(input || "").trim();
+  for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+    const response = await requestPinnedPublicUrl(currentUrl, {
+      ...init,
+      headers: init.headers || {},
+    }, label);
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get("location");
+    try { await response.body?.cancel(); } catch {}
+    if (!location) throw safeRemoteUrlError(label, "redirected without a location.");
+    if (redirectCount >= maxRedirects) throw safeRemoteUrlError(label, "redirected too many times.");
+    currentUrl = new URL(location, currentUrl).toString();
+    await resolvePublicRemoteUrl(currentUrl, label);
+    currentUrl = new URL(currentUrl).toString();
+  }
+  throw safeRemoteUrlError(label, "redirected too many times.");
+}
+
 async function proxyRemoteMedia(req, res, remoteUrl, { fallbackMime = "application/octet-stream", headers = {} } = {}) {
   const requestHeaders = {};
   if (req.headers.range) requestHeaders.range = req.headers.range;
   let response;
   try {
-    response = await fetch(remoteUrl, {
+    response = await fetchPublicRemoteUrl(remoteUrl, {
       method: req.method,
       headers: requestHeaders,
-      redirect: "follow",
       signal: AbortSignal.timeout(120000),
-    });
+    }, { label: "Remote media" });
   } catch (error) {
     return sendJson(res, 502, { ok: false, message: `Failed to read media: ${error.message || "upstream error"}` });
   }
@@ -273,8 +364,10 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
   if (posterOnly) {
     let source = String(remoteVideoUrl || "").trim();
     if (existing?.localVideoUrl) {
-      const existingVideoPath = existing.localVideoPath || path.join(ROOT, existing.localVideoUrl.replace(/^\//, ""));
+      const existingVideoPath = safePathWithin(ASSETS_ROOT, existing.localVideoPath)
+        || safeAssetPathFromUrl(existing.localVideoUrl || "");
       try {
+        if (!existingVideoPath) throw new Error("Generation video path is invalid.");
         await fs.access(existingVideoPath);
         source = existingVideoPath;
       } catch {
@@ -301,7 +394,9 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
   }
   if (existing?.localVideoUrl) {
     try {
-      const existingVideoPath = existing.localVideoPath || path.join(ROOT, existing.localVideoUrl.replace(/^\//, ""));
+      const existingVideoPath = safePathWithin(ASSETS_ROOT, existing.localVideoPath)
+        || safeAssetPathFromUrl(existing.localVideoUrl || "");
+      if (!existingVideoPath) throw new Error("Generation video path is invalid.");
       await fs.access(existingVideoPath);
       const actualDurationSeconds = expectedDurationSeconds > 0
         ? await probeLocalVideoDurationSeconds(existingVideoPath)
@@ -408,7 +503,7 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
   for (let attempt = 0; attempt < GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS; attempt += 1) {
     const temporaryPath = `${localVideoPath}.${process.pid}.${Date.now()}.download`;
     try {
-      const response = await fetch(remoteVideoUrl, { signal: AbortSignal.timeout(15 * 60 * 1000) });
+      const response = await fetchPublicRemoteUrl(remoteVideoUrl, { signal: AbortSignal.timeout(15 * 60 * 1000) }, { label: "Generated video" });
       if (!response.ok) {
         throw new Error(`Failed to download generated video: ${response.status}`);
       }
@@ -523,8 +618,8 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
       // The generated image is already safely stored locally and its upstream
       // result succeeded. R2 is only the faster advanced-download copy, so a
       // publication failure must not turn the generation task into a failure.
-      result.cdnError = error.message || "Generated image R2 upload failed.";
-      console.warn("[generated-image-r2-upload-failed]", taskId, result.cdnError);
+      result.cdnError = error.message || "Generated image object storage upload failed.";
+      console.warn("[generated-image-object-storage-upload-failed]", taskId, result.cdnError);
     }
   }
   return result;
@@ -563,6 +658,31 @@ function requireHttpUrl(value = "", label = "URL") {
   return parsed.toString();
 }
 
+async function readResponseBodyWithLimit(response, maxBytes, label = "file") {
+  const chunks = [];
+  let total = 0;
+  if (response.body) {
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) {
+          const error = new Error(`${label} is too large. Max ${Math.round(maxBytes / 1024 / 1024)}MB.`);
+          error.statusCode = 400;
+          await reader.cancel().catch(() => {});
+          throw error;
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  return Buffer.concat(chunks, total);
+}
+
 async function downloadRemoteFileToBuffer(fileUrl, {
   label = "file",
   maxBytes = 200 * 1024 * 1024,
@@ -574,15 +694,16 @@ async function downloadRemoteFileToBuffer(fileUrl, {
   let response = null;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
-      response = await fetch(fileUrl, { redirect: "follow", signal: AbortSignal.timeout(timeoutMs) });
+      response = await fetchPublicRemoteUrl(fileUrl, { signal: AbortSignal.timeout(timeoutMs) }, { label });
     } catch (cause) {
       if (attempt < retries) {
         await delay(Math.max(100, Number(retryDelayMs) || 500) * (attempt + 1));
         continue;
       }
       const error = new Error(`Failed to download ${label}: ${cause?.message || "network error"}`);
-      error.statusCode = 502;
-      error.code = "REMOTE_DOWNLOAD_FAILED";
+      error.statusCode = Number(cause?.statusCode) || 502;
+      error.code = cause?.code || "REMOTE_DOWNLOAD_FAILED";
+      if (cause?.retryable === false) error.retryable = false;
       throw error;
     }
     const retryableStatus = [408, 425, 429].includes(response.status) || response.status >= 500;
@@ -604,12 +725,7 @@ async function downloadRemoteFileToBuffer(fileUrl, {
     error.statusCode = 400;
     throw error;
   }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.byteLength > maxBytes) {
-    const error = new Error(`${label} is too large. Max ${Math.round(maxBytes / 1024 / 1024)}MB.`);
-    error.statusCode = 400;
-    throw error;
-  }
+  const bytes = await readResponseBodyWithLimit(response, maxBytes, label);
   return {
     bytes,
     mime: String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase(),
@@ -693,10 +809,7 @@ function localAssetPathFromPublicValue(value = "") {
     } catch {}
   }
   if (!pathname) return "";
-  const filePath = path.normalize(path.join(ROOT, pathname.replace(/^\/+/, "")));
-  const assetsRoot = path.normalize(path.join(ROOT, "assets"));
-  if (!filePath.startsWith(assetsRoot)) return "";
-  return filePath;
+  return safeAssetPathFromUrl(pathname);
 }
 
 async function workflowVideoFileFromInput(auth = {}, { taskId = "", videoUrl = "", index = 0 } = {}) {
@@ -708,7 +821,9 @@ async function workflowVideoFileFromInput(auth = {}, { taskId = "", videoUrl = "
       error.statusCode = 403;
       throw error;
     }
-    const recordPath = record.localVideoPath || localAssetPathFromPublicValue(record.localVideoUrl || record.videoUrl || "");
+    const recordPath = record.localVideoPath
+      ? safePathWithin(ASSETS_ROOT, record.localVideoPath)
+      : localAssetPathFromPublicValue(record.localVideoUrl || record.videoUrl || "");
     if (recordPath) {
       try {
         await fs.access(recordPath);
