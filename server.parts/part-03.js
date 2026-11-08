@@ -497,6 +497,7 @@ async function handlePublicCharacters(req, res, url) {
   let config = await readAppConfig();
   config = await refreshCompletedHomeVideoItems(config);
   const auth = await getAuth(req, { loadDb: false });
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const paging = pagingFromUrl(url || new URL("http://localhost"), {
     defaultLimit: PUBLIC_CHARACTER_PAGE_SIZE,

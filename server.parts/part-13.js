@@ -366,6 +366,7 @@ async function handleDoubleTopupPromoStatus(req, res) {
   const cached = doubleTopupStatusCache.get(cacheKey);
   if (cached && Date.now() - cached.at < 20000) return sendJson(res, 200, cached.body);
   const auth = await getAuth(req);
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   if (!auth.user) {
     const hinted = String(new URL(req.url, "http://localhost").searchParams.get("windowStartedAt") || "");
     const hintMs = Date.parse(hinted);

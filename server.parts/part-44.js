@@ -100,6 +100,7 @@ function elevenElevenPublicPromo(state = {}, now = Date.now(), viewer = {}) {
 async function handleElevenElevenPromoStatus(req, res) {
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "活动数据需要 PostgreSQL，当前服务未配置 DATABASE_URL。" });
   const auth = await getAuth(req, { loadDb: false });
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   const state = await getPromotionPurchaseStateInDb(ELEVEN_ELEVEN_PROMO.id, auth?.user?.id || "", Object.keys(ELEVEN_ELEVEN_PROMO.skus));
   return sendJson(res, 200, { ok: true, promo: elevenElevenPublicPromo(state, Date.now(), {
     memberActive: Boolean(auth?.user && userHasCreatorMembership(auth.user)),

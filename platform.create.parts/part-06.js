@@ -791,7 +791,10 @@ async function completeLogin(payload = {}) {
 async function submitLogin() {
   const username = els.loginUsername.value.trim();
   const password = els.loginPassword.value;
-  if (!username || password.length < 6) {
+  // Existing accounts may still have legacy passwords shorter than the new
+  // registration minimum. The backend enforces 10 characters only when it
+  // creates a new account, so login must not reject those users client-side.
+  if (!username || !password) {
     els.loginMessage.textContent = t("auth.invalid");
     return;
   }
@@ -864,7 +867,7 @@ async function verifyEmailLogin() {
 
 async function forgotPassword() {
   const email = window.prompt("Enter your bound login email"); if (!email) return;
-  try { await requestJson("/api/auth/password/reset/request", { method: "POST", body: { email } }); const code = window.prompt("Enter the verification code"); const password = window.prompt("Enter a new password (at least 6 characters)"); if (code && password) { await requestJson("/api/auth/password/reset", { method: "POST", body: { email, code, password } }); if (els.loginMessage) els.loginMessage.textContent = "Password updated. Please sign in."; } }
+  try { await requestJson("/api/auth/password/reset/request", { method: "POST", body: { email } }); const code = window.prompt("Enter the verification code"); const password = window.prompt("Enter a new password (at least 10 characters)"); if (code && password) { await requestJson("/api/auth/password/reset", { method: "POST", body: { email, code, password } }); if (els.loginMessage) els.loginMessage.textContent = "Password updated. Please sign in."; } }
   catch (error) { if (els.loginMessage) els.loginMessage.textContent = error.message; }
 }
 

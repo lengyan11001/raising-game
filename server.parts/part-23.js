@@ -833,6 +833,15 @@ function startChatLiveSettlementScheduler() {
   setInterval(() => settleStaleChatLiveSessions().catch(() => {}), 60000).unref?.();
   setTimeout(() => cleanupOrphanedChatLiveFreeAllocations().catch(() => {}), 90000).unref?.();
   setInterval(() => cleanupOrphanedChatLiveFreeAllocations().catch(() => {}), 10 * 60 * 1000).unref?.();
+  setInterval(async () => {
+    if (!dbEnabled()) return;
+    try {
+      const cleaned = await cleanupAuthRiskDataInDb();
+      if (cleaned.rateLimits || cleaned.riskEvents || cleaned.loginFailures) console.log("[auth-risk-cleanup]", cleaned);
+    } catch (error) {
+      console.error(`[auth-risk-cleanup] ${error.message}`);
+    }
+  }, 6 * 60 * 60 * 1000).unref?.();
   /*
    * Query only genuinely unsettled rows. Scanning the latest 100 sessions
    * every five seconds repeatedly polled already-ended calls and starved the

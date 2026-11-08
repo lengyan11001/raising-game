@@ -52,6 +52,38 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deployPull, /Deployed commit mismatch/);
   assert.match(deployPull, /for attempt in 1 2 3 4 5 6 7 8 9 10/);
   assert.match(deploySite, /git", "rev-parse", f"refs\/remotes\/origin\/\{target\['branch'\]\}"/);
+  assert.doesNotMatch(deployPull, /AutoAddPolicy/);
+  assert.match(deployPull, /class PinnedHostKeyPolicy/);
+  assert.match(deployPull, /--host-key-sha256/);
+  assert.match(deploySite, /SHA256:FjIDikg5kkvITUdxOc2142HRn\+WP5A7Bj6Z5fReu8lI/);
+});
+
+test("deployment SSH accepts only the pinned SHA-256 host key", () => {
+  const output = runPython(String.raw`
+import base64
+import hashlib
+import importlib.util
+from pathlib import Path
+import paramiko
+
+root = Path(${JSON.stringify(root)})
+spec = importlib.util.spec_from_file_location("deploy_pull", root / "scripts" / "deploy_pull.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+trusted = paramiko.RSAKey.generate(1024)
+untrusted = paramiko.RSAKey.generate(1024)
+fingerprint = "SHA256:" + base64.b64encode(hashlib.sha256(trusted.asbytes()).digest()).decode().rstrip("=")
+policy = module.PinnedHostKeyPolicy([fingerprint])
+policy.missing_host_key(None, "example.test", trusted)
+try:
+    policy.missing_host_key(None, "example.test", untrusted)
+except paramiko.SSHException as exc:
+    assert "host key mismatch" in str(exc)
+else:
+    raise AssertionError("untrusted host key was accepted")
+print("ok")
+`);
+  assert.match(output, /ok/);
 });
 
 test("integration branches are rejected before any SSH connection", () => {

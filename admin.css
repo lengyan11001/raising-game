@@ -2203,3 +2203,8 @@ body.has-adm-media-preview { overflow: hidden; }
   .chat-live-gift-fields { grid-template-columns: 1fr; }
   .chat-live-gift-upload, .chat-live-gift-fields [data-gift-text] { grid-column: auto; }
 }
+
+.adm-subhead { margin: 0 0 10px; font-size: 13px; color: #cbd5e1; font-weight: 700; }
+.adm-chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.adm-chip { display: inline-flex; align-items: center; gap: 4px; padding: 6px 10px; border-radius: 999px; background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.16); color: #cbd5e1; font-size: 12px; }
+.adm-chip strong { color: #f8fafc; }

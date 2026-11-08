@@ -1,3 +1,5 @@
+const AUTH_JSON_BODY_MAX_BYTES = 32 * 1024;
+
 async function pivoxRequest(method, pathname, body = null) {
   if (!PIVOX_API_KEY) {
     const error = new Error("Missing PIVOX_API_KEY");
@@ -521,9 +523,14 @@ async function registerWithBody(req, res, body = {}) {
   if (!/^[a-z0-9_]{3,24}$/.test(username)) {
     return sendJson(res, 400, { ok: false, message: "Username must be 3-24 chars: letters, digits or underscores." });
   }
-  if (password.length < 6) {
-    return sendJson(res, 400, { ok: false, message: "Password must be at least 6 characters." });
+  if (password.length < 10) {
+    return sendJson(res, 400, { ok: false, message: "Password must be at least 10 characters." });
   }
+  const registrationRisk = await enforceRegistrationRisk(req, { username, body });
+  if (!registrationRisk.ok) return authRateLimitedResponse(res, registrationRisk);
+  const riskReasons = registrationHeuristicReasons(req, body, registrationRisk);
+  const riskStatus = riskReasons.length ? "quarantined" : "clear";
+  await recordRegistrationRiskEvent(req, { username, automatic: registrationRisk.automated, riskReasons });
 
   const db = await readDb();
   const existingUser = await getUserByUsernameInDb(username, tenantId);
@@ -554,7 +561,17 @@ async function registerWithBody(req, res, body = {}) {
       host: attributionValue(requestHostname(req), 160),
       capturedAt: attributionValue(rawAttribution.capturedAt, 40),
       registeredAt: now,
+      ipHash: authRiskKey(authClientIp(req)),
+      ipMasked: maskedAuthIp(authClientIp(req)),
+      userAgent: authUserAgent(req),
+      deviceId: authDeviceId(req, body),
+      fingerprintHash: authFingerprint(req, body),
+      automated: Boolean(registrationRisk.automated),
+      riskReasons,
     },
+    riskStatus,
+    riskReasons,
+    riskReviewedAt: "",
     profilePhotos: ["/assets/brand/default-avatar.jpg"],
     createdAt: now,
     updatedAt: now,
@@ -574,6 +591,7 @@ async function registerWithBody(req, res, body = {}) {
   } else {
     await writeDb(db);
   }
+  await recordRegistrationRiskEvent(req, { username, automatic: registrationRisk.automated, created: true });
   const session = await createSingleLoginSession(db, user, tenantId, body.deviceId || body.device_id || "");
   if (referrer?.id) {
     const wasMember = userHasCreatorMembership(referrer);
@@ -587,13 +605,17 @@ async function registerWithBody(req, res, body = {}) {
 }
 
 async function handleRegister(req, res) {
-  return registerWithBody(req, res, await readJson(req));
+  return registerWithBody(req, res, await readJson(req, AUTH_JSON_BODY_MAX_BYTES));
 }
 
 async function loginWithBody(req, res, body = {}, { registerIfMissing = false } = {}) {
   const tenantId = requestTenantId(req);
   const username = String(body.username || "").trim().toLowerCase();
   const password = String(body.password || "");
+  const requestRisk = await enforceLoginRequestRisk(req, body);
+  if (!requestRisk.ok) return authRateLimitedResponse(res, requestRisk);
+  const lock = await loginLockState(req, username);
+  if (lock?.lockedUntil) return lockedAuthResponse(res, lock);
   const db = await readDb();
   const user = await getUserByUsernameInDb(username, tenantId)
     || db.users.find((item) => item.username === username && recordBelongsToTenant(item, tenantId));
@@ -601,8 +623,17 @@ async function loginWithBody(req, res, body = {}, { registerIfMissing = false } 
     return registerWithBody(req, res, body);
   }
   if (!user || !verifyPassword(password, user.passwordHash)) {
+    const failure = await recordAuthLoginFailure(req, username);
+    if (failure?.lockedUntil) return lockedAuthResponse(res, {
+      retryAfterSeconds: Math.max(1, Math.ceil((Date.parse(failure.lockedUntil) - Date.now()) / 1000)),
+    });
     return sendJson(res, 401, { ok: false, message: "Wrong username or password." });
   }
+  if (user.riskStatus === "quarantined") {
+    await recordAuthLoginFailure(req, username);
+    return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
+  }
+  await clearAuthLoginFailures(req, username);
 
   ensureUserApiToken(user, db);
   if (dbEnabled()) {
@@ -615,7 +646,7 @@ async function loginWithBody(req, res, body = {}, { registerIfMissing = false } 
 }
 
 async function handleLogin(req, res) {
-  return loginWithBody(req, res, await readJson(req));
+  return loginWithBody(req, res, await readJson(req, AUTH_JSON_BODY_MAX_BYTES));
 }
 
 function normalizeEmail(value = "") {
@@ -700,6 +731,9 @@ async function createEmailSession(req, res, email, body = {}) {
   const tenantId = requestTenantId(req);
   const db = await readDb();
   let user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, tenantId));
+  if (user?.riskStatus === "quarantined") {
+    return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
+  }
   const now = new Date().toISOString();
   if (!user) {
     const landingPreview = landingFieldsFromBody(body);
@@ -720,28 +754,36 @@ async function createEmailSession(req, res, email, body = {}) {
 }
 
 async function handleEmailLoginRequest(req, res) {
-  const body = await readJson(req);
+  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES);
+  const requestRisk = await enforceEmailRequestRisk(req, "login", body.email);
+  if (!requestRisk.ok) return authRateLimitedResponse(res, requestRisk);
   return issueEmailCode(req, res, { kind: "login", email: body.email });
 }
 
 async function handleEmailLoginVerify(req, res) {
-  const body = await readJson(req); const email = normalizeEmail(body.email);
+  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES); const email = normalizeEmail(body.email);
+  const verifyRisk = await enforceEmailVerifyRisk(req, email);
+  if (!verifyRisk.ok) return authRateLimitedResponse(res, verifyRisk);
   if (!email || !await consumeEmailCode("login", email, requestTenantId(req), body.code)) return sendJson(res, 401, { ok: false, message: "Invalid or expired verification code." });
   return createEmailSession(req, res, email, body);
 }
 
 async function handlePasswordResetRequest(req, res) {
-  const body = await readJson(req); const email = normalizeEmail(body.email);
+  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES); const email = normalizeEmail(body.email);
   if (!email) return sendJson(res, 400, { ok: false, message: "Enter a valid email address." });
+  const requestRisk = await enforceEmailRequestRisk(req, "reset", email);
+  if (!requestRisk.ok) return authRateLimitedResponse(res, requestRisk);
   const db = await readDb();
   const user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
-  if (user) await issueEmailCode(req, res, { kind: "reset", email });
-  else sendJson(res, 200, { ok: true, expiresIn: 600 });
+  if (!user) return sendJson(res, 200, { ok: true, expiresIn: 600 });
+  return issueEmailCode(req, res, { kind: "reset", email });
 }
 
 async function handlePasswordReset(req, res) {
-  const body = await readJson(req); const email = normalizeEmail(body.email); const password = String(body.password || "");
-  if (!email || password.length < 6 || !await consumeEmailCode("reset", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid code or password." });
+  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES); const email = normalizeEmail(body.email); const password = String(body.password || "");
+  const verifyRisk = await enforceEmailVerifyRisk(req, email);
+  if (!verifyRisk.ok) return authRateLimitedResponse(res, verifyRisk);
+  if (!email || password.length < 10 || !await consumeEmailCode("reset", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid code or password. Password must be at least 10 characters." });
   const db = await readDb(); const user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
   if (!user) return sendJson(res, 400, { ok: false, message: "Invalid code or password." });
   user.passwordHash = hashPassword(password); user.updatedAt = new Date().toISOString();
@@ -752,16 +794,20 @@ async function handlePasswordReset(req, res) {
 
 async function handleAccountEmailRequest(req, res) {
   const auth = await requireUser(req, res); if (!auth) return;
-  const body = await readJson(req); const email = normalizeEmail(body.email); const password = String(body.password || "");
+  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES); const email = normalizeEmail(body.email); const password = String(body.password || "");
   if (!email) return sendJson(res, 400, { ok: false, message: "Enter a valid email address." });
   if (auth.user.passwordHash && !verifyPassword(password, auth.user.passwordHash)) return sendJson(res, 401, { ok: false, message: "Current password is incorrect." });
+  const requestRisk = await enforceEmailRequestRisk(req, "bind", email);
+  if (!requestRisk.ok) return authRateLimitedResponse(res, requestRisk);
   return issueEmailCode(req, res, { kind: "bind", email });
 }
 
 async function handleAccountEmailVerify(req, res) {
   const auth = await requireUser(req, res); if (!auth) return;
-  const body = await readJson(req); const email = normalizeEmail(body.email);
+  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES); const email = normalizeEmail(body.email);
   if (!email) return sendJson(res, 400, { ok: false, message: "Invalid or expired verification code." });
+  const verifyRisk = await enforceEmailVerifyRisk(req, email);
+  if (!verifyRisk.ok) return authRateLimitedResponse(res, verifyRisk);
   const db = await readDb(); const duplicate = (db.users || []).find((item) => item.id !== auth.user.id && normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
   if (duplicate) return sendJson(res, 409, { ok: false, message: "This email is already bound to another account." });
   if (!await consumeEmailCode("bind", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid or expired verification code." });
@@ -771,7 +817,13 @@ async function handleAccountEmailVerify(req, res) {
 }
 
 async function handleLoginOrRegister(req, res) {
-  return loginWithBody(req, res, await readJson(req), { registerIfMissing: true });
+  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES);
+  const automatic = isAutomatedAuthUserAgent(req);
+  if (automatic) {
+    const registrationRisk = await enforceRegistrationRisk(req, { username: body.username || "", automatic: true, body });
+    if (!registrationRisk.ok) return authRateLimitedResponse(res, registrationRisk);
+  }
+  return loginWithBody(req, res, body, { registerIfMissing: true, automatic });
 }
 
 function googleUserFromDb(db, googleId = "", tenantId = DEFAULT_TENANT_ID) {
@@ -929,9 +981,15 @@ async function handleGoogleLogin(req, res) {
     return sendJson(res, 503, { ok: false, code: "GOOGLE_LOGIN_NOT_CONFIGURED", message: "Google login is not configured." });
   }
   const tenant = requestTenantDescriptor(req);
-  const body = await readJson(req);
+  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES);
+  const googleRisk = await enforceGoogleLoginRisk(req);
+  if (!googleRisk.ok) return authRateLimitedResponse(res, googleRisk);
   try {
     const claims = await verifyGoogleIdToken(body.credential || body.idToken || body.id_token || "");
+    const existingGoogleAccount = await getUserByGoogleIdInDb(String(claims.sub || claims.googleId || ""), tenantId);
+    if (existingGoogleAccount?.riskStatus === "quarantined") {
+      return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
+    }
     const account = await ensureGoogleUserAccount(claims, {
       tenantId: tenant.tenantId,
       host: requestHostname(req),
@@ -947,6 +1005,7 @@ async function handleGoogleLogin(req, res) {
 
 async function handleMe(req, res) {
   const auth = await getAuth(req);
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   if (auth.user && !auth.user.apiToken) {
     ensureUserApiToken(auth.user, auth.db);
     if (dbEnabled()) await updateUserInDb(auth.user);
@@ -993,6 +1052,7 @@ function publicOnboardingGuide(state = null, guideKey = "") {
 async function handleGetOnboarding(req, res, url) {
   const guideKey = String(url.searchParams.get("guide") || "video-companion").trim().slice(0, 80) || "video-companion";
   const auth = await getAuth(req, { loadDb: false });
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   if (!auth.user) return sendJson(res, 200, { ok: true, guide: publicOnboardingGuide(null, guideKey), sessionOnly: true });
   const state = await getGuideStateInDb(auth.user.id, guideKey);
   return sendJson(res, 200, { ok: true, guide: publicOnboardingGuide(state, guideKey) });
@@ -1204,7 +1264,9 @@ async function telegramUserSessionFromInitData(initData = "", { tenantId = UNDRE
 async function handleTelegramWebAppAuth(req, res) {
   if (!TELEGRAM_BOT_TOKEN) return sendJson(res, 503, { ok: false, message: "Telegram login is not configured." });
   const tenant = requestTenantDescriptor(req);
-  const body = await readJson(req);
+  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES);
+  const telegramRisk = await enforceGoogleLoginRisk(req);
+  if (!telegramRisk.ok) return authRateLimitedResponse(res, telegramRisk);
   const result = await telegramUserSessionFromInitData(body.initData || "", { tenantId: tenant.tenantId, host: requestHostname(req), referralCode: body.referralCode || body.referral || body.ref || "", attribution: body.attribution || null, deviceId: body.deviceId || body.device_id || "" });
   return sendJson(res, 200, {
     ok: true,
@@ -1243,7 +1305,9 @@ async function handleTelegramLogin(req, res) {
   }
   const tenant = requestTenantDescriptor(req);
   const host = requestHostname(req);
-  const body = await readJson(req);
+  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES);
+  const telegramRisk = await enforceGoogleLoginRisk(req);
+  if (!telegramRisk.ok) return authRateLimitedResponse(res, telegramRisk);
   const idToken = String(body.idToken || body.id_token || "").trim();
   const tokenParts = idToken.split(".");
   if (tokenParts.length !== 3) return sendJson(res, 401, { ok: false, code: "TELEGRAM_LOGIN_INVALID", message: "Telegram login response is invalid." });

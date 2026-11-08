@@ -343,6 +343,9 @@ async function getAuth(req, options = {}) {
     }
     const user = await getUserByApiTokenInDb(token, tenantId);
     if (user) {
+      if (user.riskStatus === "quarantined") {
+        return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
+      }
       const auth = { db, user, session: null, ...authUserContext(user, token, "api_token", null) };
       const store = requestContext.getStore();
       if (store) store.auth = auth;
@@ -351,6 +354,9 @@ async function getAuth(req, options = {}) {
     const subtoken = await getApiSubtokenFromDbByToken(token);
     if (subtoken) {
       const parent = await getUserByIdInDb(subtoken.parentUserId);
+      if (parent?.riskStatus === "quarantined") {
+        return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
+      }
       if (recordBelongsToTenant(parent, tenantId)) {
         const auth = {
           db,
@@ -379,6 +385,9 @@ async function getAuth(req, options = {}) {
   }
   const user = db.users.find((item) => item.apiToken === token && recordBelongsToTenant(item, tenantId)) || null;
   if (user) {
+    if (user.riskStatus === "quarantined") {
+      return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
+    }
     const auth = { db, user, session: null, ...authUserContext(user, token, "api_token", null) };
     const store = requestContext.getStore();
     if (store) store.auth = auth;
@@ -388,6 +397,9 @@ async function getAuth(req, options = {}) {
   if (subtoken) {
     const parent = db.users.find((item) => item.id === subtoken.parentUserId) || null;
     if (recordBelongsToTenant(parent, tenantId)) {
+      if (parent.riskStatus === "quarantined") {
+        return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
+      }
       const auth = {
         db,
         user: parent,
@@ -404,7 +416,15 @@ async function getAuth(req, options = {}) {
 
 async function requireUser(req, res, options = {}) {
   const auth = await getAuth(req, options);
+  if (auth.user?.riskStatus === "quarantined" && auth.tokenSource !== "session") {
+    sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
+    return null;
+  }
   if (!auth.user) {
+    if (auth.quarantined) {
+      sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
+      return null;
+    }
     const bearer = getBearerToken(req);
     const likelyBrowserSession = /^[a-f0-9]{64}$/i.test(bearer);
     sendJson(res, 401, { ok: false, code: likelyBrowserSession ? "SESSION_REPLACED" : "LOGIN_REQUIRED", message: likelyBrowserSession ? "这个账号已在另一台设备登录，请重新登录。" : "Please sign in to continue." });

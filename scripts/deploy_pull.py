@@ -13,6 +13,8 @@ This script intentionally does not upload files. The release flow is:
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import logging
 import os
 import re
@@ -36,6 +38,37 @@ SERVICE = os.environ.get("DEPLOY_SERVICE", "raising-game-demo")
 HEALTH_URL = os.environ.get("DEPLOY_HEALTH_URL", "https://123vips.com/api/health")
 BRANCH = os.environ.get("DEPLOY_BRANCH")
 ENV_FILE = os.environ.get("DEPLOY_ENV_FILE", "")
+HOST_KEY_SHA256 = os.environ.get("DEPLOY_HOST_KEY_SHA256", "")
+
+
+def normalize_host_key_fingerprint(value: str) -> str:
+    fingerprint = str(value or "").strip()
+    if fingerprint.startswith("SHA256:"):
+        fingerprint = fingerprint[len("SHA256:"):]
+    return fingerprint.rstrip("=")
+
+
+def host_key_fingerprint(key: paramiko.PKey) -> str:
+    digest = hashlib.sha256(key.asbytes()).digest()
+    return base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+class PinnedHostKeyPolicy(paramiko.MissingHostKeyPolicy):
+    """Accept exactly the pre-verified SHA-256 host-key fingerprints."""
+
+    def __init__(self, expected_fingerprints: list[str]):
+        expected = [normalize_host_key_fingerprint(item) for item in expected_fingerprints if normalize_host_key_fingerprint(item)]
+        if not expected:
+            raise ValueError("At least one pinned SSH host-key fingerprint is required.")
+        self.expected = set(expected)
+
+    def missing_host_key(self, client, hostname, key):
+        presented = host_key_fingerprint(key)
+        if presented not in self.expected:
+            raise paramiko.SSHException(
+                f"SSH host key mismatch for {hostname}: SHA256:{presented}; "
+                "refusing to authenticate until the expected fingerprint is verified."
+            )
 
 
 def changed_paths_for_release(repo_root: str | Path, base_ref: str, target_ref: str) -> list[str]:
@@ -179,6 +212,12 @@ def main() -> None:
     parser.add_argument("--env-file", default=ENV_FILE, help="Required systemd EnvironmentFile path for this production service.")
     parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument(
+        "--host-key-sha256",
+        action="append",
+        default=[item for item in HOST_KEY_SHA256.split(",") if item.strip()],
+        help="Accept only this SSH host-key SHA-256 fingerprint. Repeat to trust multiple key types.",
+    )
+    parser.add_argument(
         "--forbid-env-pattern",
         action="append",
         default=[],
@@ -245,6 +284,8 @@ def main() -> None:
         raise SystemExit("--branch is required. Use platform-release for 123vips.com, live-release for live.123vipeak.com, or cloudtoken for cloudtoken.ai.")
     if args.branch in {"main", "old-site"} and os.environ.get("DEPLOY_ALLOW_INTEGRATION_BRANCH") != "1":
         raise SystemExit("Refusing to deploy an integration branch. Use platform-release or live-release.")
+    if not args.host_key_sha256:
+        raise SystemExit("--host-key-sha256 is required; SSH host keys must be pinned before deployment.")
     normalized_forbidden_paths = [path_text.strip("/") for path_text in args.forbid_changed_path if path_text.strip()]
     enforce_local_release_audit(
         Path(__file__).resolve().parent.parent,
@@ -463,7 +504,7 @@ fi
 """
 
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.set_missing_host_key_policy(PinnedHostKeyPolicy(args.host_key_sha256))
     print(f"[ssh] connecting {USER}@{HOST}:{args.port}")
     try:
         client.connect(HOST, port=args.port, username=USER, password=PASSWORD, timeout=20)

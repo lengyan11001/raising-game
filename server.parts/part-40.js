@@ -683,13 +683,22 @@ function adminUserAssetView(asset, userMap) {
   };
 }
 
+async function handleAdminRiskSummary(req, res, url = new URL("http://localhost")) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const hours = Math.max(1, Math.min(168, Number(url.searchParams.get("hours") || 24) || 24));
+  const risk = await getRiskSummaryFromDb({ sinceHours: hours });
+  return sendJson(res, 200, { ok: true, risk });
+}
+
 async function handleAdminDashboard(req, res) {
   const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
-  const [config, characterVisitStats, dashboardStats] = await Promise.all([
+  const [config, characterVisitStats, dashboardStats, riskSummary] = await Promise.all([
     readAppConfig(),
     readGeoCharacterVisitStats(),
     dbEnabled() ? getAdminDashboardStatsFromDb() : Promise.resolve(null),
+    dbEnabled() ? getRiskSummaryFromDb({ sinceHours: 24 }) : Promise.resolve(null),
   ]);
   const items = Array.isArray(config.homeVideo?.items) ? config.homeVideo.items : [];
   const characterVisits = adminCharacterVisitDashboardStats(items, characterVisitStats);
@@ -716,6 +725,7 @@ async function handleAdminDashboard(req, res) {
     },
     activeHomeItemId: config.homeVideo?.activeItemId || "",
     characterVisits,
+    risk: riskSummary,
   });
 }
 
@@ -725,8 +735,9 @@ async function handleAdminListUsers(req, res, url) {
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
   const role = String((url || new URL("http://localhost")).searchParams.get("role") || "").trim().toLowerCase();
+  const riskStatus = String((url || new URL("http://localhost")).searchParams.get("riskStatus") || "").trim().toLowerCase();
   if (dbEnabled()) {
-    const result = await getAdminUsersPageFromDb({ page: paging.page, limit: paging.limit, queryText: query, role });
+    const result = await getAdminUsersPageFromDb({ page: paging.page, limit: paging.limit, queryText: query, role, riskStatus });
     if (result) {
       return sendJson(res, 200, { ok: true, users: result.items.map((user) => ({ ...userView(user), customCharacters: user.customCharacters, walletOrders: user.walletOrders, advancedAccess: user.advancedAccess === true, advancedAccessRequestedAt: user.advancedAccessRequestedAt || "", registrationChannel: user.registrationChannel || user.registrationAttribution?.channel || "", registrationAttribution: user.registrationAttribution && typeof user.registrationAttribution === "object" ? user.registrationAttribution : {} })), page: result.page, limit: result.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / result.limit)) });
     }
@@ -754,6 +765,7 @@ async function handleAdminListUsers(req, res, url) {
       .some((value) => String(value || "").toLowerCase().includes(query)));
   }
   if (role) list = list.filter((user) => String(user.role || "").toLowerCase() === role);
+  if (riskStatus) list = list.filter((user) => String(user.riskStatus || "clear").toLowerCase() === riskStatus);
   list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const paged = pagedResponse(list, paging);
   return sendJson(res, 200, { ok: true, users: paged.items, page: paged.page, limit: paged.limit, total: paged.total, totalPages: paged.totalPages });
@@ -828,6 +840,20 @@ async function handleAdminUpdateUser(req, res, userId) {
     user.role = body.role;
     changed = true;
   }
+  if (typeof body.riskStatus === "string" && ["clear", "quarantined"].includes(body.riskStatus)) {
+    const nextRiskStatus = body.riskStatus;
+    user.riskStatus = nextRiskStatus;
+    user.riskReviewedAt = new Date().toISOString();
+    user.riskReviewedBy = auth.user.id;
+    if (nextRiskStatus === "clear") {
+      user.riskReasons = [];
+      user.riskClearedAt = user.riskReviewedAt;
+    } else {
+      user.riskQuarantinedAt = user.riskReviewedAt;
+      user.riskReasons = Array.isArray(user.riskReasons) && user.riskReasons.length ? user.riskReasons : ["manual_admin_quarantine"];
+    }
+    changed = true;
+  }
   if (typeof body.advancedAccess === "boolean") {
     user.advancedAccess = body.advancedAccess;
     if (body.advancedAccess) user.advancedAccessReviewedAt = new Date().toISOString();
@@ -893,6 +919,10 @@ async function handleAdminUpdateUser(req, res, userId) {
     user.updatedAt = new Date().toISOString();
     if (dbEnabled()) await updateUserInDb(user);
     else await writeDb(auth.db);
+    if (body.forceLogout === true) {
+      if (dbEnabled()) await revokeUserCredentialsInDb(user.id);
+      else auth.db.sessions = (auth.db.sessions || []).filter((session) => session.userId !== user.id);
+    }
   }
   return sendJson(res, 200, { ok: true, user: userView(user) });
 }
@@ -904,8 +934,8 @@ async function handleAdminResetPassword(req, res, userId) {
   if (!user) return sendJson(res, 404, { ok: false, message: "用户不存在。" });
   const body = await readJson(req);
   const password = String(body.password || "");
-  if (password.length < 6) {
-    return sendJson(res, 400, { ok: false, message: "密码至少 6 位。" });
+  if (password.length < 10) {
+    return sendJson(res, 400, { ok: false, message: "密码至少 10 位。" });
   }
   user.passwordHash = hashPassword(password);
   user.updatedAt = new Date().toISOString();

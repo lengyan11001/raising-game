@@ -947,6 +947,9 @@ function userView(user) {
     apiDocs: publicApiDocsEntitlement(user),
     apiDocsAccess: userHasApiDocsAccess(user),
     createdAt: user.createdAt,
+    riskStatus: user.riskStatus === "quarantined" ? "quarantined" : "clear",
+    riskReasons: Array.isArray(user.riskReasons) ? user.riskReasons.slice(0, 8).map(String) : [],
+    riskReviewedAt: String(user.riskReviewedAt || ""),
   };
 }
 

@@ -1085,6 +1085,7 @@ async function handleGameFeed(req, res) {
   config = await ensureSceneEntriesPersisted(config);
   config = await refreshCompletedHomeVideoItems(config);
   const auth = await getAuth(req, { loadDb: false });
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   const publicView = await attachBillingViewToPublicConfig(
     publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, requestTenantOptions(req)),
     req,

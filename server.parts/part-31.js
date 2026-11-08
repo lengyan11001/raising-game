@@ -151,6 +151,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
 
 async function buildModelDocs(req) {
   const auth = await getAuth(req, { loadDb: false });
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   const origin = publicOriginFromRequest(req);
   const tenantOptions = requestTenantOptions(req);
   const tenantPublic = tenantOptions.tenantPublic;

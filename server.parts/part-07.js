@@ -37,6 +37,7 @@ async function handlePublicChatLiveCharacters(req, res) {
   const live = chatLiveConfigValue(config);
   if (!live.enabled) return sendJson(res, 200, { ok: true, enabled: false, characters: [], looks: [], gifts: [], pricing: livePricingView(live) });
   const auth = await getAuth(req, { loadDb: false });
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   const subscription = auth?.user ? await getUserSubscriptionInDb(auth.user.id, requestTenantId(req)) : null;
   const hasMembership = liveMembershipActive(subscription);
   const characters = (await listChatLiveCharactersInDb({ includeDisabled: false }))
@@ -60,6 +61,7 @@ async function handlePublicChatLiveCharacter(req, res, characterId = "") {
   const live = chatLiveConfigValue(config);
   if (!live.enabled) return sendJson(res, 404, { ok: false, message: "角色不存在或已关闭。" });
   const auth = await getAuth(req, { loadDb: false });
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   const character = await getChatLiveCharacterInDb(id);
   if (!character || character.deletedAt || !publicChatLiveCharacterIsVisible(character, auth?.user || null)) {
     return sendJson(res, 404, { ok: false, code: "CHAT_LIVE_CHARACTER_NOT_FOUND", message: "角色不存在或未公开。" });

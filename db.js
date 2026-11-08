@@ -210,6 +210,45 @@ async function ensureSchemaInner() {
   await query(`CREATE INDEX IF NOT EXISTS app_sessions_user_idx ON app_sessions (user_id, created_at DESC);`);
   await query(`CREATE INDEX IF NOT EXISTS app_sessions_tenant_user_idx ON app_sessions (tenant_id, user_id, created_at DESC);`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_risk_events (
+      id BIGSERIAL PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      scope_key TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      subject_hash TEXT NOT NULL DEFAULT '',
+      ip_hash TEXT NOT NULL DEFAULT '',
+      user_agent_hash TEXT NOT NULL DEFAULT '',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_risk_events_lookup_idx ON app_risk_events (event_type, scope_key, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_risk_events_ip_idx ON app_risk_events (ip_hash, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_login_failures (
+      failure_key TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      username TEXT NOT NULL,
+      ip_hash TEXT NOT NULL,
+      failures INTEGER NOT NULL DEFAULT 0,
+      first_failed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_failed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      locked_until TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_login_failures_username_idx ON app_login_failures (tenant_id, username, last_failed_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_login_failures_ip_idx ON app_login_failures (ip_hash, last_failed_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_rate_limits (
+      bucket_key TEXT PRIMARY KEY,
+      window_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      hits INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_rate_limits_updated_idx ON app_rate_limits (updated_at);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_wallet_orders (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -1805,6 +1844,18 @@ async function replaceUserSessionInDb(session = {}) {
   }
 }
 
+async function revokeUserCredentialsInDb(userId = "") {
+  if (!dbEnabled()) return { sessions: 0, subtokens: 0 };
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { sessions: 0, subtokens: 0 };
+  await ensureSchema();
+  const [sessions, subtokens] = await Promise.all([
+    query("DELETE FROM app_sessions WHERE user_id = $1", [cleanUserId]),
+    query("UPDATE app_api_subtokens SET revoked_at = COALESCE(revoked_at, NOW()), updated_at = NOW() WHERE parent_user_id = $1 AND revoked_at IS NULL", [cleanUserId]),
+  ]);
+  return { sessions: Number(sessions.rowCount || 0), subtokens: Number(subtokens.rowCount || 0) };
+}
+
 async function deleteSessionByTokenInDb(token = "") {
   if (!dbEnabled()) return { rowCount: 0 };
   const cleanToken = String(token || "").trim();
@@ -2040,6 +2091,208 @@ async function getUserByIdInDb(userId = "") {
   await ensureSchema();
   const { rows } = await query(`SELECT * FROM app_users WHERE id = $1 AND deleted_at IS NULL`, [cleanUserId]);
   return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+function riskHash(value = "") {
+  const text = String(value || "").trim();
+  return text ? crypto.createHash("sha256").update(text).digest("hex").slice(0, 40) : "";
+}
+
+async function incrementRateLimitInDb(bucketKey = "", { windowMs = 60_000, amount = 1 } = {}) {
+  if (!dbEnabled()) return { allowed: true, hits: 0, remaining: Number.MAX_SAFE_INTEGER, retryAfterSeconds: 0 };
+  const key = String(bucketKey || "").trim();
+  if (!key) throw new Error("Rate limit bucket key is required.");
+  const window = Math.max(1000, Number(windowMs) || 60_000);
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      "SELECT * FROM app_rate_limits WHERE bucket_key = $1 FOR UPDATE",
+      [key],
+    );
+    const now = new Date();
+    const current = rows[0] || null;
+    const expiresAt = current ? new Date(current.window_started_at).getTime() + window : 0;
+    const reset = !current || expiresAt <= now.getTime();
+    const hits = reset ? amount : Number(current.hits || 0) + amount;
+    const startedAt = reset ? now : new Date(current.window_started_at);
+    if (!current) {
+      await client.query(
+        "INSERT INTO app_rate_limits(bucket_key, window_started_at, hits, updated_at) VALUES ($1, $2::timestamptz, $3, NOW())",
+        [key, startedAt, hits],
+      );
+    } else if (reset) {
+      await client.query(
+        "UPDATE app_rate_limits SET window_started_at = $2::timestamptz, hits = $3, updated_at = NOW() WHERE bucket_key = $1",
+        [key, startedAt, hits],
+      );
+    } else {
+      await client.query(
+        "UPDATE app_rate_limits SET hits = $2, updated_at = NOW() WHERE bucket_key = $1",
+        [key, hits],
+      );
+    }
+    await client.query("COMMIT");
+    return {
+      hits,
+      windowStartedAt: startedAt.toISOString(),
+      retryAfterSeconds: Math.max(1, Math.ceil((startedAt.getTime() + window - now.getTime()) / 1000)),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function recordRiskEventInDb({ eventType = "", scopeKey = "", tenantId = DEFAULT_TENANT_ID, subject = "", ip = "", userAgent = "", metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const type = String(eventType || "").trim().slice(0, 80);
+  if (!type) throw new Error("Risk event type is required.");
+  await ensureSchema();
+  const { rows } = await query(
+    `INSERT INTO app_risk_events(event_type, scope_key, tenant_id, subject_hash, ip_hash, user_agent_hash, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) RETURNING id, created_at`,
+    [
+      type,
+      String(scopeKey || "").trim().slice(0, 300),
+      normalizeTenantId(tenantId),
+      riskHash(subject),
+      riskHash(ip),
+      riskHash(userAgent),
+      JSON.stringify(metadata && typeof metadata === "object" ? metadata : {}),
+    ],
+  );
+  return { id: String(rows[0]?.id || ""), createdAt: toIsoString(rows[0]?.created_at) };
+}
+
+async function getLoginFailureStateInDb({ tenantId = DEFAULT_TENANT_ID, username = "", ip = "", lockMs = 15 * 60_000, maxFailures = 5, ipMaxFailures = 20, ipWindowMs = 15 * 60_000 } = {}) {
+  if (!dbEnabled()) return { lockedUntil: null, failures: 0, accountFailures: 0, ipFailures: 0 };
+  await ensureSchema();
+  const tenant = normalizeTenantId(tenantId);
+  const user = String(username || "").trim().toLowerCase().slice(0, 64);
+  const ipHash = riskHash(ip);
+  const window = Math.max(60_000, Number(ipWindowMs) || 15 * 60_000);
+  const windowStart = new Date(Date.now() - window);
+  const [accountRows, ipRows] = await Promise.all([
+    user ? query(
+      `SELECT COALESCE(SUM(failures), 0)::int AS failures, MAX(locked_until) AS locked_until
+       FROM app_login_failures
+       WHERE tenant_id = $1 AND username = $2 AND last_failed_at >= $3::timestamptz`,
+      [tenant, user, windowStart],
+    ) : { rows: [{ failures: 0, locked_until: null }] },
+    ipHash ? query(
+      `SELECT COALESCE(SUM(failures), 0)::int AS failures, MAX(locked_until) AS locked_until
+       FROM app_login_failures
+       WHERE ip_hash = $1 AND tenant_id = $2 AND last_failed_at >= $3::timestamptz`,
+      [ipHash, tenant, windowStart],
+    ) : { rows: [{ failures: 0, locked_until: null }] },
+  ]);
+  const accountFailures = Number(accountRows.rows[0]?.failures || 0);
+  const ipFailures = Number(ipRows.rows[0]?.failures || 0);
+  const storedLockedUntil = [accountRows.rows[0]?.locked_until, ipRows.rows[0]?.locked_until]
+    .map((value) => value ? new Date(value).getTime() : 0)
+    .filter((value) => value > Date.now());
+  let lockedUntil = storedLockedUntil.length ? new Date(Math.max(...storedLockedUntil)).toISOString() : null;
+  if (!lockedUntil && (accountFailures >= Math.max(1, Number(maxFailures) || 5) || ipFailures >= Math.max(1, Number(ipMaxFailures) || 20))) {
+    lockedUntil = new Date(Date.now() + Math.max(60_000, Number(lockMs) || 900_000)).toISOString();
+  }
+  return {
+    lockedUntil,
+    retryAfterSeconds: lockedUntil ? Math.max(1, Math.ceil((Date.parse(lockedUntil) - Date.now()) / 1000)) : 0,
+    failures: accountFailures,
+    accountFailures,
+    ipFailures,
+  };
+}
+
+async function recordLoginFailureInDb({ tenantId = DEFAULT_TENANT_ID, username = "", ip = "", maxFailures = 5, lockMs = 15 * 60_000 } = {}) {
+  if (!dbEnabled()) return { failures: 0, lockedUntil: null };
+  await ensureSchema();
+  const tenant = normalizeTenantId(tenantId);
+  const user = String(username || "").trim().toLowerCase().slice(0, 64);
+  const ipHash = riskHash(ip);
+  const key = `${tenant}:${user}:${ipHash}`;
+  const max = Math.max(1, Math.min(100, Number(maxFailures) || 5));
+  const lock = Math.max(60_000, Math.min(24 * 60 * 60_000, Number(lockMs) || 900_000));
+  const { rows } = await query(
+    `INSERT INTO app_login_failures(failure_key, tenant_id, username, ip_hash, failures, first_failed_at, last_failed_at, locked_until, updated_at)
+     VALUES ($1, $2, $3, $4, 1, NOW(), NOW(), NULL, NOW())
+     ON CONFLICT (failure_key) DO UPDATE SET
+       failures = CASE WHEN app_login_failures.last_failed_at < NOW() - INTERVAL '15 minutes' THEN 1 ELSE app_login_failures.failures + 1 END,
+       first_failed_at = CASE WHEN app_login_failures.last_failed_at < NOW() - INTERVAL '15 minutes' THEN NOW() ELSE app_login_failures.first_failed_at END,
+       locked_until = CASE WHEN (CASE WHEN app_login_failures.last_failed_at < NOW() - INTERVAL '15 minutes' THEN 1 ELSE app_login_failures.failures + 1 END) >= $5 THEN NOW() + ($6::bigint * INTERVAL '1 millisecond') ELSE NULL END,
+       last_failed_at = NOW(),
+       updated_at = NOW()
+     RETURNING failures, locked_until`,
+    [key, tenant, user, ipHash, max, lock],
+  );
+  return {
+    failures: Number(rows[0]?.failures || 0),
+    lockedUntil: rows[0]?.locked_until ? toIsoString(rows[0].locked_until) : null,
+  };
+}
+
+async function clearLoginFailuresInDb({ tenantId = DEFAULT_TENANT_ID, username = "", ip = "" } = {}) {
+  if (!dbEnabled()) return;
+  await ensureSchema();
+  const tenant = normalizeTenantId(tenantId);
+  const user = String(username || "").trim().toLowerCase().slice(0, 64);
+  const ipHash = riskHash(ip);
+  if (user) {
+    await query(`DELETE FROM app_login_failures WHERE tenant_id = $1 AND username = $2`, [tenant, user]);
+  } else if (ipHash) {
+    await query(`DELETE FROM app_login_failures WHERE tenant_id = $1 AND ip_hash = $2`, [tenant, ipHash]);
+  }
+}
+
+async function getRiskSummaryFromDb({ sinceHours = 24 } = {}) {
+  if (!dbEnabled()) return { enabled: false, events: [], recentUsers: [], usersByHour: [], usersByChannel: [], loginFailures: 0, lockedAccounts: 0, totalUsers: 0 };
+  await ensureSchema();
+  const hours = Math.max(1, Math.min(30 * 24, Number(sinceHours) || 24));
+  const since = new Date(Date.now() - hours * 60 * 60_000);
+  const [events, recentUsers, usersByHour, usersByChannel, failures, limits] = await Promise.all([
+    query(`SELECT event_type, COUNT(*)::int AS count FROM app_risk_events WHERE created_at >= $1::timestamptz GROUP BY event_type ORDER BY count DESC`, [since]),
+    query(`SELECT id, username, role, created_at, COALESCE(NULLIF(payload->>'registrationChannel',''), NULLIF(payload->'registrationAttribution'->>'channel',''), 'direct') AS channel FROM app_users WHERE deleted_at IS NULL AND created_at >= $1::timestamptz ORDER BY created_at DESC LIMIT 30`, [since]),
+    query(`SELECT date_trunc('hour', created_at AT TIME ZONE 'Asia/Bangkok') AS hour, COUNT(*)::int AS count FROM app_users WHERE deleted_at IS NULL AND created_at >= $1::timestamptz GROUP BY 1 ORDER BY 1`, [since]),
+    query(`SELECT COALESCE(NULLIF(payload->>'registrationChannel',''), NULLIF(payload->'registrationAttribution'->>'channel',''), 'direct') AS channel, COUNT(*)::int AS count FROM app_users WHERE deleted_at IS NULL AND created_at >= $1::timestamptz GROUP BY 1 ORDER BY count DESC`, [since]),
+    query(`SELECT COALESCE(SUM(failures), 0)::int AS failures, COUNT(*) FILTER (WHERE locked_until > NOW())::int AS locked_accounts FROM app_login_failures WHERE last_failed_at >= $1::timestamptz`, [since]),
+    query(`SELECT COUNT(*)::int AS locked_accounts FROM app_login_failures WHERE locked_until > NOW()`),
+  ]);
+  return {
+    enabled: true,
+    hours,
+    events: events.rows.map((row) => ({ type: row.event_type, count: Number(row.count) })),
+    recentUsers: recentUsers.rows.map((row) => ({
+      id: String(row.id || ""),
+      username: String(row.username || ""),
+      role: String(row.role || "user"),
+      channel: String(row.channel || "direct"),
+      createdAt: toIsoString(row.created_at),
+    })),
+    usersByHour: usersByHour.rows.map((row) => ({ hour: toIsoString(row.hour), count: Number(row.count) })),
+    usersByChannel: usersByChannel.rows.map((row) => ({ channel: row.channel, count: Number(row.count) })),
+    totalUsers: usersByHour.rows.reduce((sum, row) => sum + Number(row.count || 0), 0),
+    loginFailures: Number(failures.rows[0]?.failures || 0),
+    lockedAccounts: Number(limits.rows[0]?.locked_accounts || 0),
+  };
+}
+
+async function cleanupAuthRiskDataInDb({ rateLimitHours = 48, riskEventDays = 90, loginFailureDays = 30, limit = 5000 } = {}) {
+  if (!dbEnabled()) return { rateLimits: 0, riskEvents: 0, loginFailures: 0 };
+  await ensureSchema();
+  const max = Math.max(1, Math.min(50000, Number(limit) || 5000));
+  const rateHours = Math.max(1, Math.min(24 * 30, Number(rateLimitHours) || 48));
+  const eventDays = Math.max(1, Math.min(365, Number(riskEventDays) || 90));
+  const failureDays = Math.max(1, Math.min(365, Number(loginFailureDays) || 30));
+  const [rateLimits, riskEvents, loginFailures] = await Promise.all([
+    query(`DELETE FROM app_rate_limits WHERE bucket_key IN (SELECT bucket_key FROM app_rate_limits WHERE updated_at < NOW() - ($1::int * INTERVAL '1 hour') LIMIT $2)`, [rateHours, max]),
+    query(`DELETE FROM app_risk_events WHERE id IN (SELECT id FROM app_risk_events WHERE created_at < NOW() - ($1::int * INTERVAL '1 day') LIMIT $2)`, [eventDays, max]),
+    query(`DELETE FROM app_login_failures WHERE failure_key IN (SELECT failure_key FROM app_login_failures WHERE last_failed_at < NOW() - ($1::int * INTERVAL '1 day') LIMIT $2)`, [failureDays, max]),
+  ]);
+  return { rateLimits: Number(rateLimits.rowCount || 0), riskEvents: Number(riskEvents.rowCount || 0), loginFailures: Number(loginFailures.rowCount || 0) };
 }
 
 async function createSessionInDb(session = {}) {
@@ -2500,12 +2753,13 @@ function adminPageArgs({ page = 1, limit = 20 } = {}, maxLimit = 100) {
   return { safeLimit, safePage, safeOffset: (safePage - 1) * safeLimit };
 }
 
-async function getAdminUsersPageFromDb({ page = 1, limit = 20, queryText = "", role = "" } = {}) {
+async function getAdminUsersPageFromDb({ page = 1, limit = 20, queryText = "", role = "", riskStatus = "" } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
   const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
   const q = String(queryText || "").trim().toLowerCase();
   const cleanRole = String(role || "").trim().toLowerCase();
+  const cleanRiskStatus = String(riskStatus || "").trim().toLowerCase();
   const { rows } = await query(`
     SELECT u.*, COUNT(*) OVER()::int AS total_count,
       (SELECT COUNT(*) FROM app_user_characters c WHERE c.user_id = u.id AND c.deleted_at IS NULL)::int AS custom_characters,
@@ -2514,9 +2768,10 @@ async function getAdminUsersPageFromDb({ page = 1, limit = 20, queryText = "", r
     WHERE u.deleted_at IS NULL
       AND ($1 = '' OR LOWER(u.role) = $1)
       AND ($2 = '' OR LOWER(CONCAT_WS(' ', u.username, u.id, u.tenant_id, u.api_token, u.role, u.payload->>'registrationChannel', u.payload->'registrationAttribution'->>'host')) LIKE '%' || $2 || '%')
+      AND ($5 = '' OR COALESCE(NULLIF(u.payload->>'riskStatus', ''), 'clear') = $5)
     ORDER BY u.created_at DESC
     LIMIT $3 OFFSET $4
-  `, [cleanRole, q, safeLimit, safeOffset]);
+  `, [cleanRole, q, safeLimit, safeOffset, cleanRiskStatus]);
   return { items: rows.map((row) => ({ ...userFromRow(row), customCharacters: Number(row.custom_characters || 0), walletOrders: Number(row.wallet_orders || 0) })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
 }
 
@@ -7555,6 +7810,7 @@ module.exports = {
   deleteUserSessionsInDb,
   replaceUserSessionInDb,
   deleteSessionByTokenInDb,
+  revokeUserCredentialsInDb,
   deleteUserWalletOrdersInDb,
   createWalletOrderInDb,
   createManualWalletOrderInDb,
@@ -7730,6 +7986,13 @@ module.exports = {
   expireExhaustedMediaIngestJobsInDb,
   failMediaIngestJobInDb,
   syncFailedMediaIngestRecordStatusesInDb,
+  incrementRateLimitInDb,
+  recordRiskEventInDb,
+  getLoginFailureStateInDb,
+  recordLoginFailureInDb,
+  clearLoginFailuresInDb,
+  cleanupAuthRiskDataInDb,
+  getRiskSummaryFromDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,
   insertWebVitalSamplesInDb,

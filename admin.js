@@ -708,6 +708,13 @@ async function renderDashboard() {
   const s = dashboard.stats || {};
   const visits = dashboard.characterVisits || {};
   const visitRows = visits.rows || [];
+  const risk = dashboard.risk || {};
+  const riskEvents = Array.isArray(risk.events) ? risk.events : [];
+  const usersByHour = Array.isArray(risk.usersByHour) ? risk.usersByHour : [];
+  const usersByChannel = Array.isArray(risk.usersByChannel) ? risk.usersByChannel : [];
+  const recentUsers = Array.isArray(risk.recentUsers) ? risk.recentUsers : [];
+  const peakHour = usersByHour.reduce((best, row) => Number(row.count || 0) > Number(best?.count || 0) ? row : best, null);
+  const automationEvents = riskEvents.filter((row) => /automation|failed|locked|rate_limited/.test(String(row.type || ""))).reduce((sum, row) => sum + Number(row.count || 0), 0);
 
   els.adminContent.innerHTML = `
     <section class="adm-page">
@@ -730,6 +737,48 @@ async function renderDashboard() {
         ${statCard("钱包订单", s.walletOrders, `${s.pendingOrders || 0} 待确认`, "wallet", "violet")}
         ${statCard("生成历史", s.generationRecords, "任务记录总数", "history", "mint")}
         ${statCard("用户素材库", s.userAssets, "上传图片素材数量", "images", "amber")}
+      </div>
+
+      <div class="adm-grid adm-grid-4">
+        ${statCard("24h 新增用户", risk.totalUsers || 0, peakHour ? `峰值 ${fmtDate(peakHour.hour)} · ${peakHour.count} 人` : "暂无注册数据", "user-plus", "rose")}
+        ${statCard("登录失败/风控事件", automationEvents, `${risk.loginFailures || 0} 次失败记录`, "shield-alert", "amber")}
+        ${statCard("当前锁定账号", risk.lockedAccounts || 0, "登录失败达到阈值的账号/IP", "lock", "violet")}
+        ${statCard("自动注册事件", riskEvents.find((row) => row.type === "auth_automation_registration")?.count || 0, "PowerShell/curl/无 UA 等客户端", "bot", "mint")}
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>注册与登录风控（近 24 小时）</h3>
+          <div class="adm-page-actions">
+            <span class="adm-badge adm-badge-muted">${escapeHtml(risk.hours || 24)}h</span>
+            <button class="adm-btn adm-btn-ghost adm-btn-sm" data-act="risk-refresh"><i data-lucide="refresh-cw"></i>刷新</button>
+          </div>
+        </header>
+        <div class="adm-card-body">
+          ${usersByHour.length || usersByChannel.length || riskEvents.length ? `
+            <div class="adm-grid adm-grid-2">
+              <div>
+                <h4 class="adm-subhead">按小时注册量</h4>
+                ${usersByHour.length ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>时间</th><th>注册数</th></tr></thead><tbody>${usersByHour.map((row) => `<tr><td>${fmtDate(row.hour)}</td><td><strong>${escapeHtml(row.count || 0)}</strong></td></tr>`).join("")}</tbody></table></div>` : '<div class="adm-empty"><p>暂无注册数据。</p></div>'}
+              </div>
+              <div>
+                <h4 class="adm-subhead">注册渠道与风控事件</h4>
+                <div class="adm-chip-list">
+                  ${usersByChannel.map((row) => `<span class="adm-chip">${escapeHtml(row.channel || "direct")}: <strong>${escapeHtml(row.count || 0)}</strong></span>`).join("")}
+                  ${riskEvents.map((row) => `<span class="adm-chip">${escapeHtml(row.type || "event")}: <strong>${escapeHtml(row.count || 0)}</strong></span>`).join("")}
+                </div>
+              </div>
+            </div>
+          ` : '<div class="adm-empty"><i data-lucide="shield-check"></i><p>暂无风控数据。</p></div>'}
+          ${recentUsers.length ? `
+            <h4 class="adm-subhead adm-mt">最近注册账号</h4>
+            <div class="adm-table-wrap">
+              <table class="adm-table"><thead><tr><th>用户名</th><th>渠道</th><th>角色</th><th>注册时间</th></tr></thead><tbody>
+                ${recentUsers.slice(0, 12).map((user) => `<tr><td class="adm-mono">${escapeHtml(user.username || "")}</td><td>${escapeHtml(user.channel || "direct")}</td><td>${escapeHtml(user.role || "user")}</td><td>${fmtDate(user.createdAt)}</td></tr>`).join("")}
+              </tbody></table>
+            </div>
+          ` : ""}
+        </div>
       </div>
 
       <div class="adm-card">
@@ -758,6 +807,7 @@ async function renderDashboard() {
     </section>
   `;
   els.adminContent.querySelector('[data-act="refresh"]')?.addEventListener("click", () => routeFromHash());
+  els.adminContent.querySelector('[data-act="risk-refresh"]')?.addEventListener("click", () => routeFromHash());
   refreshIcons();
 }
 
@@ -3232,9 +3282,11 @@ async function renderUsers(pageArg = null, limitArg = null) {
   const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
   const q = sessionStorage.getItem("admUsersQuery") || "";
   const role = sessionStorage.getItem("admUsersRole") || "";
+  const riskStatus = sessionStorage.getItem("admUsersRiskStatus") || "";
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (q) params.set("q", q);
   if (role) params.set("role", role);
+  if (riskStatus) params.set("riskStatus", riskStatus);
   const payload = await api(`/api/admin/users?${params.toString()}`);
   if (!isActiveRoute("users")) return;
   const users = payload.users || [];
@@ -3253,6 +3305,11 @@ async function renderUsers(pageArg = null, limitArg = null) {
             <option value="user" ${role === "user" ? "selected" : ""}>普通用户</option>
             <option value="admin" ${role === "admin" ? "selected" : ""}>管理员</option>
           </select>
+          <select id="usersRiskFilter">
+            <option value="" ${riskStatus === "" ? "selected" : ""}>全部风险状态</option>
+            <option value="quarantined" ${riskStatus === "quarantined" ? "selected" : ""}>已隔离</option>
+            <option value="clear" ${riskStatus === "clear" ? "selected" : ""}>正常</option>
+          </select>
           <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
           <button class="adm-btn adm-btn-ghost" id="usersResetFilterBtn" type="button"><i data-lucide="x"></i>清空</button>
         </form>
@@ -3260,11 +3317,12 @@ async function renderUsers(pageArg = null, limitArg = null) {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-user-table">
-            <thead><tr><th>账号</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>会员</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
+            <thead><tr><th>账号</th><th>风险</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>会员</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
                 <tr data-id="${escapeHtml(u.id)}">
                   <td><strong>${escapeHtml(u.username)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(u.id)}</span></td>
+                  <td>${u.riskStatus === "quarantined" ? `<span class="adm-pill is-danger" title="${escapeHtml((u.riskReasons || []).join(", "))}">已隔离</span>` : `<span class="adm-pill">正常</span>`}${Array.isArray(u.riskReasons) && u.riskReasons.length ? `<br/><span class="adm-muted">${escapeHtml(u.riskReasons.slice(0, 2).join(", "))}</span>` : ""}</td>
                   <td><strong>${escapeHtml(u.tenantId || "main")}</strong><br/><span class="adm-muted">${escapeHtml(u.registrationChannel || "-")}</span></td>
                   <td><span class="adm-pill ${u.role === "admin" ? "is-admin" : ""}">${escapeHtml(u.role)}</span></td>
                   <td><strong>${escapeHtml(u.credits)}</strong></td>
@@ -3296,6 +3354,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
   const runUserFilter = () => {
     sessionStorage.setItem("admUsersQuery", els.adminContent.querySelector("#usersSearchInput")?.value.trim() || "");
     sessionStorage.setItem("admUsersRole", els.adminContent.querySelector("#usersRoleFilter")?.value || "");
+    sessionStorage.setItem("admUsersRiskStatus", els.adminContent.querySelector("#usersRiskFilter")?.value || "");
     sessionStorage.setItem("admUsersPager", JSON.stringify({ page: 1, limit }));
     renderUsers(1, limit).catch((err) => renderRouteError("users", err));
   };
@@ -3304,9 +3363,11 @@ async function renderUsers(pageArg = null, limitArg = null) {
     runUserFilter();
   });
   els.adminContent.querySelector("#usersRoleFilter")?.addEventListener("change", runUserFilter);
+  els.adminContent.querySelector("#usersRiskFilter")?.addEventListener("change", runUserFilter);
   els.adminContent.querySelector("#usersResetFilterBtn")?.addEventListener("click", () => {
     sessionStorage.removeItem("admUsersQuery");
     sessionStorage.removeItem("admUsersRole");
+    sessionStorage.removeItem("admUsersRiskStatus");
     sessionStorage.setItem("admUsersPager", JSON.stringify({ page: 1, limit }));
     renderUsers(1, limit).catch((err) => renderRouteError("users", err));
   });
@@ -3329,6 +3390,11 @@ function openEditUserDialog(id, users) {
       <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
       <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
     </select></div>
+    <div class="adm-form-row"><span>风控状态</span><select id="editRiskStatus">
+      <option value="clear" ${user.riskStatus !== "quarantined" ? "selected" : ""}>正常</option>
+      <option value="quarantined" ${user.riskStatus === "quarantined" ? "selected" : ""}>隔离（禁止登录，保留数据）</option>
+    </select></div>
+    <div class="adm-form-row"><span>强制下线</span><label class="adm-check"><input id="editForceLogout" type="checkbox" /> 同时强制下线并吊销 API 子 Token（确认是机器人时使用）</label><small class="adm-muted">默认不踢掉已经登录的用户；仅隔离会阻止新登录和 API Token 调用。</small></div>
     <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
     <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
     <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
@@ -3349,7 +3415,11 @@ function openEditUserDialog(id, users) {
         toast("API价格折扣比例必须大于 0，且不超过 100。", "error");
         return false;
       }
-      const body = { role };
+      const body = {
+        role,
+        riskStatus: tpl.querySelector("#editRiskStatus").value,
+        forceLogout: tpl.querySelector("#editForceLogout").checked === true,
+      };
       body.pricingMultiplier = pricingMultiplier;
       body.apiPricingMultiplier = apiPricingMultiplier;
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
@@ -3403,7 +3473,7 @@ function openResetPwdDialog(id, users) {
   const tpl = document.createElement("div");
   tpl.innerHTML = `
     <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(user.username)}" disabled /></div>
-    <div class="adm-form-row"><span>新密码（至少 6 位）</span><input id="newPwd" type="text" minlength="6" placeholder="新密码（明文，给用户）" /></div>
+    <div class="adm-form-row"><span>新密码（至少 10 位）</span><input id="newPwd" type="text" minlength="10" placeholder="新密码（明文，给用户）" /></div>
     <p class="adm-muted">操作后该用户其他设备的会话会被注销。</p>
   `;
   openDialog({
@@ -3412,7 +3482,7 @@ function openResetPwdDialog(id, users) {
     confirmText: "重置",
     onConfirm: async () => {
       const password = tpl.querySelector("#newPwd").value;
-      if (password.length < 6) { toast("密码至少 6 位。", "error"); return false; }
+      if (password.length < 10) { toast("密码至少 10 位。", "error"); return false; }
       await api(`/api/admin/users/${encodeURIComponent(id)}/password`, { method: "POST", body: { password } });
       toast("密码已重置。", "success");
     },

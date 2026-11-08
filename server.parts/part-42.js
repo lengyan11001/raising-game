@@ -353,6 +353,7 @@ async function handleRequest(req, res) {
       const isToolOnly = Boolean(tenantOptions.toolOnly);
       const includeHomeItems = !isToolOnly || tenantOptions.toolId === "chat";
       const auth = getBearerToken(req) ? await getAuth(req, { loadDb: false }) : { user: null };
+      if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
       const cacheKey = `${requestHostname(req)}:${isToolOnly ? "tool" : "main"}`;
       let publicView = !auth.user ? publicConfigCache.get(cacheKey)?.value : null;
       if (!publicView || publicConfigCache.get(cacheKey)?.expiresAt <= Date.now()) {
@@ -377,6 +378,7 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/cases") {
       const auth = getBearerToken(req) ? await getAuth(req, { loadDb: false }) : { user: null };
+      if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
       const user = auth.user || {};
       const unlocked = userHasCreatorMembership(user);
       const view = showcaseCasesView(await readShowcaseCases(), unlocked);
@@ -1205,6 +1207,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/dashboard") {
       return await handleAdminDashboard(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/risk-summary") {
+      return await handleAdminRiskSummary(req, res, url);
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/geo-report") {

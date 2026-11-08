@@ -955,6 +955,7 @@ async function videoToolPricing(action, { durationSeconds = 0, user = null, auth
 
 async function handleVideoToolEstimate(req, res) {
   const auth = await getAuth(req, { loadDb: false });
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   const body = await readJson(req);
   const action = videoToolAction(body.action);
   if (!action) return sendJson(res, 400, { ok: false, message: "Unsupported video tool action." });

@@ -121,6 +121,7 @@ async function makePlatformEstimate(template, overrides = {}, user = null, optio
 
 async function handlePlatformEstimates(req, res, url) {
   const auth = await getAuth(req, { loadDb: false });
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   const body = req.method === "POST" ? await readJson(req) : {};
   const config = await readAppConfig();
   const requestedTemplateId = String(url.searchParams.get("templateId") || body.templateId || "").trim();
@@ -1281,6 +1282,7 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
 
 async function handleAdvancedEstimate(req, res) {
   const auth = await getAuth(req, { loadDb: false });
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   const body = req.method === "POST" ? await readJson(req) : {};
   const url = new URL(req.url || "/", "http://localhost");
   const tenantPublic = requestTenantOptions(req).tenantPublic;

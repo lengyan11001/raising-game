@@ -19,6 +19,11 @@ from pathlib import Path
 TARGETS = {
     "old": {
         "host": "47.84.76.131",
+        "host_key_sha256": (
+            "SHA256:FjIDikg5kkvITUdxOc2142HRn+WP5A7Bj6Z5fReu8lI",
+            "SHA256:smlx5XNHKQoIkIBjOCqn1zI75PzlTqMBFLjhWwAMYoQ",
+            "SHA256:NZDAr25VTZazIZsdrEbv3vsz4oRF/7GW4T0ZWhRUCQQ",
+        ),
         "port": 22,
         "branch": "platform-release",
         "remote_root": "/opt/raising-game-demo",
@@ -86,6 +91,11 @@ TARGETS = {
         # process as 123vips.com. Keep this as an explicit target so a live
         # release is never verified only through the platform domain.
         "host": "47.84.76.131",
+        "host_key_sha256": (
+            "SHA256:FjIDikg5kkvITUdxOc2142HRn+WP5A7Bj6Z5fReu8lI",
+            "SHA256:smlx5XNHKQoIkIBjOCqn1zI75PzlTqMBFLjhWwAMYoQ",
+            "SHA256:NZDAr25VTZazIZsdrEbv3vsz4oRF/7GW4T0ZWhRUCQQ",
+        ),
         "port": 22,
         "branch": "live-release",
         "remote_root": "/opt/raising-game-live-src",
@@ -184,6 +194,7 @@ LIVE_RELEASE_PATHS = (
 PLATFORM_RELEASE_PATHS = (
     "platform.html",
     "platform.css",
+    "platform.test-generate.css",
     "platform.prompt-editor.css",
     "platform*.js",
     "vendor/vipeak-prompt-editor.js",
@@ -386,6 +397,8 @@ def main() -> None:
         "--port",
         str(port),
     ]
+    for fingerprint in target.get("host_key_sha256", ()):
+        command.extend(["--host-key-sha256", fingerprint])
     if args.no_restart or target.get("requires_restart") is False:
         command.append("--no-restart")
     if target.get("audit_base"):
