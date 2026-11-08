@@ -1,3 +1,20 @@
+## Upstream reference image 403 investigation (2026-11-08/09)
+
+- User report: generation fails with `Failed to download Upstream reference image: 403`; admin generation history cannot find the failed requests. Existing logged-in users must remain logged in.
+- Production: `123vips.com` / `47.84.76.131`, service `raising-game-demo`, deployed commit `7076763`, restarted 2026-11-08 20:58:33 CST.
+- Failure times from journal: 2026-11-09 00:21:13, 00:22:03, 00:23:53, 00:36:36 CST. Requests: `POST /api/advanced/generate`. Error code `INVALID_REMOTE_MEDIA`; message `Failed to download Upstream reference image: 403`.
+- Last 12h generation records: 240 success, 30 completed, 23 failed, 4 running. The 23 failed records are upstream safety/copyright/Seedance timeout cases; no 403 preparation failures were persisted.
+- Static origin URL for sampled upload returns 200; same object on `assets-cdn.123vips.com` returns 403 (Tengine/OSS CDN, `x-oss-ec: 0003`). All 37 most recent user image assets exist locally, while their CDN URLs return 403.
+- Production env: `STORAGE_PROVIDER=oss`, `OSS_CDN_BASE_URL=https://assets-cdn.123vips.com`, `OSS_BUCKET=vipeak-media-sg`, `R2_PUBLIC_BASE_URL=https://media.123vips.com`.
+- Root cause: when a historical local upload is missing, recovery selected the unsigned private `assets-cdn.123vips.com` URL from the asset's CDN/public fields. That request returns 403. Media preparation also happens before billing and `upsertGenerationRecord()`, so these failures never appeared in admin history and were not charged.
+- Production evidence: recent 24h had 177 new users but only 3 with any balance (max 8795.88); 51 sessions / 45 users. The four failing requests came from one IPv6 client, normal browser UA and `https://123vip.fans/` referer, so this incident is not an account-abuse or stolen-credit pattern.
+- Relevant code: `server.parts/part-22.js:566-600` downloader; `server.parts/part-13.js:986/1040/1203` restore/public URL normalization; `server.parts/part-19.js:995` public URL preparation; `server.parts/part-19.js:1203-1255` image normalization and mirror; `server.parts/part-29.js:400-550/750-853` validation/billing/record creation.
+- Constraints: PostgreSQL only; deploy only `123vips.com` through `scripts/deploy_local.sh --site old`; do not revoke sessions/tokens, clear sessions, rotate user tokens, or deploy Live. Do not print credentials/secrets. Known dirty files remain excluded from commits.
+- Fix implemented: private OSS/CDN URLs are freshly signed only at the download/delivery boundary; PostgreSQL keeps the unsigned canonical URL. Seedance and Aliyun media-preparation failures now persist a free failed generation record (`status=failed`, `failureStage=preparation`, `preparationErrorCode`, `billingStatus=free`, zero pre-deducted/final credits) before returning the error.
+- Normal-user regression: the committed normal-user end-to-end acceptance remains at `6824f79`; no session cleanup, token rotation, login-expiry shortening, or forced logout is performed.
+- Verification: `git diff --check` and syntax checks pass; targeted regression suite passes 66/66 (including signed OSS media, local retention, media inputs, generation-record refresh, URL priority, and character reference restore).
+- Deployment status: local fix is ready; release snapshot and old-site deployment are pending.
+
 ## Security incident and auth risk controls (2026-11-08)
 
 - User report: sudden large user growth on 123vips.com, suspected bot registration; requested behavior analysis, vulnerability review, auth lockout/risk controls, SSH/key/env exposure review, remediation, and deployment.

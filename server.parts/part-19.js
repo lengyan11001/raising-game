@@ -1013,7 +1013,14 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
       error.retryable = true;
       throw error;
     }
-    return userAsset;
+    // Delivery callers may send userAsset.publicUrl directly upstream. OSS
+    // private-read URLs are only stable after a fresh signature, while the DB
+    // must retain the unsigned canonical URL. Return a shallow copy so this
+    // short-lived URL can never be persisted by a caller.
+    const signedDeliveryUrl = signedOssCdnUrlForDelivery(userAsset.publicUrl, {
+      key: firstPresent(userAsset.storageKey, userAsset.objectStorageKey, userAsset.r2Key, ""),
+    });
+    return signedDeliveryUrl ? { ...userAsset, publicUrl: signedDeliveryUrl } : userAsset;
   }
   const localPublicUrl = !objectStorageEnabled() ? publicUrlForAssetPath(userAsset.localUrl) : "";
   if (localPublicUrl) {
@@ -1095,7 +1102,12 @@ function normalizeSeedreamImageSize(value) {
 
 async function ensurePublicUrlForUserAsset(db, userAsset) {
   const needsObjectMirror = objectStorageEnabled() && Boolean(userAsset.localUrl) && !userAssetHasConfiguredObjectStorageMirror(userAsset);
-  if (isPublicHttpUrl(userAsset.publicUrl) && !needsObjectMirror) return userAsset;
+  if (isPublicHttpUrl(userAsset.publicUrl) && !needsObjectMirror) {
+    const signedDeliveryUrl = signedOssCdnUrlForDelivery(userAsset.publicUrl, {
+      key: firstPresent(userAsset.storageKey, userAsset.objectStorageKey, userAsset.r2Key, ""),
+    });
+    return signedDeliveryUrl ? { ...userAsset, publicUrl: signedDeliveryUrl } : userAsset;
+  }
   const localPublicUrl = !objectStorageEnabled() ? publicUrlForAssetPath(userAsset.localUrl) : "";
   if (localPublicUrl) {
     userAsset.publicUrl = localPublicUrl;

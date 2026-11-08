@@ -1,3 +1,75 @@
+function advancedPreparationErrorMessage(error = {}) {
+  const code = String(error.code || "").trim();
+  if (code === "ASSET_FILE_MISSING") {
+    return "The reference media is no longer available. Please re-upload it and try again.";
+  }
+  if (code === "R2_PUBLIC_NOT_READY") {
+    return "Reference media is still being prepared. Please try again shortly.";
+  }
+  return publicModelText(error.message || "Reference media could not be prepared.");
+}
+
+async function recordAdvancedPreparationFailure(req, res, auth, {
+  body = {},
+  provider = "",
+  runtime = {},
+  requestParams = {},
+  userAsset = null,
+  extraUserAssets = [],
+  error = {},
+} = {}) {
+  const taskId = localGenerationTaskId("cgt");
+  const message = advancedPreparationErrorMessage(error);
+  const record = await upsertGenerationRecord({
+    taskId,
+    status: "failed",
+    failureStage: "preparation",
+    preparationErrorCode: String(error.code || "MEDIA_PREPARATION_FAILED"),
+    error: message,
+    model: String(runtime.model || requestParams.model || ""),
+    provider: String(runtime.providerName || provider || ""),
+    source: String(runtime.recordSource || "advanced"),
+    kind: "advanced-video",
+    templateId: String(firstPresent(body.caseId, body.templateId, "") || ""),
+    templateTitle: String(firstPresent(body.caseTitle, "") || "Advanced generation"),
+    userId: auth.user.id,
+    userAssetId: userAsset?.id || "",
+    mediaMode: String(requestParams.mediaMode || requestParams.seedanceMode || ""),
+    mediaAssets: userAsset ? [{
+      type: "reference_image",
+      userAssetId: userAsset.id,
+      localUrl: userAsset.localUrl || "",
+      imageUrl: userAsset.localUrl || userAsset.publicUrl || "",
+    }, ...extraUserAssets.map((asset) => ({
+      type: "reference_image",
+      userAssetId: asset.id,
+      localUrl: asset.localUrl || "",
+      imageUrl: asset.localUrl || asset.publicUrl || "",
+    }))] : [],
+    prompt: String(firstPresent(body.prompt, body.promptText, body.params?.prompt, "") || ""),
+    finalPrompt: String(firstPresent(body.prompt, body.promptText, body.params?.prompt, "") || ""),
+    params: requestParams,
+    ratio: String(requestParams.ratio || ""),
+    resolution: String(requestParams.resolution || ""),
+    duration: requestParams.duration,
+    quality: runtime.quality || "",
+    remoteVideoUrl: "",
+    localVideoUrl: "",
+    preDeductedCredits: 0,
+    originalPreDeductedCredits: 0,
+    finalCredits: 0,
+    originalFinalCredits: 0,
+    billingStatus: "free",
+    awaitingUpstreamTask: false,
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
+  });
+  console.warn("[advanced-preparation-failed]", taskId, error.code || "MEDIA_PREPARATION_FAILED", error.message || message);
+  return { taskId, record, message, statusCode: error.statusCode || 400 };
+}
+
 async function handleAdvancedGenerate(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -334,6 +406,7 @@ async function handleAdvancedGenerate(req, res) {
     body.preservePublicMediaUrls,
     bodyParams.preservePublicMediaUrls,
   ), false);
+  try {
   if (provider === "seedance") {
     seedanceMode = isVideoReplacementRequest
       ? "reference_video"
@@ -513,7 +586,21 @@ async function handleAdvancedGenerate(req, res) {
         referenceAudioAssetUris,
       });
     } catch (error) {
-      return sendAdvancedValidationError(res, error, "Seedance media input is invalid.");
+      const failed = await recordAdvancedPreparationFailure(req, res, auth, {
+        body: mergedBody,
+        provider,
+        runtime: { model: requestParams.model, providerName: provider, recordSource: "advanced-seedance" },
+        requestParams,
+        userAsset,
+        extraUserAssets,
+        error,
+      });
+      return sendJson(res, failed.statusCode, {
+        ok: false,
+        code: error.code || "SEEDANCE_MEDIA_INVALID",
+        message: failed.message,
+        taskId: failed.taskId,
+      });
     }
   } else {
     const firstFrameDataUrl = firstPresent(body.firstFrameDataUrl, body.first_frame_data_url, body.dataUrl, bodyParams.firstFrameDataUrl, bodyParams.first_frame_data_url, bodyParams.dataUrl);
@@ -528,6 +615,23 @@ async function handleAdvancedGenerate(req, res) {
       userAsset = auth.db.userAssets.find((asset) => asset.id === firstAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
       if (!userAsset) return sendReferenceAssetNotFound(res, "image", firstAssetId);
     }
+  }
+  } catch (error) {
+    const failed = await recordAdvancedPreparationFailure(req, res, auth, {
+      body: mergedBody,
+      provider,
+      runtime: { model: requestParams.model, providerName: provider, recordSource: "advanced-preparation" },
+      requestParams,
+      userAsset,
+      extraUserAssets,
+      error,
+    });
+    return sendJson(res, failed.statusCode, {
+      ok: false,
+      code: error.code || "MEDIA_PREPARATION_FAILED",
+      message: failed.message,
+      taskId: failed.taskId,
+    });
   }
   let wan27MediaMode = "";
   let wan27Media = [];
@@ -547,14 +651,33 @@ async function handleAdvancedGenerate(req, res) {
       : requestParams.videoCapability === "wan27-r2v"
         ? "wan27-r2v"
         : normalizeWan27MediaMode(requestedWanMediaMode);
-    const resolved = await resolveAliyunVideoMedia({
-      db: auth.db,
-      user: auth.user,
-      body: mergedBody,
-      requestParams,
-      fallbackAsset: userAsset,
-      skipWan30Validation: externalApiCaller,
-    });
+    let resolved;
+    try {
+      resolved = await resolveAliyunVideoMedia({
+        db: auth.db,
+        user: auth.user,
+        body: mergedBody,
+        requestParams,
+        fallbackAsset: userAsset,
+        skipWan30Validation: externalApiCaller,
+      });
+    } catch (error) {
+      const failed = await recordAdvancedPreparationFailure(req, res, auth, {
+        body: mergedBody,
+        provider,
+        runtime: { model: requestParams.model, providerName: provider, recordSource: "advanced" },
+        requestParams,
+        userAsset,
+        extraUserAssets,
+        error,
+      });
+      return sendJson(res, failed.statusCode, {
+        ok: false,
+        code: error.code || "ALIYUN_MEDIA_PREPARATION_FAILED",
+        message: failed.message,
+        taskId: failed.taskId,
+      });
+    }
     wan27MediaMode = resolved.mediaMode || requestParams.videoCapability;
     wan27Media = resolved.media;
     const capabilityDefinition = ALIYUN_VIDEO_CAPABILITIES[requestParams.videoCapability];

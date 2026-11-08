@@ -994,8 +994,22 @@ function restorablePublicUrlForUserAsset(asset = {}) {
     asset.sourcePublicUrl,
     asset.sourceUrl,
     asset.originalUrl,
-  ];
-  return candidates.map((value) => String(value || "").trim()).find(isPublicHttpUrl) || "";
+  ].map((value) => String(value || "").trim()).filter(isPublicHttpUrl);
+  const declaredKey = String(firstPresent(
+    asset.objectStorageKey,
+    asset.storageKey,
+    asset.r2Key,
+    asset.wan30R2Key,
+    asset.wan30StorageKey,
+  ) || "").trim();
+  for (const candidate of candidates) {
+    // Private OSS/CDN objects must be signed at the delivery boundary.
+    // Signing also strips an expired browser-cached signature and avoids
+    // persisting a short-lived URL back into PostgreSQL.
+    const signed = signedOssCdnUrlForDelivery(candidate, { key: declaredKey });
+    if (signed) return signed;
+  }
+  return candidates.find((candidate) => inferObjectStorageProviderFromUrl(candidate) !== "oss") || "";
 }
 
 function restoreLimitBytesForUserAsset(asset = {}, fallbackBytes = 0) {
