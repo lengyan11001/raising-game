@@ -73,3 +73,24 @@ test("Old Nginx hardening is idempotent", () => {
   transform(once, twice);
   assert.equal(fs.readFileSync(once, "utf8"), fs.readFileSync(twice, "utf8"));
 });
+
+
+test("Old Nginx hardening changes only media-serving server blocks", () => {
+  const { dir, input } = tempFixture();
+  const config = fs.readFileSync(input, "utf8");
+  fs.writeFileSync(input, `# redirect host\nserver {\n    listen 80;\n    server_name 123vips.com;\n    location / { return 301 https://$host$request_uri; }\n}\n\n${config}\n# api-only host\nserver {\n    listen 443 ssl;\n    server_name api.123vips.com;\n    location /api/ { proxy_pass http://raising_game_app; }\n}\n`);
+  const output = path.join(dir, "out");
+  transform(input, output);
+  const out = fs.readFileSync(output, "utf8");
+  assert.match(out, /# redirect host\nserver \{\n    listen 80;/);
+  assert.match(out, /# api-only host\nserver \{\n    listen 443 ssl;\n    server_name api\.123vips\.com;\n    location \/api\/ \{ proxy_pass http:\/\/raising_game_app; \}\n\}/);
+  assert.equal((out.match(/location \^~ \/assets\/user-uploads\/ \{/g) || []).length, 1);
+  assert.equal((out.match(/managed private-media proxy/g) || []).length, 5);
+  // The media-serving host must not lend its asset routes to redirect-only or
+  // API-only virtual hosts that share the same sites-enabled file.
+  const mediaHost = out.slice(out.indexOf("server_name 123vips.com"), out.indexOf("server_name api.123vips.com"));
+  assert.match(mediaHost, /location \^~ \/assets\/user-characters\/ \{/);
+  const apiHost = out.slice(out.indexOf("server_name api.123vips.com"));
+  assert.doesNotMatch(apiHost, /location \^~ \/assets\/user-characters\/ \{/);
+  assert.ok(out.indexOf("location ~ (^|/)\\.") < out.indexOf("location ^~ /assets/"));
+});

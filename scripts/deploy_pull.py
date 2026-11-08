@@ -254,6 +254,12 @@ def main() -> None:
         help="Run this command inside REMOTE_ROOT after pulling but before restarting the service.",
     )
     parser.add_argument(
+        "--post-restart-command",
+        action="append",
+        default=[],
+        help="Run this command inside REMOTE_ROOT after health succeeds and before final verification.",
+    )
+    parser.add_argument(
         "--verify-url",
         action="append",
         default=[],
@@ -477,6 +483,7 @@ fi
 """
 
     pre_restart_check = "\n".join(args.pre_restart_command) or "true"
+    post_restart_check = "\n".join(args.post_restart_command) or "true"
 
     if args.commit:
         expected_q = shlex.quote(args.commit)
@@ -534,6 +541,9 @@ if [ "$health_code" != "200" ]; then
   echo "Health check returned HTTP $health_code: {args.health_url}" >&2
   exit 27
 fi
+# Mutating post-restart actions are deliberately health-gated. A failed app
+# start must not be compounded by changing the live Nginx edge.
+{post_restart_check}
 {verification_check}
 {commit_check}
 """

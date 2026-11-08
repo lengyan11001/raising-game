@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -176,11 +177,44 @@ def is_hardened_private_block(block: str) -> bool:
     )
 
 
-def harden_config(text: str) -> str:
+def server_blocks(text: str) -> list[tuple[int, int, str]]:
+    """Return top-level-looking server blocks with their absolute offsets."""
+    blocks: list[tuple[int, int, str]] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        start = offset
+        offset += len(line)
+        if not re.match(r"^server\s*\{", stripped):
+            continue
+        opening = text.find("{", start, offset)
+        if opening < 0:
+            raise ValueError(f"server line has no opening brace at offset {start}")
+        depth = 0
+        end = opening
+        while end < len(text):
+            char = text[end]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    end += 1
+                    if end < len(text) and text[end] == "\n":
+                        end += 1
+                    blocks.append((start, end, text[start:end]))
+                    break
+            end += 1
+        else:
+            raise ValueError(f"unterminated server block at offset {start}")
+    return blocks
+
+
+def harden_server_block(block: str) -> str:
     stale = []
     public_blocks = []
     private_blocks = []
-    for span in location_blocks(text):
+    for span in location_blocks(block):
         header = first_line(span[2])
         if header == "location ^~ /assets/admin/ {":
             stale.append(span)
@@ -198,30 +232,45 @@ def harden_config(text: str) -> str:
             else:
                 stale.append(span)
     if len(public_blocks) == 3 and len(private_blocks) == len(PRIVATE_MEDIA_HEADERS):
-        return text
+        return block
     for start, end, _ in sorted(stale + public_blocks + private_blocks, key=lambda item: item[0], reverse=True):
-        text = text[:start] + text[end:]
+        block = block[:start] + block[end:]
 
-    remaining = location_blocks(text)
-    # Insert beside the first remaining location, or before the server's final
-    # closing brace when all known private blocks were the only locations in a
-    # fixture. The hardening block is self-contained and keeps its public admin
-    # aliases and private proxies in one auditable place.
-    insert_at = remaining[0][0] if remaining else text.rfind("}")
-    if insert_at < 0:
-        raise ValueError("expected a server block closing brace")
-    if not remaining:
-        insert_at -= 1
-        while insert_at >= 0 and text[insert_at] in " \t\r\n":
-            insert_at -= 1
-        insert_at += 1 if insert_at < 0 else 0
-        if insert_at == 0:
-            raise ValueError("could not find insertion point")
-        # rfind("}") points at the server's closing brace; insert immediately
-        # before its line so the generated block stays inside the server.
-        line_start = text.rfind("\n", 0, insert_at) + 1
-        insert_at = line_start
-    return text[:insert_at] + HARDENED_BLOCK + text[insert_at:]
+    remaining = location_blocks(block)
+    # Insert before the first remaining asset location, not before the first
+    # location overall. Nginx's ^~ prefix match skips regex locations, so the
+    # repository/backup/key deny rules above must stay ahead of every asset block.
+    asset_locations = [
+        span for span in remaining if first_line(span[2]).startswith("location ^~ /assets/")
+    ]
+    if asset_locations:
+        insert_at = asset_locations[0][0]
+    elif remaining:
+        insert_at = remaining[0][0]
+    else:
+        closing = block.rfind("}")
+        if closing < 0:
+            raise ValueError("expected a server block closing brace")
+        insert_at = block.rfind("\n", 0, closing) + 1
+    return block[:insert_at] + HARDENED_BLOCK + block[insert_at:]
+
+
+def harden_config(text: str) -> str:
+    # Never infer a single server from a sites-enabled file. Several files hold
+    # redirect-only, API-only, and media-serving virtual hosts side by side.
+    # Harden only hosts that already own a media location; leave unrelated hosts
+    # byte-for-byte unchanged.
+    replacements = []
+    for start, end, block in server_blocks(text):
+        headers = {first_line(span[2]) for span in location_blocks(block)}
+        if not headers.intersection(REMOVE_HEADERS):
+            continue
+        hardened = harden_server_block(block)
+        if hardened != block:
+            replacements.append((start, end, hardened))
+    for start, end, hardened in reversed(replacements):
+        text = text[:start] + hardened + text[end:]
+    return text
 
 
 def write_atomic(path: Path, content: str) -> None:

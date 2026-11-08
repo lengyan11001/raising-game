@@ -78,6 +78,12 @@ TARGETS = {
         "pre_restart_commands": (
             "/usr/bin/python3 /opt/raising-game-demo/scripts/ensure_media_signing_secret.py --env-file /etc/raising-game-demo.env",
         ),
+        # Nginx must keep serving public/admin media directly while every
+        # private prefix is authorized by the newly restarted Node process.
+        # Apply only after health succeeds, then verify anonymous access fails.
+        "post_restart_commands": (
+            "/opt/raising-game-demo/ops/harden-old-nginx-private-media.sh",
+        ),
         "forbidden_env_patterns": (
             r"^TOS_",
             r"^OSS_REGION=\"?oss-cn-",
@@ -460,6 +466,8 @@ def main() -> None:
         command.append("--verify-private-media")
     for pre_restart_command in target.get("pre_restart_commands", ()):
         command.extend(["--pre-restart-command", pre_restart_command])
+    for post_restart_command in target.get("post_restart_commands", ()):
+        command.extend(["--post-restart-command", post_restart_command])
     raise SystemExit(subprocess.call(command, env=env))
 
 
