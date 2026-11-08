@@ -5,7 +5,8 @@
 - Decision: independent permanent sessions per browser/device. Same browser re-login reuses its token; different devices receive separate tokens. Login never deletes another device's session. Logout revokes only the current token. Password reset, admin reset, and ban/deletion still revoke all sessions.
 - Changed: `server.parts/part-02.js`, `server.parts/part-32.js`, `platform.config.js`, `platform.ui.parts/part-04.js`, `platform.create.parts/part-06.js`, `platform.google.js`, `platform.telegram.js`, `test/admin-password-reset.test.js`.
 - Verification: auth tests 4/4; auth+Telegram 13/13; chat-live diagnostics 13/13; mobile tool UX 11/11; syntax checks and `git diff --check` pass.
-- Deployment: pending.
+- Deployment: `old-site` / `9544cca`; `platform-release` / `b8a5f05` (force-with-lease from `3053c86`). Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; `live-release` remains `bf1e01a` and Live was not deployed.
+- Production verification: `/api/health` returned `200 {"ok":true}`; production `platform.ui.js` SHA-256 `ea7cf585...` matches local; deployed source contains device-aware session creation and all five auth call sites. Real production register/login probe passed: same device reused token, second device got a separate token, both remained valid after another login, and a no-device login did not revoke either. Temporary test user and sessions were cleaned up.
 
 ## Wan 系列 AI 提示词优化器（2026-11-08）
 
@@ -1547,7 +1548,8 @@ CODEX_TASK_STATE.md
 - User asked to remove the “如果下载素材慢请点击我保存” bubble above every Result/history download2 button.
 - Removed the hint markup from advanced Result cards, history cards, and history detail; removed the dynamic hint inserted by `setAdvancedDownloadButtonState`; removed the now-unused bubble CSS.
 - Regression: `test/generated-assets-on-demand.test.js` now asserts no hint markup remains in Create/Explore/UI or CSS. Targeted suite passes 19/19; changed scripts pass syntax checks.
-- Deployment: pending.
+- Deployment: `old-site` / `9544cca`; `platform-release` / `b8a5f05` (force-with-lease from `3053c86`). Deployed only `123vips.com` via `scripts/deploy_local.sh --site old`; `live-release` remains `bf1e01a` and Live was not deployed.
+- Production verification: `/api/health` returned `200 {"ok":true}`; production `platform.ui.js` SHA-256 `ea7cf585...` matches local; deployed source contains device-aware session creation and all five auth call sites. Real production register/login probe passed: same device reused token, second device got a separate token, both remained valid after another login, and a no-device login did not revoke either. Temporary test user and sessions were cleaned up.
 
 ## Wan 3.0 upstream 502 investigation (2026-11-06)
 
