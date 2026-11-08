@@ -49,4 +49,24 @@ test("stalled repair script defaults to dry-run and supports targeted apply", ()
   assert.match(script, /--task-id/);
   assert.match(script, /DATABASE_URL is required/);
   assert.match(script, /summary\.results\.map\(\(\{ userId, refundAlreadyRecorded, \.\.\.item \}\) => item\)/);
+  assert.match(script, /main\(\)\.then\(\(\) => \{[\s\S]*?process\.exit\(process\.exitCode \|\| 0\)/);
+  assert.match(script, /\.catch\(\(error\) => \{[\s\S]*?process\.exit\(1\)/);
+});
+
+test("stale pre-submit scans have bounded queries, record isolation, and diagnostics", () => {
+  const scan = server.slice(
+    server.indexOf("let staleSubmitScanRunning = false"),
+    server.indexOf("function startStaleSubmitGenerationRecordScheduler"),
+  );
+  assert.match(server, /GENERATION_STALE_SUBMIT_SCAN_TIMEOUT_MS/);
+  assert.match(server, /GENERATION_STALE_SUBMIT_RECORD_TIMEOUT_MS/);
+  assert.match(scan, /rejectAfterTimeout\(/);
+  assert.match(scan, /timeoutMs: GENERATION_STALE_SUBMIT_SCAN_TIMEOUT_MS/);
+  assert.match(scan, /stale-submit-generation-records-scan-start/);
+  assert.match(scan, /stale-submit-generation-records-scan-end/);
+  assert.match(scan, /stale-submit-generation-record-scan-failed/);
+  assert.match(scan, /GENERATION_STALE_SUBMIT_RECORD_TIMEOUT_MS/);
+  assert.match(scan, /Promise\.race\(\[promise, timeout\]\)/);
+  assert.match(scan, /for \(const record of staleRecords\)[\s\S]*?catch \(error\)[\s\S]*?\}\s*\}\s*if \(settled\.length\)/);
+  assert.match(scan, /finally \{\s*staleSubmitScanRunning = false;/);
 });

@@ -35,23 +35,46 @@ server.maxConnections = Number(process.env.HTTP_MAX_CONNECTIONS || 2000);
 
 let staleSubmitScanRunning = false;
 
+function rejectAfterTimeout(promise, timeoutMs, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`${label} timed out after ${timeoutMs}ms`);
+      error.code = "OPERATION_TIMEOUT";
+      reject(error);
+    }, timeoutMs);
+    timer.unref?.();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function scanStalePreSubmitGenerationRecords(reason = "timer") {
   if (staleSubmitScanRunning) return;
   staleSubmitScanRunning = true;
+  const startedAt = Date.now();
+  console.log("[stale-submit-generation-records-scan-start]", { reason });
   try {
-    const records = await getStalePreSubmitGenerationRecordsFromDb({
-      olderThanMs: GENERATION_SUBMIT_STALE_MS,
-      limit: 10,
-      providers: ["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "apiz", "seedream5-image", "qwen-image3"],
-    }) || [];
+    const records = await rejectAfterTimeout(
+      getStalePreSubmitGenerationRecordsFromDb({
+        olderThanMs: GENERATION_SUBMIT_STALE_MS,
+        limit: 10,
+        timeoutMs: GENERATION_STALE_SUBMIT_SCAN_TIMEOUT_MS,
+        providers: ["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "apiz", "seedream5-image", "qwen-image3"],
+      }),
+      GENERATION_STALE_SUBMIT_SCAN_TIMEOUT_MS,
+      "stale-submit-generation-record-query",
+    ) || [];
     const staleRecords = records
       .filter((record) => isStalePreSubmitGenerationRecord(record))
       .slice(0, 10);
-    if (!staleRecords.length) return;
     const settled = [];
     for (const record of staleRecords) {
       try {
-        const nextRecord = await failStalePreSubmitGenerationRecord(record, `${reason}-stale-submit`);
+        const nextRecord = await rejectAfterTimeout(
+          failStalePreSubmitGenerationRecord(record, `${reason}-stale-submit`),
+          GENERATION_STALE_SUBMIT_RECORD_TIMEOUT_MS,
+          "stale-submit-generation-record-settle",
+        );
         settled.push(nextRecord.taskId || record.taskId);
       } catch (error) {
         console.warn("[stale-submit-generation-record-failed]", record.taskId, error.message || error);
@@ -60,8 +83,20 @@ async function scanStalePreSubmitGenerationRecords(reason = "timer") {
     if (settled.length) {
       console.warn("[stale-submit-generation-records-settled]", { reason, count: settled.length, taskIds: settled });
     }
+    console.log("[stale-submit-generation-records-scan-end]", {
+      reason,
+      candidates: records.length,
+      stale: staleRecords.length,
+      settled: settled.length,
+      elapsedMs: Date.now() - startedAt,
+    });
   } catch (error) {
-    console.warn("[stale-submit-generation-record-scan-failed]", error.message || error);
+    console.warn("[stale-submit-generation-record-scan-failed]", {
+      reason,
+      code: error.code || "",
+      message: error.message || String(error),
+      elapsedMs: Date.now() - startedAt,
+    });
   } finally {
     staleSubmitScanRunning = false;
   }

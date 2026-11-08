@@ -31,6 +31,8 @@ logging.getLogger("paramiko.transport").setLevel(logging.CRITICAL)
 HOST = os.environ.get("FYSHARK_HOST", os.environ.get("DEPLOY_HOST", "101.47.76.188"))
 USER = os.environ.get("FYSHARK_USER", os.environ.get("DEPLOY_USER", "root"))
 PASSWORD = os.environ.get("FYSHARK_SSH_PASSWORD", os.environ.get("DEPLOY_SSH_PASSWORD", ""))
+SSH_KEY = os.environ.get("FYSHARK_SSH_KEY", os.environ.get("DEPLOY_SSH_KEY", ""))
+SSH_KEY_PASSPHRASE = os.environ.get("FYSHARK_SSH_KEY_PASSPHRASE", os.environ.get("DEPLOY_SSH_KEY_PASSPHRASE", ""))
 PORT = int(os.environ.get("FYSHARK_PORT", os.environ.get("DEPLOY_PORT", "22")))
 REMOTE_ROOT = os.environ.get("DEPLOY_REMOTE_ROOT", "/opt/raising-game-demo")
 REPO_URL = os.environ.get("DEPLOY_REPO_URL", "")
@@ -278,8 +280,10 @@ def main() -> None:
     parser.add_argument("--commit", help="Require the remote checkout to be exactly this commit after deployment.")
     parser.add_argument("--no-restart", action="store_true")
     args = parser.parse_args()
-    if not PASSWORD:
-        raise SystemExit("FYSHARK_SSH_PASSWORD is required.")
+    if not PASSWORD and not SSH_KEY:
+        raise SystemExit("DEPLOY_SSH_KEY or FYSHARK_SSH_PASSWORD is required.")
+    if SSH_KEY and not Path(SSH_KEY).is_file():
+        raise SystemExit(f"SSH key file does not exist: {SSH_KEY}")
     if not args.branch:
         raise SystemExit("--branch is required. Use platform-release for 123vips.com, live-release for live.123vipeak.com, or cloudtoken for cloudtoken.ai.")
     if args.branch in {"main", "old-site"} and os.environ.get("DEPLOY_ALLOW_INTEGRATION_BRANCH") != "1":
@@ -507,7 +511,22 @@ fi
     client.set_missing_host_key_policy(PinnedHostKeyPolicy(args.host_key_sha256))
     print(f"[ssh] connecting {USER}@{HOST}:{args.port}")
     try:
-        client.connect(HOST, port=args.port, username=USER, password=PASSWORD, timeout=20)
+        if SSH_KEY:
+            # A configured deployment key is authoritative. Do not silently
+            # fall back to a password when the key is rejected.
+            client.connect(
+                HOST,
+                port=args.port,
+                username=USER,
+                key_filename=SSH_KEY,
+                passphrase=SSH_KEY_PASSPHRASE or None,
+                password=None,
+                look_for_keys=False,
+                allow_agent=False,
+                timeout=20,
+            )
+        else:
+            client.connect(HOST, port=args.port, username=USER, password=PASSWORD, timeout=20)
         rc, out, err = remote_run(client, command, timeout=240)
     except paramiko.SSHException as exc:
         client.close()

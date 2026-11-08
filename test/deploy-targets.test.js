@@ -217,6 +217,21 @@ test("live materializer copies only allowlisted static files and atomically repl
   }
 });
 
+test("deployment key auth is preferred and never falls back to password", () => {
+  assert.match(deployPull, /SSH_KEY = os\.environ\.get\("FYSHARK_SSH_KEY", os\.environ\.get\("DEPLOY_SSH_KEY", ""\)\)/);
+  assert.match(deployPull, /if not PASSWORD and not SSH_KEY:/);
+  assert.match(deployPull, /if SSH_KEY:/);
+  assert.match(deployPull, /key_filename=SSH_KEY/);
+  assert.match(deployPull, /password=None/);
+  assert.match(deployPull, /look_for_keys=False/);
+  assert.match(deployPull, /allow_agent=False/);
+  assert.match(deploySite, /password_source, password = \("", ""\) if key_path else first_password\(target\)/);
+  assert.match(deploySite, /auth=key:/);
+  assert.match(deploySite, /env\.pop\("DEPLOY_SSH_PASSWORD", None\)/);
+  assert.match(deploySite, /env\.pop\("FYSHARK_SSH_PASSWORD", None\)/);
+  assert.match(deploySite, /key_env.*DEPLOY_SSH_KEY/);
+});
+
 test("release snapshot builder excludes foreign paths from both trees and ancestry", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "release-snapshot-"));
   const source = path.join(workspace, "source");

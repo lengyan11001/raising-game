@@ -6115,16 +6115,17 @@ async function getGenerationRecordsFromDb({ limit = 500, userId = "", includeDel
   return rows.map((row) => row.payload);
 }
 
-async function getStalePreSubmitGenerationRecordsFromDb({ olderThanMs = 0, limit = 10, providers = [] } = {}) {
+async function getStalePreSubmitGenerationRecordsFromDb({ olderThanMs = 0, limit = 10, providers = [], timeoutMs = 0 } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
   const safeLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit || 10) || 10)));
   const safeOlderThanMs = Math.max(0, Number(olderThanMs || 0));
+  const safeTimeoutMs = Math.max(0, Math.trunc(Number(timeoutMs || 0) || 0));
   const cleanProviders = [...new Set((Array.isArray(providers) ? providers : [])
     .map((value) => String(value || '').trim().toLowerCase())
     .filter(Boolean))];
   if (!cleanProviders.length) return [];
-  const { rows } = await query(`
+  const text = `
     SELECT payload
     FROM app_generation_records
     WHERE COALESCE(payload->>'deletedAt', '') = ''
@@ -6136,7 +6137,25 @@ async function getStalePreSubmitGenerationRecordsFromDb({ olderThanMs = 0, limit
       AND created_at <= NOW() - ($2::bigint * INTERVAL '1 millisecond')
     ORDER BY created_at ASC
     LIMIT $3
-  `, [cleanProviders, safeOlderThanMs, safeLimit]);
+  `;
+  const params = [cleanProviders, safeOlderThanMs, safeLimit];
+  let rows;
+  if (safeTimeoutMs) {
+    const client = await getPool().connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`SET LOCAL statement_timeout = ${safeTimeoutMs}`);
+      ({ rows } = await client.query(text, params));
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  } else {
+    ({ rows } = await query(text, params));
+  }
   return rows.map((row) => row.payload).filter(Boolean);
 }
 

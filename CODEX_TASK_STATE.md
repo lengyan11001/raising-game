@@ -1,6 +1,18 @@
 ## Upstream reference image 403 investigation (2026-11-08/09)
 
+### 2026-11-09 production safety and generation-record fix
+
+- Confirmed the remaining deterministic visibility gap: pre-billing advanced request validation returned 400/404/503 without a generation record or `taskId`. The request was rejected before charging, but admins/users could not see it in generation history.
+- Added a shared `sendAdvancedRequestFailure()` persistence path and converted pre-billing provider, prompt, duration/resolution/ratio, Seedance content/media/reference, Aliyun resolution, and Aliyun input validation failures to write `status=failed`, `billingStatus=free`, zero pre-deducted/final credits, `awaitingUpstreamTask=false`, and return `taskId`.
+- Added regression coverage for validation-failure persistence and the returned `taskId`; extended media-preparation assertions to reject direct pre-billing error returns.
+- Production read-only audit: 879 sessions, 880 active users, 0 stale pre-submit tasks, 0 failed pre-deducted/refund-failed records, 0 orphan sessions, 24h generation 490 with 29 failed. `cgt-20261109033312-ecbfdf` was not present in generation records or ledger (no refund needed); no duplicate refund was made.
+- Verification passed: 58 targeted tests, syntax checks, Python compilation, and `git diff --check`.
+
 ### 2026-11-09 proactive production audit addendum
+
+- Production user `user-1793787605853-9f11a964` (`jesney`) had stale generation `cgt-20261109034544-3e1d0d`; the pre-deducted 150 credits were refunded exactly once after the service restart lost the in-memory submission job. Record now has `status=failed`, `billingStatus=refunded`, `finalCredits=0`, `awaitingUpstreamTask=false`, `lastUpdateReason=operator-restart-recovery-refund`; ledger refund is `ledger-f9a7b5f1c0a7468588cfa0f2`; user credits and payload credits both `32320`. No service restart was used for the repair.
+- Root cause candidate for the recovery gap: `scanStalePreSubmitGenerationRecords()` sets `staleSubmitScanRunning=true` before an unbounded DB query. If that first scan never settles, every later timer exits early forever with no start/finish diagnostic. The fix must bound the query and each record, log scan start/end/timeout, and release the guard reliably.
+- Deployment-key authentication is implemented in `scripts/deploy_pull.py`, `scripts/deploy_site.py`, and `test/deploy-targets.test.js`; key auth never falls back to password/agent/default keys. `LOCAL_CREDENTIALS.md` contains only the local key path and must not be printed or committed. This change is not yet committed or deployed.
 
 - Real production listener is `127.0.0.1:4174`; `/api/health` returns `{"ok":true}`. Earlier checks against port 3000 were invalid.
 - Service remains `root` with weak systemd hardening (`NoNewPrivileges=no`, `PrivateTmp=no`, `ProtectSystem=no`, `ProtectHome=no`). Three stale root test processes were terminated (PIDs 359303/359304, 2083103/2083104, 2083461/2083462); DB connections dropped to about 21 and the processes are gone.

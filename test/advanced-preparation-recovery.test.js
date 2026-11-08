@@ -160,6 +160,35 @@ test("all media preparation before billing is recorded as a free failed generati
   assert.match(preparation, /createUserWanMediaAssetFromDataUrl/);
   assert.match(preparation, /recordAdvancedPreparationFailure/);
   assert.match(preparation, /code: error\.code \|\| "MEDIA_PREPARATION_FAILED"/);
+  assert.doesNotMatch(preparation, /sendReferenceAssetNotFound\(/);
+  assert.doesNotMatch(preparation, /sendAdvancedValidationError\(/);
+});
+
+test("advanced request validation failures are persisted with a taskId and never charged", () => {
+  const sendAdvancedRequestFailure = new Function(
+    "recordAdvancedPreparationFailure",
+    "sendJson",
+    `return (${extractFunction(source, "sendAdvancedRequestFailure")});`,
+  )(
+    async (req, res, auth, { error }) => ({
+      taskId: "cgt-validation-test",
+      message: error.message,
+      statusCode: error.statusCode || 400,
+    }),
+    (res, statusCode, payload) => ({ statusCode, payload }),
+  );
+  return sendAdvancedRequestFailure({}, {}, { user: { id: "user-1" } }, {
+    provider: "seedance",
+    error: Object.assign(new Error("Seedance content is invalid."), {
+      code: "INVALID_SEEDANCE_CONTENT",
+      statusCode: 400,
+    }),
+  }).then((response) => {
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.payload.taskId, "cgt-validation-test");
+    assert.equal(response.payload.code, "INVALID_SEEDANCE_CONTENT");
+    assert.equal(response.payload.message, "Seedance content is invalid.");
+  });
 });
 
 test("preparation failures are persisted without charging credits", () => {

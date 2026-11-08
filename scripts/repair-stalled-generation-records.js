@@ -86,7 +86,11 @@ async function main() {
   if (summary.failed) process.exitCode = 1;
 }
 
-main().catch((error) => {
+main().then(() => {
+  // Loading server.js installs long-lived maintenance timers. This command is
+  // one-shot, so exit explicitly after printing a complete summary.
+  process.exit(process.exitCode || 0);
+}).catch((error) => {
   console.error(error.stack || error.message || error);
-  process.exitCode = 1;
+  process.exit(1);
 });

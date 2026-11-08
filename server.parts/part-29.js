@@ -9,6 +9,17 @@ function advancedPreparationErrorMessage(error = {}) {
   return publicModelText(error.message || "Reference media could not be prepared.");
 }
 
+function advancedReferenceAssetNotFound(kind = "image", assetId = "") {
+  const normalizedKind = ["video", "audio"].includes(kind) ? kind : "image";
+  const error = advancedValidationError(
+    `REFERENCE_${normalizedKind.toUpperCase()}_NOT_FOUND`,
+    `Reference ${normalizedKind} not found.`,
+    assetId ? { assetId, missingAssetIds: [assetId] } : {},
+  );
+  error.statusCode = 404;
+  return error;
+}
+
 async function recordAdvancedPreparationFailure(req, res, auth, {
   body = {},
   provider = "",
@@ -17,13 +28,14 @@ async function recordAdvancedPreparationFailure(req, res, auth, {
   userAsset = null,
   extraUserAssets = [],
   error = {},
+  failureStage = "preparation",
 } = {}) {
   const taskId = localGenerationTaskId("cgt");
   const message = advancedPreparationErrorMessage(error);
   const record = await upsertGenerationRecord({
     taskId,
     status: "failed",
-    failureStage: "preparation",
+    failureStage,
     preparationErrorCode: String(error.code || "MEDIA_PREPARATION_FAILED"),
     error: message,
     model: String(runtime.model || requestParams.model || ""),
@@ -68,6 +80,36 @@ async function recordAdvancedPreparationFailure(req, res, auth, {
   });
   console.warn("[advanced-preparation-failed]", taskId, error.code || "MEDIA_PREPARATION_FAILED", error.message || message);
   return { taskId, record, message, statusCode: error.statusCode || 400 };
+}
+
+async function sendAdvancedRequestFailure(req, res, auth, {
+  body = {},
+  provider = "",
+  runtime = {},
+  requestParams = {},
+  userAsset = null,
+  extraUserAssets = [],
+  error = {},
+  code = "",
+  statusCode,
+  response = {},
+} = {}) {
+  const failed = await recordAdvancedPreparationFailure(req, res, auth, {
+    body,
+    provider,
+    runtime,
+    requestParams,
+    userAsset,
+    extraUserAssets,
+    error,
+  });
+  return sendJson(res, statusCode || failed.statusCode, {
+    ok: false,
+    code: code || error.code || "INVALID_ADVANCED_REQUEST",
+    message: failed.message,
+    ...response,
+    taskId: failed.taskId,
+  });
 }
 
 async function handleAdvancedGenerate(req, res) {
@@ -130,11 +172,26 @@ async function handleAdvancedGenerate(req, res) {
     providerHint,
     seedanceModelAliasKind(requestedModel) ? "seedance" : "",
   ));
-  if (publicAliyunModelBlockedForRequest(req, provider)) return sendPublicAliyunModelUnavailable(res);
+  if (publicAliyunModelBlockedForRequest(req, provider)) {
+    return sendAdvancedRequestFailure(req, res, auth, {
+      body: mergedBodyBase,
+      provider,
+      runtime: { model: String(requestedModel || ""), providerName: provider, recordSource: "advanced-validation" },
+      requestParams: { provider, model: String(requestedModel || "") },
+      error: advancedValidationError("MODEL_TEMPORARILY_UNAVAILABLE", "This model is temporarily unavailable."),
+      statusCode: 404,
+    });
+  }
   try {
     assertExplicitAdvancedProvider(providerHint);
   } catch (error) {
-    return sendAdvancedValidationError(res, error);
+    return sendAdvancedRequestFailure(req, res, auth, {
+      body: mergedBodyBase,
+      provider,
+      runtime: { model: String(requestedModel || ""), providerName: provider, recordSource: "advanced-validation" },
+      requestParams: { provider, model: String(requestedModel || "") },
+      error,
+    });
   }
   let prompt = String(firstPresent(
     body.prompt,
@@ -158,17 +215,46 @@ async function handleAdvancedGenerate(req, res) {
   }
   const canUseIgnexSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && seedanceIgnexEnabledForUser(auth.user);
   if (USE_GATEWAY_UPSTREAM && !UPSTREAM_API_TOKEN) {
-    return sendJson(res, 503, { ok: false, code: "GATEWAY_TOKEN_NOT_CONFIGURED", message: "Gateway upstream token is not configured." });
+    return sendAdvancedRequestFailure(req, res, auth, {
+      body: mergedBodyBase,
+      provider,
+      runtime: { model: String(requestedModel || ""), providerName: provider, recordSource: "advanced-validation" },
+      requestParams: { provider, model: String(requestedModel || "") },
+      error: advancedValidationError("GATEWAY_TOKEN_NOT_CONFIGURED", "Gateway upstream token is not configured."),
+      statusCode: 503,
+    });
   }
   if (!USE_GATEWAY_UPSTREAM && provider === "seedance" && !ARK_API_KEY && !canUseIgnexSeedance) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Seedance generation is not configured." });
+    return sendAdvancedRequestFailure(req, res, auth, {
+      body: mergedBodyBase,
+      provider,
+      runtime: { model: String(requestedModel || ""), providerName: provider, recordSource: "advanced-validation" },
+      requestParams: { provider, model: String(requestedModel || "") },
+      error: advancedValidationError("MISSING_ARK_API_KEY", "Seedance generation is not configured."),
+      statusCode: 503,
+    });
   }
   if (provider === SEEDANCE25_DIRECT_PROVIDER && !ARK_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: `${SEEDANCE25_DIRECT_LABEL} generation is not configured.` });
+    return sendAdvancedRequestFailure(req, res, auth, {
+      body: mergedBodyBase,
+      provider,
+      runtime: { model: String(requestedModel || ""), providerName: provider, recordSource: "advanced-validation" },
+      requestParams: { provider, model: String(requestedModel || "") },
+      error: advancedValidationError("MISSING_ARK_API_KEY", `${SEEDANCE25_DIRECT_LABEL} generation is not configured.`),
+      statusCode: 503,
+    });
   }
   const aliyunProviderConfigured = provider === "wan30" ? Boolean(ALIYUN_WAN30_API_KEY) : Boolean(ALIYUN_DASHSCOPE_API_KEY);
   if (!USE_GATEWAY_UPSTREAM && isAliyunVideoProvider(provider) && !aliyunProviderConfigured) {
-    return sendJson(res, 503, { ok: false, code: provider === "wan30" ? "MISSING_ALIYUN_WAN30_API_KEY" : "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: `${publicProviderLabel(provider)} generation is not configured.` });
+    const code = provider === "wan30" ? "MISSING_ALIYUN_WAN30_API_KEY" : "MISSING_ALIYUN_DASHSCOPE_API_KEY";
+    return sendAdvancedRequestFailure(req, res, auth, {
+      body: mergedBodyBase,
+      provider,
+      runtime: { model: String(requestedModel || ""), providerName: provider, recordSource: "advanced-validation" },
+      requestParams: { provider, model: String(requestedModel || "") },
+      error: advancedValidationError(code, `${publicProviderLabel(provider)} generation is not configured.`),
+      statusCode: 503,
+    });
   }
   let mergedBody = mergedBodyBase;
   let seedanceContentExpanded = false;
@@ -177,11 +263,25 @@ async function handleAdvancedGenerate(req, res) {
       seedanceContentExpanded = seedanceContentHasMedia(mergedBodyBase.content);
       mergedBody = seedanceBodyWithContentMediaFields(mergedBodyBase);
     } catch (error) {
-      return sendAdvancedValidationError(res, error, "Seedance content is invalid.");
+      return sendAdvancedRequestFailure(req, res, auth, {
+        body: mergedBodyBase,
+        provider,
+        runtime: { model: String(requestedModel || ""), providerName: provider, recordSource: "advanced-validation" },
+        requestParams: { provider, model: String(requestedModel || "") },
+        error,
+      });
     }
   }
   if (isVideoReplacementRequest && provider !== "z-image-spicy-pro") prompt = VIDEO_REPLACE_PROMPT;
-  if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) {
+    return sendAdvancedRequestFailure(req, res, auth, {
+      body: mergedBody,
+      provider,
+      runtime: { model: String(requestedModel || ""), providerName: provider, recordSource: "advanced-validation" },
+      requestParams: { provider, model: String(requestedModel || "") },
+      error: advancedValidationError("PROMPT_REQUIRED", "Prompt is required."),
+    });
+  }
   if (["qwen37-flash", "byteplus-language", "papaya"].includes(provider)) {
     return await handleAdvancedQwen37FlashGenerate(req, res, {
       auth,
@@ -257,7 +357,13 @@ async function handleAdvancedGenerate(req, res) {
     });
     assertAdvancedRatioInput(rawRatioInput, provider);
   } catch (error) {
-    return sendAdvancedValidationError(res, error);
+    return sendAdvancedRequestFailure(req, res, auth, {
+      body: mergedBody,
+      provider,
+      runtime: { model: String(requestedModel || ""), providerName: provider, recordSource: "advanced-validation" },
+      requestParams: { provider, model: String(requestedModel || "") },
+      error,
+    });
   }
 
   const requestParams = {
@@ -338,7 +444,13 @@ async function handleAdvancedGenerate(req, res) {
         videoCapability: requestParams.videoCapability,
       });
     } catch (error) {
-      return sendAdvancedValidationError(res, error, "Alibaba video resolution is invalid.");
+      return sendAdvancedRequestFailure(req, res, auth, {
+        body: mergedBody,
+        provider,
+        runtime: { model: requestParams.model, providerName: provider, recordSource: "advanced-validation" },
+        requestParams,
+        error,
+      });
     }
   }
   requestParams.followInputDuration = requestParams.videoCapability === "wan27-video-edit"
@@ -351,10 +463,22 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.input = plainObject(firstPresent(body.input, bodyParams.input, caseParams.input, {}));
   requestParams.parameters = mergedProviderParameters;
   if (provider === "seedance" && requestParams.seedanceTier === "fast" && requestParams.resolution === "1080p") {
-    return sendJson(res, 400, { ok: false, code: "INVALID_SEEDANCE_FAST_RESOLUTION", message: "Seedance Fast does not support 1080p." });
+    return sendAdvancedRequestFailure(req, res, auth, {
+      body: mergedBody,
+      provider,
+      runtime: { model: requestParams.model, providerName: provider, recordSource: "advanced-validation" },
+      requestParams,
+      error: advancedValidationError("INVALID_SEEDANCE_FAST_RESOLUTION", "Seedance Fast does not support 1080p."),
+    });
   }
   if (provider === "seedance" && requestParams.seedanceTier === "fast" && requestParams.resolution === "4k") {
-    return sendJson(res, 400, { ok: false, code: "INVALID_SEEDANCE_FAST_RESOLUTION", message: "Seedance Fast does not support 4K." });
+    return sendAdvancedRequestFailure(req, res, auth, {
+      body: mergedBody,
+      provider,
+      runtime: { model: requestParams.model, providerName: provider, recordSource: "advanced-validation" },
+      requestParams,
+      error: advancedValidationError("INVALID_SEEDANCE_FAST_RESOLUTION", "Seedance Fast does not support 4K."),
+    });
   }
   if (provider === "seedance") {
     [
@@ -431,7 +555,7 @@ async function handleAdvancedGenerate(req, res) {
       const rawFirstFrameUrl = String(firstPresent(firstFramePublicUrl, mergedBody.image_url, mergedBody.firstFrameRawUrl, "") || "").trim();
       if (rawFirstFrameUrl) requestParams.image_url = rawFirstFrameUrl;
       if (!seedanceFirstFrameAsset && !rawFirstFrameUrl) {
-        return sendJson(res, 400, { ok: false, message: "Seedance image-to-video requires imageUrl, firstFrameUrl, imageAssetId, firstFrameAssetId, or dataUrl." });
+        throw advancedValidationError("SEEDANCE_FIRST_FRAME_REQUIRED", "Seedance image-to-video requires imageUrl, firstFrameUrl, imageAssetId, firstFrameAssetId, or dataUrl.");
       }
     }
     if (seedanceModeNeedsEndFrame(seedanceMode)) {
@@ -441,7 +565,7 @@ async function handleAdvancedGenerate(req, res) {
       const rawEndFrameUrl = String(firstPresent(endFramePublicUrl, mergedBody.end_image_url, mergedBody.endImageRawUrl, "") || "").trim();
       if (rawEndFrameUrl) requestParams.end_image_url = rawEndFrameUrl;
       if (!seedanceEndFrameAsset && !rawEndFrameUrl) {
-        return sendJson(res, 400, { ok: false, message: "Seedance first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl." });
+        throw advancedValidationError("SEEDANCE_END_FRAME_REQUIRED", "Seedance first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl.");
       }
     } else if (endFrameInput) {
       seedanceEndFrameAsset = await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, endFrameInput, { name: "Seedance end frame" });
@@ -453,45 +577,45 @@ async function handleAdvancedGenerate(req, res) {
     referenceVideoAssetIds = seedanceReferenceVideoAssetIdsFromBody(mergedBody);
     if (referenceVideoAssetIds.length) {
       seedanceVideoAsset = auth.db.userAssets.find((asset) => asset.id === referenceVideoAssetIds[0] && asset.userId === auth.user.id && !isSoftDeleted(asset));
-      if (!seedanceVideoAsset) return sendReferenceAssetNotFound(res, "video", referenceVideoAssetIds[0]);
+      if (!seedanceVideoAsset) throw advancedReferenceAssetNotFound("video", referenceVideoAssetIds[0]);
       try {
         validateWan27MediaKind(seedanceVideoAsset, "video", "Seedance reference video");
       } catch (error) {
-        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Seedance reference video must be a video.") });
+        throw advancedValidationError("INVALID_REFERENCE_VIDEO", publicModelText(error.message || "Seedance reference video must be a video."));
       }
       seedanceVideoAssets = referenceVideoAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
-      if (seedanceVideoAssets.some((asset) => !asset)) return sendReferenceAssetNotFound(res, "video", referenceVideoAssetIds[seedanceVideoAssets.findIndex((asset) => !asset)] || "");
+      if (seedanceVideoAssets.some((asset) => !asset)) throw advancedReferenceAssetNotFound("video", referenceVideoAssetIds[seedanceVideoAssets.findIndex((asset) => !asset)] || "");
       try {
         seedanceVideoAssets.forEach((asset) => validateWan27MediaKind(asset, "video", "Seedance reference video"));
       } catch (error) {
-        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Seedance reference video must be a video.") });
+        throw advancedValidationError("INVALID_REFERENCE_VIDEO", publicModelText(error.message || "Seedance reference video must be a video."));
       }
     }
     try {
       referenceImageAssetUris = seedanceReferenceAssetUrisFromBody(mergedBody);
       if (referenceImageAssetUris.length) requestParams.referenceImageAssetUris = referenceImageAssetUris;
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Seedance reference image assetUri is invalid.") });
+      throw advancedValidationError(error.code || "INVALID_REFERENCE_IMAGE_URI", publicModelText(error.message || "Seedance reference image assetUri is invalid."));
     }
     try {
       referenceVideoAssetUris = seedanceReferenceVideoUrlInputsFromBody(mergedBody);
       if (referenceVideoAssetUris.length) requestParams.reference_videos = referenceVideoAssetUris;
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Seedance reference video is invalid.") });
+      throw advancedValidationError(error.code || "INVALID_REFERENCE_VIDEO_URI", publicModelText(error.message || "Seedance reference video is invalid."));
     }
     try {
       referenceAudioAssetUris = seedanceReferenceAudioInputsFromBody(mergedBody);
       referenceAudioAssetIds = seedanceReferenceAudioAssetIdsFromBody(mergedBody);
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Seedance reference audio is invalid.") });
+      throw advancedValidationError(error.code || "INVALID_REFERENCE_AUDIO_URI", publicModelText(error.message || "Seedance reference audio is invalid."));
     }
     if (referenceAudioAssetIds.length) {
       seedanceAudioAssets = referenceAudioAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
-      if (seedanceAudioAssets.some((asset) => !asset)) return sendReferenceAssetNotFound(res, "audio", referenceAudioAssetIds[seedanceAudioAssets.findIndex((asset) => !asset)] || "");
+      if (seedanceAudioAssets.some((asset) => !asset)) throw advancedReferenceAssetNotFound("audio", referenceAudioAssetIds[seedanceAudioAssets.findIndex((asset) => !asset)] || "");
       try {
         seedanceAudioAssets.forEach((asset) => validateWan27MediaKind(asset, "audio", "Seedance reference audio"));
       } catch (error) {
-        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Seedance reference audio must be audio.") });
+        throw advancedValidationError("INVALID_REFERENCE_AUDIO", publicModelText(error.message || "Seedance reference audio must be audio."));
       }
     }
     if (referenceAudioAssetUris.length) {
@@ -536,11 +660,11 @@ async function handleAdvancedGenerate(req, res) {
       });
       if (referenceAssetIds.length) {
         const foundAssets = referenceAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
-        if (foundAssets.some((asset) => !asset)) return sendReferenceAssetNotFound(res, "image", referenceAssetIds[foundAssets.findIndex((asset) => !asset)] || "");
+        if (foundAssets.some((asset) => !asset)) throw advancedReferenceAssetNotFound("image", referenceAssetIds[foundAssets.findIndex((asset) => !asset)] || "");
         try {
           foundAssets.forEach((asset) => validateWan27MediaKind(asset, "image", "Seedance reference image"));
         } catch (error) {
-          return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Seedance reference image must be an image.") });
+          throw advancedValidationError("INVALID_REFERENCE_IMAGE", publicModelText(error.message || "Seedance reference image must be an image."));
         }
         [userAsset, ...extraUserAssets] = foundAssets;
       }
@@ -554,11 +678,11 @@ async function handleAdvancedGenerate(req, res) {
     for (const assetId of seedanceExtraReferenceAssetIdsFromBody(mergedBody)) {
       if (seenSeedanceAssetIds.has(assetId) || extraUserAssets.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT - 1) continue;
       const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
-      if (!asset) return sendReferenceAssetNotFound(res, "image", assetId);
+      if (!asset) throw advancedReferenceAssetNotFound("image", assetId);
       try {
         validateWan27MediaKind(asset, "image", "Extra reference image");
       } catch (error) {
-        return sendJson(res, 400, { ok: false, message: error.message || "Extra reference image must be an image." });
+        throw advancedValidationError("INVALID_REFERENCE_IMAGE", error.message || "Extra reference image must be an image.");
       }
       extraUserAssets.push(asset);
       seenSeedanceAssetIds.add(asset.id);
@@ -614,7 +738,7 @@ async function handleAdvancedGenerate(req, res) {
     } else if (firstPresent(body.userAssetId, body.firstFrameAssetId, bodyParams.userAssetId, bodyParams.firstFrameAssetId)) {
       const firstAssetId = firstPresent(body.firstFrameAssetId, body.userAssetId, bodyParams.firstFrameAssetId, bodyParams.userAssetId);
       userAsset = auth.db.userAssets.find((asset) => asset.id === firstAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
-      if (!userAsset) return sendReferenceAssetNotFound(res, "image", firstAssetId);
+      if (!userAsset) throw advancedReferenceAssetNotFound("image", firstAssetId);
     }
   }
   } catch (error) {
@@ -755,10 +879,18 @@ async function handleAdvancedGenerate(req, res) {
         },
       });
     } catch (error) {
-      if (isVideoTemplateRequest) {
-        return sendJson(res, error.statusCode || 400, { ok: false, code: error.code || "INVALID_VIDEO_INPUT", message: "Video input is invalid." });
-      }
-      return sendAdvancedValidationError(res, error, "Alibaba video input is invalid.");
+      return sendAdvancedRequestFailure(req, res, auth, {
+        body: mergedBody,
+        provider,
+        runtime: { model: requestParams.model, providerName: provider, recordSource: "advanced-validation" },
+        requestParams,
+        userAsset,
+        extraUserAssets,
+        error,
+        code: error.code || "INVALID_VIDEO_INPUT",
+        statusCode: error.statusCode || 400,
+        response: { message: publicModelText(error.message || "Alibaba video input is invalid.") },
+      });
     }
   }
   const rawPricing = advancedModelPricing(provider, {

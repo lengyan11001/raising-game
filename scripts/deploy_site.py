@@ -64,6 +64,7 @@ TARGETS = {
         "env_file": "/etc/raising-game-demo.env",
         "required_file_counts": (("/opt/raising-game-demo/assets/ourdream/characters", 1000),),
         "password_env": ("OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
+        "key_env": ("DEPLOY_SSH_KEY", "OLD_SITE_SSH_KEY"),
         "forbidden_changed_paths": (
             "live.html", "live.css", "live.js", "qrcode.js",
             "site-landing.*", "downloads/vipeak-live.apk", "mobile/live-android/**",
@@ -127,6 +128,7 @@ TARGETS = {
         "env_file": "",
         "required_file_counts": (),
         "password_env": ("LIVE_SITE_SSH_PASSWORD", "OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
+        "key_env": ("DEPLOY_SSH_KEY", "LIVE_SITE_SSH_KEY"),
         "forbidden_changed_paths": ("platform.html", "platform.css", "platform*.js", "admin.html", "admin.css", "admin.js"),
         "forbidden_env_patterns": (
             r"^TOS_",
@@ -153,6 +155,7 @@ TARGETS = {
         "env_file": "/etc/raising-game-667zui.env",
         "required_file_counts": (("/opt/raising-game-667zui/assets/ourdream/characters", 1000),),
         "password_env": ("NEW_SITE2_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
+        "key_env": ("DEPLOY_SSH_KEY", "NEW_SITE2_SSH_KEY"),
         "forbidden_env_patterns": (
             r"^(R2_BUCKET|CLOUDFLARE_R2_BUCKET)=\"?vipeak-media\"?$",
             r"^(R2_PUBLIC_BASE_URL|R2_PUBLIC_DOMAIN|CLOUDFLARE_R2_PUBLIC_BASE_URL|CLOUDFLARE_R2_PUBLIC_DOMAIN)=\"?https://media\.123vips\.com\"?$",
@@ -293,6 +296,13 @@ def first_password(target: dict[str, object]) -> tuple[str, str]:
             return f"local-file:{path}", match.group(1)
     return "", ""
 
+def first_key(target: dict[str, object]) -> tuple[str, str]:
+    for name in target.get("key_env", ()):
+        value = str(os.environ.get(name, "") or "").strip()
+        if value:
+            return name, value
+    return "", ""
+
 
 def enforce_shared_sync_for_new2() -> None:
     sync_script = Path(__file__).with_name("sync_old_to_new2.py")
@@ -314,7 +324,10 @@ def main() -> None:
 
     target = TARGETS[args.site]
     port = args.port or int(os.environ.get("DEPLOY_PORT") or target["port"])
-    password_source, password = first_password(target)
+    key_source, key_path = first_key(target)
+    # Password lookup is only a fallback. Do not scan/read password sources
+    # when a verified deployment key is configured.
+    password_source, password = ("", "") if key_path else first_password(target)
     print(f"[deploy-site] site={args.site}")
     print(f"[deploy-site] host={target['host']} port={port}")
     print(f"[deploy-site] branch={target['branch']}")
@@ -333,6 +346,7 @@ def main() -> None:
     for verify_status in target.get("verify_status", ()):
         print(f"[deploy-site] verify_status={verify_status}")
     print(f"[deploy-site] env_file={target['env_file'] or '<none>'}")
+    print(f"[deploy-site] key_source={key_source or '<missing>'}")
     print(f"[deploy-site] password_source={password_source or '<missing>'}")
     print(f"[deploy-site] audit_base={target.get('audit_base', '<root>')}")
     for pattern in target.get("forbidden_env_patterns", ()):
@@ -347,9 +361,12 @@ def main() -> None:
         return
     if args.site == "new2" and not args.skip_shared_sync_check:
         enforce_shared_sync_for_new2()
-    if not password:
-        expected = ", ".join(target["password_env"])
-        raise SystemExit(f"Missing SSH password env. Set one of: {expected}")
+    if not password and not key_path:
+        password_expected = ", ".join(target.get("password_env", ()))
+        key_expected = ", ".join(target.get("key_env", ()))
+        raise SystemExit(f"Missing SSH credential. Set one of: {key_expected} (preferred) or {password_expected}")
+    if key_path and not Path(key_path).expanduser().is_file():
+        raise SystemExit(f"SSH key file does not exist: {key_path}")
 
     repo_root = Path(__file__).resolve().parent.parent
     subprocess.run(
@@ -375,7 +392,21 @@ def main() -> None:
     env = os.environ.copy()
     env["DEPLOY_HOST"] = target["host"]
     env["DEPLOY_USER"] = env.get("DEPLOY_USER", "root")
-    env["DEPLOY_SSH_PASSWORD"] = password
+    if key_path:
+        env["DEPLOY_SSH_KEY"] = str(Path(key_path).expanduser())
+        if os.environ.get("DEPLOY_SSH_KEY_PASSPHRASE"):
+            env["DEPLOY_SSH_KEY_PASSPHRASE"] = os.environ["DEPLOY_SSH_KEY_PASSPHRASE"]
+        else:
+            env.pop("DEPLOY_SSH_KEY_PASSPHRASE", None)
+        env.pop("DEPLOY_SSH_PASSWORD", None)
+        env.pop("FYSHARK_SSH_PASSWORD", None)
+        env.pop("FYSHARK_SSH_KEY_PASSPHRASE", None)
+        print(f"[deploy-site] auth=key:{key_source}")
+    else:
+        env["DEPLOY_SSH_PASSWORD"] = password
+        env.pop("DEPLOY_SSH_KEY", None)
+        env.pop("FYSHARK_SSH_KEY", None)
+        print(f"[deploy-site] auth=password:{password_source}")
     env["DEPLOY_PORT"] = str(port)
     env["DEPLOY_ENV_FILE"] = target["env_file"]
     deploy_pull = Path(__file__).with_name("deploy_pull.py")
