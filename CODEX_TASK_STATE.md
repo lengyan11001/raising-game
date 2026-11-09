@@ -8,6 +8,13 @@
 - Generated media contract is now durable PostgreSQL metadata + object storage only. Video/poster/image work uses disposable OS temp workspaces; local paths are cleared and temporary workspaces are removed. `part-31/38/40` only propagate storage metadata through refresh paths and are part of this release.
 - Verification: Vega/media regression suite 142/142 passed; all changed server/platform JS files pass `node --check`; `git diff --check` passed.
 
+## 2026-11-09 Prompt image/video paste fix (pending deployment)
+- User report: text paste works in the generation prompt editor, but pasted images and videos do not.
+- Root cause: the rich prompt editor consumed paste events while the platform extractor only read `clipboardData.items` and only accepted `image/*`; Safari/Finder commonly exposes pasted media through `clipboardData.files`, and video was filtered out entirely.
+- Fixed `pastedMediaFilesFromEvent()` to merge `items` and `files`, accept image/video/audio, and deduplicate by MIME/name/size/lastModified. The rich editor now leaves media paste to the platform handler and preserves normal plain-text paste.
+- Vega image paste keeps model-aware routing: Pro uses `/api/user-assets` then `asset://`; Lite uses transient public HTTP(S). Vega video paste now uses the same Pro/Lite split, enforces per-model video limits, and shows a clear message when unsupported or full.
+- Verification: focused paste tests 5/5 and complete `test/tencent-vod-vega.test.js` 70/70 pass; `node --check` and `git diff --check` pass. Not yet committed or deployed.
+
 ## 2026-11-09 Local Vega verification guidance (current)
 - Focused local verification confirmed: `node --check test/tencent-vod-vega.test.js`, Vega media suite 69/69, Vega regeneration media suite 19/19, and `git diff --check` all pass.
 - Full local browser generation is not currently runnable on this machine: `.env.local` is absent, `DATABASE_URL` is unset, and neither `psql` nor `docker` is installed.

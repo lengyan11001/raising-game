@@ -1187,6 +1187,19 @@ test("Vega prompt-pasted images upload and resolve before entering generation st
   assert.match(paste, /id: "referenceImages"/);
 });
 
+test("Vega prompt paste routes video through the model-aware upload bridge", () => {
+  const handler = sourceBetween(create, "async function handleAdvancedPromptPaste(", "function readVideoDuration(");
+  const videoBranch = handler.slice(handler.indexOf("if (isVegaAdvancedProvider(provider) && videoFiles.length)"), handler.indexOf("const files = imageFiles;"));
+  assert.match(videoBranch, /const usesMediaLibrary = vegaProviderUsesMediaLibrary\(provider\)/);
+  assert.match(videoBranch, /usesMediaLibrary\s*\? await uploadAdvancedMediaReference\(file, "video", \{ provider, skipReference: true \}\)\s*: await uploadAdvancedTransientMediaReference\(file, "video", \{ provider \}\)/);
+  assert.match(videoBranch, /addAdvancedSeedanceMediaReference\(ref, "video"/);
+  assert.match(videoBranch, /if \(!supportsVideoReferences\) \{\s*event\.preventDefault\(\)/);
+  assert.match(videoBranch, /event\.preventDefault\(\);/);
+  assert.match(videoBranch, /t\("advanced\.referenceVideoUnsupported"\)/);
+  assert.match(handler, /const files = imageFiles;\s*if \(!files\.length\) return;/);
+  assert.match(handler, /if \(!rule\.allowed\) \{\s*if \(isVegaAdvancedProvider\(provider\)\) \{\s*event\.preventDefault\(\)/);
+});
+
 test("Vega prompt paste branches before legacy data-URL paste handling", () => {
   const handler = sourceBetween(create, "async function handleAdvancedPromptPaste(", "function readVideoDuration(");
   const vegaBranch = handler.slice(handler.indexOf("if (isVegaAdvancedProvider(provider))"), handler.indexOf("} else {"));

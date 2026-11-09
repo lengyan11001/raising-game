@@ -400,6 +400,25 @@ test("Advanced image files enter the asset library before generation", () => {
   assert.match(ui, /id: "local-upload-character",[\s\S]*?assetId: ref\.assetId \|\| ""/);
 });
 
+test("prompt paste extracts Safari clipboard files without duplicate media", () => {
+  const createPart03 = fs.readFileSync(path.join(root, "platform.create.parts/part-03.js"), "utf8");
+  const extract = new Function(
+    "uploadedFileMime",
+    `${extractFunction(createPart03, "pastedMediaFilesFromEvent")}
+return pastedMediaFilesFromEvent;`,
+  )((file) => String(file?.type || ""));
+  const image = { type: "image/png", name: "pasted.png", size: 10, lastModified: 1 };
+  const video = { type: "video/mp4", name: "pasted.mp4", size: 20, lastModified: 1 };
+  const text = { type: "text/plain", name: "pasted.txt", size: 5, lastModified: 1 };
+  const files = extract({
+    clipboardData: {
+      items: [{ kind: "file", type: "image/png", getAsFile: () => image }],
+      files: [image, video, text],
+    },
+  });
+  assert.deepEqual(files, [image, video]);
+});
+
 test("prompt image paste and @ mentions follow the shared upload control for every model", () => {
   assert.match(create, /function advancedPromptPasteImageRule\(\)/);
   assert.match(create, /const imageTargets = advancedAssetTargetItems\(\)\.filter\(\(target\) => target\.type === "image"\)/);

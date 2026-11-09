@@ -1153,12 +1153,29 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function pastedMediaFilesFromEvent(event) {
+  const clipboard = event?.clipboardData;
+  const files = [];
+  const seen = new Set();
+  const addFile = (file) => {
+    if (!file) return;
+    const mime = String(file.type || uploadedFileMime(file) || "").toLowerCase();
+    if (!/^(?:image|video|audio)\//.test(mime)) return;
+    const key = `${mime}:${file.name || ""}:${file.size || 0}:${file.lastModified || 0}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    files.push(file);
+  };
+  for (const item of Array.from(clipboard?.items || [])) {
+    if (String(item?.kind || "").toLowerCase() !== "file" && !/^(?:image|video|audio)\//.test(String(item?.type || ""))) continue;
+    addFile(item.getAsFile?.());
+  }
+  for (const file of Array.from(clipboard?.files || [])) addFile(file);
+  return files;
+}
+
 function pastedImageFilesFromEvent(event) {
-  const items = Array.from(event?.clipboardData?.items || []);
-  return items
-    .filter((item) => String(item.type || "").startsWith("image/"))
-    .map((item) => item.getAsFile())
-    .filter(Boolean);
+  return pastedMediaFilesFromEvent(event).filter((file) => String(file.type || uploadedFileMime(file) || "").toLowerCase().startsWith("image/"));
 }
 
 function advancedPromptPasteImageRule() {
@@ -1266,11 +1283,57 @@ async function addAdvancedVegaPromptPasteImages(files = [], rule = {}, provider 
 }
 
 async function handleAdvancedPromptPaste(event) {
-  const files = pastedImageFilesFromEvent(event);
-  const rule = advancedPromptPasteImageRule();
-  if (!files.length || !rule.allowed) return;
-  event.preventDefault();
   const provider = currentAdvancedProvider();
+  const mediaFiles = pastedMediaFilesFromEvent(event);
+  const imageFiles = mediaFiles.filter((file) => String(file.type || uploadedFileMime(file) || "").toLowerCase().startsWith("image/"));
+  const videoFiles = mediaFiles.filter((file) => String(file.type || uploadedFileMime(file) || "").toLowerCase().startsWith("video/"));
+  const rule = advancedPromptPasteImageRule();
+
+  if (isVegaAdvancedProvider(provider) && videoFiles.length) {
+    const supportsVideoReferences = vegaModeUsesReferences(advancedVegaMediaMode()) && advancedVideoReferenceLimit(provider) > 0;
+    if (!supportsVideoReferences) {
+      event.preventDefault();
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceVideoUnsupported");
+      return;
+    }
+    const videoLimit = advancedVideoReferenceLimit(provider);
+    const availableVideoSlots = Math.max(0, videoLimit - advancedSeedanceVideoReferences().length);
+    const selectedVideos = videoFiles.slice(0, availableVideoSlots);
+    event.preventDefault();
+    if (!selectedVideos.length) {
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceMediaTooMany");
+      return;
+    }
+    const usesMediaLibrary = vegaProviderUsesMediaLibrary(provider);
+    for (const file of selectedVideos) {
+      const ref = usesMediaLibrary
+        ? await uploadAdvancedMediaReference(file, "video", { provider, skipReference: true })
+        : await uploadAdvancedTransientMediaReference(file, "video", { provider });
+      if (!ref) return;
+      const added = addAdvancedSeedanceMediaReference(ref, "video", {
+        sourceUrl: ref.publicUrl || ref.url || ref.previewUrl || "",
+        ref,
+      });
+      if (!added.ok) {
+        if (els.advancedNote) els.advancedNote.textContent = advancedMediaReferenceAddError(added, "video");
+        return;
+      }
+    }
+    if (els.advancedNote) els.advancedNote.textContent = "";
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
+  }
+
+  const files = imageFiles;
+  if (!files.length) return;
+  if (!rule.allowed) {
+    if (isVegaAdvancedProvider(provider)) {
+      event.preventDefault();
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: 1 });
+    }
+    return;
+  }
+  event.preventDefault();
   const referenceLimit = rule.limit;
   const maxBytes = provider === "qwen-image3" ? ADVANCED_QWEN_IMAGE3_REFERENCE_MAX_BYTES : advancedMediaUploadMaxBytes("image", provider);
   const validFiles = files.filter((file) => file.size <= maxBytes);

@@ -99,7 +99,15 @@ class PromptEditor {
         handlePaste: (_view, event) => {
           if (typeof options.onPaste === "function") options.onPaste(event);
           if (event?.defaultPrevented) return true;
-          const text = event?.clipboardData?.getData?.("text/plain");
+          const clipboard = event?.clipboardData;
+          const hasMedia = Array.from(clipboard?.items || []).some((item) => (
+            String(item?.kind || "").toLowerCase() === "file"
+            && /^(?:image|video|audio)\//.test(String(item?.type || ""))
+          )) || Array.from(clipboard?.files || []).some((file) => (
+            /^(?:image|video|audio)\//.test(String(file?.type || ""))
+          ));
+          if (hasMedia) return true;
+          const text = clipboard?.getData?.("text/plain");
           if (text === undefined) return false;
           event.preventDefault();
           this.insertText(text);
