@@ -11,6 +11,7 @@ const createSource = fs.readFileSync(path.join(root, "platform.create.parts", "p
 const uiSource = fs.readFileSync(path.join(root, "platform.ui.parts", "part-02.js"), "utf8");
 const createUrlSource = fs.readFileSync(path.join(root, "platform.create.parts", "part-03.js"), "utf8");
 const createOrderSource = fs.readFileSync(path.join(root, "platform.create.parts", "part-01.js"), "utf8");
+const createControlsSource = fs.readFileSync(path.join(root, "platform.create.parts", "part-02.js"), "utf8");
 const providers = require("../lib-providers");
 const vega = require("../tencent-vod-vega");
 
@@ -720,4 +721,166 @@ test("Result asset hydration backfills only missing durable media fields", async
   assert.equal(patch.cdnPosterUrl, asset.posterUrl);
   assert.equal(patch.localPosterUrl, undefined, "existing fields must never be overwritten");
   assert.deepEqual(generationRecordResultAssetBackfillPatch({ taskId: "plain" }, { taskId: "plain", cdnVideoUrl: "https://example.com/v.mp4" }), {});
+});
+
+function advancedParameterRuntime() {
+  const names = [
+    "firstPresent",
+    "normalizeAdvancedVegaDraftTaskId",
+    "advancedRegenerationParameterSnapshot",
+    "advancedRegenerationSnapshotProvider",
+    "advancedRegenerationSnapshotFor",
+    "advancedVegaGenerationOptions",
+  ];
+  const state = { advancedRegenerationSnapshot: null };
+  const runtime = new Function(
+    "state",
+    "normalizeAdvancedProvider",
+    "advancedVegaPayloadOptions",
+    "vegaCapabilities",
+    "advancedBoolFromValue",
+    [
+      ...names.map((name) => extractFunction(name === "normalizeAdvancedVegaDraftTaskId" ? createOrderSource : createSource, name)),
+      "return { state, advancedRegenerationParameterSnapshot, advancedRegenerationSnapshotProvider, advancedRegenerationSnapshotFor, advancedVegaGenerationOptions };",
+    ].join("\n"),
+  )(
+    state,
+    (value = "") => String(value || "").trim().toLowerCase(),
+    () => ({
+      taskType: "auto",
+      draft: false,
+      draftTaskId: "",
+      assetGroupId: "",
+      generateAudio: true,
+      returnLastFrame: false,
+      returnVegaUsage: false,
+      enhancePromptMode: "auto",
+      moderationMode: "Moderation_L1",
+      generateMode: "Standard",
+      videoQualityMode: "Standard",
+      outputFormat: "mp4",
+    }),
+    () => ({
+      taskTypes: ["auto", "reference", "edit", "extend"],
+      returnLastFrame: true,
+      moderation: true,
+      generateMode: true,
+      qualityMode: true,
+      draft: true,
+    }),
+    (value, fallback = false) => {
+      if (value === undefined || value === null || value === "") return fallback;
+      if (typeof value === "boolean") return value;
+      return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+    },
+  );
+  return runtime;
+}
+
+test("Regeneration snapshot never infers ratio or resolution from image size", () => {
+  const runtime = advancedParameterRuntime();
+  const snapshot = runtime.advancedRegenerationParameterSnapshot({
+    taskId: "vega-size-record",
+    provider: "seedance25-vega",
+    params: { size: "3840x2160", image_size: "1024x1536", width: 1080, height: 1920 },
+  }, {
+    size: "3840x2160",
+    image_size: "1024x1536",
+    width: 1080,
+    height: 1920,
+  }, "seedance25-vega");
+  assert.equal(snapshot.ratio, "");
+  assert.equal(snapshot.resolution, "");
+});
+
+test("Regeneration snapshot uses only the saved submission snapshot for hidden model parameters", () => {
+  const runtime = advancedParameterRuntime();
+  const snapshot = runtime.advancedRegenerationParameterSnapshot({
+    taskId: "vega-hidden-record",
+    provider: "seedance25-vega",
+    params: {
+      submissionSnapshot: {
+        taskType: "edit",
+        draft: true,
+        draftTaskId: "draft-1",
+        assetGroupId: "group-1",
+        returnLastFrame: true,
+        returnVegaUsage: true,
+        enhancePromptMode: "on",
+        moderationMode: "Moderation_L2",
+        generateMode: "Pro",
+        videoQualityMode: "High",
+        outputFormat: "mov",
+      },
+    },
+  }, {
+    submissionSnapshot: {
+      taskType: "edit",
+      draft: true,
+      draftTaskId: "draft-1",
+      assetGroupId: "group-1",
+      returnLastFrame: true,
+      returnVegaUsage: true,
+      enhancePromptMode: "on",
+      moderationMode: "Moderation_L2",
+      generateMode: "Pro",
+      videoQualityMode: "High",
+      outputFormat: "mov",
+    },
+  }, "seedance25-vega");
+  assert.equal(snapshot.taskType, "edit");
+  assert.equal(snapshot.draft, true);
+  assert.equal(snapshot.draftTaskId, "draft-1");
+  assert.equal(snapshot.assetGroupId, "group-1");
+  assert.equal(snapshot.returnLastFrame, true);
+  assert.equal(snapshot.returnVegaUsage, true);
+  assert.equal(snapshot.enhancePromptMode, "on");
+  assert.equal(snapshot.moderationMode, "Moderation_L2");
+  assert.equal(snapshot.generateMode, "Pro");
+  assert.equal(snapshot.videoQualityMode, "High");
+  assert.equal(snapshot.outputFormat, "mov");
+});
+
+test("Hidden regeneration snapshot fills Vega options without overriding visible controls", () => {
+  const runtime = advancedParameterRuntime();
+  runtime.state.advancedRegenerationSnapshot = {
+    provider: "seedance25-vega",
+    taskType: "edit",
+    enhancePromptMode: "on",
+    moderationMode: "Moderation_L2",
+    outputFormat: "mov",
+    generateAudio: false,
+  };
+  const options = runtime.advancedVegaGenerationOptions("seedance25-vega");
+  assert.equal(options.taskType, "edit");
+  assert.equal(options.enhancePromptMode, "on");
+  assert.equal(options.moderationMode, "Moderation_L2");
+  assert.equal(options.outputFormat, "mov");
+  assert.equal(options.generateAudio, true, "visible Audio control must remain authoritative");
+});
+
+test("Hidden regeneration snapshot is scoped to the same Vega provider", () => {
+  const runtime = advancedParameterRuntime();
+  runtime.state.advancedRegenerationSnapshot = {
+    provider: "seedance25-vega",
+    taskType: "extend",
+    outputFormat: "mov",
+  };
+  const options = runtime.advancedVegaGenerationOptions("seedance20-vega");
+  assert.equal(options.taskType, "auto");
+  assert.equal(options.outputFormat, "mp4");
+});
+
+test("Regeneration restore never repopulates visible or hidden Vega controls", () => {
+  const restoreSource = extractFunction(createSource, "restoreRecordToAdvancedCreate");
+  assert.doesNotMatch(restoreSource, /els\.advancedRatio\.value\s*=/);
+  assert.doesNotMatch(restoreSource, /els\.advancedResolution\.value\s*=/);
+  assert.doesNotMatch(restoreSource, /els\.advancedDuration\.value\s*=/);
+  assert.doesNotMatch(restoreSource, /els\.advancedVega(TaskType|Draft|DraftTaskId|AssetGroupId|ReturnLastFrame|ReturnUsage|EnhancePromptMode|ModerationMode|GenerateMode|QualityMode|OutputFormat)\.(value|checked)\s*=/);
+  assert.match(restoreSource, /clearAdvancedCreationInputs\(\{ preserveRegenerationSnapshot: true \}\)/);
+  assert.match(restoreSource, /state\.advancedRegenerationSnapshot = regenerationSnapshot;/);
+  assert.match(createSource, /function advancedVegaGenerationOptions/);
+  assert.match(createUrlSource, /const vegaOptions = advancedVegaGenerationOptions\(provider\);/);
+  assert.match(createUrlSource, /submissionSnapshot: \{ \.\.\.vegaPayloadBase \}/);
+  assert.match(createControlsSource, /document\.querySelectorAll\("\.advanced-vega-option"\)\.forEach\(\(item\) => \{[\s\S]*?item\.hidden = true;/);
 });

@@ -569,6 +569,13 @@ els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
 els.advancedWanFirstFrame?.addEventListener("change", async () => {
   const file = els.advancedWanFirstFrame.files?.[0];
   if (!file) return;
+  if (isVegaAdvancedProvider()) {
+    state.advancedAssetTarget = "primary";
+    await handleAdvancedVegaLocalFiles([file], { preserveTarget: true });
+    els.advancedWanFirstFrame.value = "";
+    updateAdvancedModelControls();
+    return;
+  }
   if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES || !String(file.type || "").startsWith("image/")) {
     els.advancedWanFirstFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
@@ -619,6 +626,13 @@ els.advancedSeedanceGenerateAudio?.addEventListener("change", () => {
 els.advancedWanLastFrame?.addEventListener("change", async () => {
   const file = els.advancedWanLastFrame.files?.[0];
   if (!file) return;
+  if (isVegaAdvancedProvider()) {
+    state.advancedAssetTarget = "lastFrame";
+    await handleAdvancedVegaLocalFiles([file], { preserveTarget: true });
+    els.advancedWanLastFrame.value = "";
+    updateAdvancedModelControls();
+    return;
+  }
   if (file.size > 20 * 1024 * 1024) {
     state.advancedWanLastFrameDataUrl = "";
     state.advancedWanLastFrameAssetId = "";
@@ -663,6 +677,13 @@ els.advancedWanLastFrame?.addEventListener("change", async () => {
 els.advancedWanClipFile?.addEventListener("change", async () => {
   const file = els.advancedWanClipFile.files?.[0];
   if (!file) return;
+  if (isVegaAdvancedProvider()) {
+    state.advancedAssetTarget = "video";
+    await handleAdvancedVegaLocalFiles([file], { preserveTarget: true });
+    els.advancedWanClipFile.value = "";
+    updateAdvancedModelControls();
+    return;
+  }
   if (file.size > ADVANCED_WAN_CLIP_MAX_BYTES) {
     state.advancedWanClipDataUrl = "";
     state.advancedWanClipFileName = "";

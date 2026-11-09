@@ -894,6 +894,10 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
   let localVideoPath = "";
   let cdnVideoUrl = record.cdnVideoUrl || "";
   let cdnPosterUrl = record.cdnPosterUrl || "";
+  let storageProvider = record.storageProvider || "";
+  let storageKey = record.storageKey || "";
+  let posterStorageProvider = record.posterStorageProvider || "";
+  let posterStorageKey = record.posterStorageKey || "";
   let cdnError = record.cdnError || "";
   let downloadError = "";
   if (isSucceededStatus(task.status) && task.videoUrl) {
@@ -903,6 +907,10 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
       localVideoPath = localVideo.localVideoPath;
       cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
       cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+      storageProvider = localVideo.storageProvider || storageProvider;
+      storageKey = localVideo.storageKey || storageKey;
+      posterStorageProvider = localVideo.posterStorageProvider || posterStorageProvider;
+      posterStorageKey = localVideo.posterStorageKey || posterStorageKey;
       cdnError = localVideo.cdnError || cdnError;
     } catch (error) {
       downloadError = error.message || "Failed to download character video.";
@@ -920,6 +928,10 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
   record.remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
   record.cdnVideoUrl = cdnVideoUrl || "";
   record.cdnPosterUrl = cdnPosterUrl || "";
+  record.storageProvider = storageProvider || "";
+  record.storageKey = storageKey || "";
+  record.posterStorageProvider = posterStorageProvider || "";
+  record.posterStorageKey = posterStorageKey || "";
   record.cdnError = cdnError || "";
   record.error = task.error || downloadError || "";
   record.updatedAt = new Date().toISOString();
@@ -935,6 +947,10 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
     localVideoPath,
     cdnVideoUrl,
     cdnPosterUrl,
+    storageProvider,
+    storageKey,
+    posterStorageProvider,
+    posterStorageKey,
     cdnError,
     error: task.error || downloadError || "",
     queryResponse: raw,

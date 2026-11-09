@@ -1019,6 +1019,10 @@ async function handleRequest(req, res) {
       return await handleStreamPublicGameVideo(req, res, publicGameVideoStreamMatch[1]);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/advanced/transient-media") {
+      return await handleUploadAdvancedTransientMedia(req, res);
+    }
+
     if (req.method === "POST" && url.pathname === "/api/user-assets") {
       return await handleUploadUserAsset(req, res);
     }

@@ -228,81 +228,151 @@ async function handleUnlockUndressToolResult(req, res, taskId) {
   if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const record = await getGenerationRecord(taskId);
-  if (!record || record.userId !== auth.user.id || record.unlockType !== "undress_image") {
-    return sendJson(res, 404, { ok: false, message: "Generation record not found." });
-  }
-  if (!isSucceededStatus(record.status)) {
-    return sendJson(res, 409, { ok: false, message: "This result is not ready yet." });
-  }
-  if (record.resultLocked !== true) {
-    return sendJson(res, 200, {
-      ok: true,
-      alreadyUnlocked: true,
-      record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)),
-      user: userView(auth.user),
-    });
-  }
-  const cost = creditsAmount(record.unlockCredits || record.pricingEstimate?.credits || 0);
-  if (!(cost > 0)) return sendJson(res, 409, { ok: false, message: "Unlock price is unavailable." });
-  if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, message: "This tool requires database storage." });
+  const cleanTaskId = String(taskId || "").trim();
+  if (!cleanTaskId) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  let unlockedRecord = null;
+  let unlockedUser = null;
+  let alreadyUnlocked = false;
   try {
-    assertSubtokenCanSpend(auth, cost);
-    await chargeUserWithSubtoken(auth, {
-      cost,
-      type: "undress_tool_image_unlock",
-      taskId,
-      meta: { taskId, action: "unlock", model: record.model || "", originalCost: record.pricingEstimate?.originalCredits || cost },
-    });
-    let publishedImageUrl = String(record.cdnImageUrl || "").trim();
-    let publishError = "";
-    if (!publishedImageUrl && record.localImagePath && generatedOutputStorageEnabled()) {
+    await withWalletUserSettlementLockInDb(auth.user.id, async () => {
+      const latestUser = await getUserByIdInDb(auth.user.id);
+      if (!latestUser) {
+        const error = new Error("User not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      auth.user = latestUser;
+      auth.db = { ...auth.db, users: [latestUser] };
+      const record = await getGenerationRecord(cleanTaskId);
+      if (!record || record.userId !== latestUser.id || record.unlockType !== "undress_image") {
+        const error = new Error("Generation record not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      if (!isSucceededStatus(record.status)) {
+        const error = new Error("This result is not ready yet.");
+        error.statusCode = 409;
+        throw error;
+      }
+      if (record.resultLocked !== true) {
+        unlockedRecord = record;
+        unlockedUser = latestUser;
+        alreadyUnlocked = true;
+        return { value: null };
+      }
+      const cost = creditsAmount(record.unlockCredits || record.pricingEstimate?.credits || 0);
+      if (!(cost > 0)) {
+        const error = new Error("Unlock price is unavailable.");
+        error.statusCode = 409;
+        throw error;
+      }
+      if (latestUser.credits < cost) {
+        const error = new Error(insufficientCreditsMessage(cost, latestUser.credits));
+        error.statusCode = 402;
+        error.payload = insufficientCreditsPayload(cost, latestUser.credits);
+        throw error;
+      }
+      assertSubtokenCanSpend(auth, cost);
+
+      const workspace = await createGeneratedMediaWorkspace(`undress-unlock-${cleanTaskId}`);
+      let published = null;
       try {
-        const bytes = await fs.readFile(record.localImagePath);
-        const fileName = path.basename(record.localImagePath);
-        const mime = imageMimeFromKnownPath(fileName) || "image/png";
-        const published = await uploadStaticAssetToObjectStorage({
-          key: objectStoragePath("generated", "images", fileName),
+        const protectedImagePath = await existingUndressLockedImagePath(record, workspace);
+        if (!protectedImagePath) {
+          const error = new Error("The protected result image is unavailable. No credits were charged.");
+          error.statusCode = 503;
+          error.retryable = true;
+          throw error;
+        }
+        const bytes = await fs.readFile(protectedImagePath);
+        const detectedMime = String(record.imageMime || record.mime || imageMimeFromKnownPath(protectedImagePath) || "image/png").toLowerCase();
+        const mime = detectedMime.startsWith("image/") ? detectedMime : "image/png";
+        const extension = imageExtFromMime(mime);
+        published = await uploadStaticAssetToObjectStorage({
+          key: objectStoragePath("generated", "images", `${storagePathSegment(cleanTaskId)}-unlocked${extension}`),
           bytes,
           mime,
         });
-        publishedImageUrl = published.publicUrl || "";
-      } catch (error) {
-        publishError = error.message || "Object storage publication failed.";
+        await verifyObjectStorageMedia(published, { expectedBytes: bytes.length, label: "Unlocked generated image" });
+        if (!published.publicUrl || !published.key) {
+          const error = new Error("The unlocked result was not persisted to object storage. No credits were charged.");
+          error.statusCode = 502;
+          error.retryable = true;
+          throw error;
+        }
+      } finally {
+        await removeGeneratedMediaWorkspace(workspace);
       }
-    }
-    const unlockedAt = new Date().toISOString();
-    const nextRecord = await upsertGenerationRecord({
-      ...record,
-      taskId,
-      resultLocked: false,
-      lockedPreviewUrl: "",
-      lockedPreviewPath: "",
-      unlockedAt,
-      imageResultUrl: publishedImageUrl || record.localImageUrl || record.imageResultUrl || "",
-      cdnImageUrl: publishedImageUrl,
-      cdnError: publishError,
-      finalCredits: cost,
-      originalFinalCredits: record.pricingEstimate?.originalCredits || cost,
-      billingStatus: "settled",
-      billingSettledAt: unlockedAt,
-      lastUpdateReason: "undress-tool-image-unlocked",
-    });
-    const lockedPreviewPath = String(record.lockedPreviewPath || localAssetPathFromPublicValue(record.lockedPreviewUrl || "")).trim();
-    if (lockedPreviewPath) await fs.rm(lockedPreviewPath, { force: true }).catch(() => {});
-    if (record.freeImageClaimId) {
-      await markToolFreeGenerationUnlockedInDb({ id: record.freeImageClaimId, userId: auth.user.id, taskId }).catch((error) => {
-        console.warn("[undress-free-claim-unlock-mark-failed]", taskId, error.message || error);
+
+      // Charge only after the public result has been uploaded and verified.
+      // The ledger id is stable for this task, so retrying after an interrupted
+      // database update remains idempotent.
+      await chargeUserWithSubtoken(auth, {
+        cost,
+        type: "undress_tool_image_unlock",
+        taskId: cleanTaskId,
+        meta: { taskId: cleanTaskId, action: "unlock", model: record.model || "", originalCost: record.pricingEstimate?.originalCredits || cost },
       });
-    }
-    return sendJson(res, 200, {
-      ok: true,
-      record: publicGenerationRecord(nextRecord, generationRecordResponseOptionsForAuth(auth)),
-      user: userView(auth.user),
+      const refreshedUser = await getUserByIdInDb(auth.user.id) || auth.user;
+      const unlockedAt = new Date().toISOString();
+      const nextRecord = await upsertGenerationRecord({
+        ...record,
+        taskId: cleanTaskId,
+        resultLocked: false,
+        lockedPreviewUrl: "",
+        lockedPreviewPath: "",
+        unlockedAt,
+        imageResultUrl: published.publicUrl,
+        imageResultUrls: [published.publicUrl],
+        cdnImageUrl: published.publicUrl,
+        cdnImageUrls: [published.publicUrl],
+        cdnImageStorageKeys: [published.key],
+        storageProvider: published.provider || objectStorageProvider(),
+        storageKey: published.key,
+        localImageUrl: "",
+        localImagePath: "",
+        localImageUrls: [],
+        cdnError: "",
+        finalCredits: cost,
+        originalFinalCredits: record.pricingEstimate?.originalCredits || cost,
+        billingStatus: "settled",
+        billingSettledAt: unlockedAt,
+        lastUpdateReason: "undress-tool-image-unlocked",
+      });
+      if (!nextRecord || nextRecord.resultLocked === true || !nextRecord.cdnImageUrl || !nextRecord.storageKey) {
+        const error = new Error("The unlocked result could not be recorded after verification.");
+        error.statusCode = 500;
+        error.retryable = true;
+        throw error;
+      }
+      unlockedRecord = nextRecord;
+      unlockedUser = refreshedUser;
+
+      const lockedPreviewPath = String(record.lockedPreviewPath || localAssetPathFromPublicValue(record.lockedPreviewUrl || "")).trim();
+      if (lockedPreviewPath) await fs.rm(lockedPreviewPath, { force: true }).catch(() => {});
+      if (record.lockedPreviewStorageKey) {
+        await deleteStoredGeneratedObject(record.lockedPreviewStorageKey, record.lockedPreviewStorageProvider || objectStorageProvider()).catch((error) => {
+          console.warn("[undress-locked-preview-delete-failed]", cleanTaskId, error.message || error);
+        });
+      }
+      return { value: null };
     });
   } catch (error) {
-    return sendJson(res, error.statusCode || 500, error.payload || { ok: false, message: error.message || "Unlock failed." });
+    return sendJson(res, error.statusCode || 500, error.payload || { ok: false, message: error.message || "Unlock failed.", retryable: error.retryable === true });
   }
+  if (!unlockedRecord) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  if (unlockedRecord.freeImageClaimId) {
+    await markToolFreeGenerationUnlockedInDb({ id: unlockedRecord.freeImageClaimId, userId: auth.user.id, taskId: cleanTaskId }).catch((error) => {
+      console.warn("[undress-free-claim-unlock-mark-failed]", cleanTaskId, error.message || error);
+    });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    ...(alreadyUnlocked ? { alreadyUnlocked: true } : {}),
+    record: publicGenerationRecord(unlockedRecord, generationRecordResponseOptionsForAuth(auth)),
+    user: userView(unlockedUser || auth.user),
+  });
 }
 
 async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } = {}) {
@@ -1045,6 +1115,10 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
             : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
           cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
           cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
+          storageProvider: media.storageProvider || record.storageProvider || "",
+          storageKey: media.storageKey || record.storageKey || "",
+          posterStorageProvider: media.posterStorageProvider || record.posterStorageProvider || "",
+          posterStorageKey: media.posterStorageKey || record.posterStorageKey || "",
           cdnError: media.cdnError || record.cdnError || "",
           error: media.downloadError || record.error || "",
         });
@@ -1073,6 +1147,10 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
           : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
         cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
         cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
+        storageProvider: media.storageProvider || record.storageProvider || "",
+        storageKey: media.storageKey || record.storageKey || "",
+        posterStorageProvider: media.posterStorageProvider || record.posterStorageProvider || "",
+        posterStorageKey: media.posterStorageKey || record.posterStorageKey || "",
         cdnError: media.cdnError || record.cdnError || "",
         error: media.downloadError || record.error || "",
       };

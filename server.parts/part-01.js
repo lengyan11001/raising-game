@@ -4,6 +4,7 @@ const { AsyncLocalStorage } = require("node:async_hooks");
 const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const net = require("node:net");
+const os = require("node:os");
 const path = require("node:path");
 const tls = require("node:tls");
 const dns = require("node:dns");
@@ -113,6 +114,7 @@ const {
 } = require("./media-inputs");
 const {
   markPublishedFileSafely,
+  cleanupTransientMediaWorkspaces,
 } = require("./local-media-retention");
 const {
   smtpConfig,
@@ -128,6 +130,8 @@ const {
   deleteObject: deleteOssObject,
   signedDownloadUrl: makeOssSignedDownloadUrl,
   signedCdnUrl: makeOssSignedCdnUrl,
+  headObject: headOssObject,
+  downloadObject: downloadOssObject,
 } = require("./oss-storage");
 const {
   DEFAULT_TENANT_ID,
@@ -1296,6 +1300,9 @@ const MEDIA_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const VEGA_10_LITE_IMAGE_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const VEGA_10_LITE_VIDEO_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 const VEGA_10_LITE_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;
+const VEGA_15_LITE_IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
+const VEGA_15_LITE_VIDEO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+const VEGA_15_LITE_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;
 const VEGA_15_PRO_IMAGE_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const VEGA_15_PRO_VIDEO_UPLOAD_MAX_BYTES = 200 * 1024 * 1024;
 const VEGA_15_PRO_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;

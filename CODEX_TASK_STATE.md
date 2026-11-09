@@ -1,3 +1,33 @@
+## 2026-11-09 Vega Pro 1.0 / 1.5 Old release prep (current)
+- Test workspace is excluded from this release: `platform.test-generate.css`, `test/platform-test-mode.test.js`, and `workflow-react/dist/canvas.js.map` remain untracked and must not be committed. Test CSS was removed from platform deploy/sync lists; no active Test navigation route remains.
+- Vega Pro routes: `seedance20-vega` -> Vega 1.0 Pro, `seedance25-vega` -> Vega 1.5 Pro; both use `/api/user-assets` and submit `asset://asset-...` references. Lite routing was not changed: `vega10-lite` / `h3-vega` use `/api/advanced/transient-media` public HTTP(S) URLs and must not create user-asset rows.
+- Reference limits: `seedance20-vega` 9 images / 3 videos / 3 audios / 12 total; `seedance25-vega` 30 / 10 / 10 / 50; `vega10-lite` 9 / 3 / 3 / 12; `h3-vega` 10 / 5 / 5 / 20.
+- Generated media contract is now durable PostgreSQL metadata + object storage only. Video/poster/image work uses disposable OS temp workspaces; local paths are cleared and temporary workspaces are removed. `part-31/38/40` only propagate storage metadata through refresh paths and are part of this release.
+- Verification: Vega/media regression suite 142/142 passed; all changed server/platform JS files pass `node --check`; `git diff --check` passed.
+- Rollback baseline: `platform-release` / `origin/platform-release` = `b0a21ab`. Before deploy, create/push tag `rollback-platform-before-vega-pro-20261109`.
+- Status: ready to commit/push `old-site`, build/push `platform-release`, and deploy Old only with `scripts/deploy_local.sh --site old`. Live must remain untouched.
+
+## 2026-11-09 Local Vega verification guidance (current)
+- Focused local verification confirmed: `node --check test/tencent-vod-vega.test.js`, Vega media suite 69/69, Vega regeneration media suite 19/19, and `git diff --check` all pass.
+- Full local browser generation is not currently runnable on this machine: `.env.local` is absent, `DATABASE_URL` is unset, and neither `psql` nor `docker` is installed.
+- Browser-level verification requires PostgreSQL with seeded required catalogs, object storage with a public base URL, and Tencent VOD/upstream credentials. Startup is `npm start` on `127.0.0.1:4174`; Advanced UI is `http://127.0.0.1:4174/platform.html#advanced`.
+- Expected routing remains: Vega Pro models use `/api/user-assets` then `asset://`; Vega Lite models use `/api/advanced/transient-media` and public HTTP(S) only, with no asset-library rows.
+
+## 2026-11-09 Vega Pro prompt-paste media resolution (current)
+- Root cause: pasted images were stored as `data:image/...` only, bypassing the normal `/api/user-assets` upload and Vega `asset://` resolution. Vega Pro then rejected the submit source with `Vega Pro requires a public HTTP(S) URL or an existing asset:// URI.`
+- Fixed `handleAdvancedPromptPaste()` so Vega providers upload each pasted image via `uploadAdvancedImageReference()`, resolve it via `resolveAdvancedVegaAsset()`, and apply it through `applyAdvancedVegaSelection()`. Non-Vega/Lite paste behavior is unchanged.
+- Vega first/last-frame modes now map paste into the available frame slots; Vega reference mode enforces each model's image limit from `vegaReferenceLimits()`. Added regression coverage for the upload/resolve/apply flow and the non-Vega fallback.
+- Verification: focused paste tests pass 3/3; Vega regression suite passes 84/84; `node --check` and `git diff --check` pass.
+- Not committed, built, or deployed.
+
+## 2026-11-09 Vega media upload location audit (current)
+- Audited every generation-page media entry: main multimodal upload, Seedance first/last frame, Wan first/last frame, Wan reference clip, asset-panel upload, prompt paste, and existing asset-library selection.
+- Vega Pro `seedance20-vega` / `seedance25-vega`: media library via `/api/user-assets`, then Vega resolution to `asset://`; existing library assets resolve directly.
+- Vega Lite `vega10-lite` / `h3-vega`: `/api/advanced/transient-media`, public object-storage URL only, no user-asset/library row; existing library assets reuse a public URL and resolve only when that URL is unavailable.
+- Non-Vega main upload, frame controls, reference clip, asset panel, prompt paste, and library selection retain their original paths. Global asset library, legacy template image, workflow/explore/video-tool flows, and Playflux provider selection do not expose Vega providers.
+- Model reference limits: `seedance20-vega` and `vega10-lite` 9 images / 3 videos / 3 audios / 12 total; `seedance25-vega` 30 / 10 / 10 / 50; `h3-vega` 10 / 5 / 5 / 20.
+- Verification: focused Vega media suite 69/69 and regeneration media suite 19/19 pass; `node --check` and `git diff --check` pass. Broader existing UI/video-tool suites remain red on unrelated stale test stubs/assertions. Not committed, built, or deployed.
+
 ## 2026-11-09 Old production media completeness recovery (current)
 - Scope: Old production `123vips.com` only. No Live deployment, session eviction, token rotation, or automatic asset-library insertion.
 - Fixed failed media ingest jobs so a retry resets exhausted attempts, stale start/completion timestamps, and returns the job to `queued`; `ready`/`processing` jobs remain untouched.
@@ -8,15 +38,14 @@
 - Verification: focused media/result/retention/regeneration tests pass 76/76; syntax and `git diff --check` pass.
 - Pending: commit relevant hunks only, build/push `platform-release` from committed `old-site`, deploy only Old, then verify health, runtime errors, sample media fields, media URLs, ingest jobs, no asset-library insertion, and unchanged Live release.
 
-## 2026-11-09 Regeneration parameter backfill (current)
-- User requirement: when clicking regenerate, restore not only prompt/media but also resolution, size, duration, ratio and other model-specific parameters.
-- Changed: `platform.create.parts/part-04.js` now derives ratio/resolution from record fields or `size`, `image_size`, `width`/`height`, including nested `params.parameters`; it restores duration, audio generation, seed, Qwen options, Wan prompt flags and Vega task/draft/asset-group/return/enhance/moderation/generate/quality/output parameters.
-- Critical ordering: both Vega and normal restore paths call `updateAdvancedModelControls()`, then re-apply the historical snapshot and `syncAdvancedVideoSettingsControls()`, because rebuilding model controls otherwise overwrites restored values.
-- Vega auto duration: `platform.ui.parts/part-03.js` now preserves `-1` for smart Vega duration models and shows an `Auto` duration choice instead of clamping it to the minimum.
-- Image size mapping fix: image providers map typical `1024x1536` to `1K`; larger image sizes map to `2K`, while video sizes continue mapping to `480P/720P/768P/1080P/2K/4K`.
-- Preprocess safety: `preprocessReference` is restored only for Seedance models and only when the restored media mode is not edit/extend.
-- Tests added in `test/vega-regeneration-media.test.js`: image size/ratio/options, video size mapping plus Vega auto duration, and explicit record ratio/resolution precedence.
-- Verification: `test/advanced-workspace-routing.test.js` 1/1, `test/vega-regeneration-media.test.js` 17/17, `node --check` for both changed JS files, and `git diff --check` pass. `test/advanced-custom-ui.test.js` still has pre-existing harness/WIP failures such as missing injected `isVegaProviderId`/`els`; none are in the new backfill tests.
+## 2026-11-09 Regeneration submission snapshot (current, supersedes old visible backfill note)
+- Latest user requirement: regenerate restores only prompt, media, model, and create mode. Every currently visible control stays as-is.
+- Vega hidden model parameters are never shown and are never written back into hidden controls. `.advanced-vega-option` remains permanently `hidden`.
+- Vega submissions include a detached `submissionSnapshot` in the PostgreSQL generation record (`params.submissionSnapshot`). Regeneration carries that snapshot internally to `advancedVegaGenerationOptions()`, scoped to the same Vega provider.
+- The UI-visible Audio control is authoritative and is not overridden by the snapshot. The snapshot only fills hidden Vega task/draft/asset-group/return/enhance/moderation/generate/quality/output options.
+- Do not infer ratio or resolution from `size`, `image_size`, `width/height`; do not backfill visible ratio/resolution/duration. Do not add Auto duration. Lite behavior is unchanged.
+- `submissionSnapshot` is stripped by `buildVegaCreatePayload()` and never reaches the upstream Vega request.
+- Verification: `test/advanced-workspace-routing.test.js`, `test/vega-regeneration-media.test.js`, and `test/tencent-vod-vega.test.js` pass 82/82; targeted `node --check` and `git diff --check` pass.
 - Not deployed or committed. Unrelated workspace WIP remains untouched.
 
 ## 2026-11-09 Result media persistence and permanent retention (current)

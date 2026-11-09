@@ -1027,16 +1027,40 @@ function generationRecordR2Expired(record = {}) {
   return Boolean(String(record.r2PurgedAt || "").trim());
 }
 
+function generationRecordImageStorageKeys(record = {}) {
+  const keys = Array.isArray(record.cdnImageStorageKeys)
+    ? record.cdnImageStorageKeys.map((item) => String(item || "").trim())
+    : [];
+  if (keys.some(Boolean)) return keys;
+  const imageUrl = String(record.cdnImageUrl || "").trim();
+  const imageUrls = Array.isArray(record.cdnImageUrls)
+    ? record.cdnImageUrls.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const fallbackKey = String(record.storageKey || record.imageStorageKey || "").trim();
+  if (!fallbackKey) return [];
+  return (imageUrls.length ? imageUrls : imageUrl ? [imageUrl] : []).map(() => fallbackKey);
+}
+
+function generationRecordImageStorageReady(record = {}) {
+  const imageUrl = String(record.cdnImageUrl || "").trim();
+  const imageUrls = Array.isArray(record.cdnImageUrls)
+    ? record.cdnImageUrls.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const urls = imageUrls.length ? imageUrls : imageUrl ? [imageUrl] : [];
+  if (!urls.length) return false;
+  const keys = generationRecordImageStorageKeys(record);
+  return urls.every((_, index) => Boolean(keys[index]));
+}
+
 function generationRecordR2PublicationPending(record = {}) {
   if (generationRecordR2Expired(record)) return false;
   if (!generationRecordRequiresR2Publication(record)) return false;
   if (!generatedOutputStorageEnabled() || generationRecordIsApiTask(record) || !isSucceededStatus(record.status)) return false;
   if (isChatCompletionGenerationRecord(record)) return false;
-  if (generationRecordIsVideoOutput(record)) return !String(record.cdnVideoUrl || "").trim();
-  if (isImageGenerationRecord(record)) {
-    const cdnImages = Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : [];
-    return !String(record.cdnImageUrl || "").trim() && !cdnImages.some((item) => String(item || "").trim());
+  if (generationRecordIsVideoOutput(record)) {
+    return !String(record.cdnVideoUrl || "").trim() || !String(record.storageKey || "").trim();
   }
+  if (isImageGenerationRecord(record)) return !generationRecordImageStorageReady(record);
   return false;
 }
 
@@ -1103,8 +1127,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
   ].map((item) => String(item || "").trim()).filter(isGenerationImageOutputUrl))];
+  const storedImageKeys = generationRecordImageStorageKeys(record);
   const deliveryImageUrls = storedImageUrls
-    .map((url) => deliverableStoredMediaUrl(url))
+    .map((url, index) => deliverableStoredMediaUrl(url, { key: storedImageKeys[index] || "" }))
     .filter(Boolean);
   const publicImageUrls = (providerOnlyOutputs || providerOnlyImageUrl) && providerImageUrls.length
     ? providerImageUrls
@@ -1177,7 +1202,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     usage: listGenerationRecordValue(record.usage || null),
     error: publicModelText(recordError),
     cdnError: publicModelText(record.cdnError || ""),
-    r2DownloadReady: Boolean(String(record.cdnVideoUrl || record.cdnImageUrl || (Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.find((item) => String(item || "").trim()) : "") || "").trim()),
+    r2DownloadReady: generationRecordIsVideoOutput(record)
+      ? Boolean(String(record.cdnVideoUrl || "").trim() && String(record.storageKey || "").trim())
+      : generationRecordImageStorageReady(record),
     advancedDownloadAvailable: Boolean(
       isSucceededStatus(record.status)
       && record.resultLocked !== true
@@ -1218,15 +1245,18 @@ function publicGenerationRecord(record = {}, options = {}) {
     }
   }
   if (includeStoredVideoUrls) {
-    publicRecord.localVideoUrl = providerOnlyOutputs ? "" : String(record.localVideoUrl || "");
+    publicRecord.localVideoUrl = "";
+    publicRecord.localVideoPath = "";
+    publicRecord.localPosterUrl = "";
+    publicRecord.localPosterPath = "";
     publicRecord.cdnVideoUrl = providerOnlyOutputs ? "" : deliveryVideoUrl;
-    publicRecord.localPosterUrl = providerOnlyOutputs ? "" : String(record.localPosterUrl || "");
     publicRecord.cdnPosterUrl = providerOnlyOutputs ? "" : preferredPosterUrl;
   }
   if (includeStoredImageUrls) {
-    publicRecord.localImageUrl = providerOnlyOutputs ? "" : String(record.localImageUrl || "");
+    publicRecord.localImageUrl = "";
+    publicRecord.localImagePath = "";
+    publicRecord.localImageUrls = [];
     publicRecord.cdnImageUrl = providerOnlyOutputs ? "" : deliveryImageUrl;
-    publicRecord.localImageUrls = providerOnlyOutputs ? [] : (Array.isArray(record.localImageUrls) ? record.localImageUrls.map(String) : []);
     publicRecord.cdnImageUrls = providerOnlyOutputs ? [] : deliveryImageUrls;
   }
   if (options.includeUpstreamPayload === true && (record.resultLocked !== true || options.includeLockedMedia === true)) {

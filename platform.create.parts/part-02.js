@@ -190,6 +190,61 @@ async function uploadAdvancedMediaReference(file, kind = "video", options = {}) 
   }
 }
 
+async function uploadAdvancedTransientMediaReference(file, kind = "image", { provider = currentAdvancedProvider(), durationSeconds = 0 } = {}) {
+  if (!state.user) {
+    openLogin();
+    return null;
+  }
+  if (!file) return null;
+  const normalizedKind = String(kind || "").toLowerCase();
+  const mime = uploadedFileMime(file);
+  const expectedPrefix = normalizedKind === "audio" ? "audio/" : normalizedKind === "video" ? "video/" : "image/";
+  if (!mime.startsWith(expectedPrefix)) {
+    if (els.advancedNote) {
+      els.advancedNote.textContent = normalizedKind === "audio"
+        ? t("advanced.seedanceAudioRequired", {}, "Reference audio is required.")
+        : normalizedKind === "video"
+          ? t("advanced.seedanceVideoRequired")
+          : t("advanced.seedanceFirstRequired");
+    }
+    return null;
+  }
+  if (file.size > advancedMediaUploadMaxBytes(normalizedKind, provider)) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLarge");
+    return null;
+  }
+  const payload = await requestJson("/api/advanced/transient-media", {
+    method: "POST",
+    body: {
+      dataUrl: await readFileAsDataUrl(file),
+      name: file.name || (normalizedKind === "audio" ? "Audio reference" : normalizedKind === "video" ? "Video reference" : "Image reference"),
+      fileName: file.name || "",
+      mime,
+      kind: normalizedKind,
+      provider,
+      durationSeconds: durationSeconds || await readMediaDuration(file),
+    },
+  });
+  const media = payload.media || null;
+  const publicUrl = vegaPublicHttpUrl(media?.publicUrl || media?.url || "");
+  if (!media || !publicUrl) {
+    throw new Error(t("assets.uploadFailed", { message: "Object storage public URL unavailable" }));
+  }
+  return {
+    id: "",
+    assetId: "",
+    kind: normalizedKind,
+    mime: media.mime || mime,
+    name: media.name || file.name || "",
+    fileName: media.fileName || file.name || "",
+    publicUrl,
+    cdnUrl: publicUrl,
+    url: publicUrl,
+    previewUrl: publicUrl,
+    durationSeconds: Number(media.durationSeconds || durationSeconds || 0) || 0,
+  };
+}
+
 async function uploadAdvancedWanAudioReference(file) {
   if (!state.user) {
     openLogin();
@@ -367,7 +422,13 @@ async function addAssetToAdvancedTarget(assetId = "") {
   }
   const provider = currentAdvancedProvider();
   if (isVegaAdvancedProvider(provider)) {
-    const selection = await resolveAdvancedVegaAsset(asset, target.id);
+    const usesMediaLibrary = vegaProviderUsesMediaLibrary(provider);
+    let selection = usesMediaLibrary
+      ? await resolveAdvancedVegaAsset(asset, target.id)
+      : advancedVegaSelection(asset, target.id);
+    if (!usesMediaLibrary && !selection.ok && selection.code === "PUBLIC_URL_REQUIRED") {
+      selection = await resolveAdvancedVegaAsset(asset, target.id);
+    }
     if (!selection.ok) {
       if (els.advancedAssetNote) els.advancedAssetNote.textContent = selection.message || t("advanced.assetWrongType", {
         target: target.label,
@@ -1445,7 +1506,8 @@ function fillAdvancedCase(item = {}) {
   }
 }
 
-function clearAdvancedCreationInputs() {
+function clearAdvancedCreationInputs({ preserveRegenerationSnapshot = false } = {}) {
+  if (!preserveRegenerationSnapshot) state.advancedRegenerationSnapshot = null;
   state.activeAdvancedCaseId = "";
   state.advancedUploadDataUrl = "";
   state.advancedSourceImageAssetId = "";

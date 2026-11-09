@@ -7,6 +7,13 @@ function advancedMediaUploadMaxBytes(kind = "", provider = currentAdvancedProvid
         ? ADVANCED_VEGA15_PRO_VIDEO_MAX_BYTES
         : ADVANCED_VEGA15_PRO_AUDIO_MAX_BYTES;
   }
+  if (normalized === "h3-vega") {
+    return kind === "image"
+      ? ADVANCED_VEGA15_LITE_IMAGE_MAX_BYTES
+      : kind === "video"
+        ? ADVANCED_VEGA15_LITE_VIDEO_MAX_BYTES
+        : ADVANCED_VEGA15_LITE_AUDIO_MAX_BYTES;
+  }
   if (isVegaProviderId(normalized) && ["seedance20-vega", "vega10-lite"].includes(normalized)) {
     return kind === "image"
       ? ADVANCED_VEGA10_LITE_IMAGE_MAX_BYTES
@@ -20,6 +27,11 @@ function advancedMediaUploadMaxBytes(kind = "", provider = currentAdvancedProvid
 
 function vegaProviderUsesMediaLibrary(provider = currentAdvancedProvider()) {
   return ["seedance20-vega", "seedance25-vega"].includes(normalizeAdvancedProvider(provider));
+}
+
+function vegaProviderUsesTransientObjectStorage(provider = currentAdvancedProvider()) {
+  const normalized = normalizeAdvancedProvider(provider);
+  return ["vega10-lite", "h3-vega"].includes(normalized);
 }
 
 function vegaMediaSource(item = {}, provider = currentAdvancedProvider()) {
@@ -80,16 +92,23 @@ async function handleAdvancedVegaLocalFiles(files = [], { preserveTarget = false
         if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("advanced.referenceImageTooLarge");
         continue;
       }
+      const usesMediaLibrary = vegaProviderUsesMediaLibrary(provider);
       let asset = null;
-      if (kind === "image") {
-        const ref = await uploadAdvancedImageReference(file, { provider });
-        asset = ref?.assetId ? (state.advancedAssets || []).find((item) => item.id === ref.assetId) || null : null;
-        if (!asset) asset = { id: ref?.assetId || "", kind: "image", publicUrl: ref?.publicUrl || ref?.dataUrl || ref?.url || ref?.previewUrl || "" };
+      if (usesMediaLibrary) {
+        if (kind === "image") {
+          const ref = await uploadAdvancedImageReference(file, { provider });
+          asset = ref?.assetId ? (state.advancedAssets || []).find((item) => item.id === ref.assetId) || null : null;
+          if (!asset) asset = { id: ref?.assetId || "", kind: "image", publicUrl: ref?.publicUrl || ref?.dataUrl || ref?.url || ref?.previewUrl || "" };
+        } else {
+          asset = await uploadAdvancedMediaReference(file, kind, { provider, skipReference: true });
+        }
       } else {
-        asset = await uploadAdvancedMediaReference(file, kind, { provider, skipReference: true });
+        asset = await uploadAdvancedTransientMediaReference(file, kind, { provider });
       }
       if (!asset) continue;
-      const selection = await resolveAdvancedVegaAsset(asset, targetId);
+      const selection = usesMediaLibrary
+        ? await resolveAdvancedVegaAsset(asset, targetId)
+        : advancedVegaSelection(asset, targetId);
       if (!selection.ok) {
         rejected = true;
         if (els.advancedAssetNote) els.advancedAssetNote.textContent = selection.message || "This media cannot be used for the selected Vega input.";
@@ -914,6 +933,73 @@ async function refreshedRegenerationRecord(record = {}) {
   }
 }
 
+function advancedRegenerationParameterSnapshot(record = {}, params = {}, provider = "") {
+  const normalizedProvider = normalizeAdvancedProvider(provider || params.provider || record.provider || "seedance");
+  const nestedParams = params.parameters && typeof params.parameters === "object" && !Array.isArray(params.parameters)
+    ? params.parameters
+    : {};
+  const value = (...items) => firstPresent(...items);
+  const submitted = params.submissionSnapshot && typeof params.submissionSnapshot === "object" && !Array.isArray(params.submissionSnapshot)
+    ? params.submissionSnapshot
+    : {};
+  return {
+    provider: normalizedProvider,
+    ratio: String(value(submitted.ratio, record.ratio, params.ratio, params.aspect_ratio, params.aspectRatio) || "").trim(),
+    resolution: String(value(submitted.resolution, record.resolution, params.resolution, params.resolution_name, params.resolutionName) || "").trim(),
+    duration: value(submitted.duration, record.duration, params.duration, params.durationSeconds, params.duration_seconds),
+    seed: value(submitted.seed, record.seed, params.seed, nestedParams.seed),
+    preprocessReference: value(submitted.preprocessReference, params.preprocessReference, params.preprocess_reference, record.preprocessReference),
+    generateAudio: value(submitted.generateAudio, submitted.generate_audio, params.generateAudio, params.generate_audio, nestedParams.generateAudio, nestedParams.generate_audio, record.generateAudio, record.generate_audio),
+    taskType: value(submitted.taskType, submitted.task_type, params.taskType, params.task_type, params.omniReferenceTaskType),
+    draft: value(submitted.draft, params.draft, record.draft),
+    draftTaskId: normalizeAdvancedVegaDraftTaskId(value(submitted.draftTaskId, submitted.draft_task_id, params.draftTaskId, params.draft_task_id, record.draftTaskId)),
+    assetGroupId: value(submitted.assetGroupId, submitted.asset_group_id, params.assetGroupId, params.asset_group_id),
+    returnLastFrame: value(submitted.returnLastFrame, submitted.return_last_frame, params.returnLastFrame, params.return_last_frame),
+    returnVegaUsage: value(submitted.returnVegaUsage, submitted.return_vega_usage, params.returnVegaUsage, params.return_vega_usage),
+    enhancePromptMode: value(submitted.enhancePromptMode, submitted.enhance_prompt_mode, params.enhancePromptMode, params.enhance_prompt_mode),
+    moderationMode: value(submitted.moderationMode, submitted.moderation_mode, params.moderationMode, params.moderation_mode),
+    generateMode: value(submitted.generateMode, submitted.generate_mode, params.generateMode, params.generate_mode),
+    videoQualityMode: value(submitted.videoQualityMode, submitted.video_quality_mode, params.videoQualityMode, params.video_quality_mode),
+    outputFormat: value(submitted.outputFormat, submitted.output_format, params.outputFormat, params.output_format),
+  };
+}
+
+function advancedRegenerationSnapshotProvider(snapshot = {}) {
+  return normalizeAdvancedProvider(snapshot.provider || "");
+}
+
+function advancedRegenerationSnapshotFor(provider = "") {
+  const snapshot = state.advancedRegenerationSnapshot;
+  if (!snapshot || advancedRegenerationSnapshotProvider(snapshot) !== normalizeAdvancedProvider(provider)) return null;
+  return snapshot;
+}
+
+function advancedVegaGenerationOptions(provider = currentAdvancedProvider()) {
+  const options = advancedVegaPayloadOptions(provider);
+  const snapshot = advancedRegenerationSnapshotFor(provider);
+  if (!snapshot) return options;
+  const hasSnapshotValue = (key) => snapshot[key] !== undefined && snapshot[key] !== null && snapshot[key] !== "";
+  const caps = vegaCapabilities(provider);
+  const allowedTaskTypes = caps?.taskTypes || ["auto", "reference"];
+  const taskType = hasSnapshotValue("taskType") && allowedTaskTypes.includes(snapshot.taskType)
+    ? snapshot.taskType
+    : options.taskType;
+  return {
+    ...options,
+    taskType,
+    ...(hasSnapshotValue("draft") ? { draft: advancedBoolFromValue(snapshot.draft, options.draft) } : {}),
+    ...(hasSnapshotValue("draftTaskId") ? { draftTaskId: options.draftTaskId || snapshot.draftTaskId } : {}),
+    ...(hasSnapshotValue("assetGroupId") ? { assetGroupId: snapshot.assetGroupId } : {}),
+    ...(hasSnapshotValue("returnLastFrame") && caps?.returnLastFrame !== false ? { returnLastFrame: advancedBoolFromValue(snapshot.returnLastFrame, options.returnLastFrame) } : {}),
+    ...(hasSnapshotValue("returnVegaUsage") ? { returnVegaUsage: advancedBoolFromValue(snapshot.returnVegaUsage, options.returnVegaUsage) } : {}),
+    ...(hasSnapshotValue("enhancePromptMode") ? { enhancePromptMode: snapshot.enhancePromptMode } : {}),
+    ...(hasSnapshotValue("moderationMode") && caps?.moderation !== false ? { moderationMode: snapshot.moderationMode } : {}),
+    ...(hasSnapshotValue("generateMode") && caps?.generateMode !== false ? { generateMode: snapshot.generateMode } : {}),
+    ...(hasSnapshotValue("videoQualityMode") && caps?.qualityMode !== false ? { videoQualityMode: snapshot.videoQualityMode } : {}),
+    ...(hasSnapshotValue("outputFormat") ? { outputFormat: snapshot.outputFormat } : {}),
+  };
+}
+
 async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   if (!record?.taskId && !record?.prompt && !record?.params) return;
   record = await hydrateRecordMediaUserAssetPreviews(record);
@@ -922,9 +1008,7 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   const { references, videos, audios } = restoreRecordMedia(record);
   const seedanceMode = restoreSeedanceMode(record, references, videos, audios);
   const wanMode = restoreWanMode(record, videos, audios);
-  const ratio = normalizeVideoRatio(record.ratio || params.ratio || params.aspect_ratio || "9:16");
-  const resolution = normalizeAdvancedResolution(record.resolution || params.resolution || (isAdvancedImageProvider(provider) ? "2K" : "720p"), provider);
-  const duration = record.duration || params.duration || params.durationSeconds || (provider === "wan27" ? 2 : 5);
+  const regenerationSnapshot = advancedRegenerationParameterSnapshot(record, params, provider);
   const restoredPresetFlow = hydrateAdvancedPresetsFromParams(params);
   const restoredKind = ADVANCED_CREATE_KINDS.some((item) => item.id === params.createKind) ? params.createKind : "";
   const restoredMode = restoredKind && advancedCreateModesForKind(restoredKind).some((item) => item.id === params.createMode) ? params.createMode : "";
@@ -932,7 +1016,8 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   state.advancedCreateKind = restoredPresetFlow && restoredKind ? restoredKind : "custom";
   state.advancedCreateMode = state.advancedCreateKind === "custom" ? ADVANCED_CUSTOM_MODE.id : (restoredMode || advancedCreateModesForKind(state.advancedCreateKind)[0]?.id || ADVANCED_CUSTOM_MODE.id);
   renderAdvancedCreateControls();
-  clearAdvancedCreationInputs();
+  clearAdvancedCreationInputs({ preserveRegenerationSnapshot: true });
+  state.advancedRegenerationSnapshot = regenerationSnapshot;
   if (restoredPresetFlow) hydrateAdvancedPresetsFromParams(params);
   state.activeAdvancedCaseId = "";
   const restoredCapability = String(params.videoCapability || record.mediaMode || "").trim();
@@ -951,9 +1036,6 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
     window.setAdvancedPromptValue?.(restoredPresetFlow ? promptWithoutPresetParts(rawPrompt, params) : rawPrompt, { emitInput: false });
     autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
-  if (els.advancedRatio) els.advancedRatio.value = ratio;
-  if (els.advancedResolution) els.advancedResolution.value = resolution;
-  if (els.advancedDuration) els.advancedDuration.value = duration;
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || params.parameters?.seed || "";
   if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(restoredCapability)
     && advancedBoolFromValue(params.prompt_extend ?? params.promptExtend ?? params.parameters?.prompt_extend ?? params.parameters?.promptExtend, false);
@@ -980,8 +1062,10 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   }
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = seedanceMode;
   if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = wanMode;
-  state.advancedSeedanceGenerateAudio = advancedBoolFromValue(params.generateAudio ?? params.generate_audio ?? record.generateAudio ?? record.generate_audio, true);
-  if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = state.advancedSeedanceGenerateAudio ? "true" : "false";
+  if (!isVegaAdvancedProvider(provider)) {
+    state.advancedSeedanceGenerateAudio = advancedBoolFromValue(params.generateAudio ?? params.generate_audio ?? record.generateAudio ?? record.generate_audio, true);
+    if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = state.advancedSeedanceGenerateAudio ? "true" : "false";
+  }
   if (isVegaAdvancedProvider(provider)) {
     const media = restoreVegaRecordMedia(record, params);
     const explicitMediaMode = firstPresent(
@@ -1003,31 +1087,7 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
     const restoredDraftTaskId = normalizeAdvancedVegaDraftTaskId(firstPresent(params.draftTaskId, params.draft_task_id, record.draftTaskId, "") || "");
     const restoredDraftFollowup = Boolean(vegaCapabilities(provider)?.draft) && normalizeVegaUiMediaMode(explicitMediaMode) === "draft_followup" && Boolean(restoredDraftTaskId);
     const vegaMediaMode = normalizeVegaUiMediaMode(restoredDraftFollowup ? "draft_followup" : explicitMediaMode || inferredMediaMode);
-    const rawVegaRatio = String(record.ratio || params.ratio || params.aspect_ratio || "16:9").trim();
-    const vegaRatio = VEGA_ALL_RATIOS.includes(rawVegaRatio) ? rawVegaRatio : "16:9";
-    const vegaDurationBounds = advancedDurationBounds(provider);
-    const rawVegaDuration = Number(record.duration ?? params.duration ?? params.durationSeconds ?? vegaDurationBounds.fallback);
-    const vegaDuration = rawVegaDuration === -1 && vegaDurationBounds.smart
-      ? "-1"
-      : String(Number.isFinite(rawVegaDuration)
-        ? Math.min(vegaDurationBounds.max, Math.max(vegaDurationBounds.min, rawVegaDuration))
-        : vegaDurationBounds.fallback);
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = vegaMediaMode;
-    if (els.advancedRatio) els.advancedRatio.value = vegaRatio;
-    if (els.advancedResolution) els.advancedResolution.value = normalizeAdvancedResolution(record.resolution || params.resolution, provider);
-    if (els.advancedDuration) els.advancedDuration.value = vegaDuration;
-    if (els.advancedWanSeed) els.advancedWanSeed.value = record.seed ?? params.seed ?? params.parameters?.seed ?? "";
-    if (els.advancedVegaTaskType) els.advancedVegaTaskType.value = firstPresent(params.taskType, params.omniReferenceTaskType, "auto") || "auto";
-    if (els.advancedVegaDraft) els.advancedVegaDraft.checked = advancedBoolFromValue(params.draft ?? record.draft, false);
-    if (els.advancedVegaDraftTaskId) els.advancedVegaDraftTaskId.value = restoredDraftFollowup ? restoredDraftTaskId : "";
-    if (els.advancedVegaAssetGroupId) els.advancedVegaAssetGroupId.value = firstPresent(params.assetGroupId, params.asset_group_id, "") || "";
-    if (els.advancedVegaReturnLastFrame) els.advancedVegaReturnLastFrame.checked = advancedBoolFromValue(firstPresent(params.returnLastFrame, params.return_last_frame), false);
-    if (els.advancedVegaReturnUsage) els.advancedVegaReturnUsage.checked = advancedBoolFromValue(firstPresent(params.returnVegaUsage, params.return_vega_usage), false);
-    if (els.advancedVegaEnhancePromptMode) els.advancedVegaEnhancePromptMode.value = String(firstPresent(params.enhancePromptMode, params.enhance_prompt_mode, "auto") || "auto");
-    if (els.advancedVegaModerationMode) els.advancedVegaModerationMode.value = String(firstPresent(params.moderationMode, params.moderation_mode, "Moderation_L1") || "Moderation_L1");
-    if (els.advancedVegaGenerateMode) els.advancedVegaGenerateMode.value = String(firstPresent(params.generateMode, params.generate_mode, "Standard") || "Standard");
-    if (els.advancedVegaQualityMode) els.advancedVegaQualityMode.value = String(firstPresent(params.videoQualityMode, params.video_quality_mode, "Standard") || "Standard");
-    if (els.advancedVegaOutputFormat) els.advancedVegaOutputFormat.value = String(firstPresent(params.outputFormat, params.output_format, "mp4") || "mp4");
     state.advancedFirstFrameAssetId = "";
     state.advancedSeedanceFirstFrameAssetId = "";
     state.advancedSeedanceFirstFrameDataUrl = "";
@@ -1091,6 +1151,7 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
     renderAdvancedPresetBuilder();
     renderAdvancedReferencePreviews();
     updateAdvancedModelControls();
+    syncAdvancedVideoSettingsControls();
     updateAdvancedButtonCost();
     setAdvancedSideTab("assets");
     if (els.advancedNote) els.advancedNote.textContent = t("history.regenerateSubmitted");
@@ -1164,6 +1225,7 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   renderAdvancedPresetBuilder();
   renderAdvancedReferencePreviews();
   updateAdvancedModelControls();
+  syncAdvancedVideoSettingsControls();
   updateAdvancedButtonCost();
   setAdvancedSideTab("assets");
   if (els.advancedNote) els.advancedNote.textContent = t("history.regenerateSubmitted");

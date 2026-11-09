@@ -27,6 +27,29 @@ function sourceBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
+function extractFunction(source, name) {
+  const marker = `function ${name}(`;
+  const declaration = source.indexOf(marker);
+  assert.notEqual(declaration, -1, `missing function ${name}`);
+  const start = source.slice(Math.max(0, declaration - 6), declaration) === "async " ? declaration - 6 : declaration;
+  let parenDepth = 0;
+  let bodyStart = -1;
+  for (let index = source.indexOf("(", start); index < source.length; index += 1) {
+    if (source[index] === "(") parenDepth += 1;
+    else if (source[index] === ")" && --parenDepth === 0) {
+      bodyStart = source.indexOf("{", index);
+      break;
+    }
+  }
+  assert.notEqual(bodyStart, -1, `missing body for ${name}`);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    else if (source[index] === "}" && --depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`unterminated ${name}`);
+}
+
 function assertCode(fn, code) {
   assert.throws(fn, (error) => error && error.code === code);
 }
@@ -127,7 +150,7 @@ test("Vega Pro pricing labels use the same public display aliases without changi
 test("Vega Pro result, history, preview, and completion labels use the shared display alias", () => {
   assert.match(ui, /function generationCompletionLabel\(record = \{\}\) \{\s*return publicGenerationDisplayTitle\(record, "生成记录"\);/);
   assert.match(create, /publicGenerationDisplayTitle\(record, "Generation"\)/);
-  assert.match(create, /playPreview\(\{ title: publicModelText\(publicGenerationDisplayTitle\(record, t\("common\.preview"\)\)\)/);
+  assert.match(create, /playPreview\(\{\s*title: publicModelText\(publicGenerationDisplayTitle\(record, t\("common\.preview"\)\)\)/);
   assert.match(create, /previewImage\(\{ title: publicModelText\(publicGenerationDisplayTitle\(record, t\("common\.preview"\)\)\)/);
   assert.match(create, /title: record \? publicGenerationDisplayTitle\(record, t\("common\.preview"\)\) : t\("common\.preview"\)/);
   const explore = read("platform.explore.js");
@@ -1064,7 +1087,7 @@ test("Vega regeneration restores and persists user asset ids end to end", () => 
   assert.match(restoreMedia, /referenceImageAssetIds/);
   assert.match(restoreMedia, /referenceVideoAssetIds/);
   assert.match(restoreMedia, /referenceAudioAssetIds/);
-  const submit = sourceBetween(create, "const vegaPayload = {", "const vegaPendingTaskId =");
+  const submit = sourceBetween(create, "const vegaPayloadBase = {", "const vegaPendingTaskId =");
   assert.match(submit, /firstFrameAssetId: state\.advancedSeedanceFirstFrameAssetId/);
   assert.match(submit, /lastFrameAssetId: state\.advancedSeedanceLastFrameAssetId/);
   assert.match(submit, /referenceImageAssetIds: vegaReferenceImageItems\.map/);
@@ -1132,7 +1155,7 @@ test("Vega models expose only the first two control rows and keep hidden default
 });
 
 test("Vega submit payload includes every required field", () => {
-  const branch = sourceBetween(create, "const vegaPayload = {", "const vegaPendingTaskId =");
+  const branch = sourceBetween(create, "const vegaPayloadBase = {", "const vegaPendingTaskId =");
   for (const field of ["provider", "duration", "resolution", "ratio", "seed", "mediaMode", "firstFrameUrl", "lastFrameUrl", "referenceImages", "referenceVideos", "referenceAudios"]) {
     assert.match(branch, new RegExp(`\\b${field}\\b(?=\\s*[:,])`));
   }
@@ -1146,7 +1169,102 @@ test("Vega submit payload includes every required field", () => {
   assert.match(options, /caps\?\.qualityMode === false \? \{} : \{ videoQualityMode:/);
   assert.match(options, /caps\?\.moderation === false \? \{\} : \{ moderationMode:/);
   assert.match(branch, /duration: vegaDraftFollowup \|\| \["edit", "extend"\]\.includes\(vegaTaskType\) \? -1 : vegaDuration/);
+  assert.match(branch, /const vegaPayload = \{ \.\.\.vegaPayloadBase, submissionSnapshot: \{ \.\.\.vegaPayloadBase \} \};/);
   assert.match(create, /requestJson\("\/api\/advanced\/generate", \{ method: "POST", body: vegaPayload \}\)/);
+});
+
+test("Vega prompt-pasted images upload and resolve before entering generation state", () => {
+  const paste = sourceBetween(create, "async function addAdvancedVegaPromptPasteImages(", "async function handleAdvancedPromptPaste(");
+  assert.match(paste, /const usesMediaLibrary = vegaProviderUsesMediaLibrary\(provider\)/);
+  assert.match(paste, /const ref = usesMediaLibrary\s*\? await uploadAdvancedImageReference\(file, \{ provider \}\)\s*: await uploadAdvancedTransientMediaReference\(file, "image", \{ provider \}\)/);
+  assert.match(paste, /const selection = usesMediaLibrary\s*\? await resolveAdvancedVegaAsset\(asset, target\.id\)\s*: advancedVegaSelection\(asset, target\.id\)/);
+  assert.match(paste, /applyAdvancedVegaSelection\(selection, target\)/);
+  assert.match(paste, /resolved\.push\(\{ selection, target \}\)/);
+  assert.match(paste, /if \(!selection\.ok\)[\s\S]*?throw new Error/);
+  assert.doesNotMatch(paste, /readFileAsDataUrl/);
+  assert.doesNotMatch(paste, /advancedSeedanceFirstFrameDataUrl = (?:image|ref)\.dataUrl/);
+  assert.match(paste, /rule\.target === "frames"/);
+  assert.match(paste, /id: "referenceImages"/);
+});
+
+test("Vega prompt paste branches before legacy data-URL paste handling", () => {
+  const handler = sourceBetween(create, "async function handleAdvancedPromptPaste(", "function readVideoDuration(");
+  const vegaBranch = handler.slice(handler.indexOf("if (isVegaAdvancedProvider(provider))"), handler.indexOf("} else {"));
+  assert.match(handler, /if \(isVegaAdvancedProvider\(provider\)\) \{\s*const added = await addAdvancedVegaPromptPasteImages\(selectedFiles, rule, provider\)/);
+  assert.match(handler, /\} else \{[\s\S]*?const addedImages = \[\][\s\S]*?dataUrl: await readFileAsDataUrl\(file\)/);
+  assert.doesNotMatch(vegaBranch, /readFileAsDataUrl/);
+});
+
+test("Vega Pro and Lite choose the correct upload source at every generation-page entry", () => {
+  const upload = sourceBetween(create, "async function handleAdvancedVegaLocalFiles(", "function dataUrlValue(");
+  assert.match(upload, /const usesMediaLibrary = vegaProviderUsesMediaLibrary\(provider\)/);
+  assert.match(upload, /const ref = await uploadAdvancedImageReference\(file, \{ provider \}\)/);
+  assert.match(upload, /await uploadAdvancedMediaReference\(file, kind, \{ provider, skipReference: true \}\)/);
+  assert.match(upload, /asset = await uploadAdvancedTransientMediaReference\(file, kind, \{ provider \}\)/);
+  assert.match(upload, /const selection = usesMediaLibrary\s*\? await resolveAdvancedVegaAsset\(asset, targetId\)\s*: advancedVegaSelection\(asset, targetId\)/);
+  assert.doesNotMatch(upload, /uploadUserAssets|uploadAdvancedAssets/);
+
+  const paste = sourceBetween(create, "async function addAdvancedVegaPromptPasteImages(", "async function handleAdvancedPromptPaste(");
+  assert.match(paste, /usesMediaLibrary\s*\? await uploadAdvancedImageReference\(file, \{ provider \}\)\s*: await uploadAdvancedTransientMediaReference\(file, "image", \{ provider \}\)/);
+  assert.match(paste, /usesMediaLibrary\s*\? await resolveAdvancedVegaAsset\(asset, target\.id\)\s*: advancedVegaSelection\(asset, target\.id\)/);
+
+  const add = sourceBetween(create, "async function addAssetToAdvancedTarget(", "if (!assetMatchesTarget(asset, target))");
+  assert.match(add, /const usesMediaLibrary = vegaProviderUsesMediaLibrary\(provider\)/);
+  assert.match(add, /let selection = usesMediaLibrary\s*\? await resolveAdvancedVegaAsset\(asset, target\.id\)\s*: advancedVegaSelection\(asset, target\.id\)/);
+  assert.match(add, /!usesMediaLibrary && !selection\.ok && selection\.code === "PUBLIC_URL_REQUIRED"[\s\S]*selection = await resolveAdvancedVegaAsset\(asset, target\.id\)/);
+  assert.doesNotMatch(add, /uploadAdvancedTransientMediaReference/);
+});
+
+test("Non-Vega generation-page uploads retain their original handlers", () => {
+  const mainUpload = sourceBetween(main, "els.advancedImage?.addEventListener(\"change\", async () => {", "els.advancedSeedanceFirstFrame?.addEventListener");
+  assert.match(mainUpload, /if \(isVegaAdvancedProvider\(provider\)\) \{[\s\S]*await handleAdvancedVegaLocalFiles\(files\);[\s\S]*return;/);
+  assert.match(mainUpload, /await uploadAdvancedImageReference\(file, \{ provider \}\)/);
+  assert.match(mainUpload, /await uploadAdvancedMediaReference\(file, "video"\)/);
+  assert.match(mainUpload, /await uploadAdvancedMediaReference\(file, "audio"\)/);
+
+  const paste = sourceBetween(create, "async function handleAdvancedPromptPaste(", "function readVideoDuration(");
+  assert.match(paste, /if \(isVegaAdvancedProvider\(provider\)\) \{[\s\S]*addAdvancedVegaPromptPasteImages\(selectedFiles, rule, provider\)[\s\S]*\} else \{[\s\S]*dataUrl: await readFileAsDataUrl\(file\)/);
+
+  const add = sourceBetween(create, "async function addAssetToAdvancedTarget(", "if (!assetMatchesTarget(asset, target))");
+  assert.match(add, /if \(isVegaAdvancedProvider\(provider\)\) \{[\s\S]*const usesMediaLibrary = vegaProviderUsesMediaLibrary\(provider\)[\s\S]*usesMediaLibrary[\s\S]*resolveAdvancedVegaAsset\(asset, target\.id\)[\s\S]*advancedVegaSelection\(asset, target\.id\)[\s\S]*applyAdvancedVegaSelection\(selection, target\)[\s\S]*return;/);
+
+  const panel = sourceBetween(main, "els.advancedAssetUploadInput?.addEventListener(\"change\", async () => {", "els.topupFilters?.addEventListener");
+  assert.match(panel, /if \(isVegaAdvancedProvider\(\)\) \{[\s\S]*handleAdvancedVegaLocalFiles\(files\)[\s\S]*return;[\s\S]*uploadAdvancedAssets\(files\)/);
+});
+
+test("Vega frame, clip, and panel handlers all use the model-aware local-file bridge", () => {
+  for (const marker of ["advancedSeedanceFirstFrame", "advancedSeedanceLastFrame", "advancedWanFirstFrame", "advancedWanLastFrame", "advancedWanClipFile"]) {
+    const opening = `els.${marker}?.addEventListener("change", async () => {`;
+    const start = main.indexOf(opening);
+    assert.ok(start > 0, `missing ${marker} handler`);
+    const listeners = [...main.matchAll(/els\.[A-Za-z0-9_]+?\?\.addEventListener\("change"/g)];
+    const next = listeners.find((match) => match.index > start)?.index ?? main.length;
+    const handler = main.slice(start, next);
+    assert.match(handler, /if \(isVegaAdvancedProvider\(\)\) \{[\s\S]*state\.advancedAssetTarget = "(?:primary|lastFrame|video)"[\s\S]*handleAdvancedVegaLocalFiles\(\[file\], \{ preserveTarget: true \}\)/);
+  }
+});
+
+test("Playflux templates cannot select Vega providers", () => {
+  const explore = read("platform.explore.js");
+  const providerFn = extractFunction(explore, "playfluxTemplateVideoProvider");
+  const load = new Function("state", "isTenantTool", "tenantStringFeature", `${providerFn}\nreturn playfluxTemplateVideoProvider;`);
+  assert.equal(load({ galleryMode: "" }, () => false, (_key, fallback) => fallback)(), "wan27");
+  for (const provider of ["wan30", "wan27", "happyhorse", "seedance"]) {
+    const selected = load({ galleryMode: "" }, () => false, () => provider)();
+    assert.equal(selected, provider);
+    assert.equal(vega.isVegaProvider(selected), false);
+  }
+});
+
+test("Vega transient upload endpoint rejects Pro and never creates an asset-library row", () => {
+  const handler = sourceBetween(server, "async function handleUploadAdvancedTransientMedia(", "async function handleUploadVideoToolAsset(");
+  assert.match(handler, /if \(!isVegaProvider\(provider\) \|\| vegaProviderUsesMediaLibrary\(provider\)\)/);
+  assert.match(handler, /only available for Vega Lite models/);
+  assert.match(handler, /uploadStaticAssetToObjectStorage\(\{ key, bytes, mime \}\)/);
+  assert.doesNotMatch(handler, /createUserMediaAssetFromBytes/);
+  assert.doesNotMatch(handler, /createUserMediaAssetFromPublicUrl/);
+  assert.match(handler, /transient: true/);
+  assert.match(server, /url\.pathname === "\/api\/advanced\/transient-media"[\s\S]{0,80}handleUploadAdvancedTransientMedia/);
 });
 
 test("Vega local uploads use the dedicated public-URL upload path", () => {
@@ -1355,7 +1473,7 @@ test("Vega reference previews include image, video, audio and dedicated frames",
 test("Vega controls expose seed and never send ReferenceType", () => {
   assert.match(html, /id="advancedWanSeed"/);
   assert.match(create, /function vegaCurrentSeed\(\)[\s\S]*els\.advancedWanSeed/);
-  const payload = sourceBetween(create, "const vegaPayload = {", "const vegaPendingTaskId =");
+  const payload = sourceBetween(create, "const vegaPayloadBase = {", "const vegaPendingTaskId =");
   assert.doesNotMatch(payload, /ReferenceType|reference_type/);
 });
 

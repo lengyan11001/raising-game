@@ -191,7 +191,7 @@ test("promotion UI is cache-busted and has no duplicate dialog max-height declar
 
   assert.ok(cssVersion, "platform.css must be cache-busted");
   assert.equal(jsVersion, cssVersion, "platform.css and platform.js must share one cache suffix");
-  assert.match(cssVersion, /20261106/);
+  assert.match(cssVersion, /202611/);
   assert.equal((css.match(/max-height: min\(860px, calc\(100dvh - 28px\)\);/g) || []).length, 1);
   assert.match(css, /@media \(max-width: 768px\)[\s\S]*?\.eleven-eleven-cards \{ grid-template-columns: 1fr; \}/);
 });

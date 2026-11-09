@@ -405,7 +405,9 @@ test("prompt image paste and @ mentions follow the shared upload control for eve
   assert.match(create, /const imageTargets = advancedAssetTargetItems\(\)\.filter\(\(target\) => target\.type === "image"\)/);
   assert.match(create, /else if \(\["wan27", "happyhorse"\]\.includes\(provider\)\) limit = advancedAliyunReferenceImageLimit\(capability\)/);
   assert.match(create, /else if \(advancedUsesSharedReferenceUpload\(provider, capability\)\) limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT/);
-  assert.match(create, /\(sharedFrameProvider \|\| isVegaAdvancedProvider\(provider\)\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.match(create, /if \(isVegaAdvancedProvider\(provider\)\) \{[\s\S]*?normalizeVegaUiMediaMode\(rawMediaMode\)/);
+  assert.match(create, /vegaModeNeedsFirstFrame\(vegaMode\) \|\| vegaModeNeedsLastFrame\(vegaMode\)/);
+  assert.match(create, /if \(sharedFrameProvider && seedanceModeNeedsFirstFrame\(seedanceMode\)\)/);
   assert.match(create, /rule\.target === "frames"/);
   assert.match(create, /syncAdvancedPromptMentionLabels\(previousPromptRefs\)/);
   assert.doesNotMatch(create, /if \(!\["seedance", "seedance25", "seedance-nsfw", "seedream5-image", "qwen-image3"\]\.includes\(currentAdvancedProvider\(\)\)\) return false/);

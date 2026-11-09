@@ -897,7 +897,12 @@ function localDownloadPathFromRecord(record = {}, isVideo = true, url = "") {
 
 function generationRecordDownloadTarget(record = {}, { r2Only = false } = {}) {
   const cdnVideoUrl = String(record.cdnVideoUrl || "").trim();
-  const cdnImageUrl = String(record.cdnImageUrl || (Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.find((item) => String(item || "").trim()) : "") || "").trim();
+  const cdnImageUrls = [...new Set([
+    ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
+    record.cdnImageUrl,
+  ].map((item) => String(item || "").trim()).filter(Boolean))];
+  const cdnImageStorageKeys = generationRecordImageStorageKeys(record);
+  const cdnImageUrl = cdnImageUrls[0] || "";
   const videoUrl = r2Only ? cdnVideoUrl : generationRecordVideoUrl(record, { preferProviderVideoUrl: true });
   if (videoUrl) {
     const mime = videoMimeFromKnownPath(videoUrl) || "video/mp4";
@@ -916,12 +921,13 @@ function generationRecordDownloadTarget(record = {}, { r2Only = false } = {}) {
   if (imageUrl) {
     const mime = imageMimeFromKnownPath(imageUrl) || "image/png";
     const ext = imageExtFromMime(mime);
+    const imageIndex = cdnImageUrls.indexOf(imageUrl);
     return {
       url: imageUrl,
       localPath: r2Only ? "" : localDownloadPathFromRecord(record, false, imageUrl),
       objectStorageUrl: cdnImageUrl,
-      storageProvider: record.storageProvider || "",
-      storageKey: record.storageKey || "",
+      storageProvider: record.storageProvider || record.imageStorageProvider || "",
+      storageKey: imageIndex >= 0 ? (cdnImageStorageKeys[imageIndex] || "") : (record.storageKey || record.imageStorageKey || ""),
       mime,
       fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
     };
@@ -1116,51 +1122,33 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
   if (generationRecordHasR2Download(existing)) return existing;
 
   if (providerTarget.kind === "video") {
-    const localVideo = await downloadGeneratedVideo(existing.taskId, providerTarget.url, { forceLocal: true });
-    const poster = localVideo.localVideoPath
-      ? await createGeneratedVideoPoster(existing.taskId, localVideo.localVideoPath)
-      : { localPosterPath: "", localPosterUrl: "" };
-    // Persist the playable local result and poster before attempting the OSS/R2
-    // mirror. Advanced download is an optimization; mirror failures must not
-    // leave a succeeded generation without a thumbnail.
-    const localMedia = {
-      localVideoUrl: localVideo.localVideoUrl || existing.localVideoUrl || "",
-      localVideoPath: localVideo.localVideoPath || existing.localVideoPath || "",
-      localPosterUrl: poster.localPosterUrl || existing.localPosterUrl || "",
-      localPosterPath: poster.localPosterPath || existing.localPosterPath || "",
-      playbackOptimizedAt: localVideo.playbackOptimizedAt || existing.playbackOptimizedAt || new Date().toISOString(),
-    };
-    await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
-      ...localMedia,
-      advancedDownloadStatus: "preparing",
-    });
-    const cdn = await uploadGeneratedMediaToObjectStorage({
-      taskId: existing.taskId,
-      localVideoPath: localVideo.localVideoPath,
-      localPosterPath: poster.localPosterPath,
-      force: true,
-    });
-    if (!cdn.cdnVideoUrl) {
-      const error = new Error(cdn.cdnError || "Object storage upload failed.");
+    // downloadGeneratedVideo owns a temporary workspace and removes it before
+    // returning. Only the OSS object is durable.
+    const media = await downloadGeneratedVideo(existing.taskId, providerTarget.url, { forceLocal: true });
+    if (!media.cdnVideoUrl || !media.storageKey) {
+      const error = new Error(media.cdnError || "Object storage upload failed.");
       error.statusCode = 502;
       error.retryable = true;
       error.code = "OBJECT_STORAGE_UPLOAD_FAILED";
       await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
-        ...localMedia,
-        cdnError: cdn.cdnError || error.message,
+        cdnError: media.cdnError || error.message,
         advancedDownloadStatus: "preparing",
         advancedDownloadError: error.message,
       }).catch(() => {});
       throw error;
     }
     const updated = await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
-      ...localMedia,
-      cdnVideoUrl: cdn.cdnVideoUrl,
-      cdnPosterUrl: cdn.cdnPosterUrl,
-      storageProvider: cdn.storageProvider || objectStorageProvider(),
-      storageKey: cdn.storageKey || objectStorageKeyFromPublicUrl(cdn.cdnVideoUrl, cdn.storageProvider || objectStorageProvider()).key || "",
-      posterStorageProvider: cdn.posterStorageProvider || cdn.storageProvider || objectStorageProvider(),
-      posterStorageKey: cdn.posterStorageKey || objectStorageKeyFromPublicUrl(cdn.cdnPosterUrl, cdn.posterStorageProvider || cdn.storageProvider || objectStorageProvider()).key || "",
+      localVideoUrl: "",
+      localVideoPath: "",
+      localPosterUrl: "",
+      localPosterPath: "",
+      playbackOptimizedAt: media.playbackOptimizedAt || existing.playbackOptimizedAt || new Date().toISOString(),
+      cdnVideoUrl: media.cdnVideoUrl,
+      cdnPosterUrl: media.cdnPosterUrl || "",
+      storageProvider: media.storageProvider || objectStorageProvider(),
+      storageKey: media.storageKey,
+      posterStorageProvider: media.posterStorageProvider || media.storageProvider || objectStorageProvider(),
+      posterStorageKey: media.posterStorageKey || "",
       cdnError: "",
       advancedDownloadPreparedAt: new Date().toISOString(),
       advancedDownloadStatus: "ready",
@@ -1168,8 +1156,8 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
     });
     return {
       ...updated,
-      videoBytes: Number(cdn.videoBytes || 0),
-      posterBytes: Number(cdn.posterBytes || 0),
+      videoBytes: Number(media.videoBytes || 0),
+      posterBytes: Number(media.posterBytes || 0),
     };
   }
 
@@ -1185,28 +1173,22 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
       const downloaded = await downloadRemoteFileToBuffer(sourceUrl, { label: "advanced download image", maxBytes: 30 * 1024 * 1024 });
       const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : providerTarget.mime;
       const imageTaskId = index === 0 ? existing.taskId : `${existing.taskId}-${index + 1}`;
-      const saved = await saveGeneratedImageFile(imageTaskId, downloaded.bytes, mime, { publish: false, forceLocal: true });
+      const fileName = imageFileName(imageTaskId, mime);
       const upload = await uploadStaticAssetToObjectStorage({
-        key: objectStoragePath("generated", "images", path.basename(saved.localImagePath)),
+        key: objectStoragePath("generated", "images", fileName),
         bytes: downloaded.bytes,
         mime,
       });
-      if (!upload.publicUrl) {
-        const error = new Error("Object storage upload completed without a public URL.");
-        error.statusCode = 502;
-        error.code = "OBJECT_STORAGE_PUBLIC_URL_MISSING";
-        throw error;
-      }
-      await markPublishedFileSafely(saved.localImagePath);
-      savedImages.push(saved);
+      await verifyObjectStorageMedia(upload, { expectedBytes: downloaded.bytes.length, label: "Generated image" });
       uploads.push(upload);
       uploadedBytes.push(downloaded.bytes.length);
       await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
-        localImageUrl: savedImages[0]?.localImageUrl || "",
-        localImagePath: savedImages[0]?.localImagePath || "",
+        localImageUrl: "",
+        localImagePath: "",
         imageResultUrl: uploads[0]?.publicUrl || "",
         cdnImageUrl: uploads[0]?.publicUrl || "",
         cdnImageUrls: uploads.map((item) => item.publicUrl).filter(Boolean),
+        cdnImageStorageKeys: uploads.map((item) => item.key || objectStorageKeyFromPublicUrl(item.publicUrl || "", item.provider || objectStorageProvider()).key || ""),
         storageProvider: uploads[0]?.provider || objectStorageProvider(),
         storageKey: uploads[0]?.key || objectStorageKeyFromPublicUrl(uploads[0]?.publicUrl || "", uploads[0]?.provider || objectStorageProvider()).key || "",
         cdnError: errors.join("; "),
@@ -1218,11 +1200,12 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
     }
   }
   const updated = await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
-    localImageUrl: savedImages[0]?.localImageUrl || "",
-    localImagePath: savedImages[0]?.localImagePath || "",
+    localImageUrl: "",
+    localImagePath: "",
     imageResultUrl: uploads[0]?.publicUrl || "",
     cdnImageUrl: uploads[0]?.publicUrl || "",
     cdnImageUrls: uploads.map((item) => item.publicUrl).filter(Boolean),
+    cdnImageStorageKeys: uploads.map((item) => item.key || objectStorageKeyFromPublicUrl(item.publicUrl || "", item.provider || objectStorageProvider()).key || ""),
     storageProvider: uploads[0]?.provider || objectStorageProvider(),
     storageKey: uploads[0]?.key || objectStorageKeyFromPublicUrl(uploads[0]?.publicUrl || "", uploads[0]?.provider || objectStorageProvider()).key || "",
     cdnError: errors.join("; "),
@@ -1257,7 +1240,7 @@ function generationImageResultUrl(record = {}, savedImage = null) {
 function generationRecordHasR2Download(record = {}) {
   const providerTarget = generationRecordProviderDownloadTarget(record);
   if (providerTarget?.kind === "video") {
-    return Boolean(String(record.cdnVideoUrl || "").trim());
+    return Boolean(String(record.cdnVideoUrl || "").trim() && String(record.storageKey || "").trim());
   }
   if (providerTarget?.kind === "image") {
     const expected = generationRecordProviderImageUrls(record);
@@ -1265,7 +1248,7 @@ function generationRecordHasR2Download(record = {}) {
       ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
       record.cdnImageUrl,
     ].map((item) => String(item || "").trim()).filter(Boolean))];
-    return expected.length > 0 && stored.length >= expected.length;
+    return expected.length > 0 && stored.length >= expected.length && generationRecordImageStorageReady(record);
   }
   return Boolean(generationRecordDownloadTarget(record, { r2Only: true })?.url);
 }

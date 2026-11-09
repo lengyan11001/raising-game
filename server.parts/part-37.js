@@ -235,16 +235,16 @@ async function handleWan27ImageEdit(req, res) {
       error.payload = submitted.raw;
       throw error;
     }
-    const savedImage = GENERATED_ASSETS_ON_DEMAND
-      ? { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" }
-      : await saveRemoteGeneratedImage(taskId, imageUrl);
+    const savedImage = await saveRemoteGeneratedImage(taskId, imageUrl);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
       imageResultUrl: savedImage.cdnImageUrl || imageUrl,
-      localImageUrl: savedImage.localImageUrl,
-      localImagePath: savedImage.localImagePath,
+      localImageUrl: "",
+      localImagePath: "",
       cdnImageUrl: savedImage.cdnImageUrl,
+      storageProvider: savedImage.storageProvider || "",
+      storageKey: savedImage.storageKey || "",
       cdnError: savedImage.cdnError,
       remoteImageUrl: imageUrl,
       finalCredits: cost,
@@ -521,16 +521,16 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       error.payload = submitted.raw;
       throw error;
     }
-    const savedImage = GENERATED_ASSETS_ON_DEMAND
-      ? { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" }
-      : await saveRemoteGeneratedImage(taskId, imageUrl);
+    const savedImage = await saveRemoteGeneratedImage(taskId, imageUrl);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
       imageResultUrl: savedImage.cdnImageUrl || imageUrl,
-      localImageUrl: savedImage.localImageUrl,
-      localImagePath: savedImage.localImagePath,
+      localImageUrl: "",
+      localImagePath: "",
       cdnImageUrl: savedImage.cdnImageUrl,
+      storageProvider: savedImage.storageProvider || "",
+      storageKey: savedImage.storageKey || "",
       cdnError: savedImage.cdnError,
       remoteImageUrl: imageUrl,
       finalCredits: cost,

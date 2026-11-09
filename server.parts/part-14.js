@@ -403,6 +403,13 @@ function userMediaUploadLimits(provider = "") {
       audio: VEGA_10_LITE_AUDIO_UPLOAD_MAX_BYTES,
     };
   }
+  if (normalized === "h3-vega") {
+    return {
+      image: VEGA_15_LITE_IMAGE_UPLOAD_MAX_BYTES,
+      video: VEGA_15_LITE_VIDEO_UPLOAD_MAX_BYTES,
+      audio: VEGA_15_LITE_AUDIO_UPLOAD_MAX_BYTES,
+    };
+  }
   return { image: IMAGE_UPLOAD_MAX_BYTES, video: MEDIA_UPLOAD_MAX_BYTES, audio: MEDIA_UPLOAD_MAX_BYTES };
 }
 

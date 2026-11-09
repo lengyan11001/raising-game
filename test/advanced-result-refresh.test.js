@@ -101,7 +101,7 @@ test("completed video results retry until their poster is repaired", () => {
 });
 
 test("logout and leaving advanced stop pending-result polling", () => {
-  assert.match(explore, /if \(!advancedWorkspace\) \{[\s\S]*?stopAdvancedResultRefresh\(\);/);
+  assert.match(explore, /if \(nextTab !== "advanced"\) \{[\s\S]*?stopAdvancedResultRefresh\(\);/);
   const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
   assert.match(ui, /if \(userChanged && typeof stopAdvancedResultRefresh === "function"\) stopAdvancedResultRefresh\(\);/);
 });

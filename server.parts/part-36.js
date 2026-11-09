@@ -176,6 +176,84 @@ function decodedUploadFileName(value = "") {
   }
 }
 
+async function handleUploadAdvancedTransientMedia(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const uploadRate = await authRateLimit(req, {
+    action: "advanced_transient_media_upload",
+    limit: 180,
+    windowMs: 10 * 60_000,
+    includeAccount: auth.user.id,
+    includeIp: false,
+  });
+  if (!uploadRate.ok) return authRateLimitedResponse(res, uploadRate);
+  if (!objectStorageEnabled()) {
+    return sendJson(res, 503, {
+      ok: false,
+      code: "OBJECT_STORAGE_REQUIRED",
+      message: "Vega Lite media requires object storage with a public URL.",
+    });
+  }
+
+  const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);
+  const provider = normalizeAdvancedProvider(body.provider || "");
+  if (!isVegaProvider(provider) || vegaProviderUsesMediaLibrary(provider)) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "TRANSIENT_MEDIA_PROVIDER_UNSUPPORTED",
+      message: "Transient media uploads are only available for Vega Lite models.",
+    });
+  }
+  const { mime, bytes } = decodeWanMediaDataUrl(body.dataUrl || "");
+  const declaredKind = String(body.kind || "").toLowerCase();
+  const kind = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "";
+  if (!kind || (declaredKind && declaredKind !== kind)) {
+    return sendJson(res, 400, { ok: false, message: "Transient media kind does not match the uploaded file." });
+  }
+  const limits = userMediaUploadLimits(provider);
+  const maxBytes = limits[kind];
+  if (bytes.byteLength > maxBytes) {
+    return sendJson(res, 413, {
+      ok: false,
+      code: "MEDIA_TOO_LARGE",
+      message: `${kind === "image" ? "Image" : kind === "video" ? "Video" : "Audio"} must be ${Math.round(maxBytes / 1024 / 1024)}MB or smaller.`,
+    });
+  }
+  const fileName = String(body.fileName || body.name || "").split(/[\/]/).pop().slice(0, 120);
+  const extension = mediaExtFromMime(mime, fileName);
+  const key = `${SITE_STORAGE_SLUG}/users/${storagePathSegment(auth.user.id, "user")}/transient/${kind}-${Date.now()}-${randomId("media")}${extension}`;
+  let uploaded;
+  try {
+    uploaded = await uploadStaticAssetToObjectStorage({ key, bytes, mime });
+  } catch (error) {
+    error.statusCode = error.statusCode || 502;
+    error.code = error.code || "TRANSIENT_MEDIA_UPLOAD_FAILED";
+    throw error;
+  }
+  const publicUrl = publicHttpUrlForUpstream(uploaded?.publicUrl || uploaded?.url || "");
+  if (!publicUrl) {
+    const error = new Error("Object storage upload completed without a public HTTP(S) URL.");
+    error.statusCode = 502;
+    error.code = "OBJECT_STORAGE_PUBLIC_URL_MISSING";
+    throw error;
+  }
+  const durationSeconds = kind === "image" ? 0 : Math.max(0, Number(body.durationSeconds || body.duration || 0) || 0);
+  return sendJson(res, 200, {
+    ok: true,
+    media: {
+      kind,
+      publicUrl,
+      url: publicUrl,
+      objectStorageKey: uploaded.key || key,
+      mime,
+      name: fileName || (kind === "image" ? "Image reference" : kind === "video" ? "Video reference" : "Audio reference"),
+      fileName,
+      durationSeconds,
+      transient: true,
+    },
+  });
+}
+
 async function handleUploadVideoToolAsset(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -886,16 +964,16 @@ async function handleGenerateUserCharacterImage(req, res) {
       error.payload = submitted.raw;
       throw error;
     }
-    const savedImage = GENERATED_ASSETS_ON_DEMAND
-      ? { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" }
-      : await saveRemoteGeneratedImage(taskId, imageUrl);
+    const savedImage = await saveRemoteGeneratedImage(taskId, imageUrl);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
       imageResultUrl: savedImage.cdnImageUrl || imageUrl,
-      localImageUrl: savedImage.localImageUrl,
-      localImagePath: savedImage.localImagePath,
+      localImageUrl: "",
+      localImagePath: "",
       cdnImageUrl: savedImage.cdnImageUrl,
+      storageProvider: savedImage.storageProvider || "",
+      storageKey: savedImage.storageKey || "",
       cdnError: savedImage.cdnError,
       remoteImageUrl: imageUrl,
       finalCredits: cost,
@@ -1077,16 +1155,16 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
       error.payload = submitted.raw;
       throw error;
     }
-    const savedImage = GENERATED_ASSETS_ON_DEMAND
-      ? { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" }
-      : await saveRemoteGeneratedImage(taskId, resultUrl);
+    const savedImage = await saveRemoteGeneratedImage(taskId, resultUrl);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
       imageResultUrl: savedImage.cdnImageUrl || resultUrl,
-      localImageUrl: savedImage.localImageUrl,
-      localImagePath: savedImage.localImagePath,
+      localImageUrl: "",
+      localImagePath: "",
       cdnImageUrl: savedImage.cdnImageUrl,
+      storageProvider: savedImage.storageProvider || "",
+      storageKey: savedImage.storageKey || "",
       cdnError: savedImage.cdnError,
       remoteImageUrl: resultUrl,
       finalCredits: cost,

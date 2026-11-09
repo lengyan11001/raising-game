@@ -2,6 +2,10 @@
 
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
+const fsSync = require("node:fs");
+const path = require("node:path");
+const { Readable } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
 
 const DEFAULT_PART_SIZE = 8 * 1024 * 1024;
 const DEFAULT_MULTIPART_THRESHOLD = 8 * 1024 * 1024;
@@ -526,6 +530,75 @@ async function headObject({ key, config = ossConfig() }) {
   };
 }
 
+async function downloadObject({
+  key,
+  filePath = "",
+  maxBytes = 0,
+  timeoutMs = 0,
+  config = ossConfig(),
+}) {
+  const request = signedRequestOptions({ method: "GET", key, config });
+  const response = await fetch(request.url, {
+    method: "GET",
+    headers: request.headers,
+    signal: AbortSignal.timeout(Math.min(config.timeoutMs, timeoutMs || config.timeoutMs)),
+  });
+  if (!response.ok) {
+    throw responseError("OSS object download failed", response, await response.text().catch(() => ""));
+  }
+  const declaredLength = Number(response.headers.get("content-length") || 0) || 0;
+  if (maxBytes > 0 && declaredLength > maxBytes) {
+    const error = new Error(`OSS object exceeds the ${maxBytes} byte limit.`);
+    error.code = "OSS_OBJECT_TOO_LARGE";
+    error.statusCode = 413;
+    throw error;
+  }
+  if (!response.body) {
+    const error = new Error("OSS object download returned no response body.");
+    error.code = "OSS_OBJECT_EMPTY_RESPONSE";
+    error.statusCode = 502;
+    throw error;
+  }
+  if (filePath) {
+    await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+    await pipeline(Readable.fromWeb(response.body), fsSync.createWriteStream(filePath, { mode: 0o600 }));
+    const stat = await fs.stat(filePath);
+    if (maxBytes > 0 && stat.size > maxBytes) {
+      await fs.rm(filePath, { force: true }).catch(() => {});
+      const error = new Error(`OSS object exceeds the ${maxBytes} byte limit.`);
+      error.code = "OSS_OBJECT_TOO_LARGE";
+      error.statusCode = 413;
+      throw error;
+    }
+    return {
+      key,
+      filePath,
+      bytes: stat.size,
+      contentType: response.headers.get("content-type") || "application/octet-stream",
+      etag: response.headers.get("etag") || "",
+    };
+  }
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of Readable.fromWeb(response.body)) {
+    total += chunk.length;
+    if (maxBytes > 0 && total > maxBytes) {
+      const error = new Error(`OSS object exceeds the ${maxBytes} byte limit.`);
+      error.code = "OSS_OBJECT_TOO_LARGE";
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  return {
+    key,
+    bytes: Buffer.concat(chunks, total),
+    contentLength: total,
+    contentType: response.headers.get("content-type") || "application/octet-stream",
+    etag: response.headers.get("etag") || "",
+  };
+}
+
 module.exports = {
   ossConfig,
   ossConfigured,
@@ -541,6 +614,7 @@ module.exports = {
   signedCdnUrl,
   publicUrlForKey,
   headObject,
+  downloadObject,
   deleteObject,
   signedRequestOptions,
   responseError,

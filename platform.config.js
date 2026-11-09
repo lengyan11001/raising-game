@@ -68,6 +68,9 @@ const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_VEGA10_LITE_IMAGE_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_VEGA10_LITE_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 const ADVANCED_VEGA10_LITE_AUDIO_MAX_BYTES = 15 * 1024 * 1024;
+const ADVANCED_VEGA15_LITE_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
+const ADVANCED_VEGA15_LITE_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+const ADVANCED_VEGA15_LITE_AUDIO_MAX_BYTES = 15 * 1024 * 1024;
 const ADVANCED_VEGA15_PRO_IMAGE_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_VEGA15_PRO_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 const ADVANCED_VEGA15_PRO_AUDIO_MAX_BYTES = 15 * 1024 * 1024;
@@ -499,7 +502,7 @@ const VEGA_DURATION_BOUNDS = Object.freeze({
 const VEGA_MODEL_CAPABILITIES = Object.freeze({
   "seedance20-vega": Object.freeze({ resolutions: SEEDANCE_VEGA_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]) }),
   "seedance25-vega": Object.freeze({ resolutions: SEEDANCE_VEGA_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]), draft: true, generateMode: false, qualityMode: false, perFileMinSeconds: 2, perFileMaxSeconds: 30, videoSeconds: 0, audioSeconds: 30 }),
-  "h3-vega": Object.freeze({ resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), generateMode: false, qualityMode: false }),
+  "h3-vega": Object.freeze({ resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), generateMode: false, qualityMode: false, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 }),
   "vega10-lite": Object.freeze({ resolutions: Object.freeze(["480P", "768P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), frameRatioFromInput: true, moderation: false, generateMode: false, returnLastFrame: false, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 }),
 });
 const VEGA_REFERENCE_LIMITS = Object.freeze({
@@ -1033,6 +1036,7 @@ const state = {
   advancedAssetSearchTimer: 0,
   advancedSideTab: isAdvancedCustomRoute(window.location.hash) ? "assets" : "result",
   advancedResultRecords: [],
+  advancedRegenerationSnapshot: null,
   advancedResultMediaKind: "video",
   advancedResultTaskId: "",
   advancedResultPage: 1,

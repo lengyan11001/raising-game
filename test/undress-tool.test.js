@@ -84,7 +84,8 @@ test("locked free results expose no media and cannot be downloaded or added to a
   assert.match(publicView, /publicRecord\.mediaAssets = \[\]/);
   assert.match(publicView, /publicRecord\.prompt = ""/);
   assert.match(server, /code: "RESULT_LOCKED"/);
-  assert.match(server, /saveGeneratedImageFile\(taskId, downloaded\.bytes, mime, \{ publish: false, forceLocal: true \}\)/);
+  assert.match(server, /downloadRemoteFileToBuffer\(imageUrl, \{ label: `\$\{resultLabel\} result`/);
+  assert.match(server, /resultLocked: freeImageGeneration/);
   assert.match(server, /lockedRecord\?\.resultLocked === true/);
   assert.match(server, /objectStoragePath\("generated", "images", fileName\)/);
   assert.match(server, /async function handleUnlockUndressToolResult/);
@@ -216,7 +217,7 @@ test("generated Undress videos are fast-started and show their poster while prev
   assert.match(server, /await ensureGeneratedVideoFastStart\(localVideoPath\)/);
   assert.match(server, /fastStartUpdated \|\| !cdnVideoUrl/);
   assert.match(server, /cacheBustedMediaUrl\(cdn\.cdnVideoUrl \|\| cdnVideoUrl, Date\.now\(\)\)/);
-  assert.match(server, /function generationRecordNeedsMediaMaintenance\(record = \{\}\)[\s\S]*?!record\.playbackOptimizedAt/);
+  assert.match(server, /function generationRecordNeedsMediaMaintenance\(record = \{\}\)[\s\S]*?!videoReady \|\| !posterReady/);
   assert.match(server, /playbackOptimizedAt: finalMedia\.playbackOptimizedAt \|\| completedAt/);
   assert.match(history, /posterUrl: generationPosterUrl\(record\)/);
 });

@@ -264,14 +264,18 @@ async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectSt
     const downloaded = await downloadGeneratedVideo(record.taskId, remoteVideo, { forceLocal: true, posterOnly: true });
     return upsertGenerationRecord({
       taskId: record.taskId,
-      localVideoPath: downloaded.localVideoPath || record.localVideoPath || "",
-      localVideoUrl: downloaded.localVideoUrl || record.localVideoUrl || "",
-      videoUrl: downloaded.localVideoUrl || record.localVideoUrl || record.videoUrl || "",
-      localPosterPath: downloaded.localPosterPath || record.localPosterPath || "",
-      localPosterUrl: downloaded.localPosterUrl || record.localPosterUrl || "",
-      posterUrl: downloaded.localPosterUrl || record.localPosterUrl || record.posterUrl || "",
+      localVideoPath: "",
+      localVideoUrl: "",
+      videoUrl: downloaded.cdnVideoUrl || record.cdnVideoUrl || record.videoUrl || "",
+      localPosterPath: "",
+      localPosterUrl: "",
+      posterUrl: downloaded.cdnPosterUrl || record.cdnPosterUrl || record.posterUrl || "",
       cdnVideoUrl: downloaded.cdnVideoUrl || record.cdnVideoUrl || "",
       cdnPosterUrl: downloaded.cdnPosterUrl || record.cdnPosterUrl || "",
+      storageProvider: downloaded.storageProvider || record.storageProvider || "",
+      storageKey: downloaded.storageKey || record.storageKey || "",
+      posterStorageProvider: downloaded.posterStorageProvider || record.posterStorageProvider || "",
+      posterStorageKey: downloaded.posterStorageKey || record.posterStorageKey || "",
       cdnError: downloaded.cdnError || "",
       playbackOptimizedAt: downloaded.playbackOptimizedAt || record.playbackOptimizedAt || "",
       lastUpdateReason: "generated-poster-recovery",
@@ -293,6 +297,10 @@ async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectSt
   let localPosterUrl = record.localPosterUrl || "";
   let cdnVideoUrl = record.cdnVideoUrl || "";
   let cdnPosterUrl = record.cdnPosterUrl || "";
+  let storageProvider = record.storageProvider || "";
+  let storageKey = record.storageKey || "";
+  let posterStorageProvider = record.posterStorageProvider || "";
+  let posterStorageKey = record.posterStorageKey || "";
   let cdnError = record.cdnError || "";
   const fastStartNeeded = await generatedVideoNeedsFastStart(localVideoPath);
   const fastStartUpdated = fastStartNeeded
@@ -376,12 +384,11 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
   setImmediate(() => Promise.resolve().then(async () => {
     const current = await getGenerationRecord(cleanTaskId);
     if (!current) return;
-    if (current.localVideoUrl) {
-      queueGenerationRecordMediaMaintenance(current);
-      return;
+    const downloaded = await downloadGeneratedVideo(cleanTaskId, remote, { forceLocal: true, posterOnly: repairPoster });
+    if (!downloaded.cdnVideoUrl || !downloaded.storageKey) {
+      throw new Error(downloaded.cdnError || "Generated video was not persisted to object storage.");
     }
-    const downloaded = await downloadGeneratedVideo(cleanTaskId, remote, { forceLocal: repairPoster, posterOnly: repairPoster });
-    if (repairPoster && !String(downloaded.localPosterUrl || downloaded.cdnPosterUrl || "").trim()) {
+    if (repairPoster && !String(downloaded.cdnPosterUrl || "").trim()) {
       throw new Error("Poster frame was not created.");
     }
     const posterMaintenanceUpdates = repairPoster ? {
@@ -395,12 +402,18 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
       taskId: cleanTaskId,
       status: current.status,
       remoteVideoUrl: remote,
-      localVideoUrl: downloaded.localVideoUrl || "",
-      localVideoPath: downloaded.localVideoPath || "",
-      localPosterUrl: downloaded.localPosterUrl || "",
-      localPosterPath: downloaded.localPosterPath || "",
+      localVideoUrl: "",
+      localVideoPath: "",
+      localPosterUrl: "",
+      localPosterPath: "",
+      videoUrl: downloaded.cdnVideoUrl || current.videoUrl || "",
+      posterUrl: downloaded.cdnPosterUrl || current.posterUrl || "",
       cdnVideoUrl: downloaded.cdnVideoUrl || "",
       cdnPosterUrl: downloaded.cdnPosterUrl || "",
+      storageProvider: downloaded.storageProvider || current.storageProvider || "",
+      storageKey: downloaded.storageKey || current.storageKey || "",
+      posterStorageProvider: downloaded.posterStorageProvider || current.posterStorageProvider || "",
+      posterStorageKey: downloaded.posterStorageKey || current.posterStorageKey || "",
       cdnError: downloaded.cdnError || "",
       error: current.error || "",
       ...posterMaintenanceUpdates,
@@ -474,41 +487,55 @@ async function enrichAdminGenerationRecordMedia(record = {}, db = null) {
 async function ensureGenerationRecordImageR2Published(record = {}, { allowObjectStorageUpload = true } = {}) {
   if (!record?.taskId || generationRecordIsApiTask(record)) return record;
   let current = await recoverGenerationRecordR2Urls(record);
-  if (String(current.cdnImageUrl || "").trim() || (Array.isArray(current.cdnImageUrls) && current.cdnImageUrls.some((item) => String(item || "").trim()))) return current;
+  if (generationRecordImageStorageReady(current)) return current;
   if (!allowObjectStorageUpload || !generatedOutputStorageEnabled()) return current;
-  const localImagePath = String(current.localImagePath || localDownloadPathFromRecord(current, false)).trim();
-  if (!localImagePath) return current;
-  let bytes;
-  try {
-    bytes = await fs.readFile(localImagePath);
-  } catch {
-    return current;
+  const candidates = [...new Set([
+    current.localImagePath,
+    localDownloadPathFromRecord(current, false),
+    ...generationRecordProviderImageUrls(current),
+  ].map((item) => String(item || "").trim()).filter(Boolean))];
+  if (!candidates.length) return current;
+  let lastError = null;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const source = candidates[index];
+    try {
+      const localPath = safePathWithin(ASSETS_ROOT, source) || localAssetPathFromPublicValue(source);
+      const downloaded = localPath
+        ? { bytes: await fs.readFile(localPath), mime: imageMimeFromKnownPath(localPath) || "image/png" }
+        : await downloadRemoteFileToBuffer(source, { label: "generated image", maxBytes: 30 * 1024 * 1024 });
+      const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+      const fileName = imageFileName(index ? `${current.taskId}-${index + 1}` : current.taskId, mime);
+      const upload = await uploadStaticAssetToObjectStorage({
+        key: objectStoragePath("generated", "images", fileName),
+        bytes: downloaded.bytes,
+        mime,
+      });
+      await verifyObjectStorageMedia(upload, { expectedBytes: downloaded.bytes.length, label: "Generated image" });
+      const storageKey = upload.key || objectStorageKeyFromPublicUrl(upload.publicUrl || "", upload.provider || objectStorageProvider()).key || "";
+      if (!upload.publicUrl || !storageKey) throw new Error("Generated image object storage upload did not return a public URL and key.");
+      current = await upsertGenerationRecord({
+        taskId: current.taskId,
+        localImageUrl: "",
+        localImagePath: "",
+        imageResultUrl: upload.publicUrl,
+        cdnImageUrl: upload.publicUrl,
+        cdnImageUrls: [upload.publicUrl],
+        cdnImageStorageKeys: [storageKey],
+        storageProvider: upload.provider || objectStorageProvider(),
+        storageKey,
+        cdnError: "",
+        lastUpdateReason: "r2-image-record-recovered",
+      });
+      console.log("[generation-record-r2-recovered]", current.taskId, ["cdnImageUrl"]);
+      return current;
+    } catch (error) {
+      lastError = error;
+    }
   }
-  const fileName = path.basename(localImagePath);
-  const mime = imageMimeFromKnownPath(fileName) || "image/png";
-  try {
-    const upload = await uploadStaticAssetToObjectStorage({
-      key: objectStoragePath("generated", "images", fileName),
-      bytes,
-      mime,
-    });
-    const marker = await markPublishedFileSafely(localImagePath);
-    if (!marker) console.warn("[generated-image-r2-ready-marker-failed]", current.taskId, localImagePath);
-    current = await upsertGenerationRecord({
-      taskId: current.taskId,
-      cdnImageUrl: upload.publicUrl || "",
-      cdnImageUrls: upload.publicUrl ? [upload.publicUrl] : [],
-      imageResultUrl: upload.publicUrl || current.imageResultUrl || current.localImageUrl || "",
-      cdnError: "",
-      lastUpdateReason: "r2-image-record-recovered",
-    });
-    console.log("[generation-record-r2-recovered]", current.taskId, ["cdnImageUrl"]);
-  } catch (error) {
-    await upsertGenerationRecord({
-      taskId: current.taskId,
-      cdnError: error.message || "Generated image R2 upload failed.",
-    }).catch(() => {});
-  }
+  await upsertGenerationRecord({
+    taskId: current.taskId,
+    cdnError: lastError?.message || "Generated image R2 upload failed.",
+  }).catch(() => {});
   return current;
 }
 
@@ -518,11 +545,19 @@ async function recoverGenerationRecordR2Urls(record = {}) {
   const updates = {};
   if (!String(record.cdnVideoUrl || "").trim()) {
     const found = await findUploadedR2Object(objectStoragePath("generated", "videos", `${taskId}.mp4`));
-    if (found?.publicUrl) updates.cdnVideoUrl = found.publicUrl;
+    if (found?.publicUrl) {
+      updates.cdnVideoUrl = found.publicUrl;
+      updates.storageKey = objectStoragePath("generated", "videos", `${taskId}.mp4`);
+      if (found.provider) updates.storageProvider = found.provider;
+    }
   }
   if (!String(record.cdnPosterUrl || "").trim()) {
     const found = await findUploadedR2Object(objectStoragePath("generated", "posters", `${taskId}.jpg`));
-    if (found?.publicUrl) updates.cdnPosterUrl = found.publicUrl;
+    if (found?.publicUrl) {
+      updates.cdnPosterUrl = found.publicUrl;
+      updates.posterStorageKey = objectStoragePath("generated", "posters", `${taskId}.jpg`);
+      if (found.provider) updates.posterStorageProvider = found.provider;
+    }
   }
   if (!String(record.cdnImageUrl || "").trim()) {
     const imageCandidates = [];
@@ -534,6 +569,10 @@ async function recoverGenerationRecordR2Urls(record = {}) {
       const found = await findUploadedR2Object(objectStoragePath("generated", "images", name));
       if (found?.publicUrl) {
         updates.cdnImageUrl = found.publicUrl;
+        updates.cdnImageUrls = [found.publicUrl];
+        updates.cdnImageStorageKeys = [objectStoragePath("generated", "images", name)];
+        updates.storageKey = updates.cdnImageStorageKeys[0];
+        if (found.provider) updates.storageProvider = found.provider;
         break;
       }
     }
@@ -554,7 +593,7 @@ async function recoverGenerationRecordR2Urls(record = {}) {
 function generationRecordNeedsPosterMaintenance(record = {}) {
   if (!record?.taskId || generationRecordIsApiTask(record)) return false;
   if (!isSucceededStatus(record.status) || !generationRecordIsVideoOutput(record)) return false;
-  if (String(record.cdnPosterUrl || '').trim() || String(record.localPosterUrl || '').trim()) return false;
+  if (String(record.cdnPosterUrl || '').trim() && String(record.posterStorageKey || '').trim()) return false;
   if (String(record.posterMaintenanceTerminalAt || "").trim()) return false;
   if (Number(record.posterMaintenanceAttempts || 0) >= GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS) return false;
   const retryAt = Date.parse(record.posterMaintenanceRetryAt || '');
@@ -570,19 +609,13 @@ function generationRecordNeedsMediaMaintenance(record = {}) {
   if (!record?.taskId || generationRecordIsApiTask(record)) return false;
   if (GENERATED_ASSETS_ON_DEMAND) return generationRecordNeedsPosterMaintenance(record);
   if (isImageGenerationRecord(record)) {
-    const cdnImages = Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : [];
-    const hasR2Image = Boolean(String(record.cdnImageUrl || "").trim() || cdnImages.some((item) => String(item || "").trim()));
-    const hasLocalImage = Boolean(
-      String(record.localImagePath || "").trim()
-      || String(record.localImageUrl || "").trim()
-      || String(record.imageResultUrl || "").trim()
-    );
-    return hasLocalImage && generatedOutputStorageEnabled() && !hasR2Image;
+    const hasProviderImage = generationRecordProviderImageUrls(record).length > 0;
+    const hasLocalImage = Boolean(String(record.localImagePath || "").trim() || String(record.localImageUrl || "").trim() || String(record.imageResultUrl || "").trim());
+    return generatedOutputStorageEnabled() && (hasProviderImage || hasLocalImage) && !generationRecordImageStorageReady(record);
   }
-  if (!record.localVideoUrl) return !record.cdnVideoUrl;
-  return !record.localPosterUrl
-    || !record.playbackOptimizedAt
-    || (generatedOutputStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl)));
+  const videoReady = Boolean(String(record.cdnVideoUrl || "").trim() && String(record.storageKey || "").trim());
+  const posterReady = Boolean(String(record.cdnPosterUrl || "").trim() && String(record.posterStorageKey || "").trim());
+  return !videoReady || !posterReady;
 }
 
 function generationRecordCanRetryR2(record = {}) {
@@ -672,6 +705,10 @@ async function refreshPivoxGenerationRecord(record = {}, reason = "pivox-query")
   let localPosterPath = record.localPosterPath || "";
   let cdnVideoUrl = record.cdnVideoUrl || "";
   let cdnPosterUrl = record.cdnPosterUrl || "";
+  let storageProvider = record.storageProvider || "";
+  let storageKey = record.storageKey || "";
+  let posterStorageProvider = record.posterStorageProvider || "";
+  let posterStorageKey = record.posterStorageKey || "";
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
@@ -684,6 +721,10 @@ async function refreshPivoxGenerationRecord(record = {}, reason = "pivox-query")
       localPosterPath = localVideo.localPosterPath || localPosterPath;
       cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
       cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+      storageProvider = localVideo.storageProvider || storageProvider;
+      storageKey = localVideo.storageKey || storageKey;
+      posterStorageProvider = localVideo.posterStorageProvider || posterStorageProvider;
+      posterStorageKey = localVideo.posterStorageKey || posterStorageKey;
       cdnError = localVideo.cdnError || cdnError;
     } catch (error) {
       downloadError = error.message || "Failed to download generated video.";
@@ -695,8 +736,6 @@ async function refreshPivoxGenerationRecord(record = {}, reason = "pivox-query")
     status: task.status || record.status || "unknown",
     upstreamSource: "pivoxapi",
     remoteVideoUrl,
-    lastFrameUrl,
-    ...(vegaUsage.totalTokens ? { upstreamUsage: vegaUsage } : {}),
     videoUrl: localPublicAssetStorageEnabled()
       ? (localVideoUrl || cdnVideoUrl || remoteVideoUrl || record.videoUrl || "")
       : (cdnVideoUrl || localVideoUrl || remoteVideoUrl || record.videoUrl || ""),
@@ -709,6 +748,10 @@ async function refreshPivoxGenerationRecord(record = {}, reason = "pivox-query")
       : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
     cdnVideoUrl,
     cdnPosterUrl,
+    storageProvider,
+    storageKey,
+    posterStorageProvider,
+    posterStorageKey,
     cdnError,
     error: task.error || downloadError || record.error || "",
     queryResponse: raw,
@@ -727,6 +770,10 @@ async function refreshApizSeedanceGenerationRecord(record = {}, reason = "apiz-s
   let localPosterPath = record.localPosterPath || "";
   let cdnVideoUrl = record.cdnVideoUrl || "";
   let cdnPosterUrl = record.cdnPosterUrl || "";
+  let storageProvider = record.storageProvider || "";
+  let storageKey = record.storageKey || "";
+  let posterStorageProvider = record.posterStorageProvider || "";
+  let posterStorageKey = record.posterStorageKey || "";
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
@@ -739,6 +786,10 @@ async function refreshApizSeedanceGenerationRecord(record = {}, reason = "apiz-s
       localPosterPath = localVideo.localPosterPath || localPosterPath;
       cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
       cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+      storageProvider = localVideo.storageProvider || storageProvider;
+      storageKey = localVideo.storageKey || storageKey;
+      posterStorageProvider = localVideo.posterStorageProvider || posterStorageProvider;
+      posterStorageKey = localVideo.posterStorageKey || posterStorageKey;
       cdnError = localVideo.cdnError || cdnError;
     } catch (error) {
       downloadError = error.message || "Failed to download generated video.";
@@ -762,6 +813,10 @@ async function refreshApizSeedanceGenerationRecord(record = {}, reason = "apiz-s
       : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
     cdnVideoUrl,
     cdnPosterUrl,
+    storageProvider,
+    storageKey,
+    posterStorageProvider,
+    posterStorageKey,
     cdnError,
     error: task.error || downloadError || record.error || "",
     queryResponse: raw,
@@ -780,6 +835,10 @@ async function refreshIgnexGenerationRecord(record = {}, reason = "ignex-query")
   let localPosterPath = record.localPosterPath || "";
   let cdnVideoUrl = record.cdnVideoUrl || "";
   let cdnPosterUrl = record.cdnPosterUrl || "";
+  let storageProvider = record.storageProvider || "";
+  let storageKey = record.storageKey || "";
+  let posterStorageProvider = record.posterStorageProvider || "";
+  let posterStorageKey = record.posterStorageKey || "";
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
@@ -792,6 +851,10 @@ async function refreshIgnexGenerationRecord(record = {}, reason = "ignex-query")
       localPosterPath = localVideo.localPosterPath || localPosterPath;
       cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
       cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+      storageProvider = localVideo.storageProvider || storageProvider;
+      storageKey = localVideo.storageKey || storageKey;
+      posterStorageProvider = localVideo.posterStorageProvider || posterStorageProvider;
+      posterStorageKey = localVideo.posterStorageKey || posterStorageKey;
       cdnError = localVideo.cdnError || cdnError;
     } catch (error) {
       downloadError = error.message || "Failed to download generated video.";
@@ -815,6 +878,10 @@ async function refreshIgnexGenerationRecord(record = {}, reason = "ignex-query")
       : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
     cdnVideoUrl,
     cdnPosterUrl,
+    storageProvider,
+    storageKey,
+    posterStorageProvider,
+    posterStorageKey,
     cdnError,
     error: task.error || downloadError || record.error || "",
     queryResponse: raw,
@@ -872,6 +939,10 @@ async function refreshVegaGenerationRecord(record = {}, reason = "vega-query") {
       : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
     cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
     cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
+    storageProvider: media.storageProvider || record.storageProvider || "",
+    storageKey: media.storageKey || record.storageKey || "",
+    posterStorageProvider: media.posterStorageProvider || record.posterStorageProvider || "",
+    posterStorageKey: media.posterStorageKey || record.posterStorageKey || "",
     cdnError: media.cdnError || record.cdnError || "",
     error: failureMessage || downloadError,
     queryResponse: raw,
@@ -1013,7 +1084,7 @@ async function refreshGenerationRecordStatus(record = {}) {
           record.localImageUrl,
         ].map((value) => String(value || "").trim()).filter(Boolean))];
         const savedImages = [];
-        if (!GENERATED_ASSETS_ON_DEMAND && imageUrl && storedImageUrls.length < remoteImageUrls.length) {
+        if (imageUrl && storedImageUrls.length < remoteImageUrls.length) {
           for (let index = 0; index < remoteImageUrls.length; index += 1) {
             savedImages.push(await saveRemoteGeneratedImage(index ? `${record.taskId}-${index + 1}` : record.taskId, remoteImageUrls[index]));
           }
@@ -1030,13 +1101,16 @@ async function refreshGenerationRecordStatus(record = {}) {
           awaitingUpstreamTask: false,
           imageResultUrl: resultImageUrls[0] || imageUrl,
           imageResultUrls: resultImageUrls,
-          localImageUrl: savedImage?.localImageUrl || record.localImageUrl || "",
-          localImageUrls,
-          localImagePath: savedImage?.localImagePath || record.localImagePath || "",
+          localImageUrl: "",
+          localImageUrls: savedImages.length ? [] : [],
+          localImagePath: "",
           cdnImageUrl: savedImage?.cdnImageUrl || record.cdnImageUrl || "",
           cdnImageUrls,
+          cdnImageStorageKeys: savedImages.length
+            ? savedImages.map((item) => item.storageKey || "")
+            : generationRecordImageStorageKeys(record),
           storageProvider: savedImage?.storageProvider || record.storageProvider || "",
-          storageKey: savedImage?.storageKey || record.storageKey || "",
+          storageKey: savedImage?.storageKey || generationRecordImageStorageKeys(record)[0] || record.storageKey || "",
           cdnError: savedImages.map((item) => item.cdnError).filter(Boolean).join("; ") || record.cdnError || "",
           remoteImageUrl: imageUrl,
           remoteImageUrls,
@@ -1069,6 +1143,10 @@ async function refreshGenerationRecordStatus(record = {}) {
           : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
         cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
         cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
+        storageProvider: media.storageProvider || record.storageProvider || "",
+        storageKey: media.storageKey || record.storageKey || "",
+        posterStorageProvider: media.posterStorageProvider || record.posterStorageProvider || "",
+        posterStorageKey: media.posterStorageKey || record.posterStorageKey || "",
         cdnError: media.cdnError || record.cdnError || "",
         error: task.error || media.downloadError || record.error || "",
         queryResponse: task.raw,
@@ -1138,6 +1216,10 @@ async function refreshGenerationRecordStatus(record = {}) {
     let localPosterPath = record.localPosterPath || "";
     let cdnVideoUrl = record.cdnVideoUrl || "";
     let cdnPosterUrl = record.cdnPosterUrl || "";
+    let storageProvider = record.storageProvider || "";
+    let storageKey = record.storageKey || "";
+    let posterStorageProvider = record.posterStorageProvider || "";
+    let posterStorageKey = record.posterStorageKey || "";
     let cdnError = record.cdnError || "";
     let downloadError = "";
     const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
@@ -1150,6 +1232,10 @@ async function refreshGenerationRecordStatus(record = {}) {
         localPosterPath = localVideo.localPosterPath || localPosterPath;
         cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
         cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+        storageProvider = localVideo.storageProvider || storageProvider;
+        storageKey = localVideo.storageKey || storageKey;
+        posterStorageProvider = localVideo.posterStorageProvider || posterStorageProvider;
+        posterStorageKey = localVideo.posterStorageKey || posterStorageKey;
         cdnError = localVideo.cdnError || cdnError;
       } catch (error) {
         downloadError = error.message || "Failed to download generated video.";
@@ -1169,6 +1255,10 @@ async function refreshGenerationRecordStatus(record = {}) {
         : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
       cdnVideoUrl,
       cdnPosterUrl,
+      storageProvider,
+      storageKey,
+      posterStorageProvider,
+      posterStorageKey,
       cdnError,
       error: task.error || downloadError || record.error || "",
       queryResponse: raw,

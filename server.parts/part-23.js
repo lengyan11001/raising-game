@@ -53,21 +53,36 @@ async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabe
   const recordBeforeSave = await getGenerationRecord(taskId);
   const preDeductedCredits = creditsAmount(recordBeforeSave?.preDeductedCredits || 0);
   const freeImageGeneration = recordBeforeSave?.freeImageGeneration === true && preDeductedCredits <= 0;
-  let savedImage = { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" };
+  let savedImage = { localImagePath: "", localImageUrl: "", cdnImageUrl: "", storageKey: "", storageProvider: "", cdnError: "" };
+  let lockedPreview = {};
   if (freeImageGeneration) {
     const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: `${resultLabel} result`, maxBytes: 20 * 1024 * 1024 });
     const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime, { publish: false, forceLocal: true });
-  } else if (!GENERATED_ASSETS_ON_DEMAND) {
-    savedImage = await saveRemoteGeneratedImage(taskId, imageUrl, { publish: true });
-  }
-  let lockedPreview = {};
-  if (freeImageGeneration) {
+    const fileName = imageFileName(taskId, mime);
+    const upload = await uploadStaticAssetToObjectStorage({
+      key: objectStoragePath("generated", "images", fileName),
+      bytes: downloaded.bytes,
+      mime,
+    });
+    await verifyObjectStorageMedia(upload, { expectedBytes: downloaded.bytes.length, label: "Locked original image" });
+    savedImage = {
+      localImagePath: "",
+      localImageUrl: "",
+      cdnImageUrl: upload.publicUrl || "",
+      storageKey: upload.key || "",
+      storageProvider: upload.provider || objectStorageProvider(),
+      cdnError: "",
+    };
+    const workspace = await createGeneratedMediaWorkspace(`locked-result-${taskId}`);
     try {
-      lockedPreview = await createUndressLockedPreview(taskId, savedImage.localImagePath);
-    } catch (error) {
-      console.warn("[undress-locked-preview-failed]", taskId, error.message || error);
+      const sourcePath = path.join(workspace, `source${imageExtFromMime(mime)}`);
+      await fs.writeFile(sourcePath, downloaded.bytes, { mode: 0o600 });
+      lockedPreview = await createUndressLockedPreview(taskId, sourcePath, { workspace });
+    } finally {
+      await removeGeneratedMediaWorkspace(workspace);
     }
+  } else {
+    savedImage = await saveRemoteGeneratedImage(taskId, imageUrl, { publish: true });
   }
   const completedAt = new Date().toISOString();
   const record = await getGenerationRecord(taskId);
@@ -78,9 +93,11 @@ async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabe
     awaitingUpstreamTask: false,
     upstreamTaskId,
     imageResultUrl: generationImageResultUrl({ remoteImageUrl: imageUrl }, savedImage),
-    localImageUrl: savedImage.localImageUrl,
-    localImagePath: savedImage.localImagePath,
-    cdnImageUrl: savedImage.cdnImageUrl,
+    localImageUrl: "",
+    localImagePath: "",
+    cdnImageUrl: freeImageGeneration ? "" : savedImage.cdnImageUrl,
+    storageProvider: savedImage.storageProvider || "",
+    storageKey: savedImage.storageKey || "",
     cdnError: savedImage.cdnError,
     ...lockedPreview,
     remoteImageUrl: imageUrl,
@@ -125,9 +142,7 @@ async function runVideoToolFaceSwap(job) {
   if (!user) throw new Error("User not found.");
   let imageAsset = undressVideo ? null : videoToolAsset(db, userId, imageAssetId, "image", "Face image");
   const videoAsset = videoToolAsset(db, userId, videoAssetId, "video", "Source video");
-  const workDir = path.join(GENERATED_VIDEO_DIR, `${storagePathSegment(taskId)}-work`);
-  await fs.mkdir(workDir, { recursive: true });
-  const publicInputs = [];
+  const workDir = await createGeneratedMediaWorkspace(`video-tool-${taskId}`);
   const upstreamInputUrls = [];
   try {
     const priorRecord = await getGenerationRecord(taskId);
@@ -165,7 +180,6 @@ async function runVideoToolFaceSwap(job) {
       let upstreamTaskId = String(upstreamTaskIds[segment.index] || "").trim();
       if (!upstreamTaskId) {
         const published = await publishVideoToolInput(segmentPath, taskId, segment.index);
-        publicInputs.push(published.publicFilePath);
         upstreamInputUrls[segment.index] = published.url;
         const submitted = await submitAliyunVideoTask({
           provider: "wan27",
@@ -225,20 +239,18 @@ async function runVideoToolFaceSwap(job) {
       status: "succeeded",
       awaitingUpstreamTask: false,
       upstreamTaskId: upstreamTaskIds[upstreamTaskIds.length - 1] || "",
-      videoUrl: DISABLE_GENERATED_R2_STORAGE
-        ? (record?.remoteVideoUrl || finalMedia.localVideoUrl || "")
-        : localPublicAssetStorageEnabled()
-          ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || "")
-          : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || ""),
-      localVideoUrl: finalMedia.localVideoUrl,
-      localVideoPath: finalMedia.localVideoPath,
-      localPosterUrl: finalMedia.localPosterUrl || "",
-      localPosterPath: finalMedia.localPosterPath || "",
-      posterUrl: localPublicAssetStorageEnabled()
-        ? (finalMedia.localPosterUrl || finalMedia.cdnPosterUrl || "")
-        : (finalMedia.cdnPosterUrl || finalMedia.localPosterUrl || ""),
+      videoUrl: DISABLE_GENERATED_R2_STORAGE ? (record?.remoteVideoUrl || "") : finalMedia.cdnVideoUrl,
+      localVideoUrl: "",
+      localVideoPath: "",
+      localPosterUrl: "",
+      localPosterPath: "",
+      posterUrl: finalMedia.cdnPosterUrl || "",
       cdnVideoUrl: finalMedia.cdnVideoUrl || "",
       cdnPosterUrl: finalMedia.cdnPosterUrl || "",
+      storageProvider: finalMedia.storageProvider || "",
+      storageKey: finalMedia.storageKey || "",
+      posterStorageProvider: finalMedia.posterStorageProvider || "",
+      posterStorageKey: finalMedia.posterStorageKey || "",
       cdnError: finalMedia.cdnError || "",
       playbackOptimizedAt: finalMedia.playbackOptimizedAt || completedAt,
       error: "",
@@ -252,8 +264,7 @@ async function runVideoToolFaceSwap(job) {
       lastUpdateReason: undressVideo ? "video-tool-undress-video-succeeded" : "video-tool-face-swap-succeeded",
     });
   } finally {
-    await Promise.all(publicInputs.map((filePath) => fs.rm(filePath, { force: true }).catch(() => {})));
-    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+    await removeGeneratedMediaWorkspace(workDir);
   }
 }
 
@@ -327,20 +338,18 @@ async function runVideoToolUndressImageVideo(job) {
     awaitingUpstreamTask: false,
     upstreamTaskId,
     remoteVideoUrl: videoUrl,
-    videoUrl: DISABLE_GENERATED_R2_STORAGE
-      ? videoUrl
-      : localPublicAssetStorageEnabled()
-        ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || videoUrl)
-        : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || videoUrl),
-    localVideoUrl: finalMedia.localVideoUrl || "",
-    localVideoPath: finalMedia.localVideoPath || "",
-    localPosterUrl: finalMedia.localPosterUrl || "",
-    localPosterPath: finalMedia.localPosterPath || "",
-    posterUrl: localPublicAssetStorageEnabled()
-      ? (finalMedia.localPosterUrl || finalMedia.cdnPosterUrl || "")
-      : (finalMedia.cdnPosterUrl || finalMedia.localPosterUrl || ""),
+    videoUrl: DISABLE_GENERATED_R2_STORAGE ? videoUrl : (finalMedia.cdnVideoUrl || videoUrl),
+    localVideoUrl: "",
+    localVideoPath: "",
+    localPosterUrl: "",
+    localPosterPath: "",
+    posterUrl: finalMedia.cdnPosterUrl || "",
     cdnVideoUrl: finalMedia.cdnVideoUrl || "",
     cdnPosterUrl: finalMedia.cdnPosterUrl || "",
+    storageProvider: finalMedia.storageProvider || "",
+    storageKey: finalMedia.storageKey || "",
+    posterStorageProvider: finalMedia.posterStorageProvider || "",
+    posterStorageKey: finalMedia.posterStorageKey || "",
     cdnError: finalMedia.cdnError || "",
     playbackOptimizedAt: finalMedia.playbackOptimizedAt || completedAt,
     queryResponse: completed.raw || null,
@@ -466,20 +475,18 @@ async function runVideoToolUndressVideoLegacy(job) {
     awaitingUpstreamTask: false,
     upstreamTaskId,
     remoteVideoUrl: completed.task.videoUrl,
-    videoUrl: DISABLE_GENERATED_R2_STORAGE
-      ? completed.task.videoUrl
-      : localPublicAssetStorageEnabled()
-        ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || completed.task.videoUrl)
-        : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || completed.task.videoUrl),
-    localVideoUrl: finalMedia.localVideoUrl || "",
-    localVideoPath: finalMedia.localVideoPath || "",
-    localPosterUrl: finalMedia.localPosterUrl || "",
-    localPosterPath: finalMedia.localPosterPath || "",
-    posterUrl: localPublicAssetStorageEnabled()
-      ? (finalMedia.localPosterUrl || finalMedia.cdnPosterUrl || "")
-      : (finalMedia.cdnPosterUrl || finalMedia.localPosterUrl || ""),
+    videoUrl: DISABLE_GENERATED_R2_STORAGE ? completed.task.videoUrl : (finalMedia.cdnVideoUrl || completed.task.videoUrl),
+    localVideoUrl: "",
+    localVideoPath: "",
+    localPosterUrl: "",
+    localPosterPath: "",
+    posterUrl: finalMedia.cdnPosterUrl || "",
     cdnVideoUrl: finalMedia.cdnVideoUrl || "",
     cdnPosterUrl: finalMedia.cdnPosterUrl || "",
+    storageProvider: finalMedia.storageProvider || "",
+    storageKey: finalMedia.storageKey || "",
+    posterStorageProvider: finalMedia.posterStorageProvider || "",
+    posterStorageKey: finalMedia.posterStorageKey || "",
     cdnError: finalMedia.cdnError || "",
     queryResponse: completed.raw || null,
     error: "",
@@ -613,8 +620,11 @@ async function scanGenerationRecordMissingMediaPersistence(reason = "timer") {
       try {
         await prepareGenerationRecordAdvancedDownload(current);
         const repairedRecord = await getGenerationRecord(current.taskId).catch(() => null);
-        if (!repairedRecord || (!repairedRecord.localVideoUrl && !repairedRecord.cdnVideoUrl)) {
+        if (!repairedRecord || !repairedRecord.cdnVideoUrl || !repairedRecord.storageKey) {
           throw new Error("Generated video was not persisted.");
+        }
+        if (repairedRecord.cdnPosterUrl && !repairedRecord.posterStorageKey) {
+          throw new Error("Generated poster was not fully persisted.");
         }
         await updateGenerationRecordAdvancedDownloadInDb(current.taskId, {
           mediaPersistenceAttempts: previousAttempts + 1,
@@ -766,14 +776,11 @@ function startVideoToolUploadCleanupScheduler() {
 }
 
 async function cleanupStaleLocalMedia() {
-  // Generated results and uploaded source media are business data referenced by
-  // PostgreSQL generation/asset records. Deleting them by file age can make a
-  // completed thumbnail, preview, or playback disappear even though the record
-  // still exists. Keep this scheduler entry point for deployment compatibility
-  // but only clean abandoned chunk-upload temporary directories above.
-  if (!cleanupStaleLocalMedia.disabledLogged) {
-    console.log("[local-media-cleanup-disabled] business media retention is permanent");
-    cleanupStaleLocalMedia.disabledLogged = true;
+  // Business media is permanent. Only remove stale disposable workspaces from
+  // the OS temp directory; success/failure paths still clean their own workspace.
+  const result = await cleanupTransientMediaWorkspaces();
+  if (result.directories > 0) {
+    console.log("[local-media-temp-cleaned]", result);
   }
 }
 

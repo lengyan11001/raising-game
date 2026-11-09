@@ -267,6 +267,10 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
   let localPosterPath = record.localPosterPath || "";
   let cdnVideoUrl = record.cdnVideoUrl || "";
   let cdnPosterUrl = record.cdnPosterUrl || "";
+  let storageProvider = record.storageProvider || "";
+  let storageKey = record.storageKey || "";
+  let posterStorageProvider = record.posterStorageProvider || "";
+  let posterStorageKey = record.posterStorageKey || "";
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
@@ -279,6 +283,10 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
       localPosterPath = localVideo.localPosterPath || localPosterPath;
       cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
       cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+      storageProvider = localVideo.storageProvider || storageProvider;
+      storageKey = localVideo.storageKey || storageKey;
+      posterStorageProvider = localVideo.posterStorageProvider || posterStorageProvider;
+      posterStorageKey = localVideo.posterStorageKey || posterStorageKey;
       cdnError = localVideo.cdnError || cdnError;
     } catch (error) {
       downloadError = error.message || "Failed to download generated video.";
@@ -298,6 +306,10 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
       : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
     cdnVideoUrl,
     cdnPosterUrl,
+    storageProvider,
+    storageKey,
+    posterStorageProvider,
+    posterStorageKey,
     cdnError,
     error: task.error || downloadError || record.error || "",
     queryResponse: raw,
@@ -365,17 +377,19 @@ async function refreshWan27ImageGenerationRecord(record = {}, { reason = "query"
     }, reason);
   }
   let savedImage = null;
-  if (!record.localImageUrl && imageUrl && !GENERATED_ASSETS_ON_DEMAND) {
+  if (imageUrl && !(record.cdnImageUrl && record.storageKey)) {
     savedImage = await saveRemoteGeneratedImage(record.taskId, imageUrl);
   }
   return updateAssetImageModifyRecord(record.taskId, {
     upstreamTaskId: task.taskId || queryTaskId,
     status: "succeeded",
     awaitingUpstreamTask: false,
-    imageResultUrl: savedImage?.cdnImageUrl || imageUrl || record.imageResultUrl || record.localImageUrl || "",
-    localImageUrl: savedImage?.localImageUrl || record.localImageUrl || "",
-    localImagePath: savedImage?.localImagePath || record.localImagePath || "",
+    imageResultUrl: savedImage?.cdnImageUrl || record.cdnImageUrl || imageUrl || "",
+    localImageUrl: "",
+    localImagePath: "",
     cdnImageUrl: savedImage?.cdnImageUrl || record.cdnImageUrl || "",
+    storageProvider: savedImage?.storageProvider || record.storageProvider || "",
+    storageKey: savedImage?.storageKey || record.storageKey || "",
     cdnError: savedImage?.cdnError || record.cdnError || "",
     remoteImageUrl: imageUrl,
     queryResponse: raw,

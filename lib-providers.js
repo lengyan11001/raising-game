@@ -192,7 +192,16 @@ function slimGenerationRecordValue(value, { detail = false } = {}) {
 
 function storageGenerationRecord(record = {}) {
   if (!record || typeof record !== "object") return record;
-  return slimGenerationRecordValue(record, { detail: true });
+  const next = slimGenerationRecordValue(record, { detail: true });
+  // New generation media is durable only in PostgreSQL metadata + object
+  // storage. Local paths remain readable for historical migration, but the
+  // whole record must never advertise a server-local output as durable.
+  if (next && typeof next === "object") {
+    for (const key of ["localVideoUrl", "localVideoPath", "localPosterUrl", "localPosterPath", "localImageUrl", "localImagePath"]) {
+      if (Object.prototype.hasOwnProperty.call(next, key)) next[key] = "";
+    }
+  }
+  return next;
 }
 
 function listGenerationRecordValue(value) {

@@ -58,20 +58,106 @@ function cacheBustedMediaUrl(url = "", version = "") {
   }
 }
 
-async function createGeneratedVideoPoster(taskId, videoPath) {
+async function createGeneratedVideoPoster(taskId, videoPath, { directory = "" } = {}) {
   if (!taskId || !videoPath) return { localPosterPath: "", localPosterUrl: "" };
-  await fs.mkdir(GENERATED_POSTER_DIR, { recursive: true });
-  const fileName = posterFileName(taskId);
-  const localPosterPath = path.join(GENERATED_POSTER_DIR, fileName);
-  const localPosterUrl = `/assets/generated/posters/${fileName}`;
+  // Generated posters are transient artifacts. Callers either provide a task
+  // workspace they manage or this helper creates and removes its own private
+  // OS temp directory from a finally block.
+  const ownsDirectory = !directory;
+  const posterDirectory = directory || await fs.mkdtemp(path.join(os.tmpdir(), "raising-game-poster-"));
+  const localPosterPath = path.join(posterDirectory, posterFileName(taskId));
   try {
-    await fs.access(localPosterPath);
-    return { localPosterPath, localPosterUrl };
-  } catch {
-    // Capture below.
+    await fs.mkdir(posterDirectory, { recursive: true, mode: 0o700 });
+    try {
+      await fs.access(localPosterPath);
+    } catch {
+      const captured = await captureVideoPosterFrame(videoPath, localPosterPath);
+      if (!captured) return { localPosterPath: "", localPosterUrl: "" };
+    }
+    return { localPosterPath, localPosterUrl: "" };
+  } finally {
+    if (ownsDirectory) await fs.rm(posterDirectory, { recursive: true, force: true }).catch(() => {});
   }
-  const captured = await captureVideoPosterFrame(videoPath, localPosterPath);
-  return captured ? { localPosterPath, localPosterUrl } : { localPosterPath: "", localPosterUrl: "" };
+}
+
+function generatedMediaTempRoot() {
+  return path.join(os.tmpdir(), "raising-game-media");
+}
+
+async function createGeneratedMediaWorkspace(taskId = "media") {
+  const root = generatedMediaTempRoot();
+  await fs.mkdir(root, { recursive: true, mode: 0o700 });
+  const prefix = `${storagePathSegment(taskId || "media")}-`;
+  return fs.mkdtemp(path.join(root, prefix));
+}
+
+async function removeGeneratedMediaWorkspace(directory = "") {
+  if (!directory) return;
+  const root = path.resolve(generatedMediaTempRoot());
+  const target = path.resolve(directory);
+  if (!target.startsWith(`${root}${path.sep}`)) return;
+  await fs.rm(target, { recursive: true, force: true }).catch((error) => {
+    console.warn("[generated-media-temp-cleanup-failed]", target, error.message || error);
+  });
+}
+
+async function verifyObjectStorageMedia(upload = {}, { expectedBytes = 0, label = "media" } = {}) {
+  if (!upload?.publicUrl || !upload?.key) {
+    const error = new Error(`${label} object storage upload did not return a public URL and key.`);
+    error.statusCode = 502;
+    error.code = "OBJECT_STORAGE_PUBLIC_URL_MISSING";
+    error.retryable = true;
+    throw error;
+  }
+  if (expectedBytes > 0 && Number(upload.bytes || 0) > 0 && Number(upload.bytes) !== Number(expectedBytes)) {
+    const error = new Error(`${label} object storage size mismatch.`);
+    error.statusCode = 502;
+    error.code = "OBJECT_STORAGE_SIZE_MISMATCH";
+    error.retryable = true;
+    throw error;
+  }
+  const provider = String(upload.provider || objectStorageProvider() || "").toLowerCase();
+  let verified = null;
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      if (provider === "oss") {
+        const head = await headOssObject({ key: upload.key, config: OSS });
+        if (head.ok) {
+          if (expectedBytes > 0 && head.contentLength > 0 && head.contentLength !== Number(expectedBytes)) {
+            const error = new Error(`${label} object storage size mismatch.`);
+            error.code = "OBJECT_STORAGE_SIZE_MISMATCH";
+            error.retryable = true;
+            throw error;
+          }
+          verified = head;
+          break;
+        }
+        lastError = new Error(`${label} object storage is not readable (${head.status}).`);
+      } else if (provider === "r2") {
+        const found = await findUploadedR2Object(upload.key);
+        if (found) {
+          verified = found;
+          break;
+        }
+        lastError = new Error(`${label} object storage is not readable.`);
+      } else {
+        throw new Error(`${label} object storage provider is unavailable.`);
+      }
+    } catch (error) {
+      lastError = error;
+      if (error.code === "OBJECT_STORAGE_SIZE_MISMATCH") break;
+    }
+    if (attempt < 2) await delay(500 * (attempt + 1));
+  }
+  if (!verified) {
+    const error = new Error(`${label} object storage verification failed${lastError?.message ? `: ${lastError.message}` : "."}`);
+    error.statusCode = 502;
+    error.code = "OBJECT_STORAGE_OBJECT_UNREADABLE";
+    error.retryable = true;
+    throw error;
+  }
+  return upload;
 }
 
 async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, localPosterPath = "", force = false } = {}) {
@@ -97,11 +183,10 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
         filePath: localVideoPath,
         mime: videoMimeFromPath(localVideoPath),
       });
+      await verifyObjectStorageMedia(videoUpload, { expectedBytes: result.videoBytes, label: "Generated video" });
       result.cdnVideoUrl = videoUpload.publicUrl;
       result.storageKey = videoUpload.key || "";
       result.storageProvider = videoUpload.provider || objectStorageProvider();
-      const marker = await markPublishedFileSafely(localVideoPath);
-      if (!marker) console.warn("[generated-video-r2-ready-marker-failed]", taskId, localVideoPath);
     } catch (error) {
       errors.push(error.message || "Generated video object storage upload failed.");
       console.warn("[generated-video-object-storage-upload-failed]", taskId, error.message || error);
@@ -116,12 +201,11 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
         bytes: posterBytes,
         mime: "image/jpeg",
       });
+      await verifyObjectStorageMedia(posterUpload, { expectedBytes: result.posterBytes, label: "Generated poster" });
       result.cdnPosterUrl = posterUpload.publicUrl;
       result.posterStorageProvider = posterUpload.provider || objectStorageProvider();
       result.posterStorageKey = posterUpload.key || "";
       if (!result.storageKey) result.storageProvider = posterUpload.provider || objectStorageProvider();
-      const marker = await markPublishedFileSafely(localPosterPath);
-      if (!marker) console.warn("[generated-poster-r2-ready-marker-failed]", taskId, localPosterPath);
     } catch (error) {
       errors.push(error.message || "Generated poster object storage upload failed.");
       console.warn("[generated-poster-object-storage-upload-failed]", taskId, error.message || error);
@@ -341,162 +425,154 @@ function sendInternalAsset(res, filePath, contentType, stat, { privateCache = fa
   return true;
 }
 
+function generatedVideoDurableMediaUpdates(media = {}, record = {}) {
+  const cdnVideoUrl = String(media.cdnVideoUrl || record.cdnVideoUrl || "").trim();
+  const cdnPosterUrl = String(media.cdnPosterUrl || record.cdnPosterUrl || "").trim();
+  return {
+    videoUrl: cdnVideoUrl || String(record.videoUrl || "").trim(),
+    posterUrl: cdnPosterUrl || String(record.posterUrl || "").trim(),
+    localVideoUrl: "",
+    localVideoPath: "",
+    localPosterUrl: "",
+    localPosterPath: "",
+    cdnVideoUrl,
+    cdnPosterUrl,
+    storageProvider: String(media.storageProvider || record.storageProvider || "").trim(),
+    storageKey: String(media.storageKey || record.storageKey || "").trim(),
+    posterStorageProvider: String(media.posterStorageProvider || record.posterStorageProvider || "").trim(),
+    posterStorageKey: String(media.posterStorageKey || record.posterStorageKey || "").trim(),
+    cdnError: String(media.cdnError || record.cdnError || "").trim(),
+    playbackOptimizedAt: String(media.playbackOptimizedAt || record.playbackOptimizedAt || "").trim(),
+  };
+}
+
 async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = false, posterOnly = false } = {}) {
-  if (!forceLocal && (!generatedOutputStorageEnabled() || GENERATED_ASSETS_ON_DEMAND)) {
-    const existing = taskId ? await getGenerationRecord(taskId).catch(() => null) : null;
-    return {
-      localVideoPath: existing?.localVideoPath || "",
-      localVideoUrl: existing?.localVideoUrl || "",
-      localPosterPath: existing?.localPosterPath || "",
-      localPosterUrl: existing?.localPosterUrl || "",
-      cdnVideoUrl: existing?.cdnVideoUrl || "",
-      cdnPosterUrl: existing?.cdnPosterUrl || "",
-      storageProvider: existing?.storageProvider || "",
-      storageKey: existing?.storageKey || "",
-      posterStorageProvider: existing?.posterStorageProvider || "",
-      posterStorageKey: existing?.posterStorageKey || "",
-      cdnError: existing?.cdnError || "",
-      playbackOptimizedAt: existing?.playbackOptimizedAt || "",
-    };
-  }
+  // Generated videos are never a durable local asset. Every success path uses
+  // a disposable workspace and returns verified object-storage metadata only.
+  // forceLocal is retained for historical call-site compatibility; it never
+  // changes the durable storage contract.
   const existing = await getGenerationRecord(taskId);
   const expectedDurationSeconds = expectedGeneratedVideoDurationSeconds(existing || {});
   if (posterOnly) {
-    let source = String(remoteVideoUrl || "").trim();
-    if (existing?.localVideoUrl) {
-      const existingVideoPath = safePathWithin(ASSETS_ROOT, existing.localVideoPath)
-        || safeAssetPathFromUrl(existing.localVideoUrl || "");
-      try {
-        if (!existingVideoPath) throw new Error("Generation video path is invalid.");
-        await fs.access(existingVideoPath);
-        source = existingVideoPath;
-      } catch {
-        // Fall back to the provider URL when the local copy is gone.
-      }
-    }
-    if (!source) throw new Error("No video source is available for poster repair.");
-    const poster = await createGeneratedVideoPoster(taskId, source);
-    if (!poster.localPosterUrl) throw new Error("Could not capture a poster frame from the video.");
-    return {
-      localVideoPath: existing?.localVideoPath || "",
-      localVideoUrl: existing?.localVideoUrl || "",
-      localPosterPath: poster.localPosterPath || "",
-      localPosterUrl: poster.localPosterUrl || "",
-      cdnVideoUrl: existing?.cdnVideoUrl || "",
-      cdnPosterUrl: existing?.cdnPosterUrl || "",
-      storageProvider: existing?.storageProvider || "",
-      storageKey: existing?.storageKey || "",
-      posterStorageProvider: existing?.posterStorageProvider || "",
-      posterStorageKey: existing?.posterStorageKey || "",
-      cdnError: existing?.cdnError || "",
-      playbackOptimizedAt: existing?.playbackOptimizedAt || "",
-    };
-  }
-  if (existing?.localVideoUrl) {
+    const workspace = await createGeneratedMediaWorkspace(taskId || "poster");
     try {
-      const existingVideoPath = safePathWithin(ASSETS_ROOT, existing.localVideoPath)
-        || safeAssetPathFromUrl(existing.localVideoUrl || "");
-      if (!existingVideoPath) throw new Error("Generation video path is invalid.");
-      await fs.access(existingVideoPath);
-      const actualDurationSeconds = expectedDurationSeconds > 0
-        ? await probeLocalVideoDurationSeconds(existingVideoPath)
-        : 0;
-      const canRedownload = Boolean(String(remoteVideoUrl || "").trim());
-      if (!canRedownload || !generatedVideoIsTooShort(actualDurationSeconds, expectedDurationSeconds)) {
-        let optimized = existing;
-        let poster = null;
-        if (!existing.localPosterUrl) {
-          poster = await createGeneratedVideoPoster(taskId, existingVideoPath);
-          if (poster.localPosterUrl) {
-            optimized = {
-              ...existing,
-              localPosterPath: poster.localPosterPath || existing.localPosterPath || "",
-              localPosterUrl: poster.localPosterUrl || existing.localPosterUrl || "",
-              posterUrl: poster.localPosterUrl || existing.posterUrl || "",
-            };
-            await upsertGenerationRecord({
-              taskId,
-              localPosterPath: optimized.localPosterPath,
-              localPosterUrl: optimized.localPosterUrl,
-              posterUrl: optimized.posterUrl,
-              lastUpdateReason: "generated-poster-recovery",
-            });
-          }
-        }
-        if (!GENERATED_ASSETS_ON_DEMAND && !generationRecordIsApiTask(existing) && generatedOutputStorageEnabled() && (!existing.cdnVideoUrl || (existing.localPosterPath && !existing.cdnPosterUrl))) {
-          const cdn = await uploadGeneratedMediaToObjectStorage({
-            taskId,
-            localVideoPath: existingVideoPath,
-            localPosterPath: existing.localPosterPath || "",
-          });
-          optimized = {
-            ...existing,
-            cdnVideoUrl: cdn.cdnVideoUrl || existing.cdnVideoUrl || "",
-            cdnPosterUrl: cdn.cdnPosterUrl || existing.cdnPosterUrl || "",
-            storageProvider: cdn.storageProvider || existing.storageProvider || "",
-            storageKey: cdn.storageKey || existing.storageKey || "",
-            posterStorageProvider: cdn.posterStorageProvider || existing.posterStorageProvider || "",
-            posterStorageKey: cdn.posterStorageKey || existing.posterStorageKey || "",
-            cdnError: cdn.cdnError || existing.cdnError || "",
-          };
-          if (optimized.cdnVideoUrl || optimized.cdnPosterUrl || optimized.cdnError !== existing.cdnError) {
-            await upsertGenerationRecord({
-              taskId,
-              cdnVideoUrl: optimized.cdnVideoUrl,
-              cdnPosterUrl: optimized.cdnPosterUrl,
-              storageProvider: optimized.storageProvider,
-              storageKey: optimized.storageKey,
-              posterStorageProvider: optimized.posterStorageProvider,
-              posterStorageKey: optimized.posterStorageKey,
-              cdnError: optimized.cdnError,
-            });
-          }
-        }
-        if (!GENERATED_ASSETS_ON_DEMAND && !generationRecordIsApiTask(optimized) && generationRecordNeedsMediaMaintenance(optimized)) queueGenerationRecordMediaMaintenance(optimized);
-        return {
-          localVideoPath: optimized.localVideoPath || existingVideoPath,
-          localVideoUrl: optimized.localVideoUrl || existing.localVideoUrl,
-          localPosterPath: optimized.localPosterPath || "",
-          localPosterUrl: optimized.localPosterUrl || "",
-          cdnVideoUrl: optimized.cdnVideoUrl || "",
-          cdnPosterUrl: optimized.cdnPosterUrl || "",
-          storageProvider: optimized.storageProvider || "",
-          storageKey: optimized.storageKey || "",
-          posterStorageProvider: optimized.posterStorageProvider || "",
-          posterStorageKey: optimized.posterStorageKey || "",
-          cdnError: optimized.cdnError || "",
-          playbackOptimizedAt: optimized.playbackOptimizedAt || "",
-        };
+      let source = String(remoteVideoUrl || "").trim();
+      if (existing?.cdnVideoUrl) source = "";
+      const downloaded = source
+        ? await downloadRemoteVideoToWorkspace(taskId, source, workspace, expectedDurationSeconds)
+        : null;
+      if (downloaded?.localVideoPath) source = downloaded.localVideoPath;
+      if (!source && existing?.cdnVideoUrl && objectStorageEnabled() && existing.storageKey) {
+        const signed = makeOssSignedCdnUrl({
+          key: existing.storageKey,
+          expiresSeconds: 600,
+        }) || makeOssSignedDownloadUrl({ key: existing.storageKey, expiresSeconds: 600 });
+        if (signed) source = signed;
       }
-      console.warn(
-        `[generated-video-too-short] ${taskId}: stored ${actualDurationSeconds}s, expected ${expectedDurationSeconds}s; retrying upstream download`,
-      );
-    } catch {
-      // Fall through and re-download if the record points to a missing file.
+      if (!source) throw new Error("No video source is available for poster repair.");
+      const poster = await createGeneratedVideoPoster(taskId, source, { directory: workspace });
+      if (!poster.localPosterPath) throw new Error("Could not capture a poster frame from the video.");
+      const posterBytes = await fs.readFile(poster.localPosterPath);
+      const upload = await uploadStaticAssetToObjectStorage({
+        key: objectStoragePath("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
+        bytes: posterBytes,
+        mime: "image/jpeg",
+      });
+      await verifyObjectStorageMedia(upload, { expectedBytes: posterBytes.length, label: "Generated poster" });
+      return {
+        localVideoPath: "",
+        localVideoUrl: "",
+        localPosterPath: "",
+        localPosterUrl: "",
+        cdnVideoUrl: existing?.cdnVideoUrl || "",
+        cdnPosterUrl: upload.publicUrl,
+        storageProvider: existing?.storageProvider || "",
+        storageKey: existing?.storageKey || "",
+        posterStorageProvider: upload.provider || objectStorageProvider(),
+        posterStorageKey: upload.key || "",
+        cdnError: "",
+        playbackOptimizedAt: existing?.playbackOptimizedAt || "",
+      };
+    } finally {
+      await removeGeneratedMediaWorkspace(workspace);
     }
   }
 
-  if (generationRecordIsApiTask(existing || {})) {
-    return {
-      localVideoPath: existing?.localVideoPath || "",
-      localVideoUrl: existing?.localVideoUrl || "",
-      localPosterPath: existing?.localPosterPath || "",
-      localPosterUrl: existing?.localPosterUrl || "",
-      cdnVideoUrl: existing?.cdnVideoUrl || "",
-      cdnPosterUrl: existing?.cdnPosterUrl || "",
-      storageProvider: existing?.storageProvider || "",
-      storageKey: existing?.storageKey || "",
-      posterStorageProvider: existing?.posterStorageProvider || "",
-      posterStorageKey: existing?.posterStorageKey || "",
-      cdnError: existing?.cdnError || "",
-      playbackOptimizedAt: existing?.playbackOptimizedAt || "",
-    };
-  }
+  const workspace = await createGeneratedMediaWorkspace(taskId || "video");
+  try {
+    const existingKey = String(existing?.storageKey || "").trim();
+    if (existingKey && objectStorageEnabled()) {
+      const downloadUrl = makeOssSignedCdnUrl({ key: existingKey, expiresSeconds: 600 })
+        || makeOssSignedDownloadUrl({ key: existingKey, expiresSeconds: 600 });
+      if (downloadUrl) {
+        try {
+          const downloaded = await downloadRemoteVideoToWorkspace(taskId, downloadUrl, workspace, expectedDurationSeconds);
+          const poster = await createGeneratedVideoPoster(taskId, downloaded.localVideoPath, { directory: workspace });
+          const posterUpload = poster.localPosterPath
+            ? await uploadStaticAssetToObjectStorage({
+              key: objectStoragePath("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
+              filePath: poster.localPosterPath,
+              mime: "image/jpeg",
+            }).then((upload) => verifyObjectStorageMedia(upload, { label: "Generated poster" }))
+            : null;
+          return {
+            localVideoPath: "",
+            localVideoUrl: "",
+            localPosterPath: "",
+            localPosterUrl: "",
+            cdnVideoUrl: existing?.cdnVideoUrl || "",
+            cdnPosterUrl: posterUpload?.publicUrl || existing?.cdnPosterUrl || "",
+            storageProvider: existing?.storageProvider || objectStorageProvider(),
+            storageKey: existingKey,
+            posterStorageProvider: posterUpload?.provider || existing?.posterStorageProvider || "",
+            posterStorageKey: posterUpload?.key || existing?.posterStorageKey || "",
+            cdnError: "",
+            playbackOptimizedAt: downloaded.playbackOptimizedAt || existing?.playbackOptimizedAt || "",
+          };
+        } catch (error) {
+          console.warn("[generated-video-durable-source-unavailable]", taskId, error.message || error);
+        }
+      }
+    }
 
-  await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
-  const fileName = videoFileName(taskId);
-  const localVideoPath = path.join(GENERATED_VIDEO_DIR, fileName);
-  const localVideoUrl = `/assets/generated/videos/${fileName}`;
+    const downloaded = await downloadRemoteVideoToWorkspace(taskId, remoteVideoUrl, workspace, expectedDurationSeconds);
+    const poster = await createGeneratedVideoPoster(taskId, downloaded.localVideoPath, { directory: workspace });
+    const cdn = await uploadGeneratedMediaToObjectStorage({
+      taskId,
+      localVideoPath: downloaded.localVideoPath,
+      localPosterPath: poster.localPosterPath,
+      force: true,
+    });
+    if (!cdn.cdnVideoUrl || !cdn.storageKey) {
+      const error = new Error(cdn.cdnError || "Generated video was not persisted to object storage.");
+      error.statusCode = 502;
+      error.retryable = true;
+      error.code = "OBJECT_STORAGE_UPLOAD_FAILED";
+      throw error;
+    }
+    return {
+      ...downloaded,
+      localVideoPath: "",
+      localVideoUrl: "",
+      localPosterPath: "",
+      localPosterUrl: "",
+      cdnVideoUrl: cdn.cdnVideoUrl,
+      cdnPosterUrl: cdn.cdnPosterUrl || "",
+      storageProvider: cdn.storageProvider || objectStorageProvider(),
+      storageKey: cdn.storageKey,
+      posterStorageProvider: cdn.posterStorageProvider || "",
+      posterStorageKey: cdn.posterStorageKey || "",
+      cdnError: cdn.cdnError || "",
+    };
+  } finally {
+    await removeGeneratedMediaWorkspace(workspace);
+  }
+}
+
+async function downloadRemoteVideoToWorkspace(taskId, remoteVideoUrl, workspace, expectedDurationSeconds = 0) {
+  if (!remoteVideoUrl) throw new Error("No generated video source URL.");
+  await fs.mkdir(workspace, { recursive: true });
+  const localVideoPath = path.join(workspace, videoFileName(taskId));
   let downloadedDurationSeconds = 0;
   let fastStartReady = false;
   let lastDownloadError = null;
@@ -504,18 +580,14 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
     const temporaryPath = `${localVideoPath}.${process.pid}.${Date.now()}.download`;
     try {
       const response = await fetchPublicRemoteUrl(remoteVideoUrl, { signal: AbortSignal.timeout(15 * 60 * 1000) }, { label: "Generated video" });
-      if (!response.ok) {
-        throw new Error(`Failed to download generated video: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`Failed to download generated video: ${response.status}`);
       if (!response.body) throw new Error("Generated video download returned no response body.");
       await pipeline(Readable.fromWeb(response.body), fsSync.createWriteStream(temporaryPath));
       downloadedDurationSeconds = expectedDurationSeconds > 0
         ? await probeLocalVideoDurationSeconds(temporaryPath)
         : 0;
       if (generatedVideoIsTooShort(downloadedDurationSeconds, expectedDurationSeconds) && attempt + 1 < GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS) {
-        console.warn(
-          `[generated-video-download-retry] ${taskId}: attempt ${attempt + 1} returned ${downloadedDurationSeconds}s, expected ${expectedDurationSeconds}s`,
-        );
+        console.warn(`[generated-video-download-retry] ${taskId}: attempt ${attempt + 1} returned ${downloadedDurationSeconds}s, expected ${expectedDurationSeconds}s`);
         await fs.rm(temporaryPath, { force: true });
         await delay(GENERATED_VIDEO_DOWNLOAD_RETRY_DELAY_MS * (attempt + 1));
         continue;
@@ -532,51 +604,14 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
     }
   }
   if (generatedVideoIsTooShort(downloadedDurationSeconds, expectedDurationSeconds)) {
-    console.warn(
-      `[generated-video-duration-mismatch] ${taskId}: stored ${downloadedDurationSeconds}s after ${GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS} attempts, expected ${expectedDurationSeconds}s`,
-    );
+    console.warn(`[generated-video-duration-mismatch] ${taskId}: stored ${downloadedDurationSeconds}s after ${GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS} attempts, expected ${expectedDurationSeconds}s`);
   }
   if (!fastStartReady && lastDownloadError) throw lastDownloadError;
-  const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
-  const cdn = !GENERATED_ASSETS_ON_DEMAND && generatedOutputStorageEnabled()
-    ? await uploadGeneratedMediaToObjectStorage({
-      taskId,
-      localVideoPath,
-      localPosterPath: poster.localPosterPath,
-    })
-    : { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
-
-  const result = {
+  return {
     localVideoPath,
-    localVideoUrl,
+    localVideoUrl: "",
     playbackOptimizedAt: fastStartReady ? new Date().toISOString() : "",
-    ...poster,
-    ...cdn,
   };
-  // Persist the usable local copy before object-storage publication finishes.
-  // OSS/R2 is only the accelerated mirror; a mirror outage must never erase a
-  // successfully generated result's video or poster from history/result views.
-  if (taskId) {
-    await upsertGenerationRecord({
-      taskId,
-      localVideoPath: result.localVideoPath || "",
-      localVideoUrl: result.localVideoUrl || "",
-      localPosterPath: result.localPosterPath || "",
-      localPosterUrl: result.localPosterUrl || "",
-      posterUrl: result.localPosterUrl || "",
-      playbackOptimizedAt: result.playbackOptimizedAt || "",
-      cdnVideoUrl: result.cdnVideoUrl || "",
-      cdnPosterUrl: result.cdnPosterUrl || "",
-      storageProvider: result.storageProvider || objectStorageProvider(),
-      storageKey: result.storageKey || "",
-      posterStorageProvider: result.posterStorageProvider || result.storageProvider || objectStorageProvider(),
-      posterStorageKey: result.posterStorageKey || "",
-      cdnError: result.cdnError || "",
-    }).catch((error) => {
-      console.warn("[generated-media-storage-metadata-save-failed]", taskId, error.message || error);
-    });
-  }
-  return result;
 }
 
 function imageFileName(taskId, mime = "image/png") {
@@ -584,46 +619,28 @@ function imageFileName(taskId, mime = "image/png") {
 }
 
 async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publish = true, forceLocal = false } = {}) {
-  if (!forceLocal && (!generatedOutputStorageEnabled() || GENERATED_ASSETS_ON_DEMAND)) {
-    return {
-      localImagePath: "",
-      localImageUrl: "",
-      cdnImageUrl: "",
-      storageProvider: "",
-      storageKey: "",
-      cdnError: "",
-    };
-  }
   const imageMime = String(mime || "").startsWith("image/") ? mime : "image/png";
-  await fs.mkdir(GENERATED_IMAGE_DIR, { recursive: true });
   const fileName = imageFileName(taskId, imageMime);
-  const localImagePath = path.join(GENERATED_IMAGE_DIR, fileName);
-  const localImageUrl = `/assets/generated/images/${fileName}`;
-  await fs.writeFile(localImagePath, bytes);
   const result = {
-    localImagePath,
-    localImageUrl,
+    localImagePath: "",
+    localImageUrl: "",
     cdnImageUrl: "",
     storageProvider: "",
     storageKey: "",
     cdnError: "",
   };
-  if (publish && !GENERATED_ASSETS_ON_DEMAND && generatedOutputStorageEnabled()) {
+  if (publish && generatedOutputStorageEnabled()) {
     try {
       const upload = await uploadStaticAssetToObjectStorage({
         key: objectStoragePath("generated", "images", fileName),
         bytes,
         mime: imageMime,
       });
+      await verifyObjectStorageMedia(upload, { expectedBytes: bytes.length, label: "Generated image" });
       result.cdnImageUrl = upload.publicUrl || "";
       result.storageProvider = upload.provider || objectStorageProvider();
-      result.storageKey = upload.key || objectStorageKeyFromPublicUrl(upload.publicUrl, upload.provider || "oss").key || "";
-      const marker = await markPublishedFileSafely(localImagePath);
-      if (!marker) console.warn("[generated-image-r2-ready-marker-failed]", taskId, localImagePath);
+      result.storageKey = upload.key || "";
     } catch (error) {
-      // The generated image is already safely stored locally and its upstream
-      // result succeeded. R2 is only the faster advanced-download copy, so a
-      // publication failure must not turn the generation task into a failure.
       result.cdnError = error.message || "Generated image object storage upload failed.";
       console.warn("[generated-image-object-storage-upload-failed]", taskId, result.cdnError);
     }
@@ -632,19 +649,23 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
 }
 
 async function saveRemoteGeneratedImage(taskId, imageUrl, { mime = "image/png", publish = true, forceLocal = false } = {}) {
-  if (!forceLocal && (!generatedOutputStorageEnabled() || GENERATED_ASSETS_ON_DEMAND)) {
-    return {
-      localImagePath: "",
-      localImageUrl: "",
-      cdnImageUrl: "",
-      storageProvider: "",
-      storageKey: "",
-      cdnError: "",
-    };
+  if (!generatedOutputStorageEnabled()) {
+    const error = new Error("Generated media requires object storage.");
+    error.statusCode = 503;
+    error.code = "OBJECT_STORAGE_NOT_CONFIGURED";
+    throw error;
   }
   const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "generated image", maxBytes: 30 * 1024 * 1024 });
   const imageMime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : mime;
-  return saveGeneratedImageFile(taskId, downloaded.bytes, imageMime, { publish, forceLocal });
+  const saved = await saveGeneratedImageFile(taskId, downloaded.bytes, imageMime, { publish, forceLocal });
+  if (!saved.cdnImageUrl || !saved.storageKey) {
+    const error = new Error(saved.cdnError || "Generated image was not persisted to object storage.");
+    error.statusCode = 502;
+    error.code = "OBJECT_STORAGE_UPLOAD_FAILED";
+    error.retryable = true;
+    throw error;
+  }
+  return saved;
 }
 
 function requireHttpUrl(value = "", label = "URL") {
@@ -818,7 +839,8 @@ function localAssetPathFromPublicValue(value = "") {
   return safeAssetPathFromUrl(pathname);
 }
 
-async function workflowVideoFileFromInput(auth = {}, { taskId = "", videoUrl = "", index = 0 } = {}) {
+async function workflowVideoFileFromInput(auth = {}, { taskId = "", videoUrl = "", index = 0, workspace = "" } = {}) {
+  if (!workspace) throw new Error("Workflow media workspace is required.");
   const cleanTaskId = String(taskId || "").trim();
   const record = cleanTaskId ? await getGenerationRecord(cleanTaskId) : null;
   if (record?.taskId) {
@@ -827,26 +849,38 @@ async function workflowVideoFileFromInput(auth = {}, { taskId = "", videoUrl = "
       error.statusCode = 403;
       throw error;
     }
-    const recordPath = record.localVideoPath
+    if (record.storageKey && objectStorageEnabled()) {
+      const filePath = path.join(workspace, `record-${index + 1}${videoExtFromMime("", generationRecordProviderVideoUrl(record) || record.videoUrl) || ".mp4"}`);
+      await downloadOssObject({ key: record.storageKey, filePath, maxBytes: 300 * 1024 * 1024, config: OSS });
+      return { filePath, record };
+    }
+    // Historical local media is read only as a temporary workflow input. It is
+    // never copied back into the persistent generated-media directories.
+    const historicalPath = record.localVideoPath
       ? safePathWithin(ASSETS_ROOT, record.localVideoPath)
       : localAssetPathFromPublicValue(record.localVideoUrl || record.videoUrl || "");
-    if (recordPath) {
+    if (historicalPath) {
       try {
-        await fs.access(recordPath);
-        return { filePath: recordPath, record };
+        await fs.access(historicalPath);
+        const ext = path.extname(historicalPath) || ".mp4";
+        const filePath = path.join(workspace, `record-${index + 1}${ext}`);
+        await fs.copyFile(historicalPath, filePath);
+        return { filePath, record };
       } catch {}
     }
     const remote = generationRecordProviderVideoUrl(record) || record.remoteVideoUrl || String(videoUrl || "");
     if (remote && isPublicHttpUrl(remote)) {
-      const downloaded = await downloadGeneratedVideo(record.taskId, remote, { forceLocal: true });
+      const downloaded = await downloadRemoteVideoToWorkspace(record.taskId || `workflow-${index}`, remote, workspace);
       if (downloaded.localVideoPath) return { filePath: downloaded.localVideoPath, record };
     }
   }
-  const localPath = localAssetPathFromPublicValue(videoUrl);
-  if (localPath) {
+  const historicalPath = localAssetPathFromPublicValue(videoUrl);
+  if (historicalPath) {
     try {
-      await fs.access(localPath);
-      return { filePath: localPath, record: null };
+      await fs.access(historicalPath);
+      const filePath = path.join(workspace, `source-${index + 1}${path.extname(historicalPath) || ".mp4"}`);
+      await fs.copyFile(historicalPath, filePath);
+      return { filePath, record: null };
     } catch {}
   }
   if (!isPublicHttpUrl(videoUrl)) {
@@ -856,9 +890,8 @@ async function workflowVideoFileFromInput(auth = {}, { taskId = "", videoUrl = "
   }
   const downloaded = await downloadRemoteFileToBuffer(videoUrl, { label: "workflow video", maxBytes: 300 * 1024 * 1024 });
   const ext = videoExtFromMime(downloaded.mime, videoUrl) || ".mp4";
-  await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
-  const fileName = `${storagePathSegment(cleanTaskId || `workflow-${index}`)}-source-${Date.now()}${ext}`;
-  const filePath = path.join(GENERATED_VIDEO_DIR, fileName);
+  const fileName = `${storagePathSegment(cleanTaskId || `workflow-${index}`)}-source-${index + 1}${ext}`;
+  const filePath = path.join(workspace, fileName);
   await fs.writeFile(filePath, downloaded.bytes);
   return { filePath, record: null };
 }
@@ -867,31 +900,41 @@ async function handleWorkflowExtractFrame(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const body = await readJson(req);
+  const workspace = await createGeneratedMediaWorkspace(`workflow-frame-${randomId("job")}`);
   try {
     const taskId = String(body.taskId || "").trim();
     const videoUrl = String(body.videoUrl || "").trim();
-    const resolved = await workflowVideoFileFromInput(auth, { taskId, videoUrl });
+    const resolved = await workflowVideoFileFromInput(auth, { taskId, videoUrl, workspace });
     const duration = await probeLocalVideoDurationSeconds(resolved.filePath) || durationSecondsFromValue(body.duration) || 5;
     const seek = Math.max(0.2, Number(duration || 5) - 0.28);
-    await fs.mkdir(GENERATED_IMAGE_DIR, { recursive: true });
     const safeId = storagePathSegment(taskId || randomId("workflow-frame"));
     const fileName = `${safeId}-last-frame.jpg`;
-    const localFramePath = path.join(GENERATED_IMAGE_DIR, fileName);
-    const localFrameUrl = `/assets/generated/images/${fileName}`;
+    const localFramePath = path.join(workspace, fileName);
     const captured = await captureVideoFrameAt(resolved.filePath, localFramePath, seek);
     if (!captured) {
       return sendJson(res, 502, { ok: false, message: "Failed to extract workflow tail frame." });
     }
+    const frameBytes = await fs.readFile(localFramePath);
+    const upload = await uploadStaticAssetToObjectStorage({
+      key: objectStoragePath("generated", "images", fileName),
+      bytes: frameBytes,
+      mime: "image/jpeg",
+    });
+    await verifyObjectStorageMedia(upload, { expectedBytes: frameBytes.length, label: "Workflow tail frame" });
     return sendJson(res, 200, {
       ok: true,
-      frameUrl: localFrameUrl,
-      localFrameUrl,
-      publicFrameUrl: publicUrlForAssetPath(localFrameUrl),
+      frameUrl: upload.publicUrl,
+      localFrameUrl: "",
+      publicFrameUrl: upload.publicUrl,
+      storageKey: upload.key || "",
+      storageProvider: upload.provider || objectStorageProvider(),
       duration,
       seek,
     });
   } catch (error) {
     return sendJson(res, error.statusCode || 500, { ok: false, message: error.message || "Failed to extract workflow frame." });
+  } finally {
+    await removeGeneratedMediaWorkspace(workspace);
   }
 }
 
@@ -904,6 +947,7 @@ async function handleWorkflowCompose(req, res) {
   const count = Math.max(taskIds.length, videoUrls.length);
   if (!count) return sendJson(res, 400, { ok: false, message: "No workflow videos to compose." });
   if (count > 12) return sendJson(res, 400, { ok: false, message: "Workflow compose supports up to 12 videos." });
+  const workspace = await createGeneratedMediaWorkspace(`workflow-compose-${randomId("job")}`);
   try {
     const inputs = [];
     for (let index = 0; index < count; index += 1) {
@@ -911,14 +955,13 @@ async function handleWorkflowCompose(req, res) {
         taskId: taskIds[index] || "",
         videoUrl: videoUrls[index] || "",
         index,
+        workspace,
       });
       inputs.push(resolved.filePath);
     }
-    await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
     const outputId = randomId("workflow");
-    const listPath = path.join(GENERATED_VIDEO_DIR, `${outputId}.txt`);
-    const localVideoPath = path.join(GENERATED_VIDEO_DIR, `${outputId}.mp4`);
-    const localVideoUrl = `/assets/generated/videos/${outputId}.mp4`;
+    const listPath = path.join(workspace, `${outputId}.txt`);
+    const localVideoPath = path.join(workspace, `${outputId}.mp4`);
     const concatList = inputs.map((filePath) => `file '${String(filePath).replace(/'/g, "'\\''")}'`).join("\n");
     await fs.writeFile(listPath, concatList, "utf8");
     await execFileQuiet("ffmpeg", [
@@ -941,18 +984,31 @@ async function handleWorkflowCompose(req, res) {
       "+faststart",
       localVideoPath,
     ], { timeout: 15 * 60 * 1000 });
-    const poster = await createGeneratedVideoPoster(outputId, localVideoPath);
+    const poster = await createGeneratedVideoPoster(outputId, localVideoPath, { directory: workspace });
+    const cdn = await uploadGeneratedMediaToObjectStorage({
+      taskId: outputId,
+      localVideoPath,
+      localPosterPath: poster.localPosterPath,
+      force: true,
+    });
+    if (!cdn.cdnVideoUrl || !cdn.storageKey) {
+      throw Object.assign(new Error(cdn.cdnError || "Workflow composition was not persisted to object storage."), { statusCode: 502 });
+    }
     return sendJson(res, 200, {
       ok: true,
-      videoUrl: localVideoUrl,
-      localVideoUrl,
-      posterUrl: poster.localPosterUrl || "",
-      localPosterUrl: poster.localPosterUrl || "",
+      videoUrl: cdn.cdnVideoUrl,
+      localVideoUrl: "",
+      posterUrl: cdn.cdnPosterUrl || "",
+      localPosterUrl: "",
+      storageKey: cdn.storageKey,
+      posterStorageKey: cdn.posterStorageKey || "",
       taskId: outputId,
       count,
     });
   } catch (error) {
     return sendJson(res, error.statusCode || 500, { ok: false, message: error.message || "Failed to compose workflow output." });
+  } finally {
+    await removeGeneratedMediaWorkspace(workspace);
   }
 }
 
@@ -1117,26 +1173,30 @@ async function localVideoToolAssetPath(asset = {}, workDir = "") {
 }
 
 function publicUndressLockedPreviewUrl(value = "") {
-  const pathname = String(value || "").trim().split("?")[0];
-  return /^\/assets\/generated\/locked-previews\/[a-z0-9_-]+\.jpg$/i.test(pathname) ? pathname : "";
+  const text = String(value || "").trim();
+  if (!text) return "";
+  let parsed;
+  try {
+    parsed = new URL(text, "https://local.invalid");
+  } catch {
+    return "";
+  }
+  if (!/^\/assets\/generated\/locked-previews\/[a-z0-9_-]+\.jpg$/i.test(parsed.pathname)) return "";
+  return isPublicHttpUrl(text) ? parsed.toString() : parsed.pathname;
 }
 
 function undressLockedPreviewFile(taskId = "") {
   const safeTaskId = String(taskId || randomId("locked-preview")).replace(/[^a-z0-9_-]/gi, "_");
   const fileName = `${safeTaskId}.jpg`;
-  return {
-    filePath: path.join(GENERATED_LOCKED_PREVIEW_DIR, fileName),
-    publicUrl: `/assets/generated/locked-previews/${fileName}`,
-  };
+  return { fileName, publicPath: `/assets/generated/locked-previews/${fileName}` };
 }
 
-async function createUndressLockedPreview(taskId, sourceImagePath) {
+async function createUndressLockedPreview(taskId, sourceImagePath, { workspace = "" } = {}) {
+  if (!sourceImagePath) throw new Error("Locked preview source image is required.");
+  const ownWorkspace = !workspace;
+  workspace = workspace || await createGeneratedMediaWorkspace(`locked-preview-${taskId || "image"}`);
   const preview = undressLockedPreviewFile(taskId);
-  const tempPath = path.join(
-    GENERATED_LOCKED_PREVIEW_DIR,
-    `.${path.basename(preview.filePath, ".jpg")}-${process.pid}-${Date.now()}.jpg`,
-  );
-  await fs.mkdir(GENERATED_LOCKED_PREVIEW_DIR, { recursive: true });
+  const tempPath = path.join(workspace, `preview-${process.pid}-${Date.now()}.jpg`);
   try {
     await execFileQuiet("ffmpeg", [
       "-y",
@@ -1152,18 +1212,36 @@ async function createUndressLockedPreview(taskId, sourceImagePath) {
       "-1",
       tempPath,
     ], { timeout: 60000 });
-    await fs.rm(preview.filePath, { force: true });
-    await fs.rename(tempPath, preview.filePath);
+    const bytes = await fs.readFile(tempPath);
+    const upload = await uploadStaticAssetToObjectStorage({
+      key: objectStoragePath("generated", "locked-previews", preview.fileName),
+      bytes,
+      mime: "image/jpeg",
+    });
+    await verifyObjectStorageMedia(upload, { expectedBytes: bytes.length, label: "Locked result preview" });
     return {
-      lockedPreviewPath: preview.filePath,
-      lockedPreviewUrl: preview.publicUrl,
+      lockedPreviewPath: "",
+      lockedPreviewUrl: upload.publicUrl,
+      lockedPreviewStorageKey: upload.key || "",
+      lockedPreviewStorageProvider: upload.provider || objectStorageProvider(),
     };
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => {});
+    if (ownWorkspace) await removeGeneratedMediaWorkspace(workspace);
   }
 }
 
-async function existingUndressLockedImagePath(record = {}) {
+async function existingUndressLockedImagePath(record = {}, workspace = "") {
+  if (!workspace) throw new Error("Locked image workspace is required.");
+  const protectedKey = String(record.storageKey || record.imageStorageKey || "").trim();
+  if (protectedKey && objectStorageEnabled()) {
+    const fileName = `protected-${storagePathSegment(record.taskId || "image")}${imageExtFromMime(record.imageMime || record.mime || "image/png")}`;
+    const filePath = path.join(workspace, fileName);
+    await downloadOssObject({ key: protectedKey, filePath, maxBytes: 30 * 1024 * 1024, config: OSS });
+    return filePath;
+  }
+  // Transitional read-only support for pre-migration records. The file is
+  // copied into the task workspace and is never written to a durable path.
   const candidates = [
     String(record.localImagePath || "").trim(),
     localAssetPathFromPublicValue(record.localImageUrl || ""),
@@ -1175,7 +1253,9 @@ async function existingUndressLockedImagePath(record = {}) {
     if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) continue;
     try {
       await fs.access(filePath);
-      return filePath;
+      const copiedPath = path.join(workspace, `historical-${path.basename(filePath)}`);
+      await fs.copyFile(filePath, copiedPath);
+      return copiedPath;
     } catch {}
   }
   return "";
@@ -1186,42 +1266,31 @@ async function ensureUndressLockedPreview(record = {}) {
     || String(record.kind || "").includes("tool-undress");
   if (!isUndressRecord || record.resultLocked !== true || !isSucceededStatus(record.status)) return record;
 
-  const previewUrl = publicUndressLockedPreviewUrl(record.lockedPreviewUrl);
-  const previewFile = previewUrl ? localAssetPathFromPublicValue(previewUrl) : "";
-  if (previewFile) {
-    try {
-      await fs.access(previewFile);
-      return record;
-    } catch {}
-  }
-
-  const sourceImagePath = await existingUndressLockedImagePath(record);
-  if (!sourceImagePath) return record;
+  if (publicUndressLockedPreviewUrl(record.lockedPreviewUrl)) return record;
+  const workspace = await createGeneratedMediaWorkspace(`locked-unlock-${record.taskId || "image"}`);
   try {
-    const preview = await createUndressLockedPreview(record.taskId, sourceImagePath);
+    const sourceImagePath = await existingUndressLockedImagePath(record, workspace);
+    if (!sourceImagePath) return record;
+    const preview = await createUndressLockedPreview(record.taskId, sourceImagePath, { workspace });
     return await upsertGenerationRecord({ taskId: record.taskId, ...preview });
   } catch (error) {
     console.warn("[undress-locked-preview-failed]", record.taskId, error.message || error);
     return record;
+  } finally {
+    await removeGeneratedMediaWorkspace(workspace);
   }
 }
 
 async function publishVideoToolInput(filePath, taskId, index) {
   const fileName = `${storagePathSegment(taskId)}-input-${index + 1}.mp4`;
-  const publicPath = `/assets/generated/videos/${fileName}`;
-  const publicFilePath = path.join(GENERATED_VIDEO_DIR, fileName);
-  await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
-  await fs.copyFile(filePath, publicFilePath);
-  if (objectStorageEnabled()) {
-    const upload = await uploadStaticAssetToObjectStorage({
-      key: objectStoragePath("generated", "videos", fileName),
-      bytes: await fs.readFile(publicFilePath),
-      mime: videoMimeFromPath(publicFilePath),
-    });
-    if (!upload.publicUrl) throw new Error("Video tool input could not be published to R2.");
-    return { url: upload.publicUrl, publicFilePath, storageKey: upload.key || "" };
-  }
-  return { url: publicUrlForAssetPath(publicPath), publicFilePath, storageKey: "" };
+  if (!objectStorageEnabled()) throw new Error("Video tool inputs require object storage.");
+  const upload = await uploadStaticAssetToObjectStorage({
+    key: objectStoragePath("generated", "video-inputs", fileName),
+    filePath,
+    mime: videoMimeFromPath(filePath),
+  });
+  await verifyObjectStorageMedia(upload, { label: "Video tool input" });
+  return { url: upload.publicUrl, storageKey: upload.key || "" };
 }
 
 async function waitForAliyunVideoToolTask(upstreamTaskId, { timeoutMs = 45 * 60 * 1000, inputUrls = [] } = {}) {
@@ -1306,31 +1375,45 @@ async function downloadVideoToolSegment(url, filePath) {
 
 async function composeVideoToolSegments(taskId, inputPaths = []) {
   if (!inputPaths.length) throw new Error("No generated video segments were returned.");
-  await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
-  const listPath = path.join(GENERATED_VIDEO_DIR, `${storagePathSegment(taskId)}-segments.txt`);
-  const localVideoPath = path.join(GENERATED_VIDEO_DIR, videoFileName(taskId));
-  const localVideoUrl = `/assets/generated/videos/${videoFileName(taskId)}`;
-  const concatList = inputPaths.map((filePath) => `file '${String(filePath).replace(/'/g, "'\\''")}'`).join("\n");
-  await fs.writeFile(listPath, concatList, "utf8");
+  const workspace = await createGeneratedMediaWorkspace(`video-stitch-${taskId}`);
   try {
+    const listPath = path.join(workspace, `${storagePathSegment(taskId)}-segments.txt`);
+    const localVideoPath = path.join(workspace, videoFileName(taskId));
+    const concatList = inputPaths.map((filePath) => `file '${String(filePath).replace(/'/g, "'\\''")}'`).join("\n");
+    await fs.writeFile(listPath, concatList, "utf8");
     await execFileQuiet("ffmpeg", [
       "-y", "-f", "concat", "-safe", "0", "-i", listPath,
       "-map", "0:v:0", "-map", "0:a?",
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", localVideoPath,
     ], { timeout: 30 * 60 * 1000 });
-  } finally {
-    await fs.rm(listPath, { force: true }).catch(() => {});
-  }
-  const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
-  const cdn = generatedOutputStorageEnabled()
-    ? await uploadGeneratedMediaToObjectStorage({
+    const poster = await createGeneratedVideoPoster(taskId, localVideoPath, { directory: workspace });
+    const cdn = await uploadGeneratedMediaToObjectStorage({
       taskId,
       localVideoPath,
       localPosterPath: poster.localPosterPath,
-    })
-    : { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
-  return { localVideoPath, localVideoUrl, playbackOptimizedAt: new Date().toISOString(), ...poster, ...cdn };
+      force: true,
+    });
+    if (!cdn.cdnVideoUrl || !cdn.storageKey) {
+      throw Object.assign(new Error(cdn.cdnError || "Stitched video was not persisted to object storage."), { statusCode: 502 });
+    }
+    return {
+      localVideoPath: "",
+      localVideoUrl: "",
+      localPosterPath: "",
+      localPosterUrl: "",
+      playbackOptimizedAt: new Date().toISOString(),
+      cdnVideoUrl: cdn.cdnVideoUrl,
+      cdnPosterUrl: cdn.cdnPosterUrl || "",
+      storageProvider: cdn.storageProvider || objectStorageProvider(),
+      storageKey: cdn.storageKey,
+      posterStorageProvider: cdn.posterStorageProvider || "",
+      posterStorageKey: cdn.posterStorageKey || "",
+      cdnError: cdn.cdnError || "",
+    };
+  } finally {
+    await removeGeneratedMediaWorkspace(workspace);
+  }
 }
 
 async function createHiddenVideoToolImageAsset(db, user, imageUrl, taskId, stage) {

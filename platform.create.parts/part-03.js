@@ -355,7 +355,7 @@ async function submitAdvancedGenerateInternal() {
     const vegaDuration = vegaBounds.smart && rawVegaDuration === -1
       ? -1
       : Math.min(vegaBounds.max, Math.max(vegaBounds.min, Number.isFinite(rawVegaDuration) ? rawVegaDuration : vegaBounds.fallback));
-    const vegaOptions = advancedVegaPayloadOptions(provider);
+    const vegaOptions = advancedVegaGenerationOptions(provider);
     const vegaTaskType = String(vegaOptions.taskType || "auto").trim().toLowerCase();
     const vegaSourceMediaMode = advancedVegaMediaMode();
     const vegaDraftFollowup = advancedVegaDraftFollowup();
@@ -493,7 +493,7 @@ async function submitAdvancedGenerateInternal() {
       if (els.advancedNote) els.advancedNote.textContent = "Vega draft generation requires 480P resolution.";
       return;
     }
-    const vegaPayload = {
+    const vegaPayloadBase = {
       provider,
       ...(vegaDraftFollowup ? {} : { prompt }),
       duration: vegaDraftFollowup || ["edit", "extend"].includes(vegaTaskType) ? -1 : vegaDuration,
@@ -525,6 +525,10 @@ async function submitAdvancedGenerateInternal() {
         referenceAudioAssetUris: vegaReferenceAudioMedia.map((entry) => entry.assetUri || ""),
       } : {}),
     };
+    // Keep an exact, detached copy of the submitted model parameters in the
+    // PostgreSQL generation record. Regeneration can then carry hidden Vega
+    // options forward without repopulating or exposing their controls.
+    const vegaPayload = { ...vegaPayloadBase, submissionSnapshot: { ...vegaPayloadBase } };
     if (vegaDraftFollowup) {
       delete vegaPayload.draft;
       vegaPayload.taskType = "auto";
@@ -1164,9 +1168,31 @@ function advancedPromptPasteImageRule() {
   const imageTargets = advancedAssetTargetItems().filter((target) => target.type === "image");
   if (!imageTargets.length) return { allowed: false, limit: 0, target: "references" };
 
-  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
+  const rawMediaMode = els.advancedSeedanceMediaMode?.value || "reference_video";
+  if (isVegaAdvancedProvider(provider)) {
+    const vegaMode = normalizeVegaUiMediaMode(rawMediaMode);
+    if (vegaModeNeedsFirstFrame(vegaMode) || vegaModeNeedsLastFrame(vegaMode)) {
+      return {
+        allowed: true,
+        limit: Number(vegaModeNeedsFirstFrame(vegaMode)) + Number(vegaModeNeedsLastFrame(vegaMode)),
+        target: "frames",
+        replaceExisting: false,
+      };
+    }
+    if (vegaModeUsesReferences(vegaMode)) {
+      return {
+        allowed: true,
+        limit: vegaReferenceLimits(provider).images,
+        target: "references",
+        replaceExisting: false,
+      };
+    }
+    return { allowed: false, limit: 0, target: "references" };
+  }
+
+  const seedanceMode = normalizeSeedanceMediaMode(rawMediaMode);
   const sharedFrameProvider = ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider);
-  if ((sharedFrameProvider || isVegaAdvancedProvider(provider)) && seedanceModeNeedsFirstFrame(seedanceMode)) {
+  if (sharedFrameProvider && seedanceModeNeedsFirstFrame(seedanceMode)) {
     return { allowed: true, limit: 2, target: "frames", replaceExisting: false };
   }
 
@@ -1190,6 +1216,53 @@ function advancedPromptPasteImageRule() {
 
 function advancedPromptPasteTargetIsReferenceImages() {
   return advancedPromptPasteImageRule().allowed;
+}
+
+async function addAdvancedVegaPromptPasteImages(files = [], rule = {}, provider = currentAdvancedProvider()) {
+  const targets = rule.target === "frames"
+    ? advancedAssetTargetItems().filter((target) => (
+      ["primary", "lastFrame"].includes(target.id) && !advancedTargetHasSelection(target.id)
+    ))
+    : [{ id: "referenceImages", label: t("advanced.assetTargetReferenceImages") }];
+  const resolved = [];
+  for (const file of files) {
+    const target = targets[resolved.length];
+    if (!target) {
+      throw new Error(t("advanced.referenceImageTooMany", { count: rule.limit }));
+    }
+    const usesMediaLibrary = vegaProviderUsesMediaLibrary(provider);
+    const ref = usesMediaLibrary
+      ? await uploadAdvancedImageReference(file, { provider })
+      : await uploadAdvancedTransientMediaReference(file, "image", { provider });
+    if (!ref) return false;
+    const asset = {
+      ...ref,
+      id: ref.assetId || ref.id || "",
+      kind: "image",
+      mime: uploadedFileMime(file),
+    };
+    const selection = usesMediaLibrary
+      ? await resolveAdvancedVegaAsset(asset, target.id)
+      : advancedVegaSelection(asset, target.id);
+    if (!selection.ok) {
+      throw new Error(selection.message || "This image cannot be used for the selected Vega input.");
+    }
+    resolved.push({ selection, target });
+  }
+  if (!resolved.length) return false;
+
+  state.activeAdvancedCaseId = "";
+  if (rule.target === "frames") {
+    state.advancedReferenceImages = [];
+  } else {
+    state.advancedFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameDataUrl = "";
+    state.advancedSourceImageAssetId = "";
+  }
+  state.advancedWanClipAssetId = "";
+  resolved.forEach(({ selection, target }) => applyAdvancedVegaSelection(selection, target));
+  return true;
 }
 
 async function handleAdvancedPromptPaste(event) {
@@ -1221,43 +1294,51 @@ async function handleAdvancedPromptPaste(event) {
     updateAdvancedModelControls();
     return;
   }
-  const addedImages = [];
-  for (let index = 0; index < selectedFiles.length; index += 1) {
-    const file = selectedFiles[index];
-    addedImages.push({
-      dataUrl: await readFileAsDataUrl(file),
-      fileName: file.name || `pasted-reference-${Date.now()}-${index + 1}.png`,
-    });
-  }
-  state.activeAdvancedCaseId = "";
-  if (rule.target === "frames") {
-    state.advancedReferenceImages = [];
-    addedImages.forEach((image) => {
-      if (!state.advancedSeedanceFirstFrameDataUrl && !state.advancedSeedanceFirstFrameAssetId) {
-        state.advancedSeedanceFirstFrameDataUrl = image.dataUrl;
-        state.advancedSeedanceFirstFrameAssetId = "";
-        state.advancedFirstFrameAssetId = "";
-      } else if (!state.advancedSeedanceLastFrameDataUrl && !state.advancedSeedanceLastFrameAssetId) {
-        state.advancedSeedanceLastFrameDataUrl = image.dataUrl;
-        state.advancedSeedanceLastFrameAssetId = "";
-      }
-    });
-    state.advancedUploadDataUrl = state.advancedSeedanceFirstFrameDataUrl || "";
+  if (isVegaAdvancedProvider(provider)) {
+    const added = await addAdvancedVegaPromptPasteImages(selectedFiles, rule, provider);
+    if (!added) {
+      updateAdvancedModelControls();
+      return;
+    }
   } else {
-    const stamped = addedImages.map(stampAdvancedReferenceOrder);
-    state.advancedReferenceImages = dedupeAdvancedReferenceImages([
-      ...existing,
-      ...stamped,
-    ]).slice(0, referenceLimit);
-    const pinned = stamped[stamped.length - 1];
-    if (pinned) state.advancedPinnedMentionKey = advancedPromptMentionStableKey({ kind: "image", item: pinned });
-    state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
-    state.advancedFirstFrameAssetId = "";
-    state.advancedSeedanceFirstFrameAssetId = "";
-    state.advancedSeedanceFirstFrameDataUrl = "";
-    state.advancedSourceImageAssetId = isAdvancedImageProvider(provider) ? (state.advancedReferenceImages[0]?.assetId || "") : "";
+    const addedImages = [];
+    for (let index = 0; index < selectedFiles.length; index += 1) {
+      const file = selectedFiles[index];
+      addedImages.push({
+        dataUrl: await readFileAsDataUrl(file),
+        fileName: file.name || `pasted-reference-${Date.now()}-${index + 1}.png`,
+      });
+    }
+    state.activeAdvancedCaseId = "";
+    if (rule.target === "frames") {
+      state.advancedReferenceImages = [];
+      addedImages.forEach((image) => {
+        if (!state.advancedSeedanceFirstFrameDataUrl && !state.advancedSeedanceFirstFrameAssetId) {
+          state.advancedSeedanceFirstFrameDataUrl = image.dataUrl;
+          state.advancedSeedanceFirstFrameAssetId = "";
+          state.advancedFirstFrameAssetId = "";
+        } else if (!state.advancedSeedanceLastFrameDataUrl && !state.advancedSeedanceLastFrameAssetId) {
+          state.advancedSeedanceLastFrameDataUrl = image.dataUrl;
+          state.advancedSeedanceLastFrameAssetId = "";
+        }
+      });
+      state.advancedUploadDataUrl = state.advancedSeedanceFirstFrameDataUrl || "";
+    } else {
+      const stamped = addedImages.map(stampAdvancedReferenceOrder);
+      state.advancedReferenceImages = dedupeAdvancedReferenceImages([
+        ...existing,
+        ...stamped,
+      ]).slice(0, referenceLimit);
+      const pinned = stamped[stamped.length - 1];
+      if (pinned) state.advancedPinnedMentionKey = advancedPromptMentionStableKey({ kind: "image", item: pinned });
+      state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+      state.advancedFirstFrameAssetId = "";
+      state.advancedSeedanceFirstFrameAssetId = "";
+      state.advancedSeedanceFirstFrameDataUrl = "";
+      state.advancedSourceImageAssetId = isAdvancedImageProvider(provider) ? (state.advancedReferenceImages[0]?.assetId || "") : "";
+    }
+    state.advancedWanClipAssetId = "";
   }
-  state.advancedWanClipAssetId = "";
   if (els.advancedImage) els.advancedImage.value = "";
   if (validFiles.length > selectedFiles.length && els.advancedNote) {
     els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: referenceLimit });

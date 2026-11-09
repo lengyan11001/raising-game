@@ -22,15 +22,24 @@ test("generated media defaults to on-demand storage", () => {
   assert.match(server, /if \(DISABLE_GENERATED_R2_STORAGE\) return record;\n  if \(!record\?\.taskId\) return record;/);
 });
 
-test("generated video and image helpers defer local writes until forced", () => {
+test("generated video and image helpers persist only verified object-storage media", () => {
   const video = server.slice(server.indexOf("async function downloadGeneratedVideo"), server.indexOf("function imageFileName"));
-  assert.match(video, /!forceLocal && \(!generatedOutputStorageEnabled\(\) \|\| GENERATED_ASSETS_ON_DEMAND\)/);
+  assert.match(video, /Generated videos are never a durable local asset/);
+  assert.match(video, /createGeneratedMediaWorkspace\(taskId \|\| "video"\)/);
+  assert.match(video, /createGeneratedVideoPoster\(taskId, downloaded\.localVideoPath, \{ directory: workspace \}\)/);
+  assert.match(video, /uploadGeneratedMediaToObjectStorage\(\{/);
+  assert.match(video, /force: true,/);
+  assert.match(video, /localVideoUrl: "",/);
+  assert.match(video, /finally \{\s*await removeGeneratedMediaWorkspace\(workspace\);/);
   const image = server.slice(server.indexOf("async function saveGeneratedImageFile"), server.indexOf("async function saveRemoteGeneratedImage"));
-  assert.match(image, /!forceLocal && \(!generatedOutputStorageEnabled\(\) \|\| GENERATED_ASSETS_ON_DEMAND\)/);
-  assert.match(server, /async function saveRemoteGeneratedImage[\s\S]*?!forceLocal && \(!generatedOutputStorageEnabled\(\) \|\| GENERATED_ASSETS_ON_DEMAND\)/);
+  assert.match(image, /uploadStaticAssetToObjectStorage\(/);
+  assert.match(image, /await verifyObjectStorageMedia\(upload/);
+  assert.match(image, /localImagePath: "",/);
+  assert.match(image, /localImageUrl: "",/);
+  assert.match(server, /async function saveRemoteGeneratedImage[\s\S]*?if \(!saved\.cdnImageUrl \|\| !saved\.storageKey\)/);
 });
 
-test("advanced download preparation forces a local transient copy and R2 upload", () => {
+test("advanced download preparation materializes durable OSS media without local persistence", () => {
   const prepare = server.slice(
     server.indexOf("async function prepareGenerationRecordAdvancedDownload"),
     server.indexOf("function generationImageResultUrl"),
@@ -39,28 +48,33 @@ test("advanced download preparation forces a local transient copy and R2 upload"
   assert.match(prepare, /downloadGeneratedVideo\(existing\.taskId, providerTarget\.url, \{ forceLocal: true \}\)/);
   assert.match(prepare, /generationRecordProviderImageUrls\(existing\)/);
   assert.match(prepare, /downloadRemoteFileToBuffer\(sourceUrl, \{ label: "advanced download image"/);
-  assert.match(prepare, /saveGeneratedImageFile\(imageTaskId, downloaded\.bytes, mime, \{ publish: false, forceLocal: true \}\)/);
   assert.match(prepare, /uploadStaticAssetToObjectStorage\(/);
-  assert.match(prepare, /markPublishedFileSafely\(saved\.localImagePath\)/);
+  assert.match(prepare, /await verifyObjectStorageMedia\(upload/);
   assert.match(prepare, /if \(!objectStorageEnabled\(\) \|\| !isSucceededStatus\(record\.status\)\) return record;/);
-  assert.match(prepare, /force: true,/);
+  assert.match(prepare, /localVideoUrl: "",/);
+  assert.match(prepare, /localImageUrl: "",/);
+  assert.match(prepare, /storageKey: media\.storageKey/);
   assert.match(prepare, /updateGenerationRecordAdvancedDownloadInDb\(existing\.taskId, \{/);
+  assert.doesNotMatch(prepare, /saveGeneratedImageFile\(/);
+  assert.doesNotMatch(prepare, /markPublishedFileSafely\(/);
   assert.doesNotMatch(prepare, /return upsertGenerationRecord\(\{\s*taskId: existing\.taskId/);
-  const localPersist = prepare.indexOf("const localMedia =");
-  const storageUpload = prepare.indexOf("const cdn = await uploadGeneratedMediaToObjectStorage");
-  assert.ok(localPersist >= 0 && localPersist < storageUpload, "local media fields must be persisted before object-storage upload");
-  assert.match(prepare.slice(localPersist, storageUpload), /localPosterUrl: poster\.localPosterUrl/);
 });
 
-test("video publication persists local video and poster before mirroring to object storage", () => {
-  const video = server.slice(server.indexOf("async function downloadGeneratedVideo"), server.indexOf("function imageFileName"));
-  const persist = video.indexOf("// Persist the usable local copy before object-storage publication finishes.");
-  const resultUrl = video.indexOf("const result = {", video.indexOf("const poster = await createGeneratedVideoPoster"));
-  assert.ok(persist > resultUrl, "publication must persist after the local result is assembled");
-  assert.match(video.slice(persist), /localVideoUrl: result\.localVideoUrl/);
-  assert.match(video.slice(persist), /localPosterUrl: result\.localPosterUrl/);
-  assert.match(video.slice(persist), /posterUrl: result\.localPosterUrl/);
-  assert.doesNotMatch(video.slice(persist), /if \(taskId && \(result\.storageKey/);
+test("video publication returns only durable OSS metadata", () => {
+  const durable = server.slice(
+    server.indexOf("function generatedVideoDurableMediaUpdates"),
+    server.indexOf("async function downloadRemoteVideoToWorkspace"),
+  );
+  assert.match(durable, /videoUrl: cdnVideoUrl \|\| String\(record\.videoUrl \|\| ""\)\.trim\(\)/);
+  assert.match(durable, /posterUrl: cdnPosterUrl \|\| String\(record\.posterUrl \|\| ""\)\.trim\(\)/);
+  assert.match(durable, /localVideoUrl: "",/);
+  assert.match(durable, /localVideoPath: "",/);
+  assert.match(durable, /localPosterUrl: "",/);
+  assert.match(durable, /localPosterPath: "",/);
+  assert.match(durable, /storageProvider: String\(media\.storageProvider/);
+  assert.match(durable, /storageKey: String\(media\.storageKey/);
+  assert.match(durable, /posterStorageProvider: String\(media\.posterStorageProvider/);
+  assert.match(durable, /posterStorageKey: String\(media\.posterStorageKey/);
 });
 
 test("successful generation immediately queues background transfer without waiting for download2", () => {
@@ -282,8 +296,19 @@ test("advanced downloads poll a short R2 preparation request before direct brows
   assert.doesNotMatch(download, /saveDownloadFromFetch|response\.blob\(\)/);
 });
 
-test("free locked Undress previews still keep a forced local source", () => {
-  assert.match(server, /if \(freeImageGeneration\) \{[\s\S]*?saveGeneratedImageFile\(taskId, downloaded\.bytes, mime, \{ publish: false, forceLocal: true \}\)/);
+test("free locked Undress originals and previews are persisted only to OSS", () => {
+  const freeResult = server.slice(
+    server.indexOf("if (freeImageGeneration) {"),
+    server.indexOf("} else {", server.indexOf("if (freeImageGeneration) {")),
+  );
+  assert.match(freeResult, /uploadStaticAssetToObjectStorage\(/);
+  assert.match(freeResult, /await verifyObjectStorageMedia\(upload/);
+  assert.match(freeResult, /localImagePath: "",/);
+  assert.match(freeResult, /localImageUrl: "",/);
+  assert.match(freeResult, /createGeneratedMediaWorkspace\(`locked-result-/);
+  assert.match(freeResult, /createUndressLockedPreview\(taskId, sourcePath, \{ workspace \}\)/);
+  assert.match(freeResult, /removeGeneratedMediaWorkspace\(workspace\)/);
+  assert.doesNotMatch(freeResult, /forceLocal: true/);
 });
 
 test("on-demand still repairs a successful video poster", () => {
@@ -320,8 +345,14 @@ test("on-demand poster-only repair does not persist a downloaded video", () => {
   const video = server.slice(server.indexOf("async function downloadGeneratedVideo"), server.indexOf("function imageFileName"));
   assert.match(video, /\{ forceLocal = false, posterOnly = false \} = \{\}/);
   assert.match(video, /if \(posterOnly\) \{/);
-  assert.match(video, /createGeneratedVideoPoster\(taskId, source\)/);
-  assert.doesNotMatch(video.slice(video.indexOf("if (posterOnly)"), video.indexOf("if (existing?.localVideoUrl)")), /fs\.writeFile\(/);
+  assert.match(video, /createGeneratedVideoPoster\(taskId, source, \{ directory: workspace \}\)/);
+  const posterBranch = video.slice(
+    video.indexOf("if (posterOnly)"),
+    video.indexOf('const workspace = await createGeneratedMediaWorkspace(taskId || "video")'),
+  );
+  assert.match(posterBranch, /uploadStaticAssetToObjectStorage\(/);
+  assert.match(posterBranch, /removeGeneratedMediaWorkspace\(workspace\)/);
+  assert.doesNotMatch(posterBranch, /fs\.writeFile\(/);
 });
 
 test("public records expose repaired posters to both result surfaces", () => {

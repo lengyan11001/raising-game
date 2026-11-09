@@ -1129,6 +1129,10 @@ async function refreshApizGenerationRecord(record) {
       : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
     cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
     cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
+    storageProvider: media.storageProvider || record.storageProvider || "",
+    storageKey: media.storageKey || record.storageKey || "",
+    posterStorageProvider: media.posterStorageProvider || record.posterStorageProvider || "",
+    posterStorageKey: media.posterStorageKey || record.posterStorageKey || "",
     cdnError: media.cdnError || record.cdnError || "",
     error: gatewayTask?.error || task.error?.message || task.error || task.message || media.downloadError || "",
     queryResponse: task,
@@ -1163,6 +1167,10 @@ async function refreshSeedance25GenerationRecord(record, reason = "query") {
       : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
     cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
     cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
+    storageProvider: media.storageProvider || record.storageProvider || "",
+    storageKey: media.storageKey || record.storageKey || "",
+    posterStorageProvider: media.posterStorageProvider || record.posterStorageProvider || "",
+    posterStorageKey: media.posterStorageKey || record.posterStorageKey || "",
     cdnError: media.cdnError || record.cdnError || "",
     error: (isFailedStatus(status) ? seedance25TaskFailureMessage(task) || "Seedance 2.5 generation failed." : "")
       || media.downloadError

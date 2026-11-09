@@ -502,14 +502,17 @@ async function runQwenImage3GenerationJob(job = {}) {
     const remoteImageUrls = qwenImage3OutputUrls(raw);
     if (!remoteImageUrls.length) throw Object.assign(new Error("Qwen Image 3.0 returned no image."), { statusCode: 502, payload: raw });
     const savedImages = [];
-    if (!GENERATED_ASSETS_ON_DEMAND) {
-      for (let index = 0; index < remoteImageUrls.length; index += 1) {
-        savedImages.push(await saveRemoteGeneratedImage(index ? `${taskId}-${index + 1}` : taskId, remoteImageUrls[index]));
-      }
+    for (let index = 0; index < remoteImageUrls.length; index += 1) {
+      savedImages.push(await saveRemoteGeneratedImage(index ? `${taskId}-${index + 1}` : taskId, remoteImageUrls[index]));
     }
-    const resultUrls = savedImages.length
-      ? savedImages.map((item, index) => item.cdnImageUrl || remoteImageUrls[index] || item.localImageUrl).filter(Boolean)
-      : remoteImageUrls;
+    if (savedImages.some((item) => !item.cdnImageUrl || !item.storageKey)) {
+      throw Object.assign(new Error("Qwen Image 3.0 output could not be persisted to object storage."), {
+        statusCode: 502,
+        retryable: true,
+        payload: raw,
+      });
+    }
+    const resultUrls = savedImages.map((item, index) => item.cdnImageUrl || remoteImageUrls[index]).filter(Boolean);
     await upsertGenerationRecord({
       taskId,
       upstreamTaskId: String(raw.request_id || raw.requestId || ""),
@@ -522,6 +525,7 @@ async function runQwenImage3GenerationJob(job = {}) {
       localImageUrls: savedImages.map((item) => item.localImageUrl).filter(Boolean),
       cdnImageUrl: savedImages[0]?.cdnImageUrl || "",
       cdnImageUrls: savedImages.map((item) => item.cdnImageUrl).filter(Boolean),
+      cdnImageStorageKeys: savedImages.map((item) => item.storageKey || ""),
       storageProvider: savedImages[0]?.storageProvider || "",
       storageKey: savedImages[0]?.storageKey || "",
       remoteImageUrl: remoteImageUrls[0] || "",
@@ -847,17 +851,17 @@ async function handleAdvancedZImageSpicyProGenerate(req, res, context = {}) {
       error.payload = submitted.raw;
       throw error;
     }
-    const savedImage = GENERATED_ASSETS_ON_DEMAND
-      ? { localImagePath: "", localImageUrl: "", cdnImageUrl: "", cdnError: "" }
-      : await saveRemoteGeneratedImage(taskId, imageUrl);
+    const savedImage = await saveRemoteGeneratedImage(taskId, imageUrl);
     await upsertGenerationRecord({
       taskId,
       status: "succeeded",
       awaitingUpstreamTask: false,
       imageResultUrl: savedImage.cdnImageUrl || imageUrl,
-      localImageUrl: savedImage.localImageUrl,
-      localImagePath: savedImage.localImagePath,
+      localImageUrl: "",
+      localImagePath: "",
       cdnImageUrl: savedImage.cdnImageUrl,
+      storageProvider: savedImage.storageProvider || "",
+      storageKey: savedImage.storageKey || "",
       cdnError: savedImage.cdnError,
       remoteImageUrl: imageUrl,
       finalCredits: cost,

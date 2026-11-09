@@ -144,12 +144,26 @@ async function handleAdminGetCharacterSceneVideo(req, res, taskId) {
   const task = gatewayTask || normalizeTask(raw);
   let localVideoUrl = "";
   let localVideoPath = "";
+  let cdnVideoUrl = "";
+  let cdnPosterUrl = "";
+  let storageProvider = "";
+  let storageKey = "";
+  let posterStorageProvider = "";
+  let posterStorageKey = "";
+  let cdnError = "";
   let downloadError = "";
   if (isSucceededStatus(task.status) && task.videoUrl) {
     try {
       const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
       localVideoUrl = localVideo.localVideoUrl;
       localVideoPath = localVideo.localVideoPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || "";
+      cdnPosterUrl = localVideo.cdnPosterUrl || "";
+      storageProvider = localVideo.storageProvider || "";
+      storageKey = localVideo.storageKey || "";
+      posterStorageProvider = localVideo.posterStorageProvider || "";
+      posterStorageKey = localVideo.posterStorageKey || "";
+      cdnError = localVideo.cdnError || "";
     } catch (error) {
       downloadError = error.message || "下载场景视频失败";
     }
@@ -163,10 +177,17 @@ async function handleAdminGetCharacterSceneVideo(req, res, taskId) {
     sceneId: matchedSceneId,
     taskId: task.taskId || taskId,
     status: task.status,
-    videoUrl: localVideoUrl || task.videoUrl || previous.videoUrl || "",
+    videoUrl: localVideoUrl || cdnVideoUrl || task.videoUrl || previous.videoUrl || "",
     localVideoUrl: localVideoUrl || previous.localVideoUrl || "",
     localVideoPath: localVideoPath || previous.localVideoPath || "",
     remoteVideoUrl: task.videoUrl || previous.remoteVideoUrl || "",
+    cdnVideoUrl: cdnVideoUrl || previous.cdnVideoUrl || "",
+    cdnPosterUrl: cdnPosterUrl || previous.cdnPosterUrl || "",
+    storageProvider: storageProvider || previous.storageProvider || "",
+    storageKey: storageKey || previous.storageKey || "",
+    posterStorageProvider: posterStorageProvider || previous.posterStorageProvider || "",
+    posterStorageKey: posterStorageKey || previous.posterStorageKey || "",
+    cdnError: cdnError || previous.cdnError || "",
     error: task.error || downloadError || "",
     updatedAt: nowIso,
   };
@@ -180,6 +201,13 @@ async function handleAdminGetCharacterSceneVideo(req, res, taskId) {
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl,
     localVideoPath,
+    cdnVideoUrl,
+    cdnPosterUrl,
+    storageProvider,
+    storageKey,
+    posterStorageProvider,
+    posterStorageKey,
+    cdnError,
     error: task.error || downloadError || "",
     queryResponse: raw,
   }, "admin-character-scene-query");
@@ -196,6 +224,13 @@ async function handleAdminGetHomeVideo(req, res, taskId) {
   const task = gatewayTask || normalizeTask(raw);
   let localVideoUrl = "";
   let localVideoPath = "";
+  let cdnVideoUrl = "";
+  let cdnPosterUrl = "";
+  let storageProvider = "";
+  let storageKey = "";
+  let posterStorageProvider = "";
+  let posterStorageKey = "";
+  let cdnError = "";
   let downloadError = "";
 
   if (isSucceededStatus(task.status) && task.videoUrl) {
@@ -203,6 +238,13 @@ async function handleAdminGetHomeVideo(req, res, taskId) {
       const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
       localVideoUrl = localVideo.localVideoUrl;
       localVideoPath = localVideo.localVideoPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || "";
+      cdnPosterUrl = localVideo.cdnPosterUrl || "";
+      storageProvider = localVideo.storageProvider || "";
+      storageKey = localVideo.storageKey || "";
+      posterStorageProvider = localVideo.posterStorageProvider || "";
+      posterStorageKey = localVideo.posterStorageKey || "";
+      cdnError = localVideo.cdnError || "";
     } catch (error) {
       downloadError = error.message || "下载首页视频失败";
     }
@@ -232,10 +274,17 @@ async function handleAdminGetHomeVideo(req, res, taskId) {
     ...matchedItem,
     taskId: task.taskId || taskId,
     status: task.status,
-    videoUrl: localVideoUrl || task.videoUrl || matchedItem?.videoUrl || config.homeVideo.videoUrl || "",
+    videoUrl: localVideoUrl || cdnVideoUrl || task.videoUrl || matchedItem?.videoUrl || config.homeVideo.videoUrl || "",
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl,
     localVideoPath,
+    cdnVideoUrl,
+    cdnPosterUrl,
+    storageProvider,
+    storageKey,
+    posterStorageProvider,
+    posterStorageKey,
+    cdnError,
     error: task.error || downloadError || "",
     updatedAt: new Date().toISOString(),
   };
@@ -247,10 +296,17 @@ async function handleAdminGetHomeVideo(req, res, taskId) {
       sceneId: matchedSceneId,
       taskId: task.taskId || taskId,
       status: task.status,
-      videoUrl: localVideoUrl || task.videoUrl || previous.videoUrl || "",
+      videoUrl: localVideoUrl || cdnVideoUrl || task.videoUrl || previous.videoUrl || "",
       localVideoUrl: localVideoUrl || previous.localVideoUrl || "",
       localVideoPath: localVideoPath || previous.localVideoPath || "",
       remoteVideoUrl: task.videoUrl || previous.remoteVideoUrl || "",
+      cdnVideoUrl: cdnVideoUrl || previous.cdnVideoUrl || "",
+      cdnPosterUrl: cdnPosterUrl || previous.cdnPosterUrl || "",
+      storageProvider: storageProvider || previous.storageProvider || "",
+      storageKey: storageKey || previous.storageKey || "",
+      posterStorageProvider: posterStorageProvider || previous.posterStorageProvider || "",
+      posterStorageKey: posterStorageKey || previous.posterStorageKey || "",
+      cdnError: cdnError || previous.cdnError || "",
       error: task.error || downloadError || "",
       updatedAt: new Date().toISOString(),
     };
@@ -270,6 +326,13 @@ async function handleAdminGetHomeVideo(req, res, taskId) {
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl,
     localVideoPath,
+    cdnVideoUrl,
+    cdnPosterUrl,
+    storageProvider,
+    storageKey,
+    posterStorageProvider,
+    posterStorageKey,
+    cdnError,
     error: task.error || downloadError || "",
   }, "admin-home-query");
 
@@ -304,6 +367,10 @@ async function refreshCompletedHomeVideoItems(config) {
       let localVideoPath = "";
       let cdnVideoUrl = "";
       let cdnPosterUrl = "";
+      let storageProvider = "";
+      let storageKey = "";
+      let posterStorageProvider = "";
+      let posterStorageKey = "";
       let cdnError = "";
       try {
         const localVideo = await downloadGeneratedVideo(task.taskId || sceneTaskId, task.videoUrl);
@@ -311,6 +378,10 @@ async function refreshCompletedHomeVideoItems(config) {
         localVideoPath = localVideo.localVideoPath;
         cdnVideoUrl = localVideo.cdnVideoUrl || "";
         cdnPosterUrl = localVideo.cdnPosterUrl || "";
+        storageProvider = localVideo.storageProvider || "";
+        storageKey = localVideo.storageKey || "";
+        posterStorageProvider = localVideo.posterStorageProvider || "";
+        posterStorageKey = localVideo.posterStorageKey || "";
         cdnError = localVideo.cdnError || "";
       } catch {}
 
@@ -326,6 +397,10 @@ async function refreshCompletedHomeVideoItems(config) {
         remoteVideoUrl: task.videoUrl || entry.remoteVideoUrl || "",
         cdnVideoUrl: cdnVideoUrl || entry.cdnVideoUrl || "",
         cdnPosterUrl: cdnPosterUrl || entry.cdnPosterUrl || "",
+        storageProvider: storageProvider || entry.storageProvider || "",
+        storageKey: storageKey || entry.storageKey || "",
+        posterStorageProvider: posterStorageProvider || entry.posterStorageProvider || "",
+        posterStorageKey: posterStorageKey || entry.posterStorageKey || "",
         cdnError: cdnError || entry.cdnError || "",
         updatedAt: new Date().toISOString(),
         error: "",
@@ -352,6 +427,10 @@ async function refreshCompletedHomeVideoItems(config) {
         localVideoPath,
         cdnVideoUrl,
         cdnPosterUrl,
+        storageProvider,
+        storageKey,
+        posterStorageProvider,
+        posterStorageKey,
         cdnError,
         error: "",
         source: "admin-home-scene",
@@ -378,6 +457,10 @@ async function refreshCompletedHomeVideoItems(config) {
     let localVideoPath = "";
     let cdnVideoUrl = "";
     let cdnPosterUrl = "";
+    let storageProvider = "";
+    let storageKey = "";
+    let posterStorageProvider = "";
+    let posterStorageKey = "";
     let cdnError = "";
     try {
       const localVideo = await downloadGeneratedVideo(task.taskId || taskId, task.videoUrl);
@@ -385,6 +468,10 @@ async function refreshCompletedHomeVideoItems(config) {
       localVideoPath = localVideo.localVideoPath;
       cdnVideoUrl = localVideo.cdnVideoUrl || "";
       cdnPosterUrl = localVideo.cdnPosterUrl || "";
+      storageProvider = localVideo.storageProvider || "";
+      storageKey = localVideo.storageKey || "";
+      posterStorageProvider = localVideo.posterStorageProvider || "";
+      posterStorageKey = localVideo.posterStorageKey || "";
       cdnError = localVideo.cdnError || "";
     } catch {}
 
@@ -400,6 +487,10 @@ async function refreshCompletedHomeVideoItems(config) {
       remoteVideoUrl: task.videoUrl || item.remoteVideoUrl || "",
       cdnVideoUrl: cdnVideoUrl || item.cdnVideoUrl || "",
       cdnPosterUrl: cdnPosterUrl || item.cdnPosterUrl || "",
+      storageProvider: storageProvider || item.storageProvider || "",
+      storageKey: storageKey || item.storageKey || "",
+      posterStorageProvider: posterStorageProvider || item.posterStorageProvider || "",
+      posterStorageKey: posterStorageKey || item.posterStorageKey || "",
       cdnError: cdnError || item.cdnError || "",
       updatedAt: new Date().toISOString(),
       error: "",
@@ -413,6 +504,10 @@ async function refreshCompletedHomeVideoItems(config) {
       localVideoPath,
       cdnVideoUrl,
       cdnPosterUrl,
+      storageProvider,
+      storageKey,
+      posterStorageProvider,
+      posterStorageKey,
       cdnError,
       error: "",
     }, "home-config-refresh");
