@@ -4,15 +4,32 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readServerSource } = require("../server-source");
 
-const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+const server = readServerSource();
 const html = fs.readFileSync(path.join(__dirname, "..", "platform.html"), "utf8");
-const create = fs.readFileSync(path.join(__dirname, "..", "platform.create.js"), "utf8");
+const create = [
+  "part-01.js",
+  "part-02.js",
+  "part-03.js",
+  "part-04.js",
+  "part-05.js",
+  "part-06.js",
+].map((file) => fs.readFileSync(path.join(__dirname, "..", "platform.create.parts", file), "utf8")).join("\n");
 const config = fs.readFileSync(path.join(__dirname, "..", "platform.config.js"), "utf8");
+const copy = fs.readFileSync(path.join(__dirname, "..", "platform.copy.js"), "utf8");
+const main = fs.readFileSync(path.join(__dirname, "..", "platform.main.js"), "utf8");
+const ui = [
+  "part-01.js",
+  "part-02.js",
+].map((file) => fs.readFileSync(path.join(__dirname, "..", "platform.ui.parts", file), "utf8")).join("\n");
 
-test("email authentication supports code login, binding and password reset", () => {
+test("email authentication supports SMTP code login, binding and password reset", () => {
   assert.match(server, /sendEmailMessage\(/);
-  assert.match(server, /api\.resend\.com\/emails/);
+  assert.match(server, /sendSmtpMail\(/);
+  assert.doesNotMatch(server, /resend\.com|RESEND_API_KEY/i);
+  assert.match(server, /upsertEmailChallengeInDb\(/);
+  assert.match(server, /consumeEmailChallengeInDb\(/);
   assert.match(server, /consumeEmailCode\("login"/);
   assert.match(server, /consumeEmailCode\("reset"/);
   assert.match(server, /consumeEmailCode\("bind"/);
@@ -25,4 +42,99 @@ test("email authentication supports code login, binding and password reset", () 
   assert.match(create, /requestEmailLoginCode/);
   assert.match(create, /forgotPassword/);
   assert.match(config, /accountSecurityMessage/);
+});
+
+test("email verification is the default login method with password as an explicit fallback", () => {
+  assert.match(html, /id="emailLoginTab"[^>]*aria-selected="true"/);
+  assert.match(html, /id="emailLoginPanel"/);
+  assert.match(html, /id="passwordLoginTab"[^>]*aria-selected="false"/);
+  assert.match(html, /id="passwordLoginPanel"[^>]*hidden/);
+  assert.match(create, /function setLoginMethod\(method = "email"\)/);
+  assert.match(create, /setLoginMethod\("email"\)/);
+  assert.match(create, /if \(!emailEnabled\) setLoginMethod\("password"\)/);
+  assert.match(config, /emailLoginTab: document\.querySelector\("#emailLoginTab"\)/);
+  assert.match(config, /passwordLoginPanel: document\.querySelector\("#passwordLoginPanel"\)/);
+});
+
+test("email login code requests show a 60-second resend countdown", () => {
+  assert.match(create, /EMAIL_LOGIN_CODE_COOLDOWN_SECONDS = 60/);
+  assert.match(create, /function startEmailLoginCodeCooldown/);
+  assert.match(create, /button\.textContent = t\("auth\.resendIn", \{ seconds: remainingSeconds \}/);
+  assert.match(create, /startEmailLoginCodeCooldown\(\)/);
+  assert.match(create, /if \(!requestSucceeded && els\.requestEmailLoginCodeBtn\) els\.requestEmailLoginCodeBtn\.disabled = false/);
+});
+
+test("email verification challenges are persisted in PostgreSQL with expiry and attempt limits", () => {
+  const database = fs.readFileSync(path.join(__dirname, "..", "db.js"), "utf8");
+  assert.match(database, /CREATE TABLE IF NOT EXISTS app_email_challenges/);
+  assert.match(database, /challenge_key TEXT PRIMARY KEY/);
+  assert.match(database, /code_hash TEXT NOT NULL/);
+  assert.match(database, /attempts INTEGER NOT NULL DEFAULT 0/);
+  assert.match(database, /expires_at TIMESTAMPTZ NOT NULL/);
+  assert.match(database, /WHERE challenge_key = \$1 AND expires_at > NOW\(\) FOR UPDATE/);
+  assert.match(database, /attempts >= 5/);
+  assert.match(database, /WHERE app_email_challenges\.sent_at <= \$6::timestamptz/);
+  assert.match(database, /minimumIntervalMs = 60_000/);
+  assert.match(database, /code_hash = \$2/);
+  assert.match(database, /DATABASE_URL is required for email verification codes/);
+  assert.match(database, /const crypto = require\("node:crypto"\)/);
+});
+
+test("avatar account menu opens email binding as a separate dialog", () => {
+  const accountDialog = html.match(/<dialog id="accountDialog"[\s\S]*?<\/dialog>/)?.[0] || "";
+  const bindingDialog = html.match(/<dialog id="emailBindingDialog"[\s\S]*?<\/dialog>/)?.[0] || "";
+  assert.ok(accountDialog);
+  assert.ok(bindingDialog);
+  assert.doesNotMatch(accountDialog, /id="accountEmail"/);
+  assert.match(bindingDialog, /id="accountEmail"/);
+  assert.match(bindingDialog, /data-i18n="account.emailBindingTitle"/);
+  assert.match(bindingDialog, /data-i18n-placeholder="common.emailAddress"/);
+  assert.match(html, /id="menuEmailBindBtn"[^>]*data-i18n="account.bindEmail"[^>]*hidden/);
+  assert.match(config, /menuEmailBindBtn: document\.querySelector\("#menuEmailBindBtn"\)/);
+  assert.match(config, /emailBindingDialog: document\.querySelector\("#emailBindingDialog"\)/);
+  assert.match(ui, /String\(state\.user\.email \|\| state\.user\.username \|\| ""\)\.trim\(\)/);
+  assert.match(ui, /els\.menuEmailBindBtn\.hidden = !loggedIn \|\| !state\.config\?\.auth\?\.email\?\.enabled \|\| Boolean\(String\(state\.user\?\.email \|\| ""\)\.trim\(\)\)/);
+  assert.match(main, /openEmailBinding\(\{ focusEmail: true \}\)/);
+  assert.match(create, /function openEmailBinding\(\{ focusEmail = false \} = \{\}\)/);
+  assert.match(create, /els\.emailBindingDialog\?\.showModal\(\)/);
+  assert.match(create, /if \(payload\.user\) \{\s*setUser\(payload\.user\);\s*openEmailBinding\(\);\s*\}/);
+});
+
+test("email binding and same-style labels are translated in every supported language", () => {
+  assert.match(html, /<span data-i18n="nav\.sameStyle">Same style<\/span>/);
+  for (const locale of ["en", "vi", "ja", "ko", "id", "zh"]) {
+    const block = copy.match(new RegExp(`\\n  ${locale}: \\{([\\s\\S]*?)\\n  \\},`))?.[1] || "";
+    if (locale === "zh") {
+      assert.match(copy, /"nav\.sameStyle": "同款"/);
+    } else if (locale === "en") {
+      assert.match(copy, /"nav\.sameStyle": "Same style"/);
+    } else {
+      assert.ok(block, `${locale} locale must exist`);
+      assert.doesNotMatch(block, /"nav\.sameStyle": "Same style"/);
+    }
+  }
+  for (const key of [
+    "account.bindEmail",
+    "account.emailBindingKicker",
+    "account.emailBindingTitle",
+    "account.emailBindingDesc",
+    "account.emailBindingEnabled",
+    "account.emailBoundNote",
+    "account.verificationCodeSent",
+    "common.emailAddress",
+    "common.sendCode",
+    "common.verificationCode",
+    "common.verificationCode6",
+    "nav.chat",
+    "common.support",
+    "auth.loginMethod",
+    "auth.emailCodeTab",
+    "auth.passwordTab",
+    "auth.forgotPassword",
+    "auth.emailCodeSent",
+    "auth.resendIn",
+  ]) {
+    const escaped = key.replace(/\./g, "\\.");
+    assert.ok((copy.match(new RegExp(`"${escaped}"`, "g")) || []).length >= 6, `${key} must exist for all locales`);
+  }
 });

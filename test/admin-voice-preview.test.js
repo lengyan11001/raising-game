@@ -66,6 +66,8 @@ test("voice preview lists the complete A/B and Qwen3 recommended candidates", ()
   assert.match(admin, /id: "qwen3-serena-more-moans-a"/);
   assert.match(admin, /id: "qwen3-serena-more-moans-b"/);
   assert.match(admin, /qwen3-serena-scene-once-cc25477e\.m4a\?v=20261031-qwen3-serena-once/);
+  assert.match(admin, /src: "\/api\/admin\/voice-preview\/joanna-scene-23s-a-bfa45922\.m4a\?v=20261030-voice-preview-12"/);
+  assert.doesNotMatch(admin, /src: "\/assets\/admin\/voice-preview\//);
   assert.match(admin, /qwen3-serena-more-moans-a-488ec19b\.m4a\?v=20261102-qwen3-serena-more-moans-a/);
   assert.match(admin, /qwen3-serena-more-moans-b-b3ec15c9\.m4a\?v=20261102-qwen3-serena-more-moans-b/);
   assert.match(admin, /Qwen3-TTS Flash 的 Serena 温柔女声/);
@@ -94,7 +96,7 @@ test("voice preview lists the complete A/B and Qwen3 recommended candidates", ()
   assert.match(admin, /audio\.currentTime = Math\.min\(audio\.duration, Math\.max\(0, seekTo\)\)/);
   assert.match(admin, /data-voice-preview-id/);
   assert.match(admin, /audio\.closest\("article\[data-voice-preview-id\]"\)/);
-  assert.match(admin, /fetch\(source\)/);
+  assert.match(admin, /fetch\(source, \{\s*headers: state\.token \? \{ authorization: `Bearer \$\{state\.token\}` \} : \{\},\s*\}\)/);
   assert.match(admin, /response\.arrayBuffer\(\)/);
   assert.match(admin, /new Blob\(\[bytes\], \{ type: "audio\/mp4" \}\)/);
   assert.match(admin, /audio\.src = blobUrl/);
@@ -144,10 +146,12 @@ test("voice preview assets are served as seekable audio", () => {
   assert.match(server, /"accept-ranges": contentType\.startsWith\("video\/"\) \|\| contentType\.startsWith\("audio\/"\) \? "bytes" : "none"/);
 });
 
-test("production nginx serves admin preview WAV and M4A files as audio on the admin host", () => {
+test("production nginx proxies private voice previews through Node authorization", () => {
   const tuning = fs.readFileSync(path.join(root, "ops", "apply-production-tuning.sh"), "utf8");
   assert.match(tuning, /server_name 123vips\.com www\.123vips\.com admin\.123vips\.com;/);
-  assert.match(tuning, /location \^~ \/assets\/admin\/voice-preview\/ \{[\s\S]*?types \{[\s\S]*?audio\/wav wav;[\s\S]*?audio\/mp4 m4a;[\s\S]*?\}[\s\S]*?add_header Accept-Ranges bytes always;/);
+  assert.match(tuning, /location \^~ \/assets\/admin\/voice-preview\/ \{[\s\S]*?proxy_pass http:\/\/raising_game_app;[\s\S]*?\}/);
+  assert.doesNotMatch(tuning, /location \^~ \/assets\/admin\/voice-preview\/ \{[\s\S]{0,200}alias \/opt\/raising-game-demo\/assets\/admin\/voice-preview\//);
+  assert.match(tuning, /ensure_secret_env MEDIA_URL_SIGNING_SECRET 32/);
 });
 
 test("voice preview assets stay local and bypass the R2 redirect", () => {

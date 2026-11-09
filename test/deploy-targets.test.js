@@ -49,7 +49,49 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deployPull, /--audit-base/);
   assert.match(deployPull, /--forbid-changed-path/);
   assert.match(deployPull, /--verify-status/);
+  assert.match(deployPull, /--verify-private-media/);
+  assert.match(deployPull, /--post-restart-command/);
+  assert.match(deploySite, /"post_restart_commands": \(\s*"\/opt\/raising-game-demo\/ops\/harden-old-nginx-private-media\.sh"/s);
+  for (const assetPrefix of ["user-uploads", "admin/voice-preview", "user-characters", "generated/characters/apiz", "generated/panoramas"]) {
+    assert.match(deployPull, new RegExp(`private_probe /assets/${assetPrefix.replace("/", "\\/")}/`));
+  }
   assert.match(deployPull, /Deployed commit mismatch/);
+  assert.match(deployPull, /403\|404/);
+  assert.match(deployPull, /Private media bypass detected/);
+  assert.match(deployPull, /for attempt in 1 2 3 4 5 6 7 8 9 10/);
+  assert.match(deploySite, /git", "rev-parse", f"refs\/remotes\/origin\/\{target\['branch'\]\}"/);
+  assert.doesNotMatch(deployPull, /AutoAddPolicy/);
+  assert.match(deployPull, /class PinnedHostKeyPolicy/);
+  assert.match(deployPull, /--host-key-sha256/);
+  assert.match(deploySite, /SHA256:FjIDikg5kkvITUdxOc2142HRn\+WP5A7Bj6Z5fReu8lI/);
+});
+
+test("deployment SSH accepts only the pinned SHA-256 host key", () => {
+  const output = runPython(String.raw`
+import base64
+import hashlib
+import importlib.util
+from pathlib import Path
+import paramiko
+
+root = Path(${JSON.stringify(root)})
+spec = importlib.util.spec_from_file_location("deploy_pull", root / "scripts" / "deploy_pull.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+trusted = paramiko.RSAKey.generate(1024)
+untrusted = paramiko.RSAKey.generate(1024)
+fingerprint = "SHA256:" + base64.b64encode(hashlib.sha256(trusted.asbytes()).digest()).decode().rstrip("=")
+policy = module.PinnedHostKeyPolicy([fingerprint])
+policy.missing_host_key(None, "example.test", trusted)
+try:
+    policy.missing_host_key(None, "example.test", untrusted)
+except paramiko.SSHException as exc:
+    assert "host key mismatch" in str(exc)
+else:
+    raise AssertionError("untrusted host key was accepted")
+print("ok")
+`);
+  assert.match(output, /ok/);
 });
 
 test("integration branches are rejected before any SSH connection", () => {
@@ -183,6 +225,21 @@ test("live materializer copies only allowlisted static files and atomically repl
   }
 });
 
+test("deployment key auth is preferred and never falls back to password", () => {
+  assert.match(deployPull, /SSH_KEY = os\.environ\.get\("FYSHARK_SSH_KEY", os\.environ\.get\("DEPLOY_SSH_KEY", ""\)\)/);
+  assert.match(deployPull, /if not PASSWORD and not SSH_KEY:/);
+  assert.match(deployPull, /if SSH_KEY:/);
+  assert.match(deployPull, /key_filename=SSH_KEY/);
+  assert.match(deployPull, /password=None/);
+  assert.match(deployPull, /look_for_keys=False/);
+  assert.match(deployPull, /allow_agent=False/);
+  assert.match(deploySite, /password_source, password = \("", ""\) if key_path else first_password\(target\)/);
+  assert.match(deploySite, /auth=key:/);
+  assert.match(deploySite, /env\.pop\("DEPLOY_SSH_PASSWORD", None\)/);
+  assert.match(deploySite, /env\.pop\("FYSHARK_SSH_PASSWORD", None\)/);
+  assert.match(deploySite, /key_env.*DEPLOY_SSH_KEY/);
+});
+
 test("release snapshot builder excludes foreign paths from both trees and ancestry", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "release-snapshot-"));
   const source = path.join(workspace, "source");
@@ -192,8 +249,9 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
   run("git", ["config", "user.name", "Test"], { cwd: source });
 
   const files = [
-    "DEPLOY.md", "scripts/build_release_snapshot.py", "scripts/deploy_pull.py",
-    "scripts/deploy_site.py", "scripts/materialize_static_release.py",
+    "DEPLOY.md", "scripts/build_release_snapshot.py", "scripts/ensure_media_signing_secret.py",
+    "scripts/deploy_pull.py", "scripts/deploy_site.py", "scripts/materialize_static_release.py",
+    "ops/apply-production-tuning.sh",
     "live.html", "live.css", "live.js", "chat-live.js", "qrcode.js",
     "site-landing.html", "site-landing.css", "site-landing.js",
     "downloads/vipeak-live.apk", "mobile/live-android/MainActivity.java",
@@ -214,7 +272,7 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
   for (const file of ["live.html", "live.css", "live.js", "downloads/vipeak-live.apk", "test/live-upload-poster-nav.test.js"]) {
     assert.equal(platformTree.includes(file), false, file);
   }
-  for (const file of ["platform.html", "admin.html", "server.js", "db.js", "package.json"]) {
+  for (const file of ["platform.html", "admin.html", "server.js", "db.js", "package.json", "scripts/ensure_media_signing_secret.py", "ops/apply-production-tuning.sh"]) {
     assert.equal(liveTree.includes(file), false, file);
   }
   for (const file of ["live.html", "chat-live.js", "assets/chat-live/moans/joanna.wav"]) {

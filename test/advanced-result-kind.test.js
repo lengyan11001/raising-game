@@ -7,6 +7,7 @@ const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
 const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
+const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 const explore = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 const source = create.match(/function advancedResultKind\(record = \{\}\) \{[\s\S]*?\n\}/)?.[0] || "";
 assert.ok(source, "advancedResultKind should exist");
@@ -47,8 +48,26 @@ test("pending video and conversation tasks keep their own result tabs", () => {
 });
 
 test("all generated task entry points select the matching result tab", () => {
-  assert.match(create, /const pendingTaskId = `pending-text-[\s\S]{0,120}?state\.advancedResultMediaKind = "conversation";/);
-  assert.match(create, /state\.advancedResultMediaKind = "image";\s*const pendingTaskId = `pending-image/);
-  assert.match(create, /state\.advancedResultMediaKind = "video";\s*const pendingTaskId = `pending-video/);
-  assert.match(explore, /state\.advancedResultMediaKind = isVideo \? "video" : "image";\s*mergeAdvancedResultRecord\(playfluxTemplateRecordBase/);
+  assert.match(create, /const pendingTaskId = `pending-text-[\s\S]{0,120}?setAdvancedResultMediaKind\("conversation"\);/);
+  assert.match(create, /setAdvancedResultMediaKind\("image"\);[\s\S]{0,100}?const pendingTaskId = `pending-image/);
+  assert.match(create, /setAdvancedResultMediaKind\("video"\);[\s\S]{0,100}?const pendingTaskId = `pending-video/);
+  assert.match(explore, /setAdvancedResultMediaKind\(isVideo \? "video" : "image"\);\s*mergeAdvancedResultRecord\(playfluxTemplateRecordBase/);
+});
+
+test("image result cards are rendered before video posters and have no play icon", () => {
+  const body = create.match(/function advancedResultCardView\([^)]*\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(body, "advancedResultCardView should exist");
+  const imageBranch = body.indexOf(": imageUrl");
+  const videoBranch = body.indexOf(": videoUrl || posterUrl");
+  assert.ok(imageBranch >= 0, "image result branch should exist");
+  assert.ok(videoBranch > imageBranch, "image URLs must win over poster/video rendering");
+  const imageMarkup = body.slice(imageBranch, videoBranch);
+  assert.doesNotMatch(imageMarkup, /data-lucide="play"/);
+});
+
+test("front-end image helpers reject upstream video URLs", () => {
+  const helper = ui.match(/function isGenerationImageOutputUrl\(value\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(helper, "isGenerationImageOutputUrl should exist");
+  assert.match(helper, /mp4\|webm\|mov\|m4v/);
+  assert.match(ui, /\.filter\(isGenerationImageOutputUrl\)/);
 });

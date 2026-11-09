@@ -1,0 +1,149 @@
+.CanvasEditor-container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  z-index: 2000;
+  isolation: isolate;
+  color: #f7f3f8;
+  background: #0d0d0f;
+}
+
+.CanvasEditor-toolbar {
+  z-index: 1000;
+  display: flex;
+  min-height: 58px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 16px;
+  background: #141216;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.CanvasEditor-toolbar-left,
+.CanvasEditor-toolbar-right,
+.CanvasEditor-title-wrapper {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.CanvasEditor-back-button {
+  padding: 7px 14px;
+  color: #d9d3dc;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.CanvasEditor-back-button:hover {
+  color: #21141a;
+  background: #f56aa8;
+  border-color: #f56aa8;
+}
+
+.CanvasEditor-title {
+  max-width: min(46vw, 560px);
+  margin: 0;
+  overflow: hidden;
+  color: #f2edf4;
+  font-family: Georgia, 'Songti SC', serif;
+  font-size: 17px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.CanvasEditor-title-input {
+  width: min(46vw, 560px);
+  min-width: 200px;
+  padding: 5px 8px;
+  color: #f7f3f8;
+  background: #211c23;
+  border: 1px solid rgba(245, 106, 168, 0.72);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 16px;
+  outline: none;
+}
+
+.CanvasEditor-edit-button {
+  padding: 2px 5px;
+  color: #8e858f;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.CanvasEditor-edit-button:hover { color: #f56aa8; }
+.CanvasEditor-saving { color: #9b929e; font-size: 11px; }
+
+.CanvasEditor-save-button,
+.CanvasEditor-new-button {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.CanvasEditor-save-button {
+  color: #21141a;
+  background: #f56aa8;
+  border: 1px solid #f56aa8;
+  font-weight: 700;
+}
+
+.CanvasEditor-save-button:hover:not(:disabled) { background: #ff83b8; border-color: #ff83b8; }
+
+.CanvasEditor-new-button {
+  color: #e9e2ea;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+}
+
+.CanvasEditor-new-button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.11); }
+.CanvasEditor-save-button:disabled,
+.CanvasEditor-new-button:disabled { cursor: wait; opacity: 0.55; }
+
+.CanvasEditor-canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.CanvasEditor-canvas > .react-flow {
+  width: 100%;
+  height: 100%;
+}
+
+.WorkflowEditor-error {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  color: #ffd3df;
+  background: rgba(255, 75, 112, 0.16);
+  border-bottom: 1px solid rgba(255, 75, 112, 0.26);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .CanvasEditor-toolbar { min-height: 52px; padding: 0 10px; gap: 8px; }
+  .CanvasEditor-title { max-width: 28vw; }
+  .CanvasEditor-title-input { width: 32vw; min-width: 120px; }
+  .CanvasEditor-save-button,
+  .CanvasEditor-new-button { padding: 0 10px; }
+}

@@ -34,14 +34,16 @@ test("Undress alone gets a responsive idle-loaded ambient background", () => {
   assert.match(server, /home-ambient-poster\.webp" as="image" fetchpriority="high"/);
 });
 
-test("login and registration share one form and one endpoint", () => {
+test("password login stays available without password registration", () => {
   assert.match(html, /<form method="dialog" id="loginForm">/);
   assert.match(html, /data-i18n="auth\.autoRegisterHint"/);
   assert.doesNotMatch(html, /toggleLoginMode/);
   assert.doesNotMatch(config, /loginMode|toggleLoginMode/);
-  assert.match(create, /requestJson\("\/api\/auth\/login-or-register"/);
+  assert.match(create, /requestJson\("\/api\/auth\/login"/);
+  assert.doesNotMatch(create, /requestJson\("\/api\/auth\/login-or-register"/);
   assert.match(main, /els\.loginForm\?\.addEventListener\("submit"/);
-  assert.match(server, /if \(!user && registerIfMissing\) \{\s*return registerWithBody\(req, res, body\);/);
+  assert.match(server, /code: "PASSWORD_REGISTRATION_DISABLED"/);
+  assert.doesNotMatch(server, /if \(!user && registerIfMissing\)/);
   assert.match(server, /url\.pathname === "\/api\/auth\/login-or-register"/);
 });
 
@@ -54,7 +56,8 @@ test("mobile drawer shows one authentication entry while logged out", () => {
   assert.match(config, /mobileDrawerLogoutBtn: document\.querySelector\("#mobileDrawerLogoutBtn"\)/);
   assert.match(ui, /els\.mobileDrawerLogoutBtn\.hidden = !loggedIn/);
   assert.match(main, /els\.mobileDrawerLogoutBtn\?\.addEventListener\("click", logout\)/);
-  assert.match(create, /function logout\(\) \{\s*closeMobileDrawer\(\);/);
+  assert.match(create, /async function logout\(\) \{[\s\S]*?showInlineDialog\(\{[\s\S]*?account\.logoutConfirmTitle[\s\S]*?account\.logoutConfirmBody[\s\S]*?\}\) === "confirm";[\s\S]*?if \(!confirmed\) return;/);
+  assert.match(create, /closeMobileDrawer\(\);[\s\S]*?clearClientAuthState\(\);/);
 });
 
 test("account dropdown avoids duplicate top-up and referral entries", () => {

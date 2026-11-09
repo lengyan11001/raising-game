@@ -22,12 +22,12 @@ test("history keeps the page the visitor is reading", () => {
   assert.match(create, /await loadHistory\(\{ silent: true, page: currentHistoryPage\(\), preserveMobile: true \}\)/);
 });
 
-test("history completion does not run in the background", () => {
+test("generation completion always polls in the background", () => {
   const poller = ui.match(/function syncGenerationCompletionRefresh\(\)[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(poller, "syncGenerationCompletionRefresh should exist");
-  assert.doesNotMatch(poller, /setInterval/);
+  assert.match(poller, /window\.setInterval\(refreshGenerationCompletionRecords, GENERATION_COMPLETION_REFRESH_INTERVAL_MS\)/);
   assert.doesNotMatch(poller, /loadHistory\(/);
-  assert.doesNotMatch(create, /delayMs: 15000/);
+  assert.match(ui, /const GENERATION_COMPLETION_REFRESH_INTERVAL_MS = 10 \* 1000;/);
 });
 
 test("a page that disappeared steps back instead of rendering empty", () => {
