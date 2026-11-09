@@ -1,3 +1,15 @@
+## 2026-11-09 Latest result-thumbnail refresh recheck
+
+- User reports Result thumbnails are again refreshing continuously. Scope remains Old production only; do not deploy Live, do not invalidate sessions/tokens or evict logged-in users.
+- Current source/release state: `old-site` / `origin/old-site` `5273b90`; `platform-release` / origin `02b0cdf`; `live-release` remains `bf1e01a` and must stay untouched.
+- Previous deploy is active on Old with PID `2210769`, started 2026-11-09 13:13:30 CST. `/api/health` was 200 `{"ok":true}`; served `platform.create.parts/part-01.js` SHA-256 `3bb1de2f...` matched local. Sessions at last check: 896 total, 877 legacy without expiry, 19 live-TTL sessions.
+- Confirmed production 403 root cause: persisted Private OSS reference-image URLs carry expiry stamps. Generation records `cgt-20261109131204-cba517`, `...131213-ab4903`, `...131226-8734b7`, `...131233-c9ced4`, `...131237-a2f863`, `...131443-b631ef`, `...131611-6d6b73` for `user-1794195324548-0addc538` failed in preparation with `INVALID_REMOTE_MEDIA`; all free, zero credits. Reused expired URLs caused subsequent failures.
+- Root cause fully isolated: result API polls can alternate equivalent image fields/origins (`cdnImageUrl`, `imageResultUrl`, `cdnImageUrls`, `localImageUrls`) while signatures rotate. Reassigning `img.src` caused the visible refresh loop; result URL ordering also made multi-image fields unstable.
+- Fixed `platform.create.parts/part-01.js`: media identity uses stable object pathname, multi-image identities are deduplicated/sorted, painted images are matched by object path rather than array position, and `src` only changes when the media object changes or its signed URL expires within 60 seconds.
+- Fixed `server.parts/part-14.js`: public media ingest resolves assets by canonical OSS object path, refreshes OSS signatures at the download boundary, preserves external/R2 URLs unchanged, and stores canonical source URLs.
+- Regressions added in `test/advanced-result-refresh.test.js` and `test/advanced-preparation-recovery.test.js`; focused auth/result tests pass 62/62 and media/preparation tests pass 48/48. Syntax checks and `git diff --check` pass.
+- Next: commit relevant files only, build/push `platform-release`, deploy only `scripts/deploy_local.sh --site old`, then verify health, served hash, session count, logs, login/generation/result flow, and Live release untouched.
+
 ## 2026-11-09 Generate prompt composer outline fix
 
 - User reported the Generate prompt input was missing its surrounding outline after the rich prompt editor layer replaced the visible textarea styling.

@@ -361,11 +361,16 @@ function normalizedAssetSourceUrl(value = "") {
 function findUserAssetBySourceUrl(db, user, sourceUrl = "") {
   const normalized = normalizedAssetSourceUrl(sourceUrl);
   if (!normalized) return null;
+  const canonical = canonicalOssStorageUrlForCache(normalized);
   return (db.userAssets || []).find((asset) => {
     if (!asset || asset.userId !== user.id || isSoftDeleted(asset)) return false;
     return [asset.sourceUrl, asset.originalUrl, asset.publicUrl, asset.localUrl]
       .map(normalizedAssetSourceUrl)
-      .some((candidate) => candidate && candidate === normalized);
+      .filter(Boolean)
+      .some((candidate) => (
+        candidate === normalized
+        || canonicalOssStorageUrlForCache(candidate) === canonical
+      ));
   }) || null;
 }
 
@@ -431,7 +436,14 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
     error.statusCode = 400;
     throw error;
   }
-  let existing = findUserAssetBySourceUrl(db, user, sourceUrl || mediaUrl);
+  // Browser uploads may replay a short-lived OSS signature. Resolve the same
+  // object by its durable path first so a stale signature does not create a
+  // duplicate asset, then refresh the signature immediately before download.
+  const canonicalSourceUrl = canonicalOssStorageUrlForCache(sourceUrl || mediaUrl);
+  let existing = findUserAssetBySourceUrl(db, user, canonicalSourceUrl);
+  if (!existing && canonicalSourceUrl !== (sourceUrl || mediaUrl)) {
+    existing = findUserAssetBySourceUrl(db, user, sourceUrl || mediaUrl);
+  }
   if (!existing && hidden) {
     const reusableName = String(fileName || path.basename(new URL(mediaUrl).pathname) || "").trim().toLowerCase();
     existing = (db.userAssets || []).find((asset) => (
@@ -456,7 +468,11 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
   }
   const fallbackName = path.basename(new URL(mediaUrl).pathname) || "";
   const limits = userMediaUploadLimits(provider);
-  const downloaded = await downloadRemoteFileToBuffer(mediaUrl, {
+  // This is the download boundary: persisted reference media can be minutes
+  // old while OSS signatures live only 10 minutes. Refresh only recognized
+  // OSS objects; arbitrary external/R2 URLs must remain untouched.
+  const downloadUrl = publicHttpUrlForUpstream(mediaUrl) || mediaUrl;
+  const downloaded = await downloadRemoteFileToBuffer(downloadUrl, {
     label: "asset",
     maxBytes: Math.max(limits.image, limits.video, limits.audio),
     timeoutMs: 120000,
@@ -501,7 +517,7 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
     maxBytes,
     durationSeconds,
   });
-  asset.sourceUrl = normalizedAssetSourceUrl(sourceUrl || mediaUrl);
+  asset.sourceUrl = normalizedAssetSourceUrl(canonicalSourceUrl || sourceUrl || mediaUrl);
   asset.hidden = Boolean(hidden);
   const currentMeta = asset.meta && typeof asset.meta === "object" && !Array.isArray(asset.meta) ? asset.meta : {};
   asset.meta = { ...currentMeta, ...(meta || {}) };

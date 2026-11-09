@@ -224,3 +224,89 @@ test("preparation failures are persisted without charging credits", () => {
     assert.equal(result.statusCode, 400);
   });
 });
+
+test("public media ingest refreshes an expired OSS signature before download", async () => {
+  const canonical = (value) => String(value || "").replace(/\?.*$/, "");
+  const existingAsset = {
+    id: "asset-existing",
+    userId: "user-1",
+    sourceUrl: "https://assets-cdn.123vips.com/assets/user-uploads/user-1/reference.png",
+  };
+  const downloadCalls = [];
+  const createUserMediaAssetFromPublicUrl = new Function(
+    "path",
+    "isPublicHttpUrl",
+    "canonicalOssStorageUrlForCache",
+    "findUserAssetBySourceUrl",
+    "isSoftDeleted",
+    "isAutoPresetReferenceAsset",
+    "refreshSeedancePresetVideoAssetFromSourceIfNeeded",
+    "dbEnabled",
+    "upsertUserAssetInDb",
+    "writeDb",
+    "publicHttpUrlForUpstream",
+    "downloadRemoteFileToBuffer",
+    "imageMimeFromKnownPath",
+    "videoMimeFromKnownPath",
+    "audioMimeFromKnownPath",
+    "createUserMediaAssetFromBytes",
+    "normalizedAssetSourceUrl",
+    "userMediaUploadLimits",
+    `return (${extractFunction(source, "createUserMediaAssetFromPublicUrl")});`,
+  )(
+    require("node:path"),
+    (value) => { try { return ["http:", "https:"].includes(new URL(String(value)).protocol); } catch { return false; } },
+    canonical,
+    (db, user, sourceUrl) => (db.userAssets || []).find((asset) => (
+      asset?.userId === user.id && canonical(asset.sourceUrl) === canonical(sourceUrl)
+    )) || null,
+    () => false,
+    () => true,
+    async (db, asset) => asset,
+    () => false,
+    async () => {},
+    async () => {},
+    (value) => {
+      const url = new URL(canonical(value));
+      if (url.hostname !== "assets-cdn.123vips.com") return String(value || "");
+      url.searchParams.set("OSSAccessKeyId", "test-access-key");
+      url.searchParams.set("Expires", "9999999999");
+      url.searchParams.set("Signature", "fresh-signature");
+      return url.toString();
+    },
+    async (url) => {
+      downloadCalls.push(url);
+      return { bytes: Buffer.from("png"), mime: "image/png" };
+    },
+    () => "image/png",
+    () => "",
+    () => "",
+    async () => ({ id: "asset-created", userId: "user-1" }),
+    (value) => String(value || ""),
+    () => ({ image: 8 * 1024 * 1024, video: 32 * 1024 * 1024, audio: 16 * 1024 * 1024 }),
+  );
+
+  const db = { userAssets: [existingAsset] };
+  const user = { id: "user-1" };
+  const existing = await createUserMediaAssetFromPublicUrl(db, user, {
+    url: "https://assets-cdn.123vips.com/assets/user-uploads/user-1/reference.png?Expires=1&OSSAccessKeyId=old&Signature=expired",
+  });
+  assert.equal(existing, existingAsset, "the same durable OSS object must reuse the existing asset");
+  assert.equal(downloadCalls.length, 0);
+
+  const created = await createUserMediaAssetFromPublicUrl(db, user, {
+    url: "https://assets-cdn.123vips.com/assets/user-uploads/user-1/new-reference.png?Expires=1&OSSAccessKeyId=old&Signature=expired",
+  });
+  db.userAssets.push(created);
+  assert.equal(created.id, "asset-created");
+  assert.equal(downloadCalls.length, 1);
+  const downloaded = new URL(downloadCalls[0]);
+  assert.equal(downloaded.hostname, "assets-cdn.123vips.com");
+  assert.equal(downloaded.pathname, "/assets/user-uploads/user-1/new-reference.png");
+  assert.notEqual(downloaded.searchParams.get("Signature"), "expired");
+  assert.equal(created.sourceUrl, "https://assets-cdn.123vips.com/assets/user-uploads/user-1/new-reference.png");
+
+  const externalUrl = "https://cdn.example.com/assets/external.png";
+  await createUserMediaAssetFromPublicUrl(db, user, { url: `${externalUrl}?token=keep` });
+  assert.equal(downloadCalls[1], `${externalUrl}?token=keep`, "external public URLs must remain byte-for-byte unchanged");
+});

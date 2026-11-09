@@ -849,13 +849,20 @@ function advancedResultMediaObjectKey(value = "") {
   if (!text) return "";
   try {
     const url = new URL(text, window.location.href);
-    // The path identifies the stored object. Delivery signatures and image
-    // transforms can rotate between API responses and must not replace an
-    // already loaded thumbnail.
-    return `${url.origin}${url.pathname}`;
+    // The path is the durable media identity. The same object may be exposed
+    // through the app origin, a signed CDN origin, or different aliases while
+    // a generation is being mirrored. Origin and signature changes must not
+    // tear down an already painted thumbnail.
+    return url.pathname;
   } catch {
     return text.split(/[?#]/, 1)[0];
   }
+}
+
+function advancedResultMediaObjectKeys(values = []) {
+  return [...new Set((Array.isArray(values) ? values : [values])
+    .map(advancedResultMediaObjectKey)
+    .filter(Boolean))].sort();
 }
 
 function advancedResultMediaIdentity({
@@ -869,13 +876,13 @@ function advancedResultMediaIdentity({
 } = {}) {
   if (resultExpired) return JSON.stringify(["expired"]);
   if (imageUrls.length) {
-    return JSON.stringify(["image", imageUrls.map(advancedResultMediaObjectKey)]);
+    return JSON.stringify(["image", advancedResultMediaObjectKeys(imageUrls)]);
   }
   if (videoUrl || posterUrl) {
     return JSON.stringify([
       "video",
-      advancedResultMediaObjectKey(videoUrl),
-      advancedResultMediaObjectKey(posterUrl),
+      advancedResultMediaObjectKeys([videoUrl])[0] || "",
+      advancedResultMediaObjectKeys([posterUrl])[0] || "",
       ratio,
     ]);
   }
@@ -896,15 +903,41 @@ function advancedResultSignedMediaNeedsRefresh(value = "") {
   }
 }
 
+function advancedResultSameMediaObject(left = "", right = "") {
+  const leftKey = advancedResultMediaObjectKey(left);
+  const rightKey = advancedResultMediaObjectKey(right);
+  return Boolean(leftKey && rightKey && leftKey === rightKey);
+}
+
+function advancedResultMatchingMediaUrl(currentUrl = "", values = []) {
+  const currentKey = advancedResultMediaObjectKey(currentUrl);
+  if (!currentKey) return "";
+  return (Array.isArray(values) ? values : [values])
+    .find((value) => advancedResultMediaObjectKey(value) === currentKey) || "";
+}
+
 function refreshAdvancedResultMediaSources(records = []) {
   els.advancedResultList?.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
     const [recordIndex, imageIndex] = String(button.dataset.advancedResultImage || "0:0").split(":").map(Number);
     const record = records[recordIndex] || {};
-    const nextUrl = generationImageResultUrls(record)[imageIndex || 0] || generationImageResultUrl(record);
+    const nextUrls = generationImageResultUrls(record);
     const image = button.querySelector("img");
-    if (!nextUrl || !image) return;
-    if (image.currentSrc === nextUrl || image.src === nextUrl) return;
-    if (advancedResultSignedMediaNeedsRefresh(image.currentSrc || image.src)) {
+    if (!nextUrls.length || !image) return;
+    const currentUrl = image.currentSrc || image.src;
+    // Multi-image APIs can return the same set through cdnImageUrls,
+    // imageResultUrls, or localImageUrls in a different field order. Match the
+    // already painted image by durable object path, not array position, so a
+    // field-order flip cannot reassign src and reload the thumbnail.
+    const nextUrl = advancedResultMatchingMediaUrl(currentUrl, nextUrls)
+      || nextUrls[imageIndex || 0]
+      || generationImageResultUrl(record);
+    if (!nextUrl) return;
+    if (currentUrl === nextUrl || image.src === nextUrl) return;
+    // The server can rotate a signature or switch between equivalent media
+    // aliases on every poll. Only assign src when the object changes or the
+    // existing signed URL is close to expiry; otherwise this causes a browser
+    // cache miss and the thumbnail visibly flashes.
+    if (!advancedResultSameMediaObject(currentUrl, nextUrl) || advancedResultSignedMediaNeedsRefresh(currentUrl)) {
       image.src = nextUrl;
     }
   });
@@ -913,8 +946,9 @@ function refreshAdvancedResultMediaSources(records = []) {
     const image = button.querySelector("img");
     const nextUrl = generationPosterUrl(record);
     if (!nextUrl || !image) return;
-    if (image.currentSrc === nextUrl || image.src === nextUrl) return;
-    if (advancedResultSignedMediaNeedsRefresh(image.currentSrc || image.src)) {
+    const currentUrl = image.currentSrc || image.src;
+    if (currentUrl === nextUrl || image.src === nextUrl) return;
+    if (!advancedResultSameMediaObject(currentUrl, nextUrl) || advancedResultSignedMediaNeedsRefresh(currentUrl)) {
       image.src = nextUrl;
     }
   });

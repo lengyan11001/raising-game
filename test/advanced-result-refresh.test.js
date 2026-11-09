@@ -9,6 +9,35 @@ const root = path.resolve(__dirname, "..");
 const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
 const explore = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 
+function extractFunction(source, name) {
+  let start = source.indexOf(`function ${name}(`);
+  if (start === -1) throw new Error(`missing function ${name}`);
+  if (source.slice(Math.max(0, start - 6), start) === "async ") start -= 6;
+  let parenDepth = 0;
+  let bodyStart = -1;
+  for (let index = source.indexOf("(", start); index < source.length; index += 1) {
+    if (source[index] === "(") parenDepth += 1;
+    else if (source[index] === ")") {
+      parenDepth -= 1;
+      if (parenDepth === 0) {
+        bodyStart = source.indexOf("{", index);
+        break;
+      }
+    }
+  }
+  if (bodyStart === -1) throw new Error(`missing body for ${name}`);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
 test("result entry refreshes server detail even when history is cached", () => {
   const sideTab = create.match(/if \(next === "result"\) \{[\s\S]*?\n  \}/)?.[0] || "";
   assert.ok(sideTab, "setAdvancedSideTab result branch should exist");
@@ -113,7 +142,7 @@ test("rotating OSS signatures do not invalidate the result render cache", () => 
 test("unchanged result payloads refresh only expiring signed media sources", () => {
   const refresh = create.match(/function advancedResultSignedMediaNeedsRefresh\(value = ""\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(refresh, "advancedResultSignedMediaNeedsRefresh should exist");
-  assert.match(create, /if \(advancedResultSignedMediaNeedsRefresh\(image\.currentSrc \|\| image\.src\)\)/);
+  assert.match(create, /advancedResultSignedMediaNeedsRefresh\(currentUrl\)/);
   assert.match(create, /records\.map\(\(record, index\) => advancedResultCardView\(record, index\)\.mediaKey\)/);
   const cardView = create.match(/function advancedResultCardView\(record = \{\}, index = 0\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(cardView, "advancedResultCardView should exist");
@@ -134,7 +163,7 @@ test("media object identity ignores signatures and status changes", () => {
   vm.runInNewContext(`${objectHelper}\n${identityHelper}\nthis.objectKey = advancedResultMediaObjectKey; this.identity = advancedResultMediaIdentity;`, context);
   assert.equal(
     context.objectKey("https://assets-cdn.123vips.com/a.jpg?Expires=1&amp;OSSAccessKeyId=k&amp;Signature=one"),
-    context.objectKey("https://assets-cdn.123vips.com/a.jpg?Expires=2&amp;OSSAccessKeyId=k&amp;Signature=two"),
+    context.objectKey("https://vipeak-media-sg.oss-ap-southeast-1.aliyuncs.com/a.jpg?Expires=2&OSSAccessKeyId=k&Signature=two"),
   );
   assert.notEqual(
     context.objectKey("https://assets-cdn.123vips.com/a.jpg?Expires=1"),
@@ -155,4 +184,66 @@ test("media object identity ignores signatures and status changes", () => {
     imageSucceeded,
     context.identity({ imageUrls: ["https://assets-cdn.123vips.com/b.jpg?Expires=2&Sig=two"], status: "Succeeded" }),
   );
+  assert.equal(
+    context.identity({
+      imageUrls: [
+        "https://assets-cdn.123vips.com/b.jpg?Expires=2&Sig=two",
+        "https://media.123vips.com/a.jpg?Expires=2&Sig=two",
+      ],
+    }),
+    context.identity({
+      imageUrls: [
+        "https://vipeak-media-sg.oss-ap-southeast-1.aliyuncs.com/a.jpg?Expires=3&Sig=three",
+        "https://assets-cdn.123vips.com/b.jpg?Expires=3&Sig=three",
+      ],
+    }),
+    "multi-image field order and origin aliases must keep the same media key",
+  );
+});
+
+test("result media refresh keeps a painted thumbnail for the same object", () => {
+  const names = [
+    "advancedResultMediaObjectKey",
+    "advancedResultMediaObjectKeys",
+    "advancedResultMediaIdentity",
+    "advancedResultSignedMediaNeedsRefresh",
+    "advancedResultSameMediaObject",
+    "advancedResultMatchingMediaUrl",
+    "refreshAdvancedResultMediaSources",
+  ];
+  const helpers = names.map((name) => extractFunction(create, name)).join("\n");
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const runRefresh = (currentUrl, nextUrls) => {
+    const vm = require("node:vm");
+    const image = { currentSrc: currentUrl, src: currentUrl };
+    const button = {
+      dataset: { advancedResultImage: "0:0" },
+      querySelector: (selector) => (selector === "img" ? image : null),
+    };
+    const context = {
+      URL,
+      window: { location: { href: "https://123vips.com/platform" } },
+      els: {
+        advancedResultList: {
+          querySelectorAll: (selector) => (selector === "[data-advanced-result-image]" ? [button] : []),
+        },
+      },
+      generationImageResultUrls: () => nextUrls,
+      generationImageResultUrl: () => nextUrls[0] || "",
+    };
+    vm.runInNewContext(`${helpers}\nthis.refresh = refreshAdvancedResultMediaSources;`, context);
+    context.refresh([{ taskId: "cgt-test" }]);
+    return image.src;
+  };
+
+  const current = "https://assets-cdn.123vips.com/generated/a.png?Expires=9999999999&Signature=one";
+  const rotated = [
+    "https://media.123vips.com/generated/b.png?Expires=9999999999&Signature=three",
+    "https://vipeak-media-sg.oss-ap-southeast-1.aliyuncs.com/generated/a.png?Expires=9999999999&Signature=two",
+  ];
+  assert.equal(runRefresh(current, rotated), current, "origin aliases and field order must not reload the painted image");
+
+  const expiring = `https://assets-cdn.123vips.com/generated/a.png?Expires=${nowSeconds - 10}&Signature=old`;
+  const refreshed = `https://assets-cdn.123vips.com/generated/a.png?Expires=${nowSeconds + 600}&Signature=new`;
+  assert.equal(runRefresh(expiring, [refreshed]), refreshed, "an expired signature must be replaced before the image breaks");
 });
