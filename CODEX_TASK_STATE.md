@@ -2262,3 +2262,4 @@ CODEX_TASK_STATE.md
 - HappyHorse has no single official purchase price: 720p range USD 0.084-0.112/s at sale USD 0.168/s (1.5x-2.0x); 1080p range USD 0.108-0.192/s at sale USD 0.288/s (1.5x-2.666667x). The audit reports these as `RANGE`, not missing.
 - Targeted regression: `node --require ./test/source-compat.js --test test/advanced-pricing.test.js test/vega-pricing-label.test.js test/seedance-fast-pricing.test.js` passed 38/38.
 - Deployment status: pending selective commit, platform release snapshot, `platform-release` push, and Old-only deployment. Rollback release must be rechecked immediately before deployment.
+- Deployment completed: `old-site` `66c88ed`; `platform-release` and remote `origin/platform-release` `7e957b8`; Old-only deploy via `scripts/deploy_local.sh --site old`. `/api/health` returned 200 `{"ok":true}`. Rollback release `d2c5b6e`. Live release was not updated or deployed.
