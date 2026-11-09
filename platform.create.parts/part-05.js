@@ -944,6 +944,43 @@ function renderHistory(records = []) {
   }).join("")}${loadMoreHtml}`;
   const allowInlinePreview = !mobileLayout && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
   els.historyList.querySelectorAll("[data-history-load-video]").forEach((button) => {
+    const historyIndex = Number(button.closest(".history-item")?.dataset.historyIndex || -1);
+    const historyRecord = Number.isInteger(historyIndex) && historyIndex >= 0 ? sortedRecords[historyIndex] : null;
+    const poster = button.querySelector("img");
+    if (poster) {
+      const posterTaskId = String(historyRecord?.taskId || "");
+      const incomingPosterUrl = String(poster.getAttribute("src") || "").trim();
+      const posterFailure = posterTaskId ? state.historyPosterFailures?.[posterTaskId] : null;
+      const failedPosterUrl = String(posterFailure?.url || "").trim();
+      if (posterFailure && (!failedPosterUrl || incomingPosterUrl === failedPosterUrl)) {
+        poster.hidden = true;
+        button.classList.add("is-poster-missing");
+      } else if (posterFailure) {
+        delete state.historyPosterFailures[posterTaskId];
+      }
+      poster.addEventListener("error", () => {
+        if (poster.dataset.fallbackApplied === "true") return;
+        poster.dataset.fallbackApplied = "true";
+        const failedUrl = poster.currentSrc || poster.src || incomingPosterUrl;
+        poster.hidden = true;
+        button.classList.add("is-poster-missing");
+        if (posterTaskId) {
+          if (!state.historyPosterFailures) state.historyPosterFailures = {};
+          state.historyPosterFailures[posterTaskId] = {
+            url: String(failedUrl || "").trim(),
+          };
+        }
+      });
+      poster.addEventListener("load", () => {
+        if (!poster.naturalWidth) return;
+        poster.dataset.fallbackApplied = "";
+        poster.hidden = false;
+        button.classList.remove("is-poster-missing");
+        if (posterTaskId) delete state.historyPosterFailures?.[posterTaskId];
+      });
+      if (poster.complete && poster.naturalWidth === 0) poster.dispatchEvent(new Event("error"));
+      if (poster.complete && poster.naturalWidth > 0) poster.dispatchEvent(new Event("load"));
+    }
     const showVideo = () => {
       const key = button.dataset.historyLoadVideo || "";
       const escapedKey = window.CSS?.escape ? CSS.escape(key) : key.replace(/["\\]/g, "\\$&");

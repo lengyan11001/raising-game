@@ -285,5 +285,5 @@ test("on-demand poster-only repair does not persist a downloaded video", () => {
 test("public records expose repaired posters to both result surfaces", () => {
   assert.match(server, /posterPending: generationRecordNeedsPosterMaintenance\(record\)/);
   assert.match(server, /cdnPosterUrl: includeStoredVideoUrls \? preferredPosterUrl : ""/);
-  assert.match(server, /localPosterUrl: includeStoredVideoUrls \? \(String\(record\.localPosterUrl \|\| ""\)\.trim\(\) \|\| ""\) : ""/);
+  assert.match(server, /localPosterUrl: includeStoredVideoUrls[\s\S]{0,120}deliverableStoredMediaUrl\(record\.localPosterUrl/);
 });

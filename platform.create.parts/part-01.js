@@ -890,6 +890,79 @@ function advancedResultMediaIdentity({
   return JSON.stringify(["placeholder", status]);
 }
 
+function advancedResultPosterFailed(record = {}) {
+  const taskId = String(record?.taskId || "").trim();
+  return Boolean(taskId && state.advancedResultPosterFailures?.[taskId]);
+}
+
+function clearAdvancedResultPosterFailure(record = {}) {
+  const taskId = String(record?.taskId || "").trim();
+  if (!taskId) return false;
+  let changed = false;
+  if (state.advancedResultPosterFailures?.[taskId]) {
+    delete state.advancedResultPosterFailures[taskId];
+    changed = true;
+  }
+  if (state.advancedResultPosterRetryCounts?.[taskId]) {
+    delete state.advancedResultPosterRetryCounts[taskId];
+    changed = true;
+  }
+  return changed;
+}
+
+function markAdvancedResultPosterFailed(record = {}, failedUrl = "") {
+  const taskId = String(record?.taskId || "").trim();
+  if (!taskId) return;
+  if (!state.advancedResultPosterFailures) state.advancedResultPosterFailures = {};
+  if (state.advancedResultPosterFailures[taskId]) return;
+  state.advancedResultPosterFailures[taskId] = {
+    url: String(failedUrl || "").trim(),
+    objectKey: advancedResultMediaObjectKey(failedUrl),
+  };
+  // Trigger exactly one bounded detail refresh. The server re-signs from the
+  // durable posterStorageKey, or poster maintenance repairs the object. Never
+  // retry the broken URL in-place, because that creates a visible 403 loop.
+  scheduleAdvancedResultRefresh();
+}
+
+function advancedResultPosterCanRecover(record = {}) {
+  const taskId = String(record?.taskId || "").trim();
+  const nextUrl = String(generationPosterUrl(record) || "").trim();
+  if (!taskId || !nextUrl) return false;
+  const failure = state.advancedResultPosterFailures?.[taskId];
+  if (!failure || typeof failure !== "object") return Boolean(failure);
+  const failedUrl = String(failure.url || "").trim();
+  // A rotated signature is a genuinely new delivery attempt. If the server
+  // returns the exact same failed URL, keep the thumbnail hidden instead of
+  // creating another 403 loop.
+  return !failedUrl || nextUrl !== failedUrl;
+}
+
+function bindAdvancedResultPosterFallback(image, record = {}) {
+  if (!image || image.dataset.posterFailureBound === "true") return;
+  image.dataset.posterFailureBound = "true";
+  const fallback = () => {
+    if (image.dataset.posterFallbackApplied === "true") return;
+    image.dataset.posterFallbackApplied = "true";
+    const failedUrl = image.currentSrc || image.src || "";
+    image.removeAttribute("src");
+    image.hidden = true;
+    image.closest("[data-advanced-result-video]")?.classList.add("is-poster-missing");
+    markAdvancedResultPosterFailed(record, failedUrl);
+  };
+  const recover = () => {
+    if (!image.naturalWidth) return;
+    image.dataset.posterFallbackApplied = "";
+    image.hidden = false;
+    image.closest("[data-advanced-result-video]")?.classList.remove("is-poster-missing");
+    clearAdvancedResultPosterFailure(record);
+  };
+  image.addEventListener("error", fallback);
+  image.addEventListener("load", recover);
+  if (image.complete && image.naturalWidth === 0) fallback();
+  if (image.complete && image.naturalWidth > 0) recover();
+}
+
 function advancedResultSignedMediaNeedsRefresh(value = "") {
   const text = String(value || "").trim();
   if (!text) return true;
@@ -944,6 +1017,7 @@ function refreshAdvancedResultMediaSources(records = []) {
   els.advancedResultList?.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
     const record = records[Number(button.dataset.advancedResultVideo)] || {};
     const image = button.querySelector("img");
+    if (image && advancedResultPosterFailed(record)) return;
     const nextUrl = generationPosterUrl(record);
     if (!nextUrl || !image) return;
     const currentUrl = image.currentSrc || image.src;
@@ -958,10 +1032,19 @@ function bindAdvancedResultCardEvents(card) {
   if (!card || card.dataset.advancedResultEvents === "true") return;
   card.dataset.advancedResultEvents = "true";
   card.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
+    const posterRecord = advancedResultPageRecord(button.dataset.advancedResultVideo);
+    bindAdvancedResultPosterFallback(button.querySelector("img"), posterRecord);
     button.addEventListener("click", () => {
       const record = advancedResultPageRecord(button.dataset.advancedResultVideo);
       const videoUrl = generationVideoUrl(record);
-      if (videoUrl) previewVideo({ title: publicModelText(publicGenerationDisplayTitle(record, t("common.preview"))), videoUrl });
+      if (videoUrl) {
+        playPreview({
+          title: publicModelText(publicGenerationDisplayTitle(record, t("common.preview"))),
+          previewUrl: videoUrl,
+          posterUrl: generationPosterUrl(record),
+          ratio: record?.ratio || record?.params?.ratio || "16:9",
+        });
+      }
     });
   });
   card.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
@@ -1229,7 +1312,8 @@ function advancedResultPosterRefreshRecords() {
   return advancedResultDisplayRecords().filter((record) => {
     const taskId = String(record?.taskId || "").trim();
     if (!taskId || taskId.startsWith("pending-")) return false;
-    if (!isSucceededGenerationStatus(record?.status) || generationPosterUrl(record)) return false;
+    if (!isSucceededGenerationStatus(record?.status)) return false;
+    if (generationPosterUrl(record) && !advancedResultPosterFailed(record)) return false;
     if (!generationVideoUrl(record) && record?.posterPending !== true) return false;
     return Number(state.advancedResultPosterRetryCounts?.[taskId] || 0) < ADVANCED_RESULT_POSTER_RETRY_LIMIT;
   });
@@ -1281,8 +1365,11 @@ async function refreshAdvancedResultRecord() {
       const record = payload.record || payload.generation || null;
       if (record?.taskId) {
         mergeAdvancedResultRecord(record);
-        if (generationPosterUrl(record) && state.advancedResultPosterRetryCounts) {
-          delete state.advancedResultPosterRetryCounts[record.taskId];
+        if (advancedResultPosterCanRecover(record)) {
+          // The server re-signed the same object. Remove the hard failure flag
+          // so reconciliation can try the new URL, but keep the bounded retry
+          // counter until the image load event confirms a successful paint.
+          if (state.advancedResultPosterFailures) delete state.advancedResultPosterFailures[record.taskId];
         }
         rendered = true;
       }

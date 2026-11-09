@@ -180,8 +180,8 @@ test("result pagination slices by the active page and clamps stale pages", () =>
 });
 
 test("poster-only successful records render as video media", () => {
-  const panel = functionSource("renderAdvancedResultPanel");
-  assert.match(panel, /const posterUrl = generationPosterUrl\(record\);/);
+  const panel = functionSource("advancedResultCardView");
+  assert.match(panel, /const posterUrl = resultExpired \? "" : generationPosterUrl\(record\);/);
   assert.match(panel, /: videoUrl \|\| posterUrl/);
   assert.match(panel, /<img src="\$\{escapeHtml\(posterUrl\)\}"/);
 });

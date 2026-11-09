@@ -253,7 +253,8 @@ test("provider routing keeps historical R2 and OSS downloads separate", () => {
   assert.match(server, /storage\.provider === "oss" && storage\.key/);
   assert.match(server, /hostname === `\$\{bucket\}\.\$\{ossOriginSuffix\}`/);
   assert.match(server, /hostname === ossOriginSuffix && parsed\.pathname\.toLowerCase\(\)\.startsWith\(`\/\$\{bucket\}\/`\)/);
-  assert.match(server, /signedOssCdnUrlForDelivery\(cdnUrl/);
+  assert.match(server, /deliverableStoredMediaUrl\(cdnUrl/);
+  assert.match(server, /localPosterUrl: includeStoredVideoUrls[\s\S]{0,120}deliverableStoredMediaUrl\(record\.localPosterUrl/);
   assert.match(server, /!OSS_STORAGE_ENABLED[\s\S]*?R2\.publicDomain/);
   assert.match(server, /makeOssSignedCdnUrl\(\{/);
   assert.doesNotMatch(server, /storage\.provider === "oss" && storage\.key[\s\S]{0,240}makeOssSignedDownloadUrl\(/);

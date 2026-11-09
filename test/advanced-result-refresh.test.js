@@ -95,7 +95,9 @@ test("completed video results retry until their poster is repaired", () => {
   assert.match(posterRefresh, /isSucceededGenerationStatus\(record\?\.status\)/);
   assert.match(posterRefresh, /generationPosterUrl\(record\)/);
   assert.match(posterRefresh, /advancedResultPosterRetryCounts/);
-  assert.match(create, /delete state\.advancedResultPosterRetryCounts\[record\.taskId\]/);
+  assert.match(create, /function clearAdvancedResultPosterFailure\(record = \{\}\)/);
+  assert.match(create, /delete state\.advancedResultPosterRetryCounts\[taskId\]/);
+  assert.match(create, /if \(advancedResultPosterCanRecover\(record\)\)/);
 });
 
 test("logout and leaving advanced stop pending-result polling", () => {
@@ -246,4 +248,33 @@ test("result media refresh keeps a painted thumbnail for the same object", () =>
   const expiring = `https://assets-cdn.123vips.com/generated/a.png?Expires=${nowSeconds - 10}&Signature=old`;
   const refreshed = `https://assets-cdn.123vips.com/generated/a.png?Expires=${nowSeconds + 600}&Signature=new`;
   assert.equal(runRefresh(expiring, [refreshed]), refreshed, "an expired signature must be replaced before the image breaks");
+});
+
+test("generate result video clicks use the shared video preview", () => {
+  assert.match(create, /if \(videoUrl\) \{\s*playPreview\(\{/);
+  assert.match(create, /previewUrl: videoUrl/);
+  assert.match(create, /posterUrl: generationPosterUrl\(record\)/);
+  assert.doesNotMatch(create, /previewVideo\(\{/);
+});
+
+test("broken result posters fail closed and retry only once", () => {
+  assert.match(create, /function advancedResultPosterFailed\(record = \{\}\)/);
+  assert.match(create, /function markAdvancedResultPosterFailed\(record = \{\}, failedUrl = ""\)/);
+  assert.match(create, /if \(state\.advancedResultPosterFailures\[taskId\]\) return;/);
+  assert.match(create, /image\.addEventListener\("error", fallback\)/);
+  assert.match(create, /image\.addEventListener\("load", recover\)/);
+  assert.match(create, /image\.dataset\.posterFallbackApplied === "true"/);
+  assert.match(create, /image\.removeAttribute\("src"\)/);
+  assert.match(create, /if \(generationPosterUrl\(record\) && !advancedResultPosterFailed\(record\)\) return false;/);
+  assert.match(create, /function advancedResultPosterCanRecover\(record = \{\}\)/);
+  assert.match(create, /if \(advancedResultPosterCanRecover\(record\)\) \{/);
+});
+
+test("history thumbnails degrade once instead of repeatedly loading a broken URL", () => {
+  const source = fs.readFileSync(path.join(root, "platform.create.parts", "part-05.js"), "utf8");
+  assert.match(source, /state\.historyPosterFailures\[posterTaskId\]/);
+  assert.match(source, /poster\.dataset\.fallbackApplied === "true"/);
+  assert.match(source, /poster\.addEventListener\("load", \(\) => \{/);
+  assert.match(source, /poster\.hidden = true/);
+  assert.match(source, /button\.classList\.add\("is-poster-missing"\)/);
 });

@@ -1066,29 +1066,28 @@ function publicGenerationRecord(record = {}, options = {}) {
   // the durable R2 mirror catches up. R2 readiness controls the advanced
   // download action only; it must not rewrite task status to processing or
   // hide a result that the upstream has already completed.
-  const deliveryVideoUrl = signedOssCdnUrlForDelivery(cdnUrl, {
+  const deliveryVideoUrl = deliverableStoredMediaUrl(cdnUrl, {
     key: record.storageKey || "",
-  }) || cdnUrl;
+  });
   const publicVideoUrl = providerOnlyOutputs || providerOnlyVideoUrl
     ? (providerVideoUrl || deliveryVideoUrl || localUrl)
     : (deliveryVideoUrl || providerVideoUrl || localUrl);
   const includeStoredVideoUrls = options.includeStoredVideoUrls !== false;
   const providerPosterUrl = String(record.providerPosterUrl || record.upstreamPosterUrl || record.remotePosterUrl || "");
-  const storedPosterUrl = String(record.cdnPosterUrl || record.localPosterUrl || record.posterUrl || "").trim();
+  const posterKey = record.posterStorageKey || "";
   const preferredPosterUrl = String(
-    signedOssCdnUrlForDelivery(record.cdnPosterUrl, { key: record.posterStorageKey || "" })
-    || record.cdnPosterUrl
+    deliverableStoredMediaUrl(record.cdnPosterUrl, { key: posterKey })
+    || deliverableStoredMediaUrl(record.localPosterUrl, { key: posterKey })
+    || deliverableStoredMediaUrl(record.posterUrl, { key: posterKey })
     || providerPosterUrl
-    || record.localPosterUrl
-    || record.posterUrl
     || "",
   ).trim();
   const providerImageUrl = generationRecordProviderImageUrl(record);
   const providerOnlyImageUrl = options.providerOnlyImageUrl === true;
   const storedImageUrl = generationRecordImageUrl(record);
-  const deliveryImageUrl = signedOssCdnUrlForDelivery(storedImageUrl, {
+  const deliveryImageUrl = deliverableStoredMediaUrl(storedImageUrl, {
     key: record.storageKey || "",
-  }) || storedImageUrl;
+  });
   const publicImageUrl = (providerOnlyOutputs || providerOnlyImageUrl) && providerImageUrl
     ? providerImageUrl
     : deliveryImageUrl;
@@ -1104,7 +1103,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
   ].map((item) => String(item || "").trim()).filter(isGenerationImageOutputUrl))];
-  const deliveryImageUrls = storedImageUrls.map((url) => signedOssCdnUrlForDelivery(url) || url);
+  const deliveryImageUrls = storedImageUrls
+    .map((url) => deliverableStoredMediaUrl(url))
+    .filter(Boolean);
   const publicImageUrls = (providerOnlyOutputs || providerOnlyImageUrl) && providerImageUrls.length
     ? providerImageUrls
     : (deliveryImageUrls.length ? deliveryImageUrls : providerImageUrls);
@@ -1144,7 +1145,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     posterUrl: includeStoredVideoUrls ? preferredPosterUrl : providerPosterUrl,
     posterPending: generationRecordNeedsPosterMaintenance(record),
     cdnPosterUrl: includeStoredVideoUrls ? preferredPosterUrl : "",
-    localPosterUrl: includeStoredVideoUrls ? (String(record.localPosterUrl || "").trim() || "") : "",
+    localPosterUrl: includeStoredVideoUrls
+      ? deliverableStoredMediaUrl(record.localPosterUrl, { key: posterKey })
+      : "",
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
     params: listGenerationRecordValue(publicModelValue(record.params || null)),

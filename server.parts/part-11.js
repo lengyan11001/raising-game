@@ -114,6 +114,20 @@ function signedOssCdnUrlForDelivery(value = "", { key = "", fileName = "", downl
   });
 }
 
+function deliverableStoredMediaUrl(value = "", { key = "" } = {}) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const provider = inferObjectStorageProviderFromUrl(text);
+  const signed = signedOssCdnUrlForDelivery(text, { key });
+  if (signed) return signed;
+  // A bare private OSS/CDN URL is not a delivery URL. Returning it causes a
+  // guaranteed browser 403 and makes thumbnails appear broken. If OSS signing
+  // is available but failed, omit the URL so callers can use a provider/local
+  // fallback or repair the poster instead of caching a known-bad address.
+  if (OSS_STORAGE_ENABLED && (provider === "oss" || (provider === "" && key))) return "";
+  return text;
+}
+
 // Media-library cache rows must identify the object, not one short-lived
 // signature. Historical rows stored full OSS signed URLs; normalize those to a
 // stable CDN URL so a refreshed signature can still hit the same asset.

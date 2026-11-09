@@ -55,8 +55,8 @@ test("all generated task entry points select the matching result tab", () => {
 });
 
 test("image result cards are rendered before video posters and have no play icon", () => {
-  const body = create.match(/function renderAdvancedResultPanel\(\) \{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(body, "renderAdvancedResultPanel should exist");
+  const body = create.match(/function advancedResultCardView\([^)]*\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(body, "advancedResultCardView should exist");
   const imageBranch = body.indexOf(": imageUrl");
   const videoBranch = body.indexOf(": videoUrl || posterUrl");
   assert.ok(imageBranch >= 0, "image result branch should exist");
