@@ -2295,4 +2295,4 @@ CODEX_TASK_STATE.md
 - User reported the admin pricing page did not change after deployment.
 - Production `app_kv.app_config -> platform.advancedPricing.seedance25CreditsPerSecondByResolution` contained legacy simplified values `480p: 9`, `720p: 16`; these differed from the exact purchase-price legacy defaults and were therefore preserved as custom prices.
 - Added `previousSimplifiedUiDefault` (`9`/`16`) to the normalized legacy-default migration set and extended the regression test to cover both stored forms. Custom values outside these known legacy defaults remain preserved.
-- Deployment status: pending commit, platform snapshot, push, Old-only deploy, and production API verification. Live must not be deployed.
+- Deployment completed: `old-site` `ace9d54`; `platform-release` / `origin/platform-release` `78b575e`; deployed Old only via `scripts/deploy_local.sh --site old`. `/api/health` returned 200. Re-running `adminAdvancedPricingView()` against the actual production config now returns Seedance 2.5 480p `purchase 8.9955 / sale 9.8951` and 720p `purchase 14.9925 / sale 16.4918`. Rollback release `f7c9a1d`. Live was not deployed.
