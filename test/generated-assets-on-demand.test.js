@@ -131,6 +131,7 @@ test("background video downloads cool down and stop retrying expired media", () 
   assert.match(server, /attempts >= GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS/);
   assert.match(server, /cdnRetryCount: attempts/);
   assert.match(server, /cdnError: String\(error\.message \|\| error \|\| "Generated video download failed\."\)\.slice\(0, 500\)/);
+  assert.match(server, /if \(String\(record\.cdnPosterUrl \|\| record\.posterUrl \|\| ''\)\.trim\(\)\) return false;/);
 });
 
 test("background media transfer uses a global bounded worker pool", () => {

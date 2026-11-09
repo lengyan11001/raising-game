@@ -610,7 +610,7 @@ async function recoverGenerationRecordR2Urls(record = {}) {
 function generationRecordNeedsPosterMaintenance(record = {}) {
   if (!record?.taskId || generationRecordIsApiTask(record)) return false;
   if (!isSucceededStatus(record.status) || !generationRecordIsVideoOutput(record)) return false;
-  if (String(record.cdnPosterUrl || '').trim() && String(record.posterStorageKey || '').trim()) return false;
+  if (String(record.cdnPosterUrl || record.posterUrl || '').trim()) return false;
   if (String(record.posterMaintenanceTerminalAt || "").trim()) return false;
   if (Number(record.posterMaintenanceAttempts || 0) >= GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS) return false;
   const retryAt = Date.parse(record.posterMaintenanceRetryAt || '');
@@ -631,7 +631,7 @@ function generationRecordNeedsMediaMaintenance(record = {}) {
     return generatedOutputStorageEnabled() && (hasProviderImage || hasLocalImage) && !generationRecordImageStorageReady(record);
   }
   const videoReady = Boolean(String(record.cdnVideoUrl || "").trim() && String(record.storageKey || "").trim());
-  const posterReady = Boolean(String(record.cdnPosterUrl || "").trim() && String(record.posterStorageKey || "").trim());
+  const posterReady = Boolean(String(record.cdnPosterUrl || record.posterUrl || "").trim());
   return !videoReady || !posterReady;
 }
 
