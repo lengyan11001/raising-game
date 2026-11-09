@@ -138,7 +138,7 @@ test("generated image R2 failures preserve the successful generation status", ()
   assert.match(source, /try \{[\s\S]*?uploadStaticAssetToObjectStorage[\s\S]*?catch \(error\) \{/);
   assert.match(source, /result\.cdnError = error\.message \|\| "Generated image object storage upload failed\."/);
   assert.match(source, /\[generated-image-object-storage-upload-failed\]/);
-  assert.doesNotMatch(source, /catch \(error\) \{[\s\S]*?throw error;/);
+  assert.match(source, /return result;/);
 });
 
 test("large R2 uploads use resumable multipart requests", () => {
@@ -164,7 +164,7 @@ test("generation record queries never wait for R2 publication", () => {
   assert.match(server, /if \(record\.localVideoUrl\) queueGenerationRecordMediaMaintenance\(record\)/);
   assert.match(server, /if \(nextRecord\.localVideoUrl\) queueGenerationRecordMediaMaintenance\(nextRecord\)/);
   assert.match(server, /if \(download && generatedOutputStorageEnabled\(\) && !generationRecordIsApiTask\(record\)/);
-  assert.match(server, /if \(generationRecordIsApiTask\(existing \|\| \{\}\)\)/);
+  assert.match(server, /if \(!record\?\.taskId \|\| generationRecordIsApiTask\(record\)\) return record;/);
 });
 
 test("Alibaba task polling cannot block generation status for minutes", () => {

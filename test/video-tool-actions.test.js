@@ -82,7 +82,7 @@ test("video edit segments are published to R2 and upstream payloads remain inspe
   const publish = server.slice(server.indexOf("async function publishVideoToolInput"), server.indexOf("async function waitForAliyunVideoToolTask"));
   const runner = server.slice(server.indexOf("async function runVideoToolFaceSwap"), server.indexOf("async function runVideoToolUndress"));
   assert.match(publish, /uploadStaticAssetToObjectStorage\(\{/);
-  assert.match(publish, /objectStoragePath\("generated", "videos", fileName\)/);
+  assert.match(publish, /objectStoragePath\("generated", "video-inputs", fileName\)/);
   assert.match(publish, /return \{ url: upload\.publicUrl/);
   assert.match(runner, /upstreamInputUrls\[segment\.index\] = published\.url/);
   assert.match(runner, /upstreamPayload: submitted\.payload/);

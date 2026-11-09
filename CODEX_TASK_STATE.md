@@ -2079,3 +2079,13 @@ CODEX_TASK_STATE.md
 - Verification: focused auth/risk tests 22/22; full security/auth/session/media/deployment/generation suite 77/77; syntax and scoped diff checks passed.
 - Safety: UI-only change, no session invalidation and no business-data fallback. Old only; Live untouched.
 - Deployment: pending at the time this entry was written.
+
+## 2026-11-09 result thumbnail durability closeout
+
+- User reported Result thumbnails disappearing/reloading, playback failing, and asked to finish production safety without logging out existing users.
+- Generation media now requires verified object storage persistence instead of temporary upstream URLs; video/image metadata propagation includes `storageProvider`, `storageKey`, poster storage metadata, and per-image storage keys across refresh/admin/completion paths.
+- Qwen Image 3.0 now persists every output image and retries instead of returning temporary remote URLs when upload fails.
+- Undress unlock is serialized under the wallet settlement lock, re-reads the user and generation record inside the lock, uploads/verifies the protected result before charging, uses a stable ledger ID, and writes the durable storage metadata before returning success.
+- Local retention cleanup now only removes stale disposable OS-temp workspaces under `raising-game-media/` and `raising-game-poster-*`; it never deletes `assets/generated`, user uploads, locked previews, or PostgreSQL-owned business media.
+- Verification: focused generated-assets/result-refresh/media/OSS/video-tool/authorization/undress suite passed 131/131; syntax checks and `git diff --check` passed.
+- Not yet committed, built, or deployed. Existing sessions/tokens must remain untouched. Old only; Live untouched.
