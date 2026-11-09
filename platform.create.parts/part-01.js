@@ -881,108 +881,17 @@ function refreshAdvancedResultMediaSources(records = []) {
   });
 }
 
-function renderAdvancedResultPanel() {
-  if (!els.advancedResultList) return;
-  const visibleRecords = advancedResultVisibleRecords();
-  const pageData = advancedResultPageData(visibleRecords);
-  const records = pageData.records;
-  els.advancedResultKindTabs?.querySelectorAll("[data-advanced-result-kind]").forEach((button) => {
-    const active = button.dataset.advancedResultKind === (state.advancedResultMediaKind || "video");
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-selected", active ? "true" : "false");
-  });
-  if (!visibleRecords.length) {
-    const label = t(({ video: "advanced.createKindVideo", image: "advanced.createKindImage", conversation: "advanced.createKindConversation" })[state.advancedResultMediaKind || "video"]);
-    els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>${escapeHtml(state.lang === "zh" ? `${label}暂无记录` : `No ${label.toLowerCase()} yet`)}</strong><p>${escapeHtml(state.lang === "zh" ? "该分类的生成结果会显示在这里。" : "Results for this type will appear here.")}</p></div>`;
-    state.advancedResultRenderedHtml = "";
-    if (els.advancedResultPager) els.advancedResultPager.innerHTML = "";
-    refreshIcons();
-    return;
-  }
-  const resultHtml = records.map((record, index) => {
-    const resultExpired = isGenerationResultExpired(record);
-    const videoUrl = resultExpired ? "" : generationVideoUrl(record);
-    const imageUrls = resultExpired ? [] : generationImageResultUrls(record);
-    const imageUrl = imageUrls[0] || "";
-    const textResult = String(record.textResult || record.responseText || "").trim();
-    const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageUrl || textResult);
-    const posterUrl = generationPosterUrl(record);
-    const status = statusLabel(record.status);
-    const taskId = record.taskId || "";
-    const visibleTaskId = String(taskId).startsWith("pending-") ? "" : taskId;
-    const ratio = record.ratio || record.params?.ratio || "16:9";
-    const canDownload = !resultExpired && canDownloadGenerationRecord(record);
-    const canAdvancedDownload = !resultExpired && canAdvancedDownloadGenerationRecord(record);
-    const advancedDownloadState = advancedDownloadUiState(record);
-    const advancedDownloadLabel = advancedDownloadButtonLabel(record);
-    const advancedDownloadDisabled = !canAdvancedDownload || advancedDownloadState === "preparing";
-    const media = resultExpired
-      ? `<div class="advanced-result-media is-placeholder is-expired"><img src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="内容已经过期" loading="lazy" decoding="async" /><span class="generation-expired-label">内容已经过期</span></div>`
-      : imageUrl
-        ? `<div class="advanced-result-image-grid${imageUrls.length > 1 ? " is-multiple" : ""}">${imageUrls.map((url, imageIndex) => `<button class="advanced-result-media" type="button" data-advanced-result-image="${escapeHtml(`${index}:${imageIndex}`)}"><img src="${escapeHtml(url)}" alt="" loading="${index === 0 && imageIndex === 0 ? "eager" : "lazy"}" fetchpriority="${index === 0 && imageIndex === 0 ? "high" : "auto"}" decoding="async" /></button>`).join("")}</div>`
-        : videoUrl || posterUrl
-          ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
-        : textResult
-          ? `<div class="advanced-result-text">${escapeHtml(textResult)}</div>`
-        : `<div class="advanced-result-media is-placeholder"><i data-lucide="${statusClass(record.status) === "failed" ? "circle-alert" : "loader-circle"}"></i><span>${escapeHtml(status)}</span></div>`;
-    return `
-      <article class="advanced-result-card is-${escapeHtml(statusClass(record.status))}">
-        ${media}
-        <div class="advanced-result-meta">
-          <strong>${escapeHtml(publicModelText(publicGenerationDisplayTitle(record, "Generation")))}</strong>
-          <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
-          ${advancedDownloadStatusPill(record)}
-          ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
-          <div class="advanced-result-actions">
-            ${textResult ? `<button class="history-download advanced-result-copy" type="button" data-advanced-result-copy="${escapeHtml(String(index))}"><i data-lucide="copy"></i>Copy</button>` : ""}
-            ${canDownload ? `
-              <button class="history-download advanced-result-download" type="button" data-advanced-result-download="${escapeHtml(String(index))}">
-                <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
-              </button>
-            ` : ""}
-            ${videoUrl || imageUrl ? `
-              <button class="history-download advanced-result-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}${advancedDownloadState === "preparing" ? " is-preparing" : ""}" type="button" data-advanced-result-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${advancedDownloadDisabled ? "disabled" : ""}>
-                <i data-lucide="${advancedDownloadState === "preparing" ? "loader-circle" : advancedDownloadState === "failed" ? "circle-alert" : "cloud-download"}"></i>${escapeHtml(advancedDownloadLabel)}
-              </button>
-            ` : ""}
-            <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
-              <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
-            </button>
-          </div>
-        </div>
-      </article>
-    `;
-  }).join("");
-  // The account-level completion poll runs every 10 seconds. Replacing the
-  // whole grid when its visible payload has not changed tears down loaded
-  // poster/video thumbnails and makes them visibly flash and reload.
-  const resultRenderKey = [
-    state.advancedResultMediaKind || "video",
-    String(pageData.page || 1),
-    String(pageData.total || 0),
-    String(pageData.totalPages || 1),
-    state.lang || "en",
-    advancedResultStableRenderHtml(resultHtml),
-  ].join("\n");
-  if (state.advancedResultRenderedHtml === resultRenderKey) {
-    refreshAdvancedResultMediaSources(records);
-    return;
-  }
-  els.advancedResultList.innerHTML = resultHtml;
-  state.advancedResultRenderedHtml = resultRenderKey;
-  renderSimplePager(els.advancedResultPager, pageData, (page) => {
-    state.advancedResultPage = page;
-    renderAdvancedResultPanel();
-  }, { jump: true });
-  els.advancedResultList.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
+function bindAdvancedResultCardEvents(card) {
+  if (!card || card.dataset.advancedResultEvents === "true") return;
+  card.dataset.advancedResultEvents = "true";
+  card.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
     button.addEventListener("click", () => {
       const record = advancedResultPageRecord(button.dataset.advancedResultVideo);
       const videoUrl = generationVideoUrl(record);
-      if (!videoUrl) return;
-      playPreview({ title: publicModelText(publicGenerationDisplayTitle(record, t("common.preview"))), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
+      if (videoUrl) previewVideo({ title: publicModelText(publicGenerationDisplayTitle(record, t("common.preview"))), videoUrl });
     });
   });
-  els.advancedResultList.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
+  card.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
     button.addEventListener("click", () => {
       const [recordIndex, imageIndex] = String(button.dataset.advancedResultImage || "0:0").split(":").map(Number);
       const record = advancedResultPageRecord(recordIndex);
@@ -991,7 +900,7 @@ function renderAdvancedResultPanel() {
       previewImage({ title: publicModelText(publicGenerationDisplayTitle(record, t("common.preview"))), imageUrl });
     });
   });
-  els.advancedResultList.querySelectorAll("[data-advanced-result-copy]").forEach((button) => {
+  card.querySelectorAll("[data-advanced-result-copy]").forEach((button) => {
     button.addEventListener("click", async () => {
       const record = advancedResultPageRecord(button.dataset.advancedResultCopy);
       const textResult = String(record?.textResult || record?.responseText || "");
@@ -1001,13 +910,13 @@ function renderAdvancedResultPanel() {
       refreshIcons();
     });
   });
-  els.advancedResultList.querySelectorAll("[data-advanced-result-download]").forEach((button) => {
+  card.querySelectorAll("[data-advanced-result-download]").forEach((button) => {
     button.addEventListener("click", () => {
       const record = advancedResultPageRecord(button.dataset.advancedResultDownload);
       downloadGenerationRecord(record);
     });
   });
-  els.advancedResultList.querySelectorAll("[data-advanced-result-r2-download]").forEach((button) => {
+  card.querySelectorAll("[data-advanced-result-r2-download]").forEach((button) => {
     button.addEventListener("click", async () => {
       const record = advancedResultPageRecord(button.dataset.advancedResultR2Download);
       setAdvancedDownloadButtonState(button, "transferring");
@@ -1015,7 +924,7 @@ function renderAdvancedResultPanel() {
       setAdvancedDownloadButtonState(button, ok ? "ready" : "failed");
     });
   });
-  els.advancedResultList.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
+  card.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
     button.addEventListener("click", async () => {
       if (state.advancedRegenerationRestoreInFlight) return;
       state.advancedRegenerationRestoreInFlight = true;
@@ -1039,7 +948,193 @@ function renderAdvancedResultPanel() {
       }
     });
   });
-  refreshIcons();
+}
+
+function advancedResultCardView(record = {}, index = 0) {
+  const resultExpired = isGenerationResultExpired(record);
+  const videoUrl = resultExpired ? "" : generationVideoUrl(record);
+  const imageUrls = resultExpired ? [] : generationImageResultUrls(record);
+  const imageUrl = imageUrls[0] || "";
+  const textResult = String(record.textResult || record.responseText || "").trim();
+  const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageUrl || textResult);
+  const posterUrl = resultExpired ? "" : generationPosterUrl(record);
+  const status = statusLabel(record.status);
+  const taskId = record.taskId || "";
+  const visibleTaskId = String(taskId).startsWith("pending-") ? "" : taskId;
+  const ratio = record.ratio || record.params?.ratio || "16:9";
+  const canDownload = !resultExpired && canDownloadGenerationRecord(record);
+  const canAdvancedDownload = !resultExpired && canAdvancedDownloadGenerationRecord(record);
+  const advancedDownloadState = advancedDownloadUiState(record);
+  const advancedDownloadLabel = advancedDownloadButtonLabel(record);
+  const advancedDownloadDisabled = !canAdvancedDownload || advancedDownloadState === "preparing";
+  const media = resultExpired
+    ? `<div class="advanced-result-media is-placeholder is-expired"><img src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="内容已经过期" loading="lazy" decoding="async" /><span class="generation-expired-label">内容已经过期</span></div>`
+    : imageUrl
+      ? `<div class="advanced-result-image-grid${imageUrls.length > 1 ? " is-multiple" : ""}">${imageUrls.map((url, imageIndex) => `<button class="advanced-result-media" type="button" data-advanced-result-image="${escapeHtml(`${index}:${imageIndex}`)}"><img src="${escapeHtml(url)}" alt="" loading="${index === 0 && imageIndex === 0 ? "eager" : "lazy"}" fetchpriority="${index === 0 && imageIndex === 0 ? "high" : "auto"}" decoding="async" /></button>`).join("")}</div>`
+      : videoUrl || posterUrl
+        ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
+      : textResult
+        ? `<div class="advanced-result-text">${escapeHtml(textResult)}</div>`
+      : `<div class="advanced-result-media is-placeholder"><i data-lucide="${statusClass(record.status) === "failed" ? "circle-alert" : "loader-circle"}"></i><span>${escapeHtml(status)}</span></div>`;
+  const meta = `
+    <strong>${escapeHtml(publicModelText(publicGenerationDisplayTitle(record, "Generation")))}</strong>
+    <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
+    ${advancedDownloadStatusPill(record)}
+    ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
+    <div class="advanced-result-actions">
+      ${textResult ? `<button class="history-download advanced-result-copy" type="button" data-advanced-result-copy="${escapeHtml(String(index))}"><i data-lucide="copy"></i>Copy</button>` : ""}
+      ${canDownload ? `
+        <button class="history-download advanced-result-download" type="button" data-advanced-result-download="${escapeHtml(String(index))}">
+          <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+        </button>
+      ` : ""}
+      ${videoUrl || imageUrl ? `
+        <button class="history-download advanced-result-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}${advancedDownloadState === "preparing" ? " is-preparing" : ""}" type="button" data-advanced-result-r2-download="${escapeHtml(String(index))}" data-download-state="${advancedDownloadState}" ${advancedDownloadDisabled ? "disabled" : ""}>
+          <i data-lucide="${advancedDownloadState === "preparing" ? "loader-circle" : advancedDownloadState === "failed" ? "circle-alert" : "cloud-download"}"></i>${escapeHtml(advancedDownloadLabel)}
+        </button>
+      ` : ""}
+      <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
+        <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
+      </button>
+    </div>
+  `;
+  const mediaKey = JSON.stringify([
+    resultExpired,
+    ratio,
+    isSucceeded,
+    statusClass(record.status),
+    advancedResultStableRenderHtml(videoUrl),
+    imageUrls.map((url) => advancedResultStableRenderHtml(url)),
+    advancedResultStableRenderHtml(posterUrl),
+    textResult,
+    imageUrl ? "image" : videoUrl || posterUrl ? "video" : textResult ? "text" : "placeholder",
+  ]);
+  const metaKey = JSON.stringify([
+    index,
+    publicModelText(publicGenerationDisplayTitle(record, "Generation")),
+    status,
+    visibleTaskId,
+    advancedDownloadStatusPill(record),
+    record.error || "",
+    textResult ? "copy" : "",
+    canDownload,
+    videoUrl || imageUrl ? advancedDownloadState : "",
+    advancedDownloadLabel,
+    advancedDownloadDisabled,
+    t("history.download"),
+    t("history.regenerate"),
+  ]);
+  return {
+    key: String(taskId || `__missing-${index}`),
+    className: `advanced-result-card is-${statusClass(record.status)}`,
+    media,
+    mediaKey,
+    meta,
+    metaKey,
+  };
+}
+
+function reconcileAdvancedResultCards(records = []) {
+  const existingByKey = new Map();
+  [...(els.advancedResultList?.children || [])].forEach((node) => {
+    const key = String(node?.dataset?.advancedResultTaskId || "");
+    if (key) existingByKey.set(key, node);
+  });
+  const used = new Set();
+  let changed = false;
+  records.forEach((record, index) => {
+    const view = advancedResultCardView(record, index);
+    let card = existingByKey.get(view.key);
+    if (!card) {
+      const template = document.createElement("template");
+      template.innerHTML = `<article class="${escapeHtml(view.className)}" data-advanced-result-task-id="${escapeHtml(view.key)}"><div class="advanced-result-media-slot" data-advanced-result-media-slot></div><div class="advanced-result-meta" data-advanced-result-meta></div></article>`;
+      card = template.content.firstElementChild;
+      changed = true;
+    }
+    if (card.className !== view.className) {
+      card.className = view.className;
+      changed = true;
+    }
+    const mediaSlot = card.querySelector("[data-advanced-result-media-slot]");
+    if (!mediaSlot || mediaSlot.dataset.advancedResultMediaKey !== view.mediaKey) {
+      if (mediaSlot) {
+        mediaSlot.innerHTML = view.media;
+        mediaSlot.dataset.advancedResultMediaKey = view.mediaKey;
+        card.dataset.advancedResultEvents = "";
+      }
+      changed = true;
+    }
+    const meta = card.querySelector("[data-advanced-result-meta]");
+    if (!meta || meta.dataset.advancedResultMetaKey !== view.metaKey) {
+      if (meta) {
+        meta.innerHTML = view.meta;
+        meta.dataset.advancedResultMetaKey = view.metaKey;
+        card.dataset.advancedResultEvents = "";
+      }
+      changed = true;
+    }
+    // Update click targets without touching the already loaded image/video.
+    card.querySelectorAll("[data-advanced-result-image]").forEach((button, imageIndex) => {
+      button.dataset.advancedResultImage = `${index}:${imageIndex}`;
+    });
+    card.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
+      button.dataset.advancedResultVideo = String(index);
+    });
+    bindAdvancedResultCardEvents(card);
+    used.add(view.key);
+    const current = els.advancedResultList.children[index];
+    if (current !== card) {
+      els.advancedResultList.insertBefore(card, current || null);
+      changed = true;
+    }
+  });
+  [...els.advancedResultList.children].forEach((node) => {
+    const key = String(node?.dataset?.advancedResultTaskId || "");
+    if (!key || !used.has(key)) {
+      node.remove();
+      changed = true;
+    }
+  });
+  refreshAdvancedResultMediaSources(records);
+  return changed;
+}
+
+function renderAdvancedResultPanel() {
+  if (!els.advancedResultList) return;
+  const visibleRecords = advancedResultVisibleRecords();
+  const pageData = advancedResultPageData(visibleRecords);
+  const records = pageData.records;
+  els.advancedResultKindTabs?.querySelectorAll("[data-advanced-result-kind]").forEach((button) => {
+    const active = button.dataset.advancedResultKind === (state.advancedResultMediaKind || "video");
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (!visibleRecords.length) {
+    const label = t(({ video: "advanced.createKindVideo", image: "advanced.createKindImage", conversation: "advanced.createKindConversation" })[state.advancedResultMediaKind || "video"]);
+    els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>${escapeHtml(state.lang === "zh" ? `${label}暂无记录` : `No ${label.toLowerCase()} yet`)}</strong><p>${escapeHtml(state.lang === "zh" ? "该分类的生成结果会显示在这里。" : "Results for this type will appear here.")}</p></div>`;
+    state.advancedResultRenderedHtml = "";
+    if (els.advancedResultPager) els.advancedResultPager.innerHTML = "";
+    refreshIcons();
+    return;
+  }
+  // Reconcile by taskId. A status/text update must not tear down unrelated
+  // cards, and a rotating signed URL must not replace a thumbnail that still
+  // points at the same media object.
+  const resultRenderKey = [
+    state.advancedResultMediaKind || "video",
+    String(pageData.page || 1),
+    String(pageData.total || 0),
+    String(pageData.totalPages || 1),
+    state.lang || "en",
+    records.map((record, index) => advancedResultCardView(record, index).mediaKey).join("\n"),
+  ].join("\n");
+  const changed = reconcileAdvancedResultCards(records);
+  state.advancedResultRenderedHtml = resultRenderKey;
+  renderSimplePager(els.advancedResultPager, pageData, (page) => {
+    state.advancedResultPage = page;
+    renderAdvancedResultPanel();
+  }, { jump: true });
+  if (changed) refreshIcons();
 }
 
 // Detail requests are cheap and enqueue upstream checks in the background.

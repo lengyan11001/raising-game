@@ -70,23 +70,26 @@ test("completed video results retry until their poster is repaired", () => {
 });
 
 test("logout and leaving advanced stop pending-result polling", () => {
-  assert.match(explore, /if \(nextTab !== "advanced"\) \{[\s\S]*?stopAdvancedResultRefresh\(\);/);
+  assert.match(explore, /if \(!advancedWorkspace\) \{[\s\S]*?stopAdvancedResultRefresh\(\);/);
   const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
   assert.match(ui, /if \(userChanged && typeof stopAdvancedResultRefresh === "function"\) stopAdvancedResultRefresh\(\);/);
 });
-
 test("unchanged result payloads do not tear down and reload thumbnails", () => {
   const renderStart = create.indexOf("function renderAdvancedResultPanel() {");
   const renderEnd = create.indexOf("// Detail requests are cheap", renderStart);
   const render = renderStart >= 0 && renderEnd > renderStart ? create.slice(renderStart, renderEnd) : "";
   assert.ok(render, "renderAdvancedResultPanel should exist");
-  assert.match(render, /const resultHtml = records\.map\(\(record, index\) => \{/);
-  assert.match(render, /const resultRenderKey = \[/);
-  const guard = render.indexOf('if (state.advancedResultRenderedHtml === resultRenderKey) {');
-  const replacement = render.indexOf('els.advancedResultList.innerHTML = resultHtml;');
-  assert.ok(guard > -1, "unchanged result render should use the cached guard");
-  assert.ok(replacement > guard, "cached guard must run before innerHTML replacement");
-  assert.match(render, /state\.advancedResultRenderedHtml = "";/);
+  assert.match(render, /reconcileAdvancedResultCards\(records\)/);
+  assert.match(render, /Reconcile by taskId/);
+  assert.doesNotMatch(render, /els\.advancedResultList\.innerHTML = resultHtml/);
+  const reconcileStart = create.indexOf("function reconcileAdvancedResultCards(");
+  const reconcileEnd = create.indexOf("function renderAdvancedResultPanel()", reconcileStart);
+  const reconcile = reconcileStart >= 0 && reconcileEnd > reconcileStart ? create.slice(reconcileStart, reconcileEnd) : "";
+  assert.ok(reconcile, "reconcileAdvancedResultCards should exist");
+  assert.match(reconcile, /existingByKey/);
+  assert.match(reconcile, /data-advanced-result-task-id/);
+  assert.match(reconcile, /if \(!mediaSlot \|\| mediaSlot\.dataset\.advancedResultMediaKey !== view\.mediaKey\)/);
+  assert.match(reconcile, /refreshAdvancedResultMediaSources\(records\)/);
 });
 
 test("rotating OSS signatures do not invalidate the result render cache", () => {
@@ -110,6 +113,9 @@ test("unchanged result payloads refresh only expiring signed media sources", () 
   const refresh = create.match(/function advancedResultSignedMediaNeedsRefresh\(value = ""\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(refresh, "advancedResultSignedMediaNeedsRefresh should exist");
   assert.match(create, /if \(advancedResultSignedMediaNeedsRefresh\(image\.currentSrc \|\| image\.src\)\)/);
-  assert.match(create, /if \(state\.advancedResultRenderedHtml === resultRenderKey\) \{\s*refreshAdvancedResultMediaSources\(records\);/);
-  assert.match(create, /advancedResultStableRenderHtml\(resultHtml\)/);
+  assert.match(create, /records\.map\(\(record, index\) => advancedResultCardView\(record, index\)\.mediaKey\)/);
+  const cardView = create.match(/function advancedResultCardView\(record = \{\}, index = 0\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(cardView, "advancedResultCardView should exist");
+  assert.match(cardView, /advancedResultStableRenderHtml\(posterUrl\)/);
+  assert.match(cardView, /advancedResultStableRenderHtml\(videoUrl\)/);
 });
