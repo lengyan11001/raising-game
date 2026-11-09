@@ -159,6 +159,10 @@ function generationListRefreshRequested(url) {
   return ["1", "true", "yes", "on"].includes(String(url.searchParams.get("refresh") || "").toLowerCase());
 }
 
+function generationListPollRequested(url) {
+  return ["1", "true", "yes", "on"].includes(String(url.searchParams.get("poll") || "").toLowerCase());
+}
+
 const GENERATION_LIST_REFRESH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const GENERATION_RECORD_REFRESH_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.GENERATION_RECORD_REFRESH_CONCURRENCY || 3) || 3));
 const GENERATION_RECORD_REFRESH_COOLDOWN_MS = Math.max(1000, Number(process.env.GENERATION_RECORD_REFRESH_COOLDOWN_MS || 12 * 1000) || 12 * 1000);

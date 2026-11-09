@@ -94,13 +94,13 @@ test("R2 upload delays do not downgrade completed upstream tasks to processing",
 });
 
 test("generation completion polls at account level while result keeps only poster repair", () => {
-  const create = fs.readFileSync(path.join(__dirname, "..", "platform.create.js"), "utf8");
-  const ui = fs.readFileSync(path.join(__dirname, "..", "platform.ui.js"), "utf8");
+  const create = platformCreate;
+  const ui = fs.readdirSync(path.join(__dirname, "..", "platform.ui.parts")).filter((name) => /^part-\d+\.js$/.test(name)).sort().map((name) => fs.readFileSync(path.join(__dirname, "..", "platform.ui.parts", name), "utf8")).join("");
   const explore = fs.readFileSync(path.join(__dirname, "..", "platform.explore.js"), "utf8");
   assert.doesNotMatch(create, /function scheduleAdvancedResultRefresh\([\s\S]{0,400}?setInterval\(/);
   assert.doesNotMatch(create, /scheduleHistoryRefresh\(\{ delayMs: 15000/);
   assert.match(create, /refreshAdvancedResultRecord\(\);/);
-  const completion = ui.slice(ui.indexOf("function syncGenerationCompletionRefresh"), ui.indexOf("function isTerminalGenerationStatus"));
+  const completion = ui.slice(ui.indexOf("function handleGenerationCompletionVisibilityChange"), ui.indexOf("function isTerminalGenerationStatus"));
   assert.match(completion, /scheduleGenerationCompletionRefresh/);
   assert.match(ui, /notifyGenerationCompletionChanges\(trackedRecords, records\)/);
   assert.match(ui, /generationCompletionNotified/);
@@ -171,4 +171,90 @@ test("completed video records without durable media refresh even when a provider
   const persistenceScanner = server.slice(persistenceStart, persistenceEnd);
   assert.match(persistenceScanner, /if \(!current\.cdnVideoUrl && shouldRefreshGenerationRecord\(current\)\)[\s\S]*?current = await refreshGenerationRecordStatus\(current\)/);
   assert.ok(persistenceScanner.indexOf("refreshGenerationRecordStatus(current)") < persistenceScanner.indexOf("prepareGenerationRecordAdvancedDownload(current)"));
+});
+
+test("poll=1 uses a status-only snapshot while plain refresh=1 stays compatible", () => {
+  const userList = functionSource("handleListGenerationRecords", "handleGetGenerationRecord");
+  const pollBranch = userList.slice(userList.indexOf("if (refreshRequested && pollRequested)"), userList.indexOf("// Active poster work"));
+  assert.match(pollBranch, /publicGenerationPollRecord/);
+  assert.match(userList, /const pollRequested = generationListPollRequested\(url\)/);
+  assert.match(userList, /queueGenerationRecordStatusRefreshes\(refreshable, \{ reason: refreshRequested \? "user-poll" : "user-list" \}\)/);
+  assert.doesNotMatch(pollBranch, /hydrateGenerationRecordMediaAssets|persistGenerationRecordResultAssetMediaBackfills|queueGenerationRecordMediaMaintenance/);
+  assert.match(userList, /const hydratedRecords = await hydrateGenerationRecordMediaAssets/);
+  assert.match(userList, /const persistedRecords = await persistGenerationRecordResultAssetMediaBackfills/);
+  assert.match(server, /function generationListPollRequested\(url\)/);
+});
+
+test("poll serializer omits submission payloads but keeps result and billing state", () => {
+  const start = server.indexOf("function publicGenerationPollRecord");
+  const end = server.indexOf("function adminGenerationRecordView", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const createPollRecord = new Function(
+    "publicGenerationRecord",
+    `${server.slice(start, end)}\nreturn publicGenerationPollRecord;`,
+  )((record) => ({
+    taskId: record.taskId,
+    status: "succeeded",
+    videoUrl: "https://media.example/result.mp4",
+    posterUrl: "https://media.example/poster.jpg",
+    billing: { preDeducted: 10, final: null },
+    params: { resolution: "1080P" },
+    prompt: "full prompt",
+    finalPrompt: "final prompt",
+    mediaAssets: [{ id: "asset-1" }],
+    usage: { tokens: 1 },
+    imageUrls: ["https://example.com/input.png"],
+    sourceImageUrls: ["https://example.com/input.png"],
+    referenceAssetUri: "asset://asset-1",
+  }));
+  const polled = createPollRecord({ taskId: "cgt-poll" });
+  assert.equal(polled.status, "succeeded");
+  assert.equal(polled.videoUrl, "https://media.example/result.mp4");
+  assert.deepEqual(polled.billing, { preDeducted: 10, final: null });
+  for (const key of ["params", "prompt", "finalPrompt", "mediaAssets", "usage", "imageUrls", "sourceImageUrls", "referenceAssetUri"]) {
+    assert.equal(Object.hasOwn(polled, key), false, `${key} should be omitted from polls`);
+  }
+});
+
+test("frontend polling merges partial snapshots without erasing full record fields", () => {
+  const ui = fs.readFileSync(path.join(__dirname, "..", "platform.ui.parts", "part-02.js"), "utf8");
+  const start = ui.indexOf("function mergeGenerationPollRecord(");
+  const end = ui.indexOf("async function refreshGenerationCompletionRecords(", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const { mergeGenerationPollRecords, mergeGenerationPollRecord } = new Function(
+    `${ui.slice(start, end)}\nreturn { mergeGenerationPollRecords, mergeGenerationPollRecord };`,
+  )();
+  const previous = [{
+    taskId: "cgt-merge",
+    status: "processing",
+    videoUrl: "",
+    params: { resolution: "1080P", duration: 5 },
+    mediaAssets: [{ id: "asset-1" }],
+    upstreamPayload: { input: true },
+    billing: { preDeducted: 20, settled: false },
+  }];
+  const incoming = [{
+    taskId: "cgt-merge",
+    status: "succeeded",
+    videoUrl: "https://media.example/result.mp4",
+    billing: { final: 20, settled: true },
+  }];
+  const [merged] = mergeGenerationPollRecords(previous, incoming);
+  assert.equal(merged.status, "succeeded");
+  assert.equal(merged.videoUrl, "https://media.example/result.mp4");
+  assert.deepEqual(merged.params, previous[0].params);
+  assert.deepEqual(merged.mediaAssets, previous[0].mediaAssets);
+  assert.deepEqual(merged.upstreamPayload, previous[0].upstreamPayload);
+  assert.deepEqual(merged.billing, { preDeducted: 20, settled: true, final: 20 });
+  assert.deepEqual(mergeGenerationPollRecord(previous[0], incoming[0]).billing, merged.billing);
+});
+
+test("returning to a visible tab refreshes generation status immediately", () => {
+  const ui = fs.readFileSync(path.join(__dirname, "..", "platform.ui.parts", "part-02.js"), "utf8");
+  assert.match(ui, /\/api\/generation-records\?page=1&limit=20&refresh=1&poll=1/);
+  assert.match(ui, /document\.addEventListener\("visibilitychange", handleGenerationCompletionVisibilityChange\)/);
+  assert.match(ui, /document\.visibilityState !== "visible" \|\| !state\.user/);
+  assert.match(ui, /refreshGenerationCompletionRecords\(\)\.finally\(scheduleGenerationCompletionRefresh\)/);
 });

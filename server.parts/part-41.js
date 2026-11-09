@@ -454,6 +454,7 @@ async function handleListGenerationRecords(req, res, url) {
   }
 
   const refreshRequested = generationListRefreshRequested(url);
+  const pollRequested = generationListPollRequested(url);
   const refundable = ownRecords.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 50);
   const statusRefreshable = refreshRequested
     ? ownRecords
@@ -461,7 +462,27 @@ async function handleListGenerationRecords(req, res, url) {
       .slice(0, 8)
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
-  queueGenerationRecordStatusRefreshes(refreshable, { reason: "user-list" });
+  queueGenerationRecordStatusRefreshes(refreshable, { reason: refreshRequested ? "user-poll" : "user-list" });
+
+  // Explicit background completion polls are intentionally status-only.
+  // Hydrating assets, persisting backfills, and serializing prompts/params here
+  // amplified every 15-second poll into several DB reads and a large response.
+  // The client merges this snapshot into the full record loaded by history/detail.
+  // Plain refresh=1 stays full for already-open older frontend clients.
+  if (refreshRequested && pollRequested) {
+    return sendJson(res, 200, {
+      ok: true,
+      records: ownRecords.map((record) => publicGenerationPollRecord(record, generationRecordResponseOptionsForAuth(auth))),
+      page,
+      limit,
+      total,
+      totalPages,
+      user: userView(auth.user),
+    });
+  }
+
+  // Active poster work is a full-list concern; lightweight polls only enqueue
+  // the status refresh above and must not fan out media-maintenance jobs.
   ownRecords
     .filter((record) => generationRecordNeedsPosterMaintenance(record))
     .forEach((record) => queueGenerationRecordMediaMaintenance(record));

@@ -1309,6 +1309,21 @@ function publicGenerationRecord(record = {}, options = {}) {
   return publicAssetUrlsForClient(publicRecord);
 }
 
+function publicGenerationPollRecord(record = {}, options = {}) {
+  const full = publicGenerationRecord(record, options);
+  // These fields are already derived by publicGenerationRecord; removing only
+  // submission/input payloads keeps result rendering intact while making a
+  // 20-record status poll substantially smaller. Nested media fields remain
+  // available so a task can show its first playable result immediately.
+  [
+    "params", "prompt", "finalPrompt", "mediaAssets", "usage",
+    "imageUrl", "imageUrls", "sourceImageUrl", "sourceImageUrls",
+    "syntheticReferenceLocalUrl", "syntheticReferenceUrl",
+    "userAssetId", "userAssetIds", "referenceAssetUri",
+  ].forEach((key) => { delete full[key]; });
+  return full;
+}
+
 function adminGenerationRecordView(record = {}, userMap = new Map()) {
   const user = userMap.get(record.userId);
   const publicRecord = publicGenerationRecord(record, { includeLockedMedia: true, includeInternalToolDetails: true });

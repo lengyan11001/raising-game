@@ -1,3 +1,12 @@
+## 2026-11-09 Monthly recharge and consumption report (read-only production query)
+
+- User requested natural-month platform recharge/consumption reporting. Date boundary uses `Asia/Shanghai`; recharge order month uses `paidAt -> matchedAt -> updated_at -> created_at`; consumption uses `app_credit_ledger.created_at`.
+- Results (2026): Aug recharge USD 150.02 / 4 payers / 17,000 credits, net consumption 462,250.19; Sep USD 1,419.00 / 34 / 132,000, net consumption 790,778.83; Oct USD 8,804.90 / 112 / 950,500, net consumption 1,493,060.43; Nov through Nov 9 USD 9,159.30 / about 109 / 1,042,950, net consumption 822,412.05.
+- `admin_credit_add` grants are excluded from customer recharge: Aug 507,875; Sep 855,900; Oct 1,006,300.
+- User supplied operating margin: Aug 30%, Sep and Oct 15%. Applying those rates gives implied gross profit USD 45.01 / 212.85 / 1,320.74 and COGS USD 105.01 / 1,206.15 / 7,484.16.
+- Database lacks auditable platform-wide supplier invoices/COGS. Seedance 2.5 NSFW token-cost proxy only: Aug revenue 72,111.38 credits vs upstream base 55,432.79 (23.1%); Sep 255,032.38 vs 182,644.50 (28.4%); Oct 497,300.16 vs 361,123.04 (27.4%). Do not treat this SKU proxy as full-platform margin.
+- No code changes or deployment. Production access was read-only via the repository deployment credentials; no secrets were printed.
+
 ## 2026-11-09 Chrome prompt video paste routing fix (deployed to Old)
 - User report: Chrome prompt editor could paste images, not videos.
 - Root cause: paste handling only uploaded video for Vega providers; normal Seedance media paste was prevented by the editor but video files were silently dropped. URL uploads also routed non-Vega video through `/api/advanced/transient-media`, which only accepts Vega Lite. Chrome clipboard videos may have empty MIME, making the data URL `application/octet-stream`.
@@ -2198,3 +2207,46 @@ CODEX_TASK_STATE.md
 - Post-deploy verification: health 5/5 returned 200 (`0.135s`, `0.082s`, `0.732s`, `0.353s`, `0.276s`); no new `advanced-download-preparation-failed` or app exceptions in the first observation window. The only post-deploy 502s are the 20:21:58-20:22:00 service restart requests, matching all earlier deploys.
 - Backup cleanup: removed the empty 20-byte gzip `/var/backups/raising-game-demo/media-ingest-failed-closeout-20261109-200144.sql.gz` after `gzip -t` and zero-byte decode verification. Retained valid `/var/backups/raising-game-demo/media-ingest-failed-closeout-20261109-200149.sql.gz` (444,033 bytes; decoded 2,472,821 bytes).
 - Live was not pushed or deployed. Local `live-release` was rebuilt by the snapshot script to `0a9d28c`; `origin/live-release` remains unchanged.
+
+## 2026-11-09 CPU capacity assessment (Old only, read-only)
+
+- Follow-up to the patrol: determine whether CPU warrants a server upgrade. No changes or restart.
+- Host has 4 vCPU (2 physical cores x 2 threads), 7.1GB RAM, 4GB unused swap. Instantaneous CPU over three 5s `mpstat` samples averaged 38.76% user / 3.65% system / 55.60% idle. Node `pidstat` averaged 44.2% total process CPU; burst samples ranged 21.8-59.6%.
+- CPU PSI is low: `some avg10=1.11`, `avg60=2.01`, `avg300=3.06`; memory and IO PSI are effectively zero. Load ~1.3-1.5 on 4 CPUs. Disk util 0.1-0.3%.
+- `ps %CPU=72.8` is lifetime average since process start, not current load, and can overstate a Node process that had a heavy startup/backfill window. `sar` showed total CPU mostly 27-38% through the evening, not sustained saturation.
+- Traffic remains polling-heavy: 5,467 `refresh=1` generation-record requests in hour 20 alone. The useful action is reducing/merging polling and serialization work before buying more CPU. Current capacity has headroom for present traffic.
+
+## 2026-11-09 production patrol (Old only, read-only)
+
+- Scope: Old production `123vips.com` / `47.84.76.131` only. No code changes, deployment, restart, firewall change, or data mutation during this patrol.
+- Service: `raising-game-demo` active/running since `20:34:32 CST`, `NRestarts=0`; local health 5/5 `200` (0.10-0.32s), public health 3/3 `200` (0.36-0.64s).
+- Post-start nginx log has no `5xx`; the last `502` burst was the `20:34:32` restart window with connection-refused upstream. No lock waits; PostgreSQL 716MB, 21 sessions, longest transaction 0s.
+- Resources: load about 1.9 on 4 CPU; Node PID `2284019` around 72-74% CPU, RSS sampled 1.10-1.56GB, 27 threads; memory 2.3GB used, 4.8GB available; swap 4GB unused. Disk 26GB/49GB (55%), inode 7%; NTP synchronized; certificate valid through 2027-01-07.
+- Traffic amplification remains the main risk: about 1,537 `/api/generation-records` requests in roughly 15 minutes after restart, totaling 45.69MB; 1,468 carried `refresh=1`. Several client IPs made about 85 requests each in that interval (~5.7/min), consistent with old 10-second tabs or multiple tabs despite the newer client throttle.
+- Media queue converged: no `queued`/`processing` ingest jobs at check time. Last 24h generation: 592 succeeded, 95 completed, 52 failed, 5 running, 2 submitted. Top failures: 10 upstream submission timeouts (refunded), 8 asset-download 403s, 4 content-sensitivity rejections, 4 image-download timeouts, plus isolated parameter/copyright failures.
+- Security: UFW exposes only 22/80/443; fail2ban currently bans 27 SSH sources; no post-restart application warnings/errors indicating a live outage. Existing non-critical `undress.14vips.com` static-logo/video and stale-resource 404s remain a separate follow-up.
+
+## 2026-11-09 gross-margin decline analysis (read-only production data)
+
+- Goal: explain why the user-reported platform gross margin fell from about 30% in Aug 2026 to 15% in Sep and Oct 2026. Natural months use `Asia/Shanghai`. No code changes or deployment.
+- Monthly paid recharge / net consumption: Aug USD 150.02 / 17,000 paid credits / 462,250.19 consumed; Sep USD 1,419.00 / 132,000 / 790,778.83; Oct USD 8,804.90 / 950,500 / 1,493,060.43.
+- Directly measured `app_credit_ledger` totals Aug-Oct: `wallet_topup=+1,099,500`; `admin_credit_add=+2,370,075` across 416 events. Thus admin grants supplied 2.16x the paid topup credits and 68.3% of new credit supply in the period.
+- Monthly `admin_credit_add`: Aug 507,875 / 41 users; Sep 855,900 / 62; Oct 1,006,300 / 62. Almost all were ordinary users with no recharge in the same month. Operator: Aug `xin` 84 events / 38 users / 489,810 plus `admin` 5/5/18,065; Sep and Oct entirely `xin`.
+- Zero-recharge users consumed 541,970.10 / 554,475.91 (97.7%) in Aug; 787,782.19 / 954,018.39 (82.6%) in Sep; 615,592.61 / 1,714,865.88 (35.9%) in Oct.
+- User concentration: Sep top consumer `wswlja11` consumed 184,290 (20.0% of platform), had 0 recharge and 157,500 grants. Other examples: `13067397328` 69,323.61 / 7.5% / 0 recharge / 51,500 grants; `5158` 42,422.75 / 4.6% / 0 / 110,000. Oct top users are more dispersed; e.g. `wswlja11` 101,178.08 / 6.0% / 0 / 105,500 and `yj6266082` 99,675 / 5.9% / 96,500 recharge / 25,000 grants.
+- Product mix: video is about 98% of consumption. Provider consumption share Seedance / Seedance NSFW / Wan 3.0: Aug 63.7% / 15.6% / 12.6%; Sep 44.2% / 32.9% / 20.9%; Oct 34.9% / 34.2% / 28.4%. Seedance NSFW 720p has comparatively low modeled margin (about 11% Aug, 12.7% Sep, 19.8% Oct).
+- Oct promotion pricing: actual topup credits/USD was 113.32 Aug, 100.00 Sep, 114.52 Oct, but `double-topup-20261015` gave 69 orders / USD 2,070 / 312,000 credits (~150.72 credits/USD) and `usd-500` gave 130 credits/USD. This directly lowers revenue per delivered credit.
+- Earlier claim of widespread generation pre-deduction/refund leakage is retracted. Comparing successful task `preDeductedCredits` and `finalCredits` found no major provider-wide refund gap; only small text-model settlement differences.
+- Priority conclusion: the largest evidence-backed cause is large free `admin_credit_add` grants consumed by real users, followed by higher low-margin Seedance NSFW/Wan 3.0 mix and Oct promotional pricing. Aug's early Wan 3.0 1080p pricing anomaly was severe but does not explain Sep/Oct by itself.
+- Database lacks auditable provider invoices/platform-wide COGS, so configured-price estimates cannot fully reconcile the user-reported 15% blended margin. Recommended: freeze/approve ordinary-user `admin_credit_add`, whitelist and expire grants, audit `xin` history, raise NSFW 720p pricing, review promotional effective price, and ingest supplier billing for margin accounting.
+
+## 2026-11-09 generation polling optimization
+
+- Goal: reduce recurring generation-list poll CPU, PostgreSQL reads, and response bandwidth without making completion detection slower for users.
+- Active-task cadence remains 15 seconds; idle cadence remains 120 seconds. Polling stays account-level instead of calling per-record detail endpoints.
+- New frontend polls `/api/generation-records?page=1&limit=20&refresh=1&poll=1`. The explicit `poll=1` contract returns status/result/billing fields but skips media hydration, result-asset backfill persistence, poster maintenance fan-out, prompts, params, usage, and input-media payloads.
+- Plain `refresh=1` remains a full response for already-open older frontend clients. This avoids a rolling-deploy compatibility regression where cached tabs would erase in-memory params/assets.
+- New frontend shallow-merges compact snapshots into existing complete records, including nested billing. It also refreshes immediately when a hidden tab becomes visible so background-tab throttling does not delay completion feedback.
+- Changed: `server.parts/part-21.js`, `server.parts/part-41.js`, `server.parts/part-20.js`, `platform.ui.parts/part-02.js`, `platform.create.parts/part-06.js`, `test/generation-record-list-refresh.test.js`.
+- Verification: source-compat focused suites 43/43; syntax and `git diff --check` pass.
+- Rollback: revert this commit and rebuild/deploy the previous `platform-release`; no database migration.

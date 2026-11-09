@@ -1156,11 +1156,28 @@ function scheduleGenerationCompletionRefresh() {
   }, delay);
 }
 
+function mergeGenerationPollRecord(previous = {}, incoming = {}) {
+  const merged = { ...(previous || {}), ...(incoming || {}) };
+  // Poll responses intentionally omit input/prompt payloads. A shallow merge
+  // preserves those full fields from the history/detail record, while nested
+  // billing still needs its previous values when the snapshot is partial.
+  if (
+    previous?.billing && typeof previous.billing === "object" && !Array.isArray(previous.billing)
+    && incoming?.billing && typeof incoming.billing === "object" && !Array.isArray(incoming.billing)
+  ) {
+    merged.billing = { ...previous.billing, ...incoming.billing };
+  }
+  return merged;
+}
+
 function mergeGenerationPollRecords(previousRecords = [], incomingRecords = []) {
   const incomingByTask = new Map((incomingRecords || [])
     .filter((record) => record?.taskId)
     .map((record) => [String(record.taskId), record]));
-  const merged = (previousRecords || []).map((record) => incomingByTask.get(String(record?.taskId || "")) || record);
+  const merged = (previousRecords || []).map((record) => {
+    const incoming = incomingByTask.get(String(record?.taskId || ""));
+    return incoming ? mergeGenerationPollRecord(record, incoming) : record;
+  });
   incomingRecords.forEach((record) => {
     if (!record?.taskId || merged.some((item) => String(item?.taskId || "") === String(record.taskId))) return;
     merged.push(record);
@@ -1172,7 +1189,7 @@ async function refreshGenerationCompletionRecords() {
   if (!state.user || state.generationCompletionRefreshInFlight) return;
   state.generationCompletionRefreshInFlight = true;
   try {
-    const payload = await requestJson("/api/generation-records?page=1&limit=20&refresh=1");
+    const payload = await requestJson("/api/generation-records?page=1&limit=20&refresh=1&poll=1");
     const records = Array.isArray(payload.records) ? payload.records : [];
     const historyRecords = Array.isArray(state.historyRecords) ? state.historyRecords : [];
     const resultRecords = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
@@ -1204,7 +1221,21 @@ async function refreshGenerationCompletionRecords() {
   }
 }
 
+function handleGenerationCompletionVisibilityChange() {
+  if (typeof document === "undefined" || document.visibilityState !== "visible" || !state.user) return;
+  if (state.generationCompletionRefreshTimer) {
+    window.clearTimeout(state.generationCompletionRefreshTimer);
+    state.generationCompletionRefreshTimer = 0;
+  }
+  if (generationCompletionCanPoll()) refreshGenerationCompletionRecords().finally(scheduleGenerationCompletionRefresh);
+  else scheduleGenerationCompletionRefresh();
+}
+
 function syncGenerationCompletionRefresh() {
+  if (typeof document !== "undefined" && !state.generationCompletionVisibilityBound) {
+    document.addEventListener("visibilitychange", handleGenerationCompletionVisibilityChange);
+    state.generationCompletionVisibilityBound = true;
+  }
   if (!state.user) {
     if (state.generationCompletionRefreshTimer) {
       window.clearTimeout(state.generationCompletionRefreshTimer);
