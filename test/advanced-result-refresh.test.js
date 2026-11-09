@@ -76,13 +76,40 @@ test("logout and leaving advanced stop pending-result polling", () => {
 });
 
 test("unchanged result payloads do not tear down and reload thumbnails", () => {
-  const render = create.match(/function renderAdvancedResultPanel\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const renderStart = create.indexOf("function renderAdvancedResultPanel() {");
+  const renderEnd = create.indexOf("// Detail requests are cheap", renderStart);
+  const render = renderStart >= 0 && renderEnd > renderStart ? create.slice(renderStart, renderEnd) : "";
   assert.ok(render, "renderAdvancedResultPanel should exist");
   assert.match(render, /const resultHtml = records\.map\(\(record, index\) => \{/);
   assert.match(render, /const resultRenderKey = \[/);
-  const guard = render.indexOf('if (state.advancedResultRenderedHtml === resultRenderKey) return;');
+  const guard = render.indexOf('if (state.advancedResultRenderedHtml === resultRenderKey) {');
   const replacement = render.indexOf('els.advancedResultList.innerHTML = resultHtml;');
   assert.ok(guard > -1, "unchanged result render should use the cached guard");
   assert.ok(replacement > guard, "cached guard must run before innerHTML replacement");
   assert.match(render, /state\.advancedResultRenderedHtml = "";/);
+});
+
+test("rotating OSS signatures do not invalidate the result render cache", () => {
+  const helper = create.match(/function advancedResultStableRenderHtml\(html = ""\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(helper, "advancedResultStableRenderHtml should exist");
+  const vm = require("node:vm");
+  const context = {};
+  vm.runInNewContext(`${helper}\nthis.normalize = advancedResultStableRenderHtml;`, context);
+  const first = context.normalize('<img src="https://assets-cdn.123vips.com/a.jpg?Expires=1&amp;OSSAccessKeyId=key&amp;Signature=one" />');
+  const second = context.normalize('<img src="https://assets-cdn.123vips.com/a.jpg?Expires=2&amp;OSSAccessKeyId=key&amp;Signature=two" />');
+  assert.equal(first, second);
+  assert.match(first, /assets-cdn\.123vips\.com\/a\.jpg/);
+  assert.doesNotMatch(first, /Expires|OSSAccessKeyId|Signature/);
+  assert.notEqual(
+    context.normalize('<img src="https://assets-cdn.123vips.com/a.jpg" />'),
+    context.normalize('<img src="https://assets-cdn.123vips.com/b.jpg" />'),
+  );
+});
+
+test("unchanged result payloads refresh only expiring signed media sources", () => {
+  const refresh = create.match(/function advancedResultSignedMediaNeedsRefresh\(value = ""\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(refresh, "advancedResultSignedMediaNeedsRefresh should exist");
+  assert.match(create, /if \(advancedResultSignedMediaNeedsRefresh\(image\.currentSrc \|\| image\.src\)\)/);
+  assert.match(create, /if \(state\.advancedResultRenderedHtml === resultRenderKey\) \{\s*refreshAdvancedResultMediaSources\(records\);/);
+  assert.match(create, /advancedResultStableRenderHtml\(resultHtml\)/);
 });

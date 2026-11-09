@@ -835,6 +835,52 @@ function advancedResultPageRecord(index) {
   return advancedResultPageData().records[Number(index) || 0];
 }
 
+function advancedResultStableRenderHtml(html = "") {
+  // OSS/CDN signatures are short-lived and rotate on every API response. They
+  // identify the same media object but must not count as visible content
+  // changes, otherwise every completion poll tears down and reloads images.
+  return String(html || "")
+    .replace(/(?:&amp;|&|\?)(?:Expires|OSSAccessKeyId|Signature|X-Amz-[A-Za-z0-9-]+)=[^&\s"'<>]*/g, "")
+    .replace(/[?&](?=["'\s<])/g, "");
+}
+
+function advancedResultSignedMediaNeedsRefresh(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  try {
+    const expires = Number(new URL(text, window.location.href).searchParams.get("Expires") || 0);
+    // Provider URLs have no Expires field and stay valid independently. Only
+    // refresh signed CDN URLs shortly before they stop working.
+    return Boolean(expires && expires * 1000 - Date.now() < 60 * 1000);
+  } catch {
+    return false;
+  }
+}
+
+function refreshAdvancedResultMediaSources(records = []) {
+  els.advancedResultList?.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
+    const [recordIndex, imageIndex] = String(button.dataset.advancedResultImage || "0:0").split(":").map(Number);
+    const record = records[recordIndex] || {};
+    const nextUrl = generationImageResultUrls(record)[imageIndex || 0] || generationImageResultUrl(record);
+    const image = button.querySelector("img");
+    if (!nextUrl || !image) return;
+    if (image.currentSrc === nextUrl || image.src === nextUrl) return;
+    if (advancedResultSignedMediaNeedsRefresh(image.currentSrc || image.src)) {
+      image.src = nextUrl;
+    }
+  });
+  els.advancedResultList?.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
+    const record = records[Number(button.dataset.advancedResultVideo)] || {};
+    const image = button.querySelector("img");
+    const nextUrl = generationPosterUrl(record);
+    if (!nextUrl || !image) return;
+    if (image.currentSrc === nextUrl || image.src === nextUrl) return;
+    if (advancedResultSignedMediaNeedsRefresh(image.currentSrc || image.src)) {
+      image.src = nextUrl;
+    }
+  });
+}
+
 function renderAdvancedResultPanel() {
   if (!els.advancedResultList) return;
   const visibleRecords = advancedResultVisibleRecords();
@@ -916,9 +962,12 @@ function renderAdvancedResultPanel() {
     String(pageData.total || 0),
     String(pageData.totalPages || 1),
     state.lang || "en",
-    resultHtml,
+    advancedResultStableRenderHtml(resultHtml),
   ].join("\n");
-  if (state.advancedResultRenderedHtml === resultRenderKey) return;
+  if (state.advancedResultRenderedHtml === resultRenderKey) {
+    refreshAdvancedResultMediaSources(records);
+    return;
+  }
   els.advancedResultList.innerHTML = resultHtml;
   state.advancedResultRenderedHtml = resultRenderKey;
   renderSimplePager(els.advancedResultPager, pageData, (page) => {
