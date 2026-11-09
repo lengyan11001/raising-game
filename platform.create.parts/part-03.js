@@ -1155,6 +1155,17 @@ function readFileAsDataUrl(file) {
   });
 }
 
+async function readMediaFileAsDataUrl(file, nameHint = "") {
+  const dataUrl = await readFileAsDataUrl(file);
+  const hintedFile = nameHint && !file?.name ? { ...file, name: nameHint } : file;
+  const inferredMime = String(uploadedFileMime(hintedFile) || "").toLowerCase();
+  const match = String(dataUrl || "").match(/^data:([^;,]*)((?:;[^,]*)*),(.*)$/s);
+  if (!match || !inferredMime) return dataUrl;
+  const currentMime = String(match[1] || "").toLowerCase();
+  const genericMime = !currentMime || currentMime === "application/octet-stream" || currentMime === "binary/octet-stream" || currentMime === "application/mp4";
+  return genericMime ? `data:${inferredMime}${match[2]},${match[3]}` : dataUrl;
+}
+
 function pastedMediaFilesFromEvent(event) {
   const clipboard = event?.clipboardData;
   const files = [];
@@ -1169,7 +1180,12 @@ function pastedMediaFilesFromEvent(event) {
     files.push(file);
   };
   for (const item of Array.from(clipboard?.items || [])) {
-    if (String(item?.kind || "").toLowerCase() !== "file" && !/^(?:image|video|audio)\//.test(String(item?.type || ""))) continue;
+    const kind = String(item?.kind || "").toLowerCase();
+    const mime = String(item?.type || "").toLowerCase();
+    // Chrome may expose a local copied video as a file item with an empty
+    // kind/type. Do not discard it before trying getAsFile().
+    if (kind && kind !== "file" && kind !== "string") continue;
+    if (kind === "string" && mime && !/^(?:image|video|audio)\//.test(mime)) continue;
     addFile(item.getAsFile?.());
   }
   for (const file of Array.from(clipboard?.files || [])) addFile(file);
@@ -1219,12 +1235,22 @@ async function pastedMediaUrlsFromClipboardItems(items = []) {
   return pastedMediaUrlCandidatesFromEvent(eventLike);
 }
 
-async function pastedMediaFilesFromNavigatorClipboard() {
+function readNavigatorClipboardMedia() {
+  const clipboard = globalThis.navigator?.clipboard;
+  if (!clipboard?.read) return null;
+  try {
+    return Promise.resolve(clipboard.read());
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function pastedMediaFilesFromNavigatorClipboard(clipboardReadPromise = null) {
   const clipboard = globalThis.navigator?.clipboard;
   if (!clipboard?.read) return [];
   const files = [];
   const seen = new Set();
-  for (const item of await clipboard.read()) {
+  for (const item of await (clipboardReadPromise || clipboard.read())) {
     for (const type of Array.from(item.types || [])) {
       const mime = String(type || "").toLowerCase();
       if (!/^(?:image|video|audio)\//.test(mime)) continue;
@@ -1372,7 +1398,7 @@ async function uploadAdvancedMediaReferenceUrl(url = "", kind = "image", { provi
   if (/^blob:/i.test(sourceUrl)) {
     try {
       const blob = await (await fetch(sourceUrl)).blob();
-      sourceUrl = await readFileAsDataUrl(blob);
+      sourceUrl = await readMediaFileAsDataUrl(blob, name);
     } catch (_error) {
       sourceUrl = "";
     }
@@ -1611,8 +1637,11 @@ function handleAdvancedPromptPaste(event) {
   const snapshot = advancedPromptPasteMediaSnapshot(event);
   const ownsMediaPaste = Boolean(snapshot.files.length || snapshot.urls.length || snapshot.looksLikeMedia);
   if (ownsMediaPaste) event.preventDefault();
+  // Start the clipboard read while the paste event still has user activation.
+  // Reading it later from the async upload path can fail with NotAllowedError.
+  const clipboardReadPromise = snapshot.looksLikeMedia ? readNavigatorClipboardMedia() : null;
   Promise.resolve()
-    .then(() => handleAdvancedPromptPasteEvent(event, { ownsMediaPaste, snapshot }))
+    .then(() => handleAdvancedPromptPasteEvent(event, { ownsMediaPaste, snapshot, clipboardReadPromise }))
     .catch((error) => {
       const note = els.advancedNote;
       if (note) note.textContent = error?.message || String(error);
@@ -1629,7 +1658,7 @@ function advancedPromptPasteMediaSnapshot(event) {
   };
 }
 
-async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false, snapshot = null } = {}) {
+async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false, snapshot = null, clipboardReadPromise = null } = {}) {
   const provider = currentAdvancedProvider();
   const initialSnapshot = snapshot || advancedPromptPasteMediaSnapshot(event);
   let mediaFiles = initialSnapshot.files.slice();
@@ -1643,7 +1672,7 @@ async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false, s
   if (suspiciousClipboardMedia) {
     if (!ownsMediaPaste) event.preventDefault();
     try {
-      mediaFiles = await pastedMediaFilesFromNavigatorClipboard();
+      mediaFiles = await pastedMediaFilesFromNavigatorClipboard(clipboardReadPromise);
     } catch (_error) {
       mediaFiles = [];
     }
@@ -1715,6 +1744,7 @@ async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false, s
       }
     }
     if (els.advancedNote) els.advancedNote.textContent = "";
+    renderAdvancedAssets();
     updateAdvancedModelControls();
     updateAdvancedButtonCost();
   }

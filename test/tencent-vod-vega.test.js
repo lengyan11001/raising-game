@@ -1219,11 +1219,12 @@ test("Vega prompt paste imports clipboard HTML and URL media through the model-a
   assert.match(handler, /const snapshot = advancedPromptPasteMediaSnapshot\(event\)/);
   assert.match(handler, /const ownsMediaPaste = Boolean\(snapshot\.files\.length \|\| snapshot\.urls\.length \|\| snapshot\.looksLikeMedia\)/);
   assert.match(handler, /advancedPromptPasteEvents\.has\(event\)/);
-  assert.match(handler, /handleAdvancedPromptPasteEvent\(event, \{ ownsMediaPaste, snapshot \}\)/);
+  assert.match(handler, /readNavigatorClipboardMedia\(\)/);
+  assert.match(handler, /handleAdvancedPromptPasteEvent\(event, \{ ownsMediaPaste, snapshot, clipboardReadPromise \}\)/);
   assert.match(handler, /if \(ownsMediaPaste\) event\.preventDefault\(\)/);
   assert.match(handler, /return ownsMediaPaste/);
   assert.match(handler, /initialSnapshot\.looksLikeMedia/);
-  assert.match(handler, /pastedMediaFilesFromNavigatorClipboard\(\)/);
+  assert.match(handler, /pastedMediaFilesFromNavigatorClipboard\(clipboardReadPromise\)/);
   assert.match(handler, /const hasPastedMedia = Boolean\(mediaFiles\.length \|\| pastedImageUrls\.length \|\| pastedVideoUrls\.length\)/);
   assert.match(handler, /if \(hasPastedMedia\) event\.preventDefault\(\)/);
   assert.match(handler, /addAdvancedVegaPromptPasteUrlVideos\(pastedVideoUrls, provider\)/);
@@ -1246,6 +1247,7 @@ test("Vega prompt paste routes video through the model-aware upload bridge", () 
   assert.match(videoBranch, /const usesMediaLibrary = vegaProviderUsesMediaLibrary\(provider\)/);
   assert.match(videoBranch, /usesMediaLibrary\s*\? await uploadAdvancedMediaReference\(file, "video", \{ provider, skipReference: true \}\)\s*: await uploadAdvancedTransientMediaReference\(file, "video", \{ provider \}\)/);
   assert.match(videoBranch, /addAdvancedSeedanceMediaReference\(ref, "video"/);
+  assert.match(videoBranch, /renderAdvancedAssets\(\)/);
   assert.match(videoBranch, /if \(!supportsVideoReferences\) \{\s*event\.preventDefault\(\)/);
   assert.match(videoBranch, /event\.preventDefault\(\);/);
   assert.match(videoBranch, /t\("advanced\.referenceVideoUnsupported"\)/);

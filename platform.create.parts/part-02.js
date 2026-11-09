@@ -164,7 +164,7 @@ async function uploadAdvancedMediaReference(file, kind = "video", options = {}) 
     const payload = await requestJson("/api/user-assets", {
       method: "POST",
       body: {
-        dataUrl: await readFileAsDataUrl(file),
+        dataUrl: await readMediaFileAsDataUrl(file),
         name: file.name || (kind === "audio" ? "Audio reference" : "Video reference"),
         fileName: file.name || "",
         durationSeconds,
@@ -216,7 +216,7 @@ async function uploadAdvancedTransientMediaReference(file, kind = "image", { pro
   const payload = await requestJson("/api/advanced/transient-media", {
     method: "POST",
     body: {
-      dataUrl: await readFileAsDataUrl(file),
+      dataUrl: await readMediaFileAsDataUrl(file),
       name: file.name || (normalizedKind === "audio" ? "Audio reference" : normalizedKind === "video" ? "Video reference" : "Image reference"),
       fileName: file.name || "",
       mime,
@@ -265,7 +265,7 @@ async function uploadAdvancedWanAudioReference(file) {
     const payload = await requestJson("/api/user-assets", {
       method: "POST",
       body: {
-        dataUrl: await readFileAsDataUrl(file),
+        dataUrl: await readMediaFileAsDataUrl(file),
         name: file.name || "Driving audio",
         fileName: file.name || "",
         durationSeconds,

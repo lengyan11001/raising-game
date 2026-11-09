@@ -440,6 +440,30 @@ return pastedMediaFilesFromEvent;`,
     },
   });
   assert.deepEqual(files, [image, video]);
+
+  const opaqueVideo = { type: "video/mp4", name: "opaque.mp4", size: 30, lastModified: 2 };
+  const opaque = extract({
+    clipboardData: {
+      items: [{ kind: "", type: "", getAsFile: () => opaqueVideo }],
+      files: [],
+    },
+  });
+  assert.deepEqual(opaque, [opaqueVideo]);
+});
+
+test("prompt paste promotes opaque video files to their inferred media MIME", async () => {
+  const createPart03 = fs.readFileSync(path.join(root, "platform.create.parts/part-03.js"), "utf8");
+  const promote = new Function(
+    "readFileAsDataUrl",
+    "uploadedFileMime",
+    `${extractFunction(createPart03, "readMediaFileAsDataUrl")}
+return readMediaFileAsDataUrl;`,
+  )(
+    async () => "data:application/octet-stream;base64,dmlkZW8=",
+    (file) => String(file?.name || "").toLowerCase().endsWith(".mp4") ? "video/mp4" : "",
+  );
+  const opaqueVideo = { type: "", name: "clipboard-video.mp4", size: 20, lastModified: 1 };
+  assert.equal(await promote(opaqueVideo), "data:video/mp4;base64,dmlkZW8=");
 });
 
 test("prompt paste extracts Safari HTML media and async clipboard files", async () => {
