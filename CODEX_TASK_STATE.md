@@ -1,3 +1,11 @@
+## 2026-11-09 Chrome prompt video paste routing fix (deployed to Old)
+- User report: Chrome prompt editor could paste images, not videos.
+- Root cause: paste handling only uploaded video for Vega providers; normal Seedance media paste was prevented by the editor but video files were silently dropped. URL uploads also routed non-Vega video through `/api/advanced/transient-media`, which only accepts Vega Lite. Chrome clipboard videos may have empty MIME, making the data URL `application/octet-stream`.
+- Fix: all applicable providers now accept pasted video files/URLs; normal Seedance and Vega Pro use `/api/user-assets`; Vega Lite uses `/api/advanced/transient-media`; MIME is promoted from the filename; document-level paste capture now follows `composedPath()` / ancestor / shadow host instead of relying only on `target.closest()`.
+- Verification: `tencent-vod-vega.test.js` + `prompt-editor.test.js` 81/81; focused paste tests 4/4; syntax and `git diff --check` pass.
+- Source commit: `50871d8`. Release commit: `4a5484ac734a1cb4c79bf0a6499ea746bbfd83ce`; deployed Old only. Production HTML entry version `afca6f6c063a`; CSS version `chrome-video-paste-20261109-3`; production part-03 and prompt-editor contain the new routing/capture code.
+- Rollback release: `6fa69e1` (previous platform release). Live was not pushed or deployed.
+
 ## 2026-11-09 Opaque Chrome clipboard video paste fix (deployed to Old)
 - Root cause: Chrome clipboard video files can have an empty `File.type`; `FileReader` then emits `data:application/octet-stream`, causing `/api/user-assets` to classify the upload by document extension instead of video.
 - Fix: `readMediaFileAsDataUrl()` promotes generic/empty data-URL MIME to `uploadedFileMime(file)` (for example `.mp4` -> `video/mp4`). Pro/Lite video and audio upload paths now use it; image compression remains unchanged. Video paste also explicitly rerenders the asset list after upload.
