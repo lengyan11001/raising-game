@@ -30,16 +30,11 @@ async function loadHistory({
     const mobileLayout = isMobileHistoryLayout();
     const shouldAppend = mobileLayout && append && requestedPage > 1;
     const shouldPreserve = mobileLayout && preserveMobile && previousRecords.length > 0;
-    let records = shouldAppend
+    const records = shouldAppend
       ? mergeHistoryRecordPages(previousRecords, incomingRecords)
       : shouldPreserve
         ? mergeHistoryRecordPages(incomingRecords, previousRecords)
         : incomingRecords;
-    // Preserve full in-memory context if a refresh ever returns compact status
-    // snapshots. Plain refresh=1 remains a full response for compatibility.
-    if (refresh && !append && typeof mergeGenerationPollRecords === "function") {
-      records = mergeGenerationPollRecords(previousRecords, records);
-    }
     // A page can disappear while the visitor is reading it (records deleted in
     // another tab). Step back to the last page that still exists instead of
     // showing an empty list.
