@@ -1870,7 +1870,7 @@ CODEX_TASK_STATE.md
 - Fix: use `tenant.tenantId` in the existing Google-account lookup. Added a static regression test to prevent the undefined-variable form from returning.
 - Verification: focused auth/session/media/deployment/generation suite passed 50/50; `node --check` for the source and regression test passed; scoped `git diff --check` passed.
 - Safety constraints: no session deletion or invalidation; no JSON business-data fallback; Old only; do not touch or deploy Live.
-- Deployment: pending at the time this entry was written.
+- Deployment: source `old-site` `816aa83`; `platform-release` `e00b7d4`; deployed only to `123vips.com`. Production serves the countdown code; `/api/health` returned 200 and the email request endpoint correctly returned 400 for an invalid address. Service active with 0 restarts; no recent `tenantid is not defined`, uncaught, fatal, or email-challenge errors. Sessions were preserved.
 
 ## 2026-11-09 email login resend countdown
 
