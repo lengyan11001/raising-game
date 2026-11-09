@@ -5,7 +5,7 @@
 - Defaults now apply `SEEDREAM_QWEN_IMAGE_SALE_MARKUP = 1.5`; normalization migrates only exact legacy sale values equal to purchase, preserving custom configured prices. Admin display now consistently uses configured sale prices rather than substituting gateway purchase values.
 - New prices: Seedream 5.0 Pro 1K 0.0675 / 2K 0.135 / reference 0.0045; Qwen Image 3.0 Pro 1K 0.05157 / 2K 0.103142 / reference 0.004125; Qwen Image 3.0 Standard 1K 0.037131 / 2K 0.037131 / reference 0.004125.
 - Verification: focused pricing suites 49/49 pass; syntax and `git diff --check` pass; audit shows all 9 target rows `OK` at approximately 1.5x (Qwen Pro 2K is 1.500007x due to six-decimal storage rounding).
-- Deployment target: Old only. Do not update or deploy Live.
+- Deployment completed: source `6271076`; `platform-release` / `origin/platform-release` `f6a08d8`; deployed Old only via `scripts/deploy_local.sh --site old`. Production `/api/health` returned 200 `{"ok":true}`. Rollback release `7e957b8`. Live was not updated or deployed.
 
 ## 2026-11-09 Monthly recharge and consumption report (read-only production query)
 
