@@ -67,7 +67,7 @@
         // Deployments must become visible on the very next navigation. A
         // cache-first shell can otherwise keep loading an old chunk manifest.
         try {
-          const response = await fetch(request);
+          const response = await fetch(request, { cache: "no-cache" });
           if (response.ok) await cache.put(key, response.clone());
           return response;
         } catch (error) {
@@ -85,7 +85,7 @@
       // network first so stale validation/UI code cannot survive a deploy.
       if (isPlatformAsset(url.pathname)) {
         try {
-          const response = await fetch(request);
+          const response = await fetch(request, { cache: "no-cache" });
           if (response.ok) await cache.put(request, response.clone());
           return response;
         } catch (error) {

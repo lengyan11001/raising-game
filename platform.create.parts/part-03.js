@@ -1183,11 +1183,40 @@ function pastedImageFilesFromEvent(event) {
 function clipboardEventLooksLikeMedia(event) {
   const clipboard = event?.clipboardData;
   const types = Array.from(clipboard?.types || []).map((type) => String(type || "").toLowerCase());
-  if (types.includes("files")) return true;
+  if (types.includes("files") || types.some((type) => /^(?:image|video|audio)\//.test(type))) return true;
   const html = String(clipboard?.getData?.("text/html") || "");
   if (/<(?:img|video|audio|source)\b/i.test(html) || /url\(\s*["']?(?:https?:|data:|blob:)/i.test(html)) return true;
   const plain = String(clipboard?.getData?.("text/plain") || "");
   return /^(?:data|blob):(?:image|video|audio)\//i.test(plain.trim());
+}
+
+function clipboardItemText(item = {}, type = "") {
+  const getType = item?.getType;
+  if (typeof getType !== "function") return Promise.resolve("");
+  return Promise.resolve(getType.call(item, type))
+    .then((value) => (typeof value === "string" ? value : value?.text?.()))
+    .then((value) => (typeof value === "string" ? value : String(value || "")))
+    .catch(() => "");
+}
+
+async function pastedMediaUrlsFromClipboardItems(items = []) {
+  const eventLike = { clipboardData: null };
+  const textTypes = ["text/uri-list", "text/html", "text/plain"];
+  const values = new Map(textTypes.map((type) => [type, []]));
+  for (const item of Array.from(items || [])) {
+    for (const type of Array.from(item?.types || [])) {
+      const normalized = String(type || "").toLowerCase();
+      if (!textTypes.includes(normalized)) continue;
+      const text = await clipboardItemText(item, type);
+      if (text) values.get(normalized).push(text);
+    }
+  }
+  eventLike.clipboardData = {
+    getData(type) {
+      return (values.get(String(type || "").toLowerCase()) || []).join("\n");
+    },
+  };
+  return pastedMediaUrlCandidatesFromEvent(eventLike);
 }
 
 async function pastedMediaFilesFromNavigatorClipboard() {
@@ -1210,6 +1239,13 @@ async function pastedMediaFilesFromNavigatorClipboard() {
     }
   }
   return files;
+}
+
+async function pastedMediaUrlsFromNavigatorClipboard() {
+  const clipboard = globalThis.navigator?.clipboard;
+  if (!clipboard?.read) return [];
+  const contents = await clipboard.read();
+  return pastedMediaUrlsFromClipboardItems(contents);
 }
 
 function mediaUrlKind(value = "") {
@@ -1569,10 +1605,14 @@ function handleAdvancedPromptPaste(event) {
     return Boolean(event?.defaultPrevented);
   }
   advancedPromptPasteEvents.add(event);
-  const ownsMediaPaste = advancedPromptPasteEventOwnsMedia(event);
+  // Safari invalidates ClipboardEvent.clipboardData immediately after the
+  // paste dispatch returns. Snapshot every synchronous source now; async
+  // uploads must never wait until the microtask to read the event again.
+  const snapshot = advancedPromptPasteMediaSnapshot(event);
+  const ownsMediaPaste = Boolean(snapshot.files.length || snapshot.urls.length || snapshot.looksLikeMedia);
   if (ownsMediaPaste) event.preventDefault();
   Promise.resolve()
-    .then(() => handleAdvancedPromptPasteEvent(event, { ownsMediaPaste }))
+    .then(() => handleAdvancedPromptPasteEvent(event, { ownsMediaPaste, snapshot }))
     .catch((error) => {
       const note = els.advancedNote;
       if (note) note.textContent = error?.message || String(error);
@@ -1581,18 +1621,21 @@ function handleAdvancedPromptPaste(event) {
   return ownsMediaPaste;
 }
 
-function advancedPromptPasteEventOwnsMedia(event) {
-  if (pastedMediaFilesFromEvent(event).length) return true;
-  if (pastedMediaUrlCandidatesFromEvent(event).length) return true;
-  return clipboardEventLooksLikeMedia(event);
+function advancedPromptPasteMediaSnapshot(event) {
+  return {
+    files: pastedMediaFilesFromEvent(event),
+    urls: pastedMediaUrlCandidatesFromEvent(event),
+    looksLikeMedia: clipboardEventLooksLikeMedia(event),
+  };
 }
 
-async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false } = {}) {
+async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false, snapshot = null } = {}) {
   const provider = currentAdvancedProvider();
-  let mediaFiles = pastedMediaFilesFromEvent(event);
+  const initialSnapshot = snapshot || advancedPromptPasteMediaSnapshot(event);
+  let mediaFiles = initialSnapshot.files.slice();
   const rule = advancedPromptPasteImageRule();
-  let pastedUrls = isVegaAdvancedProvider(provider) && !mediaFiles.length ? pastedMediaUrlCandidatesFromEvent(event) : [];
-  const suspiciousClipboardMedia = !mediaFiles.length && !pastedUrls.length && clipboardEventLooksLikeMedia(event);
+  let pastedUrls = isVegaAdvancedProvider(provider) && !mediaFiles.length ? initialSnapshot.urls.slice() : [];
+  const suspiciousClipboardMedia = !mediaFiles.length && !pastedUrls.length && initialSnapshot.looksLikeMedia;
   // Safari sometimes hides the actual image/video behind the async Clipboard
   // API even though the synchronous paste event exposes only an empty
   // Files/HTML type. The synchronous decision above already prevented the
@@ -1604,7 +1647,21 @@ async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false } 
     } catch (_error) {
       mediaFiles = [];
     }
+    if (isVegaAdvancedProvider(provider) && !mediaFiles.length) {
+      try {
+        pastedUrls = await pastedMediaUrlsFromNavigatorClipboard();
+      } catch (_error) {
+        pastedUrls = [];
+      }
+    }
     if (mediaFiles.length) pastedUrls = [];
+  }
+  if (isVegaAdvancedProvider(provider) && !mediaFiles.length && !pastedUrls.length) {
+    try {
+      pastedUrls = await pastedMediaUrlsFromClipboardItems(event?.clipboardData?.items || []);
+    } catch (_error) {
+      pastedUrls = [];
+    }
   }
   const imageFiles = mediaFiles.filter((file) => String(file.type || uploadedFileMime(file) || "").toLowerCase().startsWith("image/"));
   const videoFiles = mediaFiles.filter((file) => String(file.type || uploadedFileMime(file) || "").toLowerCase().startsWith("video/"));

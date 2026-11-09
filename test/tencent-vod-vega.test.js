@@ -1202,6 +1202,10 @@ test("Vega prompt paste imports clipboard HTML and URL media through the model-a
   assert.match(clipboardFallback, /clipboard\.read\(\)/);
   assert.match(clipboardFallback, /item\.getType\(type\)/);
   assert.match(clipboardFallback, /new File\(\[blob\]/);
+  assert.match(create, /async function pastedMediaUrlsFromClipboardItems/);
+  assert.match(create, /async function pastedMediaUrlsFromNavigatorClipboard/);
+  assert.match(create, /pastedUrls = await pastedMediaUrlsFromNavigatorClipboard\(\)/);
+  assert.match(create, /pastedUrls = await pastedMediaUrlsFromClipboardItems\(event\?\.clipboardData\?\.items \|\| \[\]\)/);
 
   const uploader = sourceBetween(create, "async function uploadAdvancedMediaReferenceUrl(", "async function addAdvancedVegaPromptPasteUrlImages(");
   assert.match(uploader, /vegaProviderUsesMediaLibrary\(provider\)/);
@@ -1211,11 +1215,14 @@ test("Vega prompt paste imports clipboard HTML and URL media through the model-a
 
   const handler = sourceBetween(create, "function handleAdvancedPromptPaste(", "function readVideoDuration(");
   assert.match(create, /const advancedPromptPasteEvents = new WeakSet\(\)/);
+  assert.match(create, /function advancedPromptPasteMediaSnapshot\(event\)/);
+  assert.match(handler, /const snapshot = advancedPromptPasteMediaSnapshot\(event\)/);
+  assert.match(handler, /const ownsMediaPaste = Boolean\(snapshot\.files\.length \|\| snapshot\.urls\.length \|\| snapshot\.looksLikeMedia\)/);
   assert.match(handler, /advancedPromptPasteEvents\.has\(event\)/);
-  assert.match(handler, /advancedPromptPasteEventOwnsMedia\(event\)/);
+  assert.match(handler, /handleAdvancedPromptPasteEvent\(event, \{ ownsMediaPaste, snapshot \}\)/);
   assert.match(handler, /if \(ownsMediaPaste\) event\.preventDefault\(\)/);
   assert.match(handler, /return ownsMediaPaste/);
-  assert.match(handler, /clipboardEventLooksLikeMedia\(event\)/);
+  assert.match(handler, /initialSnapshot\.looksLikeMedia/);
   assert.match(handler, /pastedMediaFilesFromNavigatorClipboard\(\)/);
   assert.match(handler, /const hasPastedMedia = Boolean\(mediaFiles\.length \|\| pastedImageUrls\.length \|\| pastedVideoUrls\.length\)/);
   assert.match(handler, /if \(hasPastedMedia\) event\.preventDefault\(\)/);

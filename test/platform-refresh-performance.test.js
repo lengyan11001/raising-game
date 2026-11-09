@@ -119,11 +119,11 @@ test("service worker never intercepts API or non-GET requests", () => {
 test("service worker revalidates navigation and platform chunks before using cache", () => {
   const sw = read("platform-sw.js");
   const navigate = sw.match(/if \(request\.mode === "navigate"\) \{([\s\S]*?)\n    \}/)?.[1] || "";
-  assert.match(navigate, /const response = await fetch\(request\);/);
+  assert.match(navigate, /const response = await fetch\(request, \{ cache: "no-cache" \}\);/);
   assert.match(navigate, /catch \(error\)[\s\S]*?cache\.match/);
   assert.doesNotMatch(navigate, /const cached = await cache\.match[\s\S]*?return cached;\n        \}/);
   const asset = sw.match(/if \(isPlatformAsset\(url\.pathname\)\) \{([\s\S]*?)\n      \}/)?.[1] || "";
-  assert.match(asset, /const response = await fetch\(request\);/);
+  assert.match(asset, /const response = await fetch\(request, \{ cache: "no-cache" \}\);/);
   assert.match(asset, /catch \(error\)[\s\S]*?cache\.match/);
 });
 

@@ -177,6 +177,8 @@
     syncTextarea(editor.getValue());
     const editorElement = editor.getElement?.();
     editorElement?.addEventListener("input", handleNativeInput);
+    editorElement?.addEventListener("paste", handleEditorPaste, true);
+    mount.addEventListener("paste", handleEditorPaste, true);
     document.dispatchEvent(new CustomEvent("platform-prompt-editor-ready"));
     return true;
   }

@@ -142,6 +142,8 @@ test("rich prompt auto-size resets height before measuring so deletion can shrin
 test("rich editor captures paste at document level before ProseMirror consumes Safari clipboard media", () => {
   assert.match(adapterSource, /event\?\.target\?\.closest\?\.\("#advancedPromptEditorMount"\)/);
   assert.match(adapterSource, /document\.addEventListener\("paste", handleDocumentPaste, true\)/);
+  assert.match(adapterSource, /editorElement\?\.addEventListener\("paste", handleEditorPaste, true\)/);
+  assert.match(adapterSource, /mount\.addEventListener\("paste", handleEditorPaste, true\)/);
   assert.match(adapterSource, /try \{\s*const pending = window\.handleAdvancedPromptPaste\(event\);\s*Promise\.resolve\(pending\)/);
 });
 
