@@ -1006,13 +1006,14 @@ function advancedDownloadFailureMessage(error = {}) {
   return message.slice(0, 500);
 }
 
-function queueGenerationRecordAdvancedDownload(record = {}) {
+function queueGenerationRecordAdvancedDownload(record = {}, { retryFailed = false } = {}) {
   const taskId = String(record?.taskId || "").trim();
   if (
     !taskId
     || !dbEnabled()
     || !generatedOutputStorageEnabled()
     || !isSucceededStatus(record?.status)
+    || (!retryFailed && String(record?.advancedDownloadStatus || "").toLowerCase() === "failed")
     || !generationRecordProviderDownloadTarget(record)?.url
     || generationRecordHasR2Download(record)
     || advancedDownloadPreparationQueued.has(taskId)
@@ -1430,7 +1431,7 @@ async function handleGenerationRecordDownloadUrl(req, res, taskId, url = null) {
     // If the process restarted mid-transfer, the database can still say
     // "preparing" while no local job exists. Requeue in that case instead of
     // leaving the record stuck forever.
-    const queued = queueGenerationRecordAdvancedDownload(record);
+    const queued = queueGenerationRecordAdvancedDownload(record, { retryFailed: retry });
     void scanMediaIngestQueue();
     if (queued || advancedDownloadPreparationQueued.has(taskId)) {
       return sendJson(res, 202, {

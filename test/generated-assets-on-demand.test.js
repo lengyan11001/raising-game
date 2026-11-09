@@ -228,18 +228,32 @@ test("media ingest drains OSS transfers without starving retry-exhausted rows", 
   assert.match(scan, /syncFailedMediaIngestRecordStatusesInDb\(200\)/);
 });
 
+test("automatic advanced download recovery never reopens terminal failures", () => {
+  const queue = server.slice(
+    server.indexOf("function queueGenerationRecordAdvancedDownload"),
+    server.indexOf("const MEDIA_INGEST_CONCURRENCY"),
+  );
+  const handler = server.slice(
+    server.indexOf("async function handleGenerationRecordDownloadUrl"),
+    server.indexOf("async function handleDownloadGenerationRecord"),
+  );
+  assert.match(queue, /function queueGenerationRecordAdvancedDownload\(record = \{\}, \{ retryFailed = false \} = \{\}\)/);
+  assert.match(queue, /!retryFailed && String\(record\?\.advancedDownloadStatus \|\| ""\)\.toLowerCase\(\) === "failed"/);
+  assert.match(handler, /queueGenerationRecordAdvancedDownload\(record, \{ retryFailed: retry \}\)/);
+});
+
 test("advanced download preparation is queued so the download-url request cannot hit proxy timeout", () => {
   const handler = server.slice(
     server.indexOf("async function handleGenerationRecordDownloadUrl"),
     server.indexOf("async function handleDownloadGenerationRecord"),
   );
   assert.match(server, /const advancedDownloadPreparationQueued = new Set\(\)/);
-  assert.match(server, /function queueGenerationRecordAdvancedDownload\(record = \{\}\)/);
+  assert.match(server, /function queueGenerationRecordAdvancedDownload\(record = \{\}, \{ retryFailed = false \} = \{\}\)/);
   assert.match(server, /advancedDownloadPreparationQueued\.has\(taskId\)/);
   assert.match(server, /advancedDownloadStatus: "preparing"/);
   assert.match(server, /advancedDownloadStatus: "failed"/);
   assert.match(server, /advancedDownloadError: advancedDownloadFailureMessage\(error\)/);
-  assert.match(handler, /queueGenerationRecordAdvancedDownload\(record\)/);
+  assert.match(handler, /queueGenerationRecordAdvancedDownload\(record, \{ retryFailed: retry \}\)/);
   assert.match(handler, /status: "preparing"/);
   assert.match(handler, /preparationStatus === "failed" && !retry/);
   assert.doesNotMatch(handler, /preparationStatus === "preparing"/);

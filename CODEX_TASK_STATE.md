@@ -2165,3 +2165,22 @@ CODEX_TASK_STATE.md
 - Authenticated API verification: owner session returned the task with `ok=true`, `status=succeeded`; signed `posterUrl`/`cdnPosterUrl` returned 200 `image/jpeg`, signed `videoUrl`/`cdnVideoUrl` returned 200 `video/mp4`.
 - Real browser verification: headless Chrome using the owner session opened Result, mounted the target card, loaded the poster (`naturalWidth=1280`, `naturalHeight=720`) from signed `assets-cdn.123vips.com`, and playback created a 1280x720 video at `readyState=4` with signed CDN bytes (`206`, `video/mp4`).
 - Final status: completed and verified; no sessions were cleared, revoked, or logged out.
+
+## 2026-11-09 attack-bound emails and registration cleanup (Old only)
+
+- User reported the test01-bound email was not theirs and asked to clean the attacker-bound emails and registration accounts.
+- Read-only evidence confirmed attacker email binding on `test01` (`kentkouh+spdix@gmail.com`, verified 2026-11-08 20:16 +08) and `test03` (`jhnbsomers+pvjd9@gmail.com`, verified 2026-11-09 01:06 +08), plus attacker-created account `e_kentkouh_cw9b9` (`kentkouh+cw9b9@gmail.com`).
+- Cleanup scope: 154 previously quarantined registrations + the 1 attacker-created email account. All 155 were soft-deleted with passwords/API tokens cleared and email identities removed; associated sessions/subtokens were deleted/revoked, email challenges removed, and empty assets/characters soft-deleted. No credit ledger, generation record, or wallet order existed for these 155 accounts.
+- Preserved normal accounts and balances. `test01` credits `3.8442`, `test02` credits `16.3834`, `test03` credits `0.2`, and `xiong` credits `6.5612` remain. Removed attacker-bound emails from test01/test03; removed the attack-created test02 legacy session and their attack sessions. Their refreshed legitimate sessions/API tokens remain untouched.
+- Audit event `admin_security_cleanup` with `scope_key=attack-accounts-20261109` records target count and cleanup reason. Recoverable pre-cleanup snapshot: `/var/backups/raising-game-demo/security-cleanup-20261109-20261109-193734.sql.gz` (0600, SHA-256 `0868670a327867939d94dc1b03f43d822176ccbe6e7c9cabca09c8025127d7ea`).
+- Post-cleanup verification: active users `737`; active quarantined `0`; deleted attack accounts `155`; attack-account sessions `0`; active subtokens `0`; stale attack email challenges `0`; active duplicate attack bindings `0`; `/api/health` returned `200 {"ok":true}`. No deployment was needed.
+
+## 2026-11-09 server patrol and historical media retry loop fix
+
+- User asked for a production patrol. Scope stayed Old only: `123vips.com` / `47.84.76.131`; Live was neither inspected for mutation nor deployed.
+- Health snapshot: service active with `NRestarts=0`; `/api/health` 200; memory roughly 1GB process / 7.1GB host; disk 26GB used of 49GB; PostgreSQL 17 connections and no long transactions; nginx valid; certificate valid to 2027-01-07; UFW exposes only 22/80/443.
+- Traffic snapshot: today 476 succeeded, 86 completed, 38 failed, 1 running, 1 submitted. Past-24h nginx 502/500/499 were 459/137/407; 502s aligned with application restarts and connection-refused windows, and all 500s were the already-fixed Telegram `crypto is not defined` path. After the 19:26 restart, no new 5xx was observed. SSH saw 1,281 failed root password attempts, but password auth is disabled and no unauthorized successful login was found.
+- Found a real loop: historical succeeded records with permanently expired provider media URLs were re-queued by background recovery, and `enqueueMediaIngestJobInDb()` reset terminal failed jobs to `queued`. `queueGenerationRecordAdvancedDownload()` now skips `advancedDownloadStatus=failed` unless called from an explicit user download2 retry.
+- Production queue cleanup marked 272 terminal failed rows as unavailable (`available_at='infinity'`). Pre-update backup: `/var/backups/raising-game-demo/media-ingest-failed-closeout-20261109-200149.sql.gz` (0600, 434K, SHA-256 `4c142aa151caea6d76b054f00040a5782fb998b50cedde364a0a1d87565dfdcb`).
+- Changed files: `server.parts/part-41.js`, `test/generated-assets-on-demand.test.js`. Added a regression test and updated prior signature assertions.
+- Verification: canonical test command `node --require ./test/source-compat.js --test test/generated-assets-on-demand.test.js` passes 27/27; `node --check server.parts/part-41.js`; `git diff --check`.
