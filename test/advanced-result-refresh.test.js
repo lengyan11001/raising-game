@@ -74,3 +74,15 @@ test("logout and leaving advanced stop pending-result polling", () => {
   const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
   assert.match(ui, /if \(userChanged && typeof stopAdvancedResultRefresh === "function"\) stopAdvancedResultRefresh\(\);/);
 });
+
+test("unchanged result payloads do not tear down and reload thumbnails", () => {
+  const render = create.match(/function renderAdvancedResultPanel\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(render, "renderAdvancedResultPanel should exist");
+  assert.match(render, /const resultHtml = records\.map\(\(record, index\) => \{/);
+  assert.match(render, /const resultRenderKey = \[/);
+  const guard = render.indexOf('if (state.advancedResultRenderedHtml === resultRenderKey) return;');
+  const replacement = render.indexOf('els.advancedResultList.innerHTML = resultHtml;');
+  assert.ok(guard > -1, "unchanged result render should use the cached guard");
+  assert.ok(replacement > guard, "cached guard must run before innerHTML replacement");
+  assert.match(render, /state\.advancedResultRenderedHtml = "";/);
+});

@@ -848,11 +848,12 @@ function renderAdvancedResultPanel() {
   if (!visibleRecords.length) {
     const label = t(({ video: "advanced.createKindVideo", image: "advanced.createKindImage", conversation: "advanced.createKindConversation" })[state.advancedResultMediaKind || "video"]);
     els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>${escapeHtml(state.lang === "zh" ? `${label}暂无记录` : `No ${label.toLowerCase()} yet`)}</strong><p>${escapeHtml(state.lang === "zh" ? "该分类的生成结果会显示在这里。" : "Results for this type will appear here.")}</p></div>`;
+    state.advancedResultRenderedHtml = "";
     if (els.advancedResultPager) els.advancedResultPager.innerHTML = "";
     refreshIcons();
     return;
   }
-  els.advancedResultList.innerHTML = records.map((record, index) => {
+  const resultHtml = records.map((record, index) => {
     const resultExpired = isGenerationResultExpired(record);
     const videoUrl = resultExpired ? "" : generationVideoUrl(record);
     const imageUrls = resultExpired ? [] : generationImageResultUrls(record);
@@ -906,6 +907,20 @@ function renderAdvancedResultPanel() {
       </article>
     `;
   }).join("");
+  // The account-level completion poll runs every 10 seconds. Replacing the
+  // whole grid when its visible payload has not changed tears down loaded
+  // poster/video thumbnails and makes them visibly flash and reload.
+  const resultRenderKey = [
+    state.advancedResultMediaKind || "video",
+    String(pageData.page || 1),
+    String(pageData.total || 0),
+    String(pageData.totalPages || 1),
+    state.lang || "en",
+    resultHtml,
+  ].join("\n");
+  if (state.advancedResultRenderedHtml === resultRenderKey) return;
+  els.advancedResultList.innerHTML = resultHtml;
+  state.advancedResultRenderedHtml = resultRenderKey;
   renderSimplePager(els.advancedResultPager, pageData, (page) => {
     state.advancedResultPage = page;
     renderAdvancedResultPanel();
