@@ -2184,3 +2184,14 @@ CODEX_TASK_STATE.md
 - Production queue cleanup marked 272 terminal failed rows as unavailable (`available_at='infinity'`). Pre-update backup: `/var/backups/raising-game-demo/media-ingest-failed-closeout-20261109-200149.sql.gz` (0600, 434K, SHA-256 `4c142aa151caea6d76b054f00040a5782fb998b50cedde364a0a1d87565dfdcb`).
 - Changed files: `server.parts/part-41.js`, `test/generated-assets-on-demand.test.js`. Added a regression test and updated prior signature assertions.
 - Verification: canonical test command `node --require ./test/source-compat.js --test test/generated-assets-on-demand.test.js` passes 27/27; `node --check server.parts/part-41.js`; `git diff --check`.
+
+## 2026-11-09 production patrol follow-up: terminal media scan closeout
+
+- Continued the Old-only patrol after the initial deployment. Production stayed `active`, health returned `200`, `NRestarts=0`, disk 26GB/49GB, and no swap use.
+- Last-90m nginx `502`s were confined to restart windows: 19:01, 19:26, and 20:07. No new `502` appeared after the 20:07 deployment. The 20:07 bootstrap requests returned 502 briefly while the service restarted.
+- Node CPU briefly reached ~99% under a burst of list polling: 27,611 `/api/generation-records` requests in 30 minutes, including many `refresh=1` calls from a small set of clients. A later sample returned to 0%. This is a load/amplification risk, not evidence of the media worker spinning continuously.
+- Found a remaining retry path: `getGenerationRecordsNeedingMediaPersistenceFromDb()` excluded `preparing/queued/processing/ready` but not `failed`, so terminal historical provider URLs were still selected by bounded recovery. Post-deploy logs at 20:09-20:18 continued to show `advanced-download-preparation-failed` for 2026-11-02/06 records.
+- Fixed `db.js` so the media-persistence scan also excludes `advancedDownloadStatus=failed`; explicit download2 retry remains available. Added a regression assertion in `test/generated-assets-on-demand.test.js`.
+- Verification: `node --require ./test/source-compat.js --test test/generated-assets-on-demand.test.js` passes 27/27; `node --check db.js`; `git diff --check`.
+- Production queue snapshot before this fix: generation records `failed=2347`, jobs `failed=2249`, `ready=1577`, `processing=1`; 56 failed records had been touched during the previous hour. The empty backup candidate `media-ingest-failed-closeout-20261109-200144.sql.gz` is a valid zero-byte gzip and should be removed; the 434K `...200149.sql.gz` backup remains the recoverable copy.
+- Deployment status: pending commit, Old release snapshot, and Old-only deploy at the time of this record. Live remains untouched.

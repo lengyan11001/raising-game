@@ -130,6 +130,7 @@ test("bounded media persistence recovery only targets succeeded records with pro
   assert.match(recovery, /mediaPersistenceAttempts/);
   assert.match(recovery, /mediaPersistenceRetryAt/);
   assert.match(recovery, /mediaPersistenceTerminalAt/);
+  assert.match(recovery, /advancedDownloadStatus[^\n]*NOT IN \([^\n]*'failed'/);
   assert.match(recovery, /queryResponse'->'content'->>'video_url'/);
   assert.match(server, /const GENERATION_MEDIA_PERSISTENCE_MAX_AGE_MS = Math\.max\([^\n]*24 \* 60 \* 60 \* 1000/);
   assert.match(server, /async function scanGenerationRecordMissingMediaPersistence/);

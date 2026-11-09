@@ -6882,7 +6882,7 @@ async function getGenerationRecordsNeedingMediaPersistenceFromDb({
         COALESCE(payload->>'mediaPersistenceRetryAt', '') = ''
         OR payload->>'mediaPersistenceRetryAt' <= $3
       )
-      AND LOWER(COALESCE(payload->>'advancedDownloadStatus', '')) NOT IN ('preparing', 'queued', 'processing', 'ready')
+      AND LOWER(COALESCE(payload->>'advancedDownloadStatus', '')) NOT IN ('preparing', 'queued', 'processing', 'ready', 'failed')
       AND (
         COALESCE(payload->>'remoteVideoUrl', '') <> ''
         OR COALESCE(payload->>'providerVideoUrl', '') <> ''
