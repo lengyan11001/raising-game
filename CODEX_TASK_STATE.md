@@ -1,3 +1,11 @@
+## 2026-11-09 Opaque Chrome clipboard video paste fix (deployed to Old)
+- Root cause: Chrome clipboard video files can have an empty `File.type`; `FileReader` then emits `data:application/octet-stream`, causing `/api/user-assets` to classify the upload by document extension instead of video.
+- Fix: `readMediaFileAsDataUrl()` promotes generic/empty data-URL MIME to `uploadedFileMime(file)` (for example `.mp4` -> `video/mp4`). Pro/Lite video and audio upload paths now use it; image compression remains unchanged. Video paste also explicitly rerenders the asset list after upload.
+- Clipboard handling keeps the synchronous `navigator.clipboard.read()` prefetch, recognizes empty `kind`/`type` clipboard items, and prevents ProseMirror from consuming media pastes.
+- Verification: `tencent-vod-vega.test.js` 72/72 pass; focused prompt-paste tests 3/3 pass; changed JS syntax checks and `git diff --check` pass. Broader combined suite still has pre-existing unrelated failures (`isVegaProviderId` fixture issue etc.).
+- Release: source `old-site` `c905eb2`; `platform-release` / `origin/platform-release` = `6fa69e1`; deployed to Old only. Production `/api/health` 200, HTML loads `platform.js?v=e759edda98ca`, and production `part-03.js` / `part-02.js` contain the MIME promotion fix.
+- Rollback: previous platform release `5586d19` (source `5267277`). `origin/live-release` remains `bf1e01a`; Live was not pushed or deployed.
+
 ## 2026-11-09 Safari prompt image/video paste cache-bust follow-up (deployed to Old)
 - User still reported image/video paste failing after the prior release. Production had the correct source hashes, but the HTML still referenced `platform.js?v=result-media-20261109-1`, and that URL was served as `public, max-age=31536000, immutable` with a Cloudflare HIT. The versioned URL is inherited by every child chunk, so Safari could keep executing stale `platform.prompt-editor.js` / `platform.create.parts/part-03.js` from local immutable HTTP cache.
 - Cache fix: `platform.html` now loads the generated current build version (`platform.js?v=14226eccd72a` in production) and `platform.prompt-editor.css?v=safari-paste-20261109-2`. `platform-sw.js` navigation and platform chunk fetches now explicitly use `cache: "no-cache"`.
