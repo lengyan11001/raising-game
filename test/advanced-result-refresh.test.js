@@ -265,6 +265,7 @@ test("broken result posters fail closed and retry only once", () => {
   assert.match(create, /image\.addEventListener\("load", recover\)/);
   assert.match(create, /image\.dataset\.posterFallbackApplied === "true"/);
   assert.match(create, /image\.removeAttribute\("src"\)/);
+  assert.match(create, /if \(image\.loading !== "lazy" && image\.complete && image\.naturalWidth === 0\) fallback\(\);/);
   assert.match(create, /if \(generationPosterUrl\(record\) && !advancedResultPosterFailed\(record\)\) return false;/);
   assert.match(create, /function advancedResultPosterCanRecover\(record = \{\}\)/);
   assert.match(create, /if \(advancedResultPosterCanRecover\(record\)\) \{/);

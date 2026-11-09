@@ -959,7 +959,12 @@ function bindAdvancedResultPosterFallback(image, record = {}) {
   };
   image.addEventListener("error", fallback);
   image.addEventListener("load", recover);
-  if (image.complete && image.naturalWidth === 0) fallback();
+  // A lazy image that has not entered the viewport can report complete=true
+  // with naturalWidth=0 before the browser starts the request. Treating that
+  // as a broken poster would remove src, hide the image, and record a false
+  // failure that blocks the later successful load. Real failures still arrive
+  // through the error listener with a non-empty currentSrc.
+  if (image.loading !== "lazy" && image.complete && image.naturalWidth === 0) fallback();
   if (image.complete && image.naturalWidth > 0) recover();
 }
 
