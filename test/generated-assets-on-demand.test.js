@@ -378,6 +378,8 @@ test("background poster backfill scans non-API video records in bounded batches"
   assert.match(db, /COALESCE\(payload->>'localVideoUrl', ''\) <> ''/);
   assert.match(db, /COALESCE\(payload->>'kind', ''\) NOT ILIKE '%image%'/);
   assert.match(db, /COALESCE\(payload->>'provider', ''\) NOT ILIKE '%image%'/);
+  assert.match(db, /LOWER\(COALESCE\(payload->>'advancedDownloadStatus', ''\)\) <> 'failed'/);
+  assert.match(server, /generationRecordNeedsPosterMaintenance[\s\S]*?advancedDownloadStatus[\s\S]*?=== "failed"/);
   assert.match(scan, /getGenerationRecordsNeedingPosterMaintenanceFromDb\(\{/);
   assert.match(scan, /limit: GENERATION_POSTER_BACKFILL_BATCH_SIZE/);
   assert.match(scan, /posterMaintenanceAttempts/);

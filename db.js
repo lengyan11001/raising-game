@@ -6230,6 +6230,7 @@ async function getGenerationRecordsNeedingPosterMaintenanceFromDb({
       )
       AND COALESCE(payload->>'kind', '') NOT ILIKE '%image%'
       AND COALESCE(payload->>'provider', '') NOT ILIKE '%image%'
+      AND LOWER(COALESCE(payload->>'advancedDownloadStatus', '')) <> 'failed'
       AND COALESCE(payload->>'posterMaintenanceTerminalAt', '') = ''
       AND COALESCE(NULLIF(payload->>'posterMaintenanceAttempts', '')::int, 0) < $1
       AND (

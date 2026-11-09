@@ -1108,7 +1108,53 @@ function notifyGenerationCompletionChanges(previousRecords = [], nextRecords = [
   if (completed.length > 3) showGenerationCompletionNotice({ taskId: `${completed.length} records`, modelLabel: state.lang === "zh" ? `还有 ${completed.length - 3} 条` : `${completed.length - 3} more` });
 }
 
-const GENERATION_COMPLETION_REFRESH_INTERVAL_MS = 10 * 1000;
+const GENERATION_COMPLETION_REFRESH_INTERVAL_MS = 15 * 1000;
+const GENERATION_COMPLETION_IDLE_REFRESH_INTERVAL_MS = 120 * 1000;
+const GENERATION_COMPLETION_LEADER_STORAGE_KEY = "raisingGameGenerationCompletionLeader";
+
+function generationCompletionHasActiveRecords(records = []) {
+  return (Array.isArray(records) ? records : []).some((record) => record?.taskId && !isTerminalGenerationStatus(record.status));
+}
+
+function generationCompletionRefreshDelay() {
+  if (typeof document !== "undefined" && document.visibilityState !== "visible") return 0;
+  return generationCompletionHasActiveRecords(state.generationCompletionRecords)
+    ? GENERATION_COMPLETION_REFRESH_INTERVAL_MS
+    : GENERATION_COMPLETION_IDLE_REFRESH_INTERVAL_MS;
+}
+
+function generationCompletionCanPoll() {
+  if (!state.user || (typeof document !== "undefined" && document.visibilityState !== "visible")) return false;
+  const tabId = String(state.generationCompletionTabId || "");
+  if (!tabId) return true;
+  try {
+    const now = Date.now();
+    const leaseMs = GENERATION_COMPLETION_REFRESH_INTERVAL_MS * 3;
+    const leader = JSON.parse(localStorage.getItem(GENERATION_COMPLETION_LEADER_STORAGE_KEY) || "null");
+    if (!leader?.id || !leader?.expiresAt || Number(leader.expiresAt) <= now || leader.id === tabId) {
+      localStorage.setItem(GENERATION_COMPLETION_LEADER_STORAGE_KEY, JSON.stringify({ id: tabId, expiresAt: now + leaseMs }));
+      return true;
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
+
+function scheduleGenerationCompletionRefresh() {
+  if (state.generationCompletionRefreshTimer) {
+    window.clearTimeout(state.generationCompletionRefreshTimer);
+    state.generationCompletionRefreshTimer = 0;
+  }
+  if (!state.user) return;
+  const delay = generationCompletionRefreshDelay();
+  if (!delay) return;
+  state.generationCompletionRefreshTimer = window.setTimeout(async () => {
+    state.generationCompletionRefreshTimer = 0;
+    if (generationCompletionCanPoll()) await refreshGenerationCompletionRecords();
+    scheduleGenerationCompletionRefresh();
+  }, delay);
+}
 
 function mergeGenerationPollRecords(previousRecords = [], incomingRecords = []) {
   const incomingByTask = new Map((incomingRecords || [])
@@ -1161,22 +1207,22 @@ async function refreshGenerationCompletionRecords() {
 function syncGenerationCompletionRefresh() {
   if (!state.user) {
     if (state.generationCompletionRefreshTimer) {
-      window.clearInterval(state.generationCompletionRefreshTimer);
+      window.clearTimeout(state.generationCompletionRefreshTimer);
       state.generationCompletionRefreshTimer = 0;
     }
     state.generationCompletionRefreshInFlight = false;
     return;
   }
-  if (state.generationCompletionRefreshTimer) return;
-  state.generationCompletionRefreshTimer = window.setInterval(refreshGenerationCompletionRecords, GENERATION_COMPLETION_REFRESH_INTERVAL_MS);
+  state.generationCompletionTabId = state.generationCompletionTabId || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   // Prime notifications with the current list, then refresh immediately so a
-  // task that finished just before login is shown without waiting 10 seconds.
-  refreshGenerationCompletionRecords();
+  // task that finished just before login is shown without waiting.
+  if (generationCompletionCanPoll()) refreshGenerationCompletionRecords().finally(scheduleGenerationCompletionRefresh);
+  else scheduleGenerationCompletionRefresh();
 }
 
 function stopGenerationCompletionRefresh() {
   if (state.generationCompletionRefreshTimer) {
-    window.clearInterval(state.generationCompletionRefreshTimer);
+    window.clearTimeout(state.generationCompletionRefreshTimer);
     state.generationCompletionRefreshTimer = 0;
   }
   state.generationCompletionRefreshInFlight = false;

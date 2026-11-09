@@ -101,7 +101,7 @@ test("generation completion polls at account level while result keeps only poste
   assert.doesNotMatch(create, /scheduleHistoryRefresh\(\{ delayMs: 15000/);
   assert.match(create, /refreshAdvancedResultRecord\(\);/);
   const completion = ui.slice(ui.indexOf("function syncGenerationCompletionRefresh"), ui.indexOf("function isTerminalGenerationStatus"));
-  assert.match(completion, /setInterval\(refreshGenerationCompletionRecords/);
+  assert.match(completion, /scheduleGenerationCompletionRefresh/);
   assert.match(ui, /notifyGenerationCompletionChanges\(trackedRecords, records\)/);
   assert.match(ui, /generationCompletionNotified/);
   assert.match(ui, /const previousStatus = rememberedStatus \|\| previousByTask\.get\(taskId\)\?\.status;/);

@@ -622,6 +622,7 @@ async function recoverGenerationRecordR2Urls(record = {}) {
 
 function generationRecordNeedsPosterMaintenance(record = {}) {
   if (!record?.taskId || generationRecordIsApiTask(record)) return false;
+  if (String(record.advancedDownloadStatus || "").toLowerCase() === "failed") return false;
   if (!isSucceededStatus(record.status) || !generationRecordIsVideoOutput(record)) return false;
   if (String(record.cdnPosterUrl || record.posterUrl || '').trim()) return false;
   if (String(record.posterMaintenanceTerminalAt || "").trim()) return false;
