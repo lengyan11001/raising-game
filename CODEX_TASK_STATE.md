@@ -1,7 +1,8 @@
-## 2026-11-09 Vega Pro 1.0 / 1.5 Old release (current)
-- Deployed to Old only: source `old-site` `e1055d8`; release snapshot `platform-release` / `origin/platform-release` = `a5eb8d7`. Live is untouched at `origin/live-release` = `bf1e01a`; do not push or deploy Live without a separate request.
-- Post-deploy health: `/api/health` returned `200 {"ok":true}`, `raising-game-demo` was active, and no application errors were found in the preceding 15 minutes. Key deployed config/server hashes match local sources.
-- Rollback point: tag `rollback-platform-before-vega-pro-20261109` points to `b0a21ab`, the previous `platform-release` baseline. A later local-only source commit `c4d384e` changes media durability test assertions and state notes, not production routing; it is not in release `a5eb8d7` and deployment was not repeated.
+## 2026-11-09 Prompt image/video paste fix (current deployment)
+- Deployed to Old only: source `old-site` `47574a4`; release snapshot `platform-release` / `origin/platform-release` = `c827a8a`. Live is untouched at `origin/live-release` = `bf1e01a`; do not push or deploy Live without a separate request.
+- Post-deploy health: `/api/health` returned `200 {"ok":true}`, `raising-game-demo` is active, and no warning/error journal entries appeared after deployment. Live HTTP hashes match local for `platform.create.parts/part-03.js` and `vendor/vipeak-prompt-editor.js`.
+- Immediate rollback: tag `rollback-platform-before-prompt-paste-20261109` points to previous release `a5eb8d7`. The older Vega Pro baseline tag `rollback-platform-before-vega-pro-20261109` remains at `b0a21ab`.
+- Earlier Vega Pro 1.0 / 1.5 release source was `old-site` `e1055d8`, release `a5eb8d7`. A local-only source commit `c4d384e` changes media durability test assertions and state notes, not production routing.
 - Test workspace is excluded from this release: `platform.test-generate.css`, `test/platform-test-mode.test.js`, and `workflow-react/dist/canvas.js.map` remain untracked and must not be committed. Test CSS was removed from platform deploy/sync lists; no active Test navigation route remains.
 - Vega Pro routes: `seedance20-vega` -> Vega 1.0 Pro, `seedance25-vega` -> Vega 1.5 Pro; both use `/api/user-assets` and submit `asset://asset-...` references. Lite routing was not changed: `vega10-lite` / `h3-vega` use `/api/advanced/transient-media` public HTTP(S) URLs and must not create user-asset rows.
 - Reference limits: `seedance20-vega` 9 images / 3 videos / 3 audios / 12 total; `seedance25-vega` 30 / 10 / 10 / 50; `vega10-lite` 9 / 3 / 3 / 12; `h3-vega` 10 / 5 / 5 / 20.
@@ -13,7 +14,7 @@
 - Root cause: the rich prompt editor consumed paste events while the platform extractor only read `clipboardData.items` and only accepted `image/*`; Safari/Finder commonly exposes pasted media through `clipboardData.files`, and video was filtered out entirely.
 - Fixed `pastedMediaFilesFromEvent()` to merge `items` and `files`, accept image/video/audio, and deduplicate by MIME/name/size/lastModified. The rich editor now leaves media paste to the platform handler and preserves normal plain-text paste.
 - Vega image paste keeps model-aware routing: Pro uses `/api/user-assets` then `asset://`; Lite uses transient public HTTP(S). Vega video paste now uses the same Pro/Lite split, enforces per-model video limits, and shows a clear message when unsupported or full.
-- Verification: focused paste tests 5/5 and complete `test/tencent-vod-vega.test.js` 70/70 pass; `node --check` and `git diff --check` pass. Not yet committed or deployed.
+- Verification: focused paste tests 5/5 and complete `test/tencent-vod-vega.test.js` 70/70 pass; `node --check` and `git diff --check` pass. Committed as `47574a4`, deployed to Old as release `c827a8a`.
 
 ## 2026-11-09 Local Vega verification guidance (current)
 - Focused local verification confirmed: `node --check test/tencent-vod-vega.test.js`, Vega media suite 69/69, Vega regeneration media suite 19/19, and `git diff --check` all pass.
