@@ -433,13 +433,14 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
     if (!current) return;
     const attempts = Math.max(0, Number(current.cdnRetryCount || 0)) + 1;
     const terminal = attempts >= GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS;
+    const detail = String(error.message || error || "Generated video download failed.").slice(0, 500);
     await upsertGenerationRecord({
       taskId: cleanTaskId,
       cdnRetryCount: attempts,
       cdnRetryAt: terminal
         ? new Date().toISOString()
         : new Date(Date.now() + GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS * attempts).toISOString(),
-      cdnError: String(error.message || error || "Generated video download failed.").slice(0, 500),
+      cdnError: detail,
       ...(repairPoster ? {
         ...posterMaintenanceFailureUpdates(current.posterMaintenanceAttempts, error),
         posterMaintenanceLastDurationMs: 0,
