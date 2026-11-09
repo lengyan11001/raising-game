@@ -2249,4 +2249,5 @@ CODEX_TASK_STATE.md
 - New frontend shallow-merges compact snapshots into existing complete records, including nested billing. It also refreshes immediately when a hidden tab becomes visible so background-tab throttling does not delay completion feedback.
 - Changed: `server.parts/part-21.js`, `server.parts/part-41.js`, `server.parts/part-20.js`, `platform.ui.parts/part-02.js`, `platform.create.parts/part-06.js`, `test/generation-record-list-refresh.test.js`.
 - Verification: source-compat focused suites 43/43; syntax and `git diff --check` pass.
-- Rollback: revert this commit and rebuild/deploy the previous `platform-release`; no database migration.
+- Rollback: rebuild/deploy `9721267`/release `c3ad172`; no database migration.
+- Deployment: source `09320dd`; release snapshot / `platform-release` = `a8a338e`; deployed Old only. Production commit `a8a338e`; `/api/health` 200; service restarted normally; production `platform.ui.parts/part-02.js` contains `poll=1`, merge, and visibility refresh logic. Live was not pushed or deployed.
