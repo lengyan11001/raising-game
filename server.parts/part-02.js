@@ -1588,6 +1588,7 @@ function publicAdvancedPricingView(pricing = {}) {
     unit: "credits",
     creditsPerUsd: normalized.creditsPerUsd || DEFAULT_CREDITS_PER_USD,
     creditsPerCny: normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY,
+    modelSettings: { ...normalized.modelSettings },
     seedance25CreditsPerSecondByResolution: { ...normalized.seedance25CreditsPerSecondByResolution },
     h3VegaCreditsPerSecondByResolution: { ...normalized.h3VegaCreditsPerSecondByResolution },
     h3VegaInputVideoCreditsPerSecondByResolution: { ...normalized.h3VegaInputVideoCreditsPerSecondByResolution },

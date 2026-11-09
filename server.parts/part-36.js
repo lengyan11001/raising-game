@@ -821,11 +821,46 @@ function publicUserAsset(asset = {}) {
 
 function wan27ImageModifyPricing(config = {}, user = null, options = {}) {
   const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
-  const imagePricing = pricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
-  const raw = fixedCnyPricingEstimate(imagePricing.saleCnyPerImage, "wan27_image_modify", {
+  const requestedProvider = normalizeAdvancedProvider(
+    options.provider || options.advancedProviderId || options.modelProvider || "wan27-image",
+  );
+  const imageConfigs = {
+    "z-image-spicy-pro": {
+      modelKey: "z-image-spicy-pro",
+      source: "z_image_spicy_pro",
+      label: "Z-Image Spicy Pro",
+      defaultModel: "z-image-spicy-pro",
+      config: pricing.zImageSpicyPro || DEFAULT_ADVANCED_PRICING.zImageSpicyPro,
+    },
+    "qwen-image-edit-spicy": {
+      modelKey: "qwen-image-edit-spicy",
+      source: "qwen_image_edit_spicy",
+      label: "Qwen Image Edit Spicy",
+      defaultModel: "qwen-image-edit-spicy",
+      config: pricing.qwenImageEditSpicy || DEFAULT_ADVANCED_PRICING.qwenImageEditSpicy,
+    },
+    "wan27-image": {
+      modelKey: "wan27",
+      source: "wan27_image_modify",
+      label: "Wan2.7 Image Pro",
+      defaultModel: WAN27_IMAGE_PRO_MODEL,
+      config: pricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro,
+    },
+  };
+  const selected = imageConfigs[requestedProvider] || imageConfigs["wan27-image"];
+  const imagePricing = selected.config || {};
+  const configuredSaleCny = pricingNumber(imagePricing.saleCnyPerImage, 0, 0, 6);
+  const modelDiscount = advancedModelSetting(pricing, selected.modelKey).discount;
+  const saleCny = pricingNumber(configuredSaleCny * modelDiscount, configuredSaleCny, 0, 6);
+  const raw = fixedCnyPricingEstimate(saleCny, selected.source, {
     purchaseCnyPerImage: imagePricing.purchaseCnyPerImage,
-    saleCnyPerImage: imagePricing.saleCnyPerImage,
-    model: imagePricing.model || WAN27_IMAGE_PRO_MODEL,
+    configuredSaleCnyPerImage: configuredSaleCny,
+    saleCnyPerImage: saleCny,
+    modelKey: selected.modelKey,
+    modelDiscount,
+    model: imagePricing.model || selected.defaultModel,
+    provider: requestedProvider,
+    providerLabel: selected.label,
   }, pricing.creditsPerCny);
   return user ? applyUserPricingToEstimate(raw, user, options) : raw;
 }

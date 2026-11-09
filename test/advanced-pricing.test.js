@@ -15,11 +15,7 @@ test("admin pricing rows use their server definition when saving", () => {
   assert.match(server, /ADVANCED_PRICING_ROWS_BY_KEY\.get\(key\)/);
 });
 
-test("admin pricing can filter by model without dropping hidden rows from save", () => {
-  const tableSource = adminUi.slice(
-    adminUi.indexOf("function renderPricingTable("),
-    adminUi.indexOf("async function renderPricing()", adminUi.indexOf("function renderPricingTable(")),
-  );
+test("admin pricing uses a model list and detail view without dropping hidden rows from save", () => {
   const pricingSource = adminUi.slice(
     adminUi.indexOf("async function renderPricing()"),
     adminUi.indexOf("/* ============ PLATFORM ============ */", adminUi.indexOf("async function renderPricing()")),
@@ -28,10 +24,20 @@ test("admin pricing can filter by model without dropping hidden rows from save",
     adminUi.indexOf("async function renderPricingLegacy()"),
     adminUi.indexOf("async function loadChatLiveVoices()", adminUi.indexOf("async function renderPricingLegacy()")),
   );
-  assert.match(tableSource, /data-pricing-model="\$\{escapeHtml\(pricingModelFilterKey\(row\)\)\}"/);
-  assert.match(pricingSource, /id="pricingModelFilter"/);
-  assert.match(pricingSource, /tr\.hidden = !show/);
-  assert.ok(pricingSource.includes('const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map'));
+  assert.match(adminUi, /function pricingModelCard\(/);
+  assert.match(adminUi, /data-pricing-model="\$\{escapeHtml\(key\)\}"/);
+  assert.match(pricingSource, /id="pricingModelSearch"/);
+  assert.match(pricingSource, /id="pricingModelDetail"/);
+  assert.match(pricingSource, /byId\("pricingModelList"\)\?\.querySelectorAll\(":scope > \[data-pricing-model\]"\)/);
+  assert.match(pricingSource, /card\.hidden = Boolean\(query\)/);
+  assert.match(pricingSource, /closest\("#pricingModelList > \[data-pricing-model\]"\)/);
+  assert.match(pricingSource, /data-pricing-detail/);
+  assert.match(pricingSource, /const nextRows = pricingRows\.map/);
+  assert.match(pricingSource, /detail\?\.querySelector\(`tr\[data-row-key=/);
+  assert.match(pricingSource, /body: \{ rows: nextRows, modelSettings: nextSettings \}/);
+  assert.match(pricingSource, /data-pricing-config/);
+  assert.match(pricingSource, /pricingModelDiscount/);
+  assert.doesNotMatch(pricingSource, /id="pricingModelFilter"/);
   assert.doesNotMatch(legacySource, /pricingModelFilter|data-pricing-model/);
 });
 
@@ -39,7 +45,7 @@ test("public pricing uses the same configured model rows as the admin", () => {
   assert.match(server, /rows: publicAdvancedPricingRows\(normalized\)/);
   assert.match(server, /ADVANCED_PRICING_ROWS\s*\n\s*\.filter\(publicAdvancedPricingRowVisible\)/);
   assert.match(server, /saleCreditsPerUnit = advancedSaleCreditsPerSecond/);
-  assert.match(server, /key: "wan27-image"[\s\S]*?saleCreditsPerUnit: advancedSaleImageCredits/);
+  assert.match(server, /key: "wan27-image"[\s\S]*?saleCreditsPerUnit: applyAdvancedModelDiscount\(configuredSaleCreditsPerUnit, normalized, modelKey\)/);
   assert.match(server, /key: `qwen-image3-\$\{tier\}-\$\{resolution\.toLowerCase\(\)\}`/);
   assert.match(platformUi, /const configuredRows = Array\.isArray\(pricing\.rows\)/);
   assert.match(platformUi, /row\.saleCreditsPerUnit \?\? row\.saleCreditsPerSecond/);
@@ -107,6 +113,46 @@ test("Vega purchase prices are complete, editable, and retain a 1.5x sale margin
   const reference = vegaRows.find((row) => row.key === "vega10-lite-reference-image");
   assert.equal(reference?.purchaseUsdPerSecond, 0.03);
   assert.equal(reference?.saleUsdPerSecond, 0.045);
+});
+
+test("model discount applies consistently to admin, public, and runtime sale prices", async () => {
+  const advancedPricing = {
+    modelSettings: {
+      "seedance20-vega": {
+        displayName: "seedance2.0（vega）",
+        subtitle: "测试副标题",
+        discount: 0.9,
+      },
+    },
+  };
+  const admin = await application.adminAdvancedPricingView({ platform: { advancedPricing } });
+  const adminRow = admin.rows.find((row) => row.key === "vega10-pro-1080p");
+  assert.ok(adminRow);
+  assert.equal(adminRow.modelDisplayName, "seedance2.0（vega）");
+  assert.equal(adminRow.modelSubtitle, "测试副标题");
+  assert.equal(adminRow.modelDiscount, 0.9);
+  assert.equal(adminRow.configuredSaleCreditsPerSecond, 39.93);
+  assert.equal(adminRow.saleCreditsPerSecond, 35.937);
+  assert.equal(adminRow.purchaseCreditsPerSecond, 26.62);
+
+  const publicRow = application.publicAdvancedPricingRows(advancedPricing)
+    .find((row) => row.key === "vega10-pro-1080p");
+  assert.ok(publicRow);
+  assert.equal(publicRow.configuredSaleCreditsPerUnit, adminRow.configuredSaleCreditsPerSecond);
+  assert.equal(publicRow.saleCreditsPerUnit, adminRow.saleCreditsPerSecond);
+
+  const runtime = application.advancedModelPricing("seedance20-vega", {
+    advancedPricing,
+    duration: 5,
+    resolution: "1080P",
+    ratio: "16:9",
+    mode: "reference_video",
+  });
+  assert.equal(runtime.modelKey, "seedance20-vega");
+  assert.equal(runtime.modelDiscount, 0.9);
+  assert.equal(runtime.configuredCredits, 199.65);
+  assert.equal(runtime.credits, 179.685);
+  assert.equal(runtime.creditsPerSecond, adminRow.saleCreditsPerSecond);
 });
 
 test("Vega purchase tables preserve every Tencent VOD international rate", () => {
@@ -450,7 +496,7 @@ test("Vega 1.5 Pro bills no-reference, reference input, and reference output rat
 
 test("Vega 1.5 Lite bills output and reference input video separately and fails closed at zero", () => {
   const pricingSource = server.slice(
-    server.indexOf("function advancedModelPricing("),
+    server.indexOf("function advancedModelPricingRaw("),
     server.indexOf("function seedream5ImagePricingEstimate("),
   );
   assert.match(pricingSource, /normalizedProvider === "h3-vega" \|\| normalizedProvider === "vega10-lite"/);
@@ -502,7 +548,7 @@ test("admin pricing exposes persisted purchase and sale inputs for Wan3.0", () =
 
 test("runtime billing uses family prices for Wan2.7 and HappyHorse", () => {
   const pricingSource = server.slice(
-    server.indexOf("function advancedModelPricing("),
+    server.indexOf("function advancedModelPricingRaw("),
     server.indexOf("function seedream5ImagePricingEstimate("),
   );
   assert.match(pricingSource, /capability\.startsWith\("happyhorse-"\)[\s\S]*happyhorseCreditsPerSecondByResolution/);
@@ -511,7 +557,7 @@ test("runtime billing uses family prices for Wan2.7 and HappyHorse", () => {
 
 test("Wan3.0 uses configured per-second billing", () => {
   const pricingSource = server.slice(
-    server.indexOf("function advancedModelPricing("),
+    server.indexOf("function advancedModelPricingRaw("),
     server.indexOf("function seedream5ImagePricingEstimate("),
   );
   assert.match(pricingSource, /normalizedProvider === "wan30"/);
@@ -562,7 +608,7 @@ test("Wan3.0 adaptive duration pre-deducts the maximum and settles from the outp
 
 test("Seedance NSFW prices video input from combined input and output seconds", () => {
   const pricingSource = server.slice(
-    server.indexOf("function advancedModelPricing("),
+    server.indexOf("function advancedModelPricingRaw("),
     server.indexOf("function seedream5ImagePricingEstimate("),
   );
   assert.match(pricingSource, /normalizedProvider === SEEDANCE25_DIRECT_PROVIDER/);

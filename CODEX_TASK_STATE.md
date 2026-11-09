@@ -1,3 +1,14 @@
+## 2026-11-10 admin model pricing list/detail/config (in progress)
+
+- Goal: pricing admin no longer renders every row at once; show a searchable model list, open one model's detailed purchase/base-sale/discounted-sale pricing, and configure display name, subtitle, and discount per model.
+- Discount semantics: effective customer sale price = configured sale price x model discount (`0.9` = 90%); purchase price and configured base sale price are never discounted.
+- Implemented in `admin.html`, `admin.css`, `admin.js`, `server.parts/part-02.js`, `server.parts/part-36.js`, `server.parts/part-37.js`, `server.parts/part-39.js`, `test/advanced-pricing.test.js`.
+- Runtime/admin/public pricing expose `modelKey`, `modelDisplayName`, `modelSubtitle`, `modelDiscount`, configured sale, and effective sale. Persistence is `advancedPricing.modelSettings[key] = { displayName, subtitle, discount }` through the existing PostgreSQL-backed config.
+- Model list search filters only the left list; card/detail/config click targets are scoped. Save preserves all pricing rows and all model settings; editable purchase values are read only from the active detail panel.
+- Verification: focused `advanced-pricing.test.js` 27/27 and `advanced-pricing + platform-site-profile` 45/45; changed JS syntax checks and `git diff --check` pass. Full `npm test` currently has unrelated workspace WIP failures (34/956, including Test-mode and prompt-editor source assertions); not a pricing regression.
+- Frontend generate-page model picker changes are retained locally in `platform.create.parts/part-02.js`, `platform.ui.parts/part-02.js`, `platform.css`, and `test/platform-site-profile.test.js` but must not be committed or published with the admin-only pricing release.
+- Git: no commit/release/deploy yet this step. Old only when approved; Live untouched.
+
 ## 2026-11-09 Seedream/Qwen image pricing raised to 1.5x
 - Goal: keep purchase prices unchanged and raise sale prices to 1.5x for Seedream 5.0 Pro (1K/2K/reference), Qwen Image 3.0 Pro (1K/2K/reference), and Qwen Image 3.0 Standard (1K/2K/reference).
 - Changed: `server.parts/part-01.js`, `server.parts/part-02.js`, `server.parts/part-39.js`, `test/advanced-pricing.test.js`.

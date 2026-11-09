@@ -6552,7 +6552,24 @@ function pricingMultiplierHtml(row = {}) {
   return `<strong class="${low ? "adm-price-ratio-low" : ""}" data-price-multiplier>${escapeHtml(multiplier.toFixed(3))}x</strong>${low ? `<br/><small class="adm-price-ratio-low">低于 1.5x</small>` : ""}`;
 }
 
+const PRICING_MODEL_DEFAULT_LABELS = {
+  "seedance-standard": "Seedance Standard",
+  "seedance-fast": "Seedance 2.0 Fast",
+  "seedance25": "Seedance 2.5（官转）",
+  "seedance-nsfw": "Seedance 2.5（NSFW）",
+  "seedance20-vega": "seedance2.0（vega）",
+  "seedance25-vega": "seedance2.5vega",
+  "h3-vega": "wan（vega）",
+  "vega10-lite": "h3（vega）",
+  "wan30": "W3.0",
+  "wan30-prime": "W3.0-Prime",
+  "wan30-pro": "W3.0-Pro",
+  "wan30-prime-pro": "W3.0-VSR-Prime",
+};
+
 function pricingModelFilterKey(row = {}) {
+  const configured = String(row.modelKey || "").trim().toLowerCase();
+  if (configured) return configured;
   const provider = String(row.provider || "").trim().toLowerCase();
   const key = String(row.key || "").trim().toLowerCase();
   if (provider === "seedance") {
@@ -6571,19 +6588,18 @@ function pricingModelFilterKey(row = {}) {
   return provider || key || "other";
 }
 
-function pricingModelFilterLabel(row = {}) {
+function pricingModelSetting(pricing = {}, key = "") {
+  const source = pricing?.modelSettings && typeof pricing.modelSettings === "object" ? pricing.modelSettings : {};
+  const setting = source[String(key || "").toLowerCase()];
+  return setting && typeof setting === "object" ? setting : {};
+}
+
+function pricingModelFilterLabel(row = {}, pricing = {}) {
   const key = pricingModelFilterKey(row);
-  const fixedLabels = {
-    "seedance-standard": "Seedance Standard",
-    "seedance-fast": "Seedance 2.0 Fast",
-    "seedance25": "Seedance 2.5（官转）",
-    "seedance-nsfw": "Seedance 2.5（NSFW）",
-    "wan30": "W3.0",
-    "wan30-prime": "W3.0-Prime",
-    "wan30-pro": "W3.0-Pro",
-    "wan30-prime-pro": "W3.0-VSR-Prime",
-  };
-  if (fixedLabels[key]) return fixedLabels[key];
+  const setting = pricingModelSetting(pricing, key);
+  const configuredName = String(setting.displayName || row.modelDisplayName || "").trim();
+  if (configuredName) return configuredName;
+  if (PRICING_MODEL_DEFAULT_LABELS[key]) return PRICING_MODEL_DEFAULT_LABELS[key];
   const label = String(row.providerLabel || row.provider || "")
     .replace(/\s*\+\s*(?:Video|Image)\s*$/i, "")
     .replace(/\s+(?:视频输入加收|Reference)$/i, "")
@@ -6591,7 +6607,45 @@ function pricingModelFilterLabel(row = {}) {
   return label || key;
 }
 
-function renderPricingTable(rows = []) {
+function pricingModelSubtitle(row = {}, pricing = {}) {
+  const key = pricingModelFilterKey(row);
+  const setting = pricingModelSetting(pricing, key);
+  return String(setting.subtitle || row.modelSubtitle || row.model || row.providerLabel || key).trim();
+}
+
+function pricingModelDiscount(row = {}, pricing = {}) {
+  const setting = pricingModelSetting(pricing, pricingModelFilterKey(row));
+  const value = Number(setting.discount);
+  return Number.isFinite(value) && value >= 0.01 && value <= 10 ? value : 1;
+}
+
+function pricingConfiguredSaleUsd(row = {}) {
+  const configured = Number(row.configuredSaleUsdPerSecond);
+  if (Number.isFinite(configured) && configured >= 0) return configured;
+  const sale = Number(row.saleUsdPerSecond);
+  return Number.isFinite(sale) ? sale : 0;
+}
+
+function pricingModelCard(row, pricing, count) {
+  const key = pricingModelFilterKey(row);
+  const discount = pricingModelDiscount(row, pricing);
+  return `
+    <div class="adm-pricing-model-card" role="button" tabindex="0" data-pricing-model="${escapeHtml(key)}" aria-label="查看 ${escapeHtml(pricingModelFilterLabel(row, pricing))} 的价格详情">
+      <span class="adm-pricing-model-icon"><i data-lucide="${isImagePricingRow(row) ? "image" : "clapperboard"}"></i></span>
+      <span class="adm-pricing-model-copy">
+        <strong>${escapeHtml(pricingModelFilterLabel(row, pricing))}</strong>
+        <small>${escapeHtml(pricingModelSubtitle(row, pricing))}</small>
+        <em>${count} 个计费项 · 折扣 ${escapeHtml(fmtPrice(discount, 4))}x</em>
+      </span>
+      <span class="adm-pricing-model-actions">
+        <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-pricing-detail="${escapeHtml(key)}">详情</button>
+        <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-pricing-config="${escapeHtml(key)}"><i data-lucide="settings-2"></i>配置</button>
+      </span>
+    </div>
+  `;
+}
+
+function renderPricingTable(rows = [], pricing = {}) {
   if (!rows.length) return `<div class="adm-empty">暂无价格项</div>`;
   return `
     <div class="adm-table-wrap">
@@ -6601,34 +6655,44 @@ function renderPricingTable(rows = []) {
             <th>计费项</th>
             <th>分辨率</th>
             <th>采购价</th>
-            <th>倍率</th>
-            <th>对外价</th>
-            <th>积分</th>
+            <th>折扣前售价</th>
+            <th>实际售价</th>
+            <th>倍率 / 积分</th>
           </tr>
         </thead>
         <tbody>
-          ${rows.map((row) => `
-            <tr data-provider="${escapeHtml(row.provider)}" data-pricing-model="${escapeHtml(pricingModelFilterKey(row))}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}" data-unit="${escapeHtml(row.unit || "")}">
-              <td><strong>${escapeHtml(pricingRowTitle(row))}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.model || row.key || row.provider || "")}</small></td>
-              <td>${escapeHtml(row.resolution)}<br/><small class="adm-muted">${escapeHtml(pricingRowUsage(row))}</small></td>
-              <td>
-                ${row.purchaseEditable ? `
-                  <input class="adm-price-input" data-f="purchaseUsdPerSecond" type="number" min="0.000001" step="0.000001" value="${escapeHtml(fmtPrice(row.purchaseUsdPerSecond, 8))}" />
-                  <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))}</small>
-                ` : `
-                  <strong>${row.purchaseUsdPerSecondRange ? fmtPriceRange(row.purchaseUsdPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseUsdPerSecond === null || row.purchaseUsdPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseUsdPerSecond)} ${rowPriceUnit(row)}`}</strong>
-                  <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, ` ${rowPriceUnit(row, true)}`) : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} ${rowPriceUnit(row, true)}`} · ${escapeHtml(row.purchaseSource || "")}</small>
-                `}
-                ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
-              </td>
-              <td class="adm-mono" data-price-ratio>${pricingMultiplierHtml(row)}</td>
-              <td>
-                <input class="adm-price-input" data-f="saleUsdPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleUsdPerSecond))}" />
-                <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))}</small>
-              </td>
-              <td class="adm-mono" data-price-credits>${escapeHtml(fmtPrice(row.saleCreditsPerSecond))}</td>
-            </tr>
-          `).join("")}
+          ${rows.map((row, index) => {
+            const key = pricingModelFilterKey(row);
+            const discount = pricingModelDiscount(row, pricing);
+            const configuredSaleUsd = pricingConfiguredSaleUsd(row);
+            const effectiveSaleUsd = configuredSaleUsd * discount;
+            const rowKey = String(row.key || `${row.provider || "row"}-${index}`);
+            return `
+              <tr data-provider="${escapeHtml(row.provider)}" data-pricing-model="${escapeHtml(key)}" data-row-key="${escapeHtml(rowKey)}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}" data-unit="${escapeHtml(row.unit || "")}">
+                <td><strong>${escapeHtml(pricingRowTitle(row))}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.model || row.key || row.provider || "")}</small></td>
+                <td>${escapeHtml(row.resolution)}<br/><small class="adm-muted">${escapeHtml(pricingRowUsage(row))}</small></td>
+                <td>
+                  ${row.purchaseEditable ? `
+                    <input class="adm-price-input" data-f="purchaseUsdPerSecond" type="number" min="0.000001" step="0.000001" value="${escapeHtml(fmtPrice(row.purchaseUsdPerSecond, 8))}" />
+                    <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))}</small>
+                  ` : `
+                    <strong>${row.purchaseUsdPerSecondRange ? fmtPriceRange(row.purchaseUsdPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseUsdPerSecond === null || row.purchaseUsdPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseUsdPerSecond)} ${rowPriceUnit(row)}`}</strong>
+                    <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, ` ${rowPriceUnit(row, true)}`) : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} ${rowPriceUnit(row, true)}`} · ${escapeHtml(row.purchaseSource || "")}</small>
+                  `}
+                  ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
+                </td>
+                <td>
+                  <input class="adm-price-input" data-f="saleUsdPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(configuredSaleUsd))}" />
+                  <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))} · 基础售价</small>
+                </td>
+                <td>
+                  <strong data-price-effective>${escapeHtml(fmtPrice(effectiveSaleUsd))} ${escapeHtml(rowPriceUnit(row))}</strong>
+                  <br/><small class="adm-muted">折扣 <span data-price-discount>${escapeHtml(fmtPrice(discount, 4))}x</span> · <span data-price-credits>${escapeHtml(fmtPrice(effectiveSaleUsd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD)))}</span> 积分</small>
+                </td>
+                <td class="adm-mono" data-price-ratio>${pricingMultiplierHtml({ ...row, saleUsdPerSecond: effectiveSaleUsd })}</td>
+              </tr>
+            `;
+          }).join("")}
         </tbody>
       </table>
     </div>
@@ -6639,152 +6703,218 @@ async function renderPricing() {
   const payload = await api("/api/admin/pricing");
   if (!isActiveRoute("pricing")) return;
   const pricing = payload.pricing || {};
-  const rows = pricing.rows || [];
-  const seedanceOutputRows = rows.filter((row) => String(row.provider || "").toLowerCase() === "seedance" && String(row.rateKind || "output") !== "video_input");
-  const seedanceInputRows = rows.filter((row) => String(row.provider || "").toLowerCase() === "seedance" && String(row.rateKind || "") === "video_input");
-  const otherRows = rows.filter((row) => String(row.provider || "").toLowerCase() !== "seedance");
-  const pricingModelCounts = new Map();
-  for (const row of rows) {
+  const pricingRows = (pricing.rows || []).map((row, index) => {
+    const configuredSaleUsdPerSecond = pricingConfiguredSaleUsd(row);
+    return {
+      ...row,
+      configuredSaleUsdPerSecond,
+      saleUsdPerSecond: configuredSaleUsdPerSecond * pricingModelDiscount(row, pricing),
+      _pricingKey: String(row.key || `${row.provider || "row"}-${index}`),
+    };
+  });
+  const modelGroups = new Map();
+  for (const row of pricingRows) {
     const key = pricingModelFilterKey(row);
-    const current = pricingModelCounts.get(key) || { key, label: pricingModelFilterLabel(row), count: 0 };
+    const current = modelGroups.get(key) || { key, row, count: 0 };
     current.count += 1;
-    pricingModelCounts.set(key, current);
+    modelGroups.set(key, current);
   }
-  const pricingModelOptions = Array.from(pricingModelCounts.values());
+  const models = Array.from(modelGroups.values());
+  if (!state.pricingModelKey || !modelGroups.has(state.pricingModelKey)) {
+    state.pricingModelKey = models[0]?.key || "";
+  }
 
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
         <div>
           <h2>价格配置</h2>
-          <p class="adm-muted">配置 Advanced 采购价和对外价格。Vega / Wan3 支持分别配置采购价与对外价；倍率低于 1.5x 会标红；Seedance 视频输入任务按两段计费。</p>
+          <p class="adm-muted">先选择模型，再查看该模型的采购价、基础售价、模型折扣和折后实际售价。模型折扣只影响对外售价。</p>
         </div>
         <div class="adm-page-actions">
           <button class="adm-btn adm-btn-ghost" id="reloadPricingBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
-          <button class="adm-btn adm-btn-primary" id="savePricingBtn" type="button"><i data-lucide="save"></i>保存</button>
+          <button class="adm-btn adm-btn-primary" id="savePricingBtn" type="button"><i data-lucide="save"></i>保存全部价格</button>
         </div>
       </div>
-      <div class="adm-card">
-        <div class="adm-card-head">
-          <div>
-            <h3>Advanced 价格</h3>
-            <p class="adm-muted">计费单位：1 USD = ${escapeHtml(String(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))} 积分。采购来源：${escapeHtml(pricing.upstreamMode || "direct")}</p>
+      <div class="adm-pricing-layout">
+        <aside class="adm-card adm-pricing-model-panel">
+          <div class="adm-card-head">
+            <div>
+              <h3>模型</h3>
+              <p class="adm-muted">共 ${models.length} 个模型，${pricingRows.length} 个计费项</p>
+            </div>
           </div>
-        </div>
-        <div class="adm-pricing-toolbar">
-          <label class="adm-pricing-filter">
-            <span>按模型筛选</span>
-            <select id="pricingModelFilter">
-              <option value="">全部模型（${rows.length}）</option>
-              ${pricingModelOptions.map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}（${item.count}）</option>`).join("")}
-            </select>
+          <label class="adm-pricing-filter adm-pricing-model-search">
+            <span>查找模型</span>
+            <input id="pricingModelSearch" type="search" placeholder="名称、副标题或模型 ID" autocomplete="off" />
           </label>
-          <span class="adm-muted">当前显示 <strong id="pricingFilterCount">${rows.length}</strong> 项</span>
-        </div>
-        <div class="adm-pricing-formula">
-          Seedance 视频输入任务总扣费 = 基础生成对外价 x 生成视频秒数 + 视频输入加收价 x 输入视频秒数。
-        </div>
-        <div class="adm-pricing-groups">
-          <section class="adm-pricing-section" data-pricing-section>
-            <div class="adm-pricing-section-head">
-              <div>
-                <h4>Seedance 基础生成价格</h4>
-                <p class="adm-muted">所有 Seedance 任务都会按生成出来的视频秒数收这一段。</p>
-              </div>
-            </div>
-            ${renderPricingTable(seedanceOutputRows)}
-          </section>
-          <section class="adm-pricing-section" data-pricing-section>
-            <div class="adm-pricing-section-head">
-              <div>
-                <h4>Seedance 视频输入加收价格</h4>
-                <p class="adm-muted">仅在传入视频作为参考、编辑、续写等输入时，按输入视频秒数额外加收。这里不是总价。</p>
-              </div>
-            </div>
-            ${renderPricingTable(seedanceInputRows)}
-          </section>
-          <section class="adm-pricing-section" data-pricing-section>
-            <div class="adm-pricing-section-head">
-              <div>
-                <h4>Vega、Wan 3.0、HappyHorse 与图片模型价格</h4>
-                <p class="adm-muted">Vega、W3.0、W3.0-Pro、W3.0-Prime、W3.0-VSR-Prime、HappyHorse 及图片模型。采购价和对外价均可配置。</p>
-              </div>
-            </div>
-            ${renderPricingTable(otherRows)}
-          </section>
-        </div>
+          <div class="adm-pricing-model-list" id="pricingModelList">
+            ${models.map((item) => pricingModelCard(item.row, pricing, item.count)).join("")}
+          </div>
+        </aside>
+        <section class="adm-card adm-pricing-detail-panel" id="pricingModelDetail"></section>
       </div>
+      <div class="adm-pricing-formula">实际售价 = 折扣前售价 × 模型折扣。采购价保持不变；模型折扣可在“配置”中调整。</div>
     </section>
   `;
   refreshIcons();
 
-  const pricingModelFilter = byId("pricingModelFilter");
-  const pricingFilterCount = byId("pricingFilterCount");
-  const applyPricingModelFilter = () => {
-    const selected = String(pricingModelFilter?.value || "");
-    let visible = 0;
-    els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
-      const show = !selected || tr.dataset.pricingModel === selected;
-      tr.hidden = !show;
-      if (show) visible += 1;
-    });
-    els.adminContent.querySelectorAll("[data-pricing-section]").forEach((section) => {
-      section.hidden = !section.querySelector("tr[data-provider]:not([hidden])");
-    });
-    if (pricingFilterCount) pricingFilterCount.textContent = String(visible);
-  };
-  pricingModelFilter?.addEventListener("change", applyPricingModelFilter);
-  applyPricingModelFilter();
-
-  const updateCredits = () => {
-    els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
+  const detail = byId("pricingModelDetail");
+  const renderDetail = (modelKey) => {
+    const group = modelGroups.get(modelKey);
+    if (!group || !detail) return;
+    state.pricingModelKey = modelKey;
+    const rows = pricingRows.filter((row) => pricingModelFilterKey(row) === modelKey);
+    const discount = pricingModelDiscount(group.row, pricing);
+    detail.innerHTML = `
+      <div class="adm-card-head adm-pricing-detail-head">
+        <div>
+          <h3>${escapeHtml(pricingModelFilterLabel(group.row, pricing))}</h3>
+          <p class="adm-muted">${escapeHtml(pricingModelSubtitle(group.row, pricing))} · 模型折扣 ${escapeHtml(fmtPrice(discount, 4))}x</p>
+        </div>
+        <button class="adm-btn adm-btn-ghost" type="button" data-pricing-config="${escapeHtml(modelKey)}"><i data-lucide="settings-2"></i>配置模型</button>
+      </div>
+      ${renderPricingTable(rows, pricing)}
+    `;
+    refreshIcons();
+    detail.querySelectorAll("tr[data-row-key]").forEach((tr) => {
+      const row = pricingRows.find((item) => item._pricingKey === tr.dataset.rowKey);
+      if (!row) return;
       const saleInput = tr.querySelector('[data-f="saleUsdPerSecond"]');
       const purchaseInput = tr.querySelector('[data-f="purchaseUsdPerSecond"]');
-      const creditsTarget = tr.querySelector("[data-price-credits]");
-      const ratioTarget = tr.querySelector("[data-price-ratio]");
-      const saleUsd = Number(saleInput?.value || 0);
-      const purchaseUsd = Number(purchaseInput?.value || 0);
-      creditsTarget.textContent = Number.isFinite(saleUsd) && saleUsd >= 0
-        ? fmtPrice(saleUsd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
-        : "-";
-      if (ratioTarget) {
-        ratioTarget.innerHTML = pricingMultiplierHtml({
-          purchaseUsdPerSecond: purchaseUsd,
-          saleUsdPerSecond: saleUsd,
-        });
-      }
+      const refreshRow = () => {
+        const modelDiscount = pricingModelDiscount(row, pricing);
+        const configuredSaleUsd = Number(saleInput?.value || 0);
+        const purchaseUsd = Number(purchaseInput?.value || row.purchaseUsdPerSecond || 0);
+        row.configuredSaleUsdPerSecond = configuredSaleUsd;
+        row.saleUsdPerSecond = configuredSaleUsd * modelDiscount;
+        if (purchaseInput) row.purchaseUsdPerSecond = purchaseUsd;
+        const effective = tr.querySelector("[data-price-effective]");
+        const credits = tr.querySelector("[data-price-credits]");
+        const discountTarget = tr.querySelector("[data-price-discount]");
+        const ratioTarget = tr.querySelector("[data-price-ratio]");
+        if (effective) effective.textContent = `${fmtPrice(row.saleUsdPerSecond)} ${rowPriceUnit(row)}`;
+        if (credits) credits.textContent = fmtPrice(row.saleUsdPerSecond * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD));
+        if (discountTarget) discountTarget.textContent = `${fmtPrice(modelDiscount, 4)}x`;
+        if (ratioTarget) ratioTarget.innerHTML = pricingMultiplierHtml(row);
+      };
+      saleInput?.addEventListener("input", refreshRow);
+      purchaseInput?.addEventListener("input", refreshRow);
+    });
+    byId("pricingModelList")?.querySelectorAll(":scope > [data-pricing-model]").forEach((card) => {
+      card.classList.toggle("is-active", card.dataset.pricingModel === modelKey);
     });
   };
 
-  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"], [data-f="purchaseUsdPerSecond"]').forEach((input) => {
-    input.addEventListener("input", updateCredits);
+  const savePricing = async (nextSettings = pricing.modelSettings || {}) => {
+    const nextRows = pricingRows.map((row) => {
+      const purchaseInput = row.purchaseEditable
+        ? detail?.querySelector(`tr[data-row-key="${CSS.escape(row._pricingKey)}"] [data-f="purchaseUsdPerSecond"]`)
+        : null;
+      if (purchaseInput) row.purchaseUsdPerSecond = Number(purchaseInput.value || 0);
+      return {
+        provider: row.provider,
+        resolution: row.resolution,
+        rateKind: row.rateKind,
+        key: row.key,
+        unit: row.unit,
+        saleUsdPerSecond: Number(row.configuredSaleUsdPerSecond ?? pricingConfiguredSaleUsd(row)),
+        ...(row.purchaseEditable ? { purchaseUsdPerSecond: Number(row.purchaseUsdPerSecond || 0) } : {}),
+      };
+    });
+    const result = await api("/api/admin/pricing", {
+      method: "PUT",
+      body: { rows: nextRows, modelSettings: nextSettings },
+    });
+    state.config = result.config || null;
+    toast("价格与模型配置已保存。", "success");
+    await renderPricing();
+  };
+
+  byId("pricingModelSearch")?.addEventListener("input", (event) => {
+    const query = String(event.target.value || "").trim().toLowerCase();
+    byId("pricingModelList")?.querySelectorAll(":scope > [data-pricing-model]").forEach((card) => {
+      const model = modelGroups.get(card.dataset.pricingModel);
+      const text = [
+        pricingModelFilterLabel(model.row, pricing),
+        pricingModelSubtitle(model.row, pricing),
+        model.key,
+      ].join(" ").toLowerCase();
+      card.hidden = Boolean(query) && !text.includes(query);
+    });
   });
+
+  const pricingLayout = els.adminContent.querySelector(".adm-pricing-layout");
+  const openModelConfig = async (modelKey) => {
+    const group = modelGroups.get(modelKey);
+    if (!group) return;
+    const current = { ...pricingModelSetting(pricing, modelKey) };
+    const result = await openDialog({
+      title: "配置模型展示与折扣",
+      confirmText: "保存配置",
+      body: `
+        <div class="adm-form-row"><label><span>显示名称</span><input id="pricingModelDisplayName" maxlength="80" value="${escapeHtml(current.displayName || pricingModelFilterLabel(group.row, pricing))}" placeholder="${escapeHtml(PRICING_MODEL_DEFAULT_LABELS[modelKey] || group.row.providerLabel || modelKey)}" /></label></div>
+        <div class="adm-form-row"><label><span>副标题</span><input id="pricingModelSubtitle" maxlength="160" value="${escapeHtml(current.subtitle || group.row.modelSubtitle || "")}" placeholder="例如：高质量视频生成" /></label></div>
+        <div class="adm-form-row"><label><span>模型折扣（对外售价倍率）</span><input id="pricingModelDiscount" type="number" min="0.01" max="10" step="0.0001" value="${escapeHtml(fmtPrice(current.discount ?? 1, 4))}" /></label><small class="adm-muted">例如 0.9 表示 9 折，1 表示原价。只乘对外售价，不影响采购价。</small></div>
+      `,
+      onConfirm: async () => {
+        const displayName = String(byId("pricingModelDisplayName")?.value || "").trim();
+        const subtitle = String(byId("pricingModelSubtitle")?.value || "").trim();
+        const discount = Number(byId("pricingModelDiscount")?.value || 0);
+        if (!(discount >= 0.01 && discount <= 10)) {
+          toast("模型折扣必须在 0.01 到 10 之间。", "error");
+          return false;
+        }
+        const nextSettings = {
+          ...(pricing.modelSettings || {}),
+          [modelKey]: { displayName, subtitle, discount },
+        };
+        try {
+          await savePricing(nextSettings);
+        } catch (err) {
+          toast(err.message || "保存失败。", "error");
+          return false;
+        }
+      },
+    });
+    return result;
+  };
+
+  pricingLayout?.addEventListener("click", async (event) => {
+    const configButton = event.target.closest("[data-pricing-config]");
+    if (configButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      await openModelConfig(configButton.dataset.pricingConfig);
+      return;
+    }
+    const detailButton = event.target.closest("[data-pricing-detail]");
+    if (detailButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      renderDetail(detailButton.dataset.pricingDetail);
+      return;
+    }
+    const card = event.target.closest("#pricingModelList > [data-pricing-model]");
+    if (card) renderDetail(card.dataset.pricingModel);
+  });
+  pricingLayout?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const card = event.target.closest("#pricingModelList > [data-pricing-model]");
+    if (!card || event.target.closest("[data-pricing-config], [data-pricing-detail]")) return;
+    event.preventDefault();
+    renderDetail(card.dataset.pricingModel);
+  });
+
   byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
   byId("savePricingBtn")?.addEventListener("click", async () => {
     try {
-      const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map((tr) => {
-        const purchaseInput = tr.querySelector('[data-f="purchaseUsdPerSecond"]');
-        return {
-          provider: tr.dataset.provider,
-          resolution: tr.dataset.resolution,
-          rateKind: tr.dataset.rateKind,
-          key: tr.dataset.key,
-          unit: tr.dataset.unit,
-          saleUsdPerSecond: Number(tr.querySelector('[data-f="saleUsdPerSecond"]')?.value || 0),
-          ...(purchaseInput ? { purchaseUsdPerSecond: Number(purchaseInput.value || 0) } : {}),
-        };
-      });
-      const result = await api("/api/admin/pricing", {
-        method: "PUT",
-        body: { rows: nextRows },
-      });
-      state.config = result.config || null;
-      toast("价格已保存。", "success");
-      renderPricing();
+      await savePricing(pricing.modelSettings || {});
     } catch (err) {
-      toast(err.message, "error");
+      toast(err.message || "保存失败。", "error");
     }
   });
+  renderDetail(state.pricingModelKey);
 }
 
 /* ============ PLATFORM ============ */

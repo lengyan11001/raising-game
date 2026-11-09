@@ -61,7 +61,16 @@ async function handleWan27ImageEdit(req, res) {
   if (resolution === "4K" && sourceAssets.length + externalImageUrls.length > 0) {
     return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Wan2.7 Image 4K is only available for text-to-image without reference images." });
   }
-  const pricing = wan27ImageModifyPricing(config, auth.user, pricingContextForAuth(auth));
+  const pricingProvider = normalizeAdvancedProvider(firstPresent(
+    mergedBody.advancedProviderId,
+    mergedBody.provider,
+    mergedBody.modelProvider,
+    "wan27-image",
+  ));
+  const pricing = wan27ImageModifyPricing(config, auth.user, {
+    ...pricingContextForAuth(auth),
+    provider: pricingProvider,
+  });
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -403,7 +412,17 @@ async function handleModifyUserAssetImage(req, res, assetId) {
   if (resolution === "4K") {
     return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Wan2.7 Image 4K is only available for text-to-image without reference images." });
   }
-  const pricing = wan27ImageModifyPricing(config, auth.user, pricingContextForAuth(auth));
+  const pricingProvider = normalizeAdvancedProvider(firstPresent(
+    body.advancedProviderId,
+    requestParamsFromBody(body).advancedProviderId,
+    body.provider,
+    requestParamsFromBody(body).provider,
+    "wan27-image",
+  ));
+  const pricing = wan27ImageModifyPricing(config, auth.user, {
+    ...pricingContextForAuth(auth),
+    provider: pricingProvider,
+  });
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));

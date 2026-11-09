@@ -528,13 +528,108 @@ a { color: inherit; text-decoration: none; }
 .adm-recharge-table th:nth-child(10) { width: 9%; }
 .adm-recharge-table th:nth-child(11) { width: 7%; }
 .adm-recharge-table th:nth-child(12) { width: 9%; }
-.adm-pricing-table { min-width: 1020px; }
-.adm-pricing-table th:nth-child(1) { width: 180px; }
-.adm-pricing-table th:nth-child(2) { width: 110px; }
-.adm-pricing-table th:nth-child(4) { width: 100px; }
-.adm-pricing-table th:nth-child(5) { width: 210px; }
-.adm-pricing-table th:nth-child(6) { width: 140px; }
+.adm-pricing-table { min-width: 1040px; }
+.adm-pricing-table th:nth-child(1) { width: 190px; }
+.adm-pricing-table th:nth-child(2) { width: 120px; }
+.adm-pricing-table th:nth-child(3) { width: 190px; }
+.adm-pricing-table th:nth-child(4) { width: 150px; }
+.adm-pricing-table th:nth-child(5) { width: 170px; }
+.adm-pricing-table th:nth-child(6) { width: 150px; }
 .adm-pricing-table input { max-width: 180px; }
+.adm-pricing-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.adm-pricing-model-panel { min-width: 0; }
+.adm-pricing-detail-panel { min-width: 0; }
+.adm-pricing-model-search {
+  width: auto;
+  min-width: 0;
+  margin: 14px 16px 4px;
+}
+.adm-pricing-model-search input {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 11px;
+  font-size: 0.84rem;
+}
+.adm-pricing-model-list {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  max-height: calc(100vh - 310px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.adm-pricing-model-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 72px;
+  padding: 11px 12px;
+  border: 1px solid var(--adm-line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--adm-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+.adm-pricing-model-card:hover {
+  border-color: rgba(255, 125, 164, 0.42);
+  background: rgba(255, 84, 133, 0.07);
+}
+.adm-pricing-model-card:focus-visible {
+  outline: 2px solid rgba(255, 84, 133, 0.72);
+  outline-offset: 2px;
+}
+.adm-pricing-model-card.is-active {
+  border-color: rgba(255, 84, 133, 0.72);
+  background: linear-gradient(135deg, rgba(255, 84, 133, 0.16), rgba(154, 108, 255, 0.08));
+  box-shadow: inset 3px 0 0 var(--adm-rose);
+}
+.adm-pricing-model-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(255, 84, 133, 0.12);
+  color: var(--adm-rose-2);
+}
+.adm-pricing-model-icon i { width: 18px; height: 18px; }
+.adm-pricing-model-copy { display: grid; gap: 3px; min-width: 0; }
+.adm-pricing-model-copy strong,
+.adm-pricing-model-copy small,
+.adm-pricing-model-copy em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.adm-pricing-model-copy strong { font-size: 0.88rem; }
+.adm-pricing-model-copy small { color: var(--adm-muted); font-size: 0.75rem; }
+.adm-pricing-model-copy em { color: #b7aac9; font-size: 0.7rem; font-style: normal; }
+.adm-pricing-model-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.adm-pricing-model-card:focus-within .adm-pricing-model-actions,
+.adm-pricing-model-card.is-active .adm-pricing-model-actions { opacity: 1; }
+.adm-pricing-model-card:hover .adm-pricing-model-actions,
+.adm-pricing-model-card:focus-visible .adm-pricing-model-actions { opacity: 1; }
+.adm-pricing-model-actions .adm-btn { min-height: 28px; padding: 0 8px; white-space: nowrap; }
+.adm-pricing-detail-head { align-items: flex-start; }
+.adm-pricing-detail-head h3 { font-size: 1.05rem; }
+.adm-pricing-detail-head p { margin: 5px 0 0; line-height: 1.5; }
 .adm-price-ratio-low { color: var(--adm-danger, #ff6b6b); font-weight: 800; }
 .adm-pricing-toolbar {
   display: flex;
@@ -572,9 +667,30 @@ a { color: inherit; text-decoration: none; }
 }
 .adm-pricing-table tr[hidden] { display: none; }
 .adm-pricing-section[hidden] { display: none; }
+@media (max-width: 1120px) {
+  .adm-pricing-layout { grid-template-columns: minmax(0, 1fr); }
+  .adm-pricing-model-list {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    max-height: 300px;
+  }
+}
 @media (max-width: 640px) {
   .adm-pricing-filter { width: 100%; min-width: 0; }
   .adm-pricing-filter select { width: 100%; }
+  .adm-pricing-model-search { margin-inline: 12px; }
+  .adm-pricing-model-list {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: 360px;
+    padding: 10px;
+  }
+  .adm-pricing-model-card { grid-template-columns: 34px minmax(0, 1fr); }
+  .adm-pricing-model-icon { width: 34px; height: 34px; }
+  .adm-pricing-model-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    opacity: 1;
+  }
+  .adm-pricing-detail-head .adm-btn { width: 100%; }
 }
 .adm-pricing-formula {
   margin: 0 0 14px;
