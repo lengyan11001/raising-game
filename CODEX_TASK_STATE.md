@@ -1,11 +1,12 @@
-## 2026-11-09 Vega Pro 1.0 / 1.5 Old release prep (current)
+## 2026-11-09 Vega Pro 1.0 / 1.5 Old release (current)
+- Deployed to Old only: source `old-site` `e1055d8`; release snapshot `platform-release` / `origin/platform-release` = `a5eb8d7`. Live is untouched at `origin/live-release` = `bf1e01a`; do not push or deploy Live without a separate request.
+- Post-deploy health: `/api/health` returned `200 {"ok":true}`, `raising-game-demo` was active, and no application errors were found in the preceding 15 minutes. Key deployed config/server hashes match local sources.
+- Rollback point: tag `rollback-platform-before-vega-pro-20261109` points to `b0a21ab`, the previous `platform-release` baseline. A later local-only source commit `c4d384e` changes media durability test assertions and state notes, not production routing; it is not in release `a5eb8d7` and deployment was not repeated.
 - Test workspace is excluded from this release: `platform.test-generate.css`, `test/platform-test-mode.test.js`, and `workflow-react/dist/canvas.js.map` remain untracked and must not be committed. Test CSS was removed from platform deploy/sync lists; no active Test navigation route remains.
 - Vega Pro routes: `seedance20-vega` -> Vega 1.0 Pro, `seedance25-vega` -> Vega 1.5 Pro; both use `/api/user-assets` and submit `asset://asset-...` references. Lite routing was not changed: `vega10-lite` / `h3-vega` use `/api/advanced/transient-media` public HTTP(S) URLs and must not create user-asset rows.
 - Reference limits: `seedance20-vega` 9 images / 3 videos / 3 audios / 12 total; `seedance25-vega` 30 / 10 / 10 / 50; `vega10-lite` 9 / 3 / 3 / 12; `h3-vega` 10 / 5 / 5 / 20.
 - Generated media contract is now durable PostgreSQL metadata + object storage only. Video/poster/image work uses disposable OS temp workspaces; local paths are cleared and temporary workspaces are removed. `part-31/38/40` only propagate storage metadata through refresh paths and are part of this release.
 - Verification: Vega/media regression suite 142/142 passed; all changed server/platform JS files pass `node --check`; `git diff --check` passed.
-- Rollback baseline: `platform-release` / `origin/platform-release` = `b0a21ab`. Before deploy, create/push tag `rollback-platform-before-vega-pro-20261109`.
-- Status: ready to commit/push `old-site`, build/push `platform-release`, and deploy Old only with `scripts/deploy_local.sh --site old`. Live must remain untouched.
 
 ## 2026-11-09 Local Vega verification guidance (current)
 - Focused local verification confirmed: `node --check test/tencent-vod-vega.test.js`, Vega media suite 69/69, Vega regeneration media suite 19/19, and `git diff --check` all pass.
