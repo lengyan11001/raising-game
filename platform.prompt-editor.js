@@ -102,8 +102,21 @@
   // the platform uploader sees the original clipboard payload first. Keep the
   // scope to the rich mount; the legacy textarea has its own handler in
   // platform.main.js and must not upload the same paste twice.
+  function promptEditorPasteTarget(event) {
+    const mount = mountElement();
+    if (!mount) return false;
+    const path = typeof event?.composedPath === "function" ? event.composedPath() : [];
+    if (path.includes(mount)) return true;
+    let target = event?.target;
+    while (target) {
+      if (target === mount) return true;
+      target = target.parentNode || target.host || null;
+    }
+    return Boolean(event?.target?.closest?.("#advancedPromptEditorMount"));
+  }
+
   function handleDocumentPaste(event) {
-    if (!event?.target?.closest?.("#advancedPromptEditorMount")) return;
+    if (!promptEditorPasteTarget(event)) return;
     handleEditorPaste(event);
   }
 
@@ -299,6 +312,9 @@
   window.setVipeakPromptEditorMode = setVipeakPromptEditorMode;
   window.initializeAdvancedPromptEditor = initialize;
 
+  // Capture at document level so the uploader sees clipboard media before
+  // ProseMirror consumes it. The platform handler de-duplicates the same
+  // event; direct editor/mount listeners remain as a Safari fallback.
   document.addEventListener("paste", handleDocumentPaste, true);
 
   if (document.readyState === "loading") {

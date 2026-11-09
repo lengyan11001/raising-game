@@ -140,7 +140,10 @@ test("rich prompt auto-size resets height before measuring so deletion can shrin
 });
 
 test("rich editor captures paste at document level before ProseMirror consumes Safari clipboard media", () => {
-  assert.match(adapterSource, /event\?\.target\?\.closest\?\.\("#advancedPromptEditorMount"\)/);
+  assert.match(adapterSource, /function promptEditorPasteTarget\(event\)/);
+  assert.match(adapterSource, /typeof event\?\.composedPath === "function" \? event\.composedPath\(\) : \[\]/);
+  assert.match(adapterSource, /path\.includes\(mount\)/);
+  assert.match(adapterSource, /target = target\.parentNode \|\| target\.host \|\| null/);
   assert.match(adapterSource, /document\.addEventListener\("paste", handleDocumentPaste, true\)/);
   assert.match(adapterSource, /editorElement\?\.addEventListener\("paste", handleEditorPaste, true\)/);
   assert.match(adapterSource, /mount\.addEventListener\("paste", handleEditorPaste, true\)/);

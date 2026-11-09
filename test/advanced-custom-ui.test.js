@@ -429,7 +429,7 @@ test("prompt paste extracts Safari clipboard files without duplicate media", () 
     "uploadedFileMime",
     `${extractFunction(createPart03, "pastedMediaFilesFromEvent")}
 return pastedMediaFilesFromEvent;`,
-  )((file) => String(file?.type || ""));
+  )((file) => String(file?.type || "").trim() || (/\.mp4$/i.test(String(file?.name || "")) ? "video/mp4" : ""));
   const image = { type: "image/png", name: "pasted.png", size: 10, lastModified: 1 };
   const video = { type: "video/mp4", name: "pasted.mp4", size: 20, lastModified: 1 };
   const text = { type: "text/plain", name: "pasted.txt", size: 5, lastModified: 1 };
@@ -441,7 +441,7 @@ return pastedMediaFilesFromEvent;`,
   });
   assert.deepEqual(files, [image, video]);
 
-  const opaqueVideo = { type: "video/mp4", name: "opaque.mp4", size: 30, lastModified: 2 };
+  const opaqueVideo = { type: "", name: "opaque.mp4", size: 30, lastModified: 2 };
   const opaque = extract({
     clipboardData: {
       items: [{ kind: "", type: "", getAsFile: () => opaqueVideo }],
@@ -527,6 +527,101 @@ return pastedMediaFilesFromNavigatorClipboard;`,
   assert.equal(files.length, 1);
   assert.equal(files[0].type, "image/png");
   assert.match(files[0].name, /\.png$/);
+});
+
+test("pasted video files and URLs follow the active model storage route", async () => {
+  const createPart03 = fs.readFileSync(path.join(root, "platform.create.parts/part-03.js"), "utf8");
+  const video = { type: "", name: "clipboard-video.mp4", size: 20, lastModified: 1 };
+  const makeHarness = ({ provider, supports = true, limit = 1, existing = [] }) => {
+    const calls = [];
+    const note = { textContent: "" };
+    const state = {
+      user: { id: "user-1" },
+      advancedAssets: [],
+      userAssets: [],
+      advancedSeedanceVideoReferences: existing.slice(),
+    };
+    const refs = () => state.advancedSeedanceVideoReferences;
+    const source = `${extractFunction(createPart03, "advancedPastedMediaUsesLibrary")}
+${extractFunction(createPart03, "advancedPromptPasteSupportsVideoReferences")}
+${extractFunction(createPart03, "addAdvancedPromptPasteUrlVideos")}
+${extractFunction(createPart03, "addAdvancedPromptPasteVideoFiles")}
+return { advancedPastedMediaUsesLibrary, advancedPromptPasteSupportsVideoReferences, addAdvancedPromptPasteUrlVideos, addAdvancedPromptPasteVideoFiles };`;
+    const api = new Function(
+      "currentAdvancedProvider",
+      "els",
+      "state",
+      "advancedVideoReferenceLimit",
+      "advancedSeedanceVideoReferences",
+      "vegaModeUsesReferences",
+      "advancedVegaMediaMode",
+      "isVegaAdvancedProvider",
+      "normalizeSeedanceMediaMode",
+      "seedanceModeNeedsReferenceVideo",
+      "vegaProviderUsesTransientObjectStorage",
+      "uploadAdvancedTransientMediaReference",
+      "uploadAdvancedMediaReference",
+      "uploadAdvancedMediaReferenceUrl",
+      "addAdvancedSeedanceMediaReference",
+      "renderAdvancedAssets",
+      "updateAdvancedModelControls",
+      "updateAdvancedButtonCost",
+      "advancedMediaReferenceAddError",
+      "t",
+      source,
+    )(
+      () => provider,
+      { advancedSeedanceMediaMode: { value: "omini" }, advancedNote: note },
+      state,
+      () => limit,
+      refs,
+      () => true,
+      () => "reference_video",
+      () => provider.includes("vega"),
+      (value) => String(value || "reference_video"),
+      () => true,
+      (value) => ["vega10-lite", "h3-vega"].includes(value),
+      async (file, kind, options) => { calls.push({ method: "transient", file, kind, options }); return { url: "https://media.example.test/transient.mp4", publicUrl: "https://media.example.test/transient.mp4" }; },
+      async (file, kind, options) => { calls.push({ method: "library", file, kind, options }); return { assetId: "asset-1", url: "https://media.example.test/library.mp4", publicUrl: "https://media.example.test/library.mp4" }; },
+      async (url, kind, options) => {
+        calls.push({ method: "url", url, kind, options });
+        return { assetId: "url-asset", url, publicUrl: url, previewUrl: url };
+      },
+      (ref, kind) => {
+        state.advancedSeedanceVideoReferences.push(ref);
+        return { ok: true };
+      },
+      () => {},
+      () => {},
+      () => {},
+      () => "cannot add",
+      (key) => key,
+    );
+    return { api, calls, state, note };
+  };
+
+  const seedance25 = makeHarness({ provider: "seedance-nsfw" });
+  assert.equal(await seedance25.api.addAdvancedPromptPasteVideoFiles([video]), true);
+  assert.equal(seedance25.calls[0].method, "library");
+  assert.equal(seedance25.calls[0].options.provider, "seedance-nsfw");
+
+  const seedance25Url = makeHarness({ provider: "seedance-nsfw" });
+  assert.equal(await seedance25Url.api.addAdvancedPromptPasteUrlVideos([{ url: "https://cdn.example.test/v.mp4", kind: "video" }]), true);
+  assert.equal(seedance25Url.calls[0].method, "url");
+  assert.equal(seedance25Url.calls[0].options.provider, "seedance-nsfw");
+
+  const vegaPro = makeHarness({ provider: "seedance25-vega" });
+  assert.equal(await vegaPro.api.addAdvancedPromptPasteVideoFiles([video]), true);
+  assert.equal(vegaPro.calls[0].method, "library");
+
+  const vegaLite = makeHarness({ provider: "h3-vega" });
+  assert.equal(await vegaLite.api.addAdvancedPromptPasteVideoFiles([video]), true);
+  assert.equal(vegaLite.calls[0].method, "transient");
+
+  const vegaLiteUrl = makeHarness({ provider: "h3-vega" });
+  assert.equal(await vegaLiteUrl.api.addAdvancedPromptPasteUrlVideos([{ url: "https://cdn.example.test/v.mp4", kind: "video" }]), true);
+  assert.equal(vegaLiteUrl.calls[0].method, "url");
+  assert.equal(vegaLite.api.advancedPastedMediaUsesLibrary("h3-vega"), false, "Vega Lite URLs must not enter the media library");
 });
 
 test("prompt image paste and @ mentions follow the shared upload control for every model", () => {

@@ -1389,6 +1389,10 @@ function advancedPastedMediaRef(asset = {}, kind = "image", fallbackUrl = "") {
   };
 }
 
+function advancedPastedMediaUsesLibrary(provider = currentAdvancedProvider()) {
+  return !vegaProviderUsesTransientObjectStorage(provider);
+}
+
 async function uploadAdvancedMediaReferenceUrl(url = "", kind = "image", { provider = currentAdvancedProvider(), name = "", durationSeconds = 0 } = {}) {
   if (!state.user) {
     openLogin();
@@ -1409,7 +1413,7 @@ async function uploadAdvancedMediaReferenceUrl(url = "", kind = "image", { provi
     return null;
   }
   const fileName = String(name || mediaUrlCandidateName(sourceUrl, kind));
-  const usesMediaLibrary = vegaProviderUsesMediaLibrary(provider);
+  const usesMediaLibrary = advancedPastedMediaUsesLibrary(provider);
   const inlineDataUrl = /^data:/i.test(sourceUrl);
   const payload = await requestJson(usesMediaLibrary ? "/api/user-assets" : "/api/advanced/transient-media", {
     method: "POST",
@@ -1487,9 +1491,17 @@ async function addAdvancedVegaPromptPasteUrlImages(candidates = [], rule = {}, p
   return resolved.length;
 }
 
-async function addAdvancedVegaPromptPasteUrlVideos(candidates = [], provider = currentAdvancedProvider()) {
-  const supportsVideoReferences = vegaModeUsesReferences(advancedVegaMediaMode()) && advancedVideoReferenceLimit(provider) > 0;
-  if (!supportsVideoReferences) {
+function advancedPromptPasteSupportsVideoReferences(provider = currentAdvancedProvider()) {
+  if (advancedVideoReferenceLimit(provider) <= 0) return false;
+  if (isVegaAdvancedProvider(provider)) {
+    return vegaModeUsesReferences(advancedVegaMediaMode());
+  }
+  const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
+  return seedanceModeNeedsReferenceVideo(mode);
+}
+
+async function addAdvancedPromptPasteUrlVideos(candidates = [], provider = currentAdvancedProvider()) {
+  if (!advancedPromptPasteSupportsVideoReferences(provider)) {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceVideoUnsupported");
     return false;
   }
@@ -1512,6 +1524,43 @@ async function addAdvancedVegaPromptPasteUrlVideos(candidates = [], provider = c
     }
   }
   if (els.advancedNote) els.advancedNote.textContent = "";
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  return true;
+}
+
+async function addAdvancedVegaPromptPasteUrlVideos(candidates = [], provider = currentAdvancedProvider()) {
+  return addAdvancedPromptPasteUrlVideos(candidates, provider);
+}
+
+async function addAdvancedPromptPasteVideoFiles(videoFiles = [], provider = currentAdvancedProvider()) {
+  if (!advancedPromptPasteSupportsVideoReferences(provider)) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceVideoUnsupported");
+    return false;
+  }
+  const availableVideoSlots = Math.max(0, advancedVideoReferenceLimit(provider) - advancedSeedanceVideoReferences().length);
+  const selectedVideos = videoFiles.slice(0, availableVideoSlots);
+  if (!selectedVideos.length) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceMediaTooMany");
+    return false;
+  }
+  const usesTransientStorage = vegaProviderUsesTransientObjectStorage(provider);
+  for (const file of selectedVideos) {
+    const ref = usesTransientStorage
+      ? await uploadAdvancedTransientMediaReference(file, "video", { provider })
+      : await uploadAdvancedMediaReference(file, "video", { provider, skipReference: true });
+    if (!ref) return false;
+    const added = addAdvancedSeedanceMediaReference(ref, "video", {
+      sourceUrl: ref.publicUrl || ref.url || ref.previewUrl || "",
+      ref,
+    });
+    if (!added.ok) {
+      if (els.advancedNote) els.advancedNote.textContent = advancedMediaReferenceAddError(added, "video");
+      return false;
+    }
+  }
+  if (els.advancedNote) els.advancedNote.textContent = "";
+  renderAdvancedAssets();
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
   return true;
@@ -1663,7 +1712,7 @@ async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false, s
   const initialSnapshot = snapshot || advancedPromptPasteMediaSnapshot(event);
   let mediaFiles = initialSnapshot.files.slice();
   const rule = advancedPromptPasteImageRule();
-  let pastedUrls = isVegaAdvancedProvider(provider) && !mediaFiles.length ? initialSnapshot.urls.slice() : [];
+  let pastedUrls = !mediaFiles.length ? initialSnapshot.urls.slice() : [];
   const suspiciousClipboardMedia = !mediaFiles.length && !pastedUrls.length && initialSnapshot.looksLikeMedia;
   // Safari sometimes hides the actual image/video behind the async Clipboard
   // API even though the synchronous paste event exposes only an empty
@@ -1676,7 +1725,7 @@ async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false, s
     } catch (_error) {
       mediaFiles = [];
     }
-    if (isVegaAdvancedProvider(provider) && !mediaFiles.length) {
+    if (!mediaFiles.length) {
       try {
         pastedUrls = await pastedMediaUrlsFromNavigatorClipboard();
       } catch (_error) {
@@ -1685,7 +1734,7 @@ async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false, s
     }
     if (mediaFiles.length) pastedUrls = [];
   }
-  if (isVegaAdvancedProvider(provider) && !mediaFiles.length && !pastedUrls.length) {
+  if (!mediaFiles.length && !pastedUrls.length) {
     try {
       pastedUrls = await pastedMediaUrlsFromClipboardItems(event?.clipboardData?.items || []);
     } catch (_error) {
@@ -1702,8 +1751,8 @@ async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false, s
   // turns its URL into plain text. This runs synchronously before the first await.
   if (hasPastedMedia) event.preventDefault();
 
-  if (isVegaAdvancedProvider(provider) && pastedVideoUrls.length) {
-    await addAdvancedVegaPromptPasteUrlVideos(pastedVideoUrls, provider);
+  if (pastedVideoUrls.length) {
+    await addAdvancedPromptPasteUrlVideos(pastedVideoUrls, provider);
   }
 
   if (isVegaAdvancedProvider(provider) && pastedImageUrls.length) {
@@ -1713,40 +1762,9 @@ async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false, s
     }
   }
 
-  if (isVegaAdvancedProvider(provider) && videoFiles.length) {
-    const supportsVideoReferences = vegaModeUsesReferences(advancedVegaMediaMode()) && advancedVideoReferenceLimit(provider) > 0;
-    if (!supportsVideoReferences) {
-      event.preventDefault();
-      if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceVideoUnsupported");
-      return;
-    }
-    const videoLimit = advancedVideoReferenceLimit(provider);
-    const availableVideoSlots = Math.max(0, videoLimit - advancedSeedanceVideoReferences().length);
-    const selectedVideos = videoFiles.slice(0, availableVideoSlots);
+  if (videoFiles.length) {
     event.preventDefault();
-    if (!selectedVideos.length) {
-      if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceMediaTooMany");
-      return;
-    }
-    const usesMediaLibrary = vegaProviderUsesMediaLibrary(provider);
-    for (const file of selectedVideos) {
-      const ref = usesMediaLibrary
-        ? await uploadAdvancedMediaReference(file, "video", { provider, skipReference: true })
-        : await uploadAdvancedTransientMediaReference(file, "video", { provider });
-      if (!ref) return;
-      const added = addAdvancedSeedanceMediaReference(ref, "video", {
-        sourceUrl: ref.publicUrl || ref.url || ref.previewUrl || "",
-        ref,
-      });
-      if (!added.ok) {
-        if (els.advancedNote) els.advancedNote.textContent = advancedMediaReferenceAddError(added, "video");
-        return;
-      }
-    }
-    if (els.advancedNote) els.advancedNote.textContent = "";
-    renderAdvancedAssets();
-    updateAdvancedModelControls();
-    updateAdvancedButtonCost();
+    await addAdvancedPromptPasteVideoFiles(videoFiles, provider);
   }
 
   const files = imageFiles;

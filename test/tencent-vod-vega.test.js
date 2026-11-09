@@ -1207,8 +1207,10 @@ test("Vega prompt paste imports clipboard HTML and URL media through the model-a
   assert.match(create, /pastedUrls = await pastedMediaUrlsFromNavigatorClipboard\(\)/);
   assert.match(create, /pastedUrls = await pastedMediaUrlsFromClipboardItems\(event\?\.clipboardData\?\.items \|\| \[\]\)/);
 
+  const mediaRouting = sourceBetween(create, "function advancedPastedMediaUsesLibrary(", "async function uploadAdvancedMediaReferenceUrl(");
   const uploader = sourceBetween(create, "async function uploadAdvancedMediaReferenceUrl(", "async function addAdvancedVegaPromptPasteUrlImages(");
-  assert.match(uploader, /vegaProviderUsesMediaLibrary\(provider\)/);
+  assert.match(mediaRouting, /return !vegaProviderUsesTransientObjectStorage\(provider\)/);
+  assert.match(uploader, /advancedPastedMediaUsesLibrary\(provider\)/);
   assert.match(uploader, /"\/api\/user-assets" : "\/api\/advanced\/transient-media"/);
   assert.match(uploader, /inlineDataUrl \? \{ dataUrl: sourceUrl \} : \{ url: sourceUrl \}/);
   assert.match(uploader, /\^blob:/);
@@ -1227,7 +1229,7 @@ test("Vega prompt paste imports clipboard HTML and URL media through the model-a
   assert.match(handler, /pastedMediaFilesFromNavigatorClipboard\(clipboardReadPromise\)/);
   assert.match(handler, /const hasPastedMedia = Boolean\(mediaFiles\.length \|\| pastedImageUrls\.length \|\| pastedVideoUrls\.length\)/);
   assert.match(handler, /if \(hasPastedMedia\) event\.preventDefault\(\)/);
-  assert.match(handler, /addAdvancedVegaPromptPasteUrlVideos\(pastedVideoUrls, provider\)/);
+  assert.match(handler, /addAdvancedPromptPasteUrlVideos\(pastedVideoUrls, provider\)/);
   assert.match(handler, /addAdvancedVegaPromptPasteUrlImages\(pastedImageUrls, rule, provider\)/);
   assert.match(create, /window\.handleAdvancedPromptPaste = handleAdvancedPromptPaste/);
 });
@@ -1241,18 +1243,29 @@ test("Vega Lite transient media imports a public URL without creating a media-li
   assert.match(transient, /transient: true/);
 });
 
-test("Vega prompt paste routes video through the model-aware upload bridge", () => {
+test("prompt paste routes video files through the correct storage for every model", () => {
   const handler = sourceBetween(create, "function handleAdvancedPromptPaste(", "function readVideoDuration(");
-  const videoBranch = handler.slice(handler.indexOf("if (isVegaAdvancedProvider(provider) && videoFiles.length)"), handler.indexOf("const files = imageFiles;"));
-  assert.match(videoBranch, /const usesMediaLibrary = vegaProviderUsesMediaLibrary\(provider\)/);
-  assert.match(videoBranch, /usesMediaLibrary\s*\? await uploadAdvancedMediaReference\(file, "video", \{ provider, skipReference: true \}\)\s*: await uploadAdvancedTransientMediaReference\(file, "video", \{ provider \}\)/);
-  assert.match(videoBranch, /addAdvancedSeedanceMediaReference\(ref, "video"/);
-  assert.match(videoBranch, /renderAdvancedAssets\(\)/);
-  assert.match(videoBranch, /if \(!supportsVideoReferences\) \{\s*event\.preventDefault\(\)/);
-  assert.match(videoBranch, /event\.preventDefault\(\);/);
-  assert.match(videoBranch, /t\("advanced\.referenceVideoUnsupported"\)/);
-  assert.match(handler, /const files = imageFiles;\s*if \(!files\.length\) return;/);
-  assert.match(handler, /if \(!rule\.allowed\) \{\s*if \(isVegaAdvancedProvider\(provider\)\) \{\s*event\.preventDefault\(\)/);
+  assert.match(handler, /if \(videoFiles\.length\) \{\s*event\.preventDefault\(\);\s*await addAdvancedPromptPasteVideoFiles\(videoFiles, provider\);/);
+  assert.doesNotMatch(handler, /if \(isVegaAdvancedProvider\(provider\) && videoFiles\.length\)/);
+
+  const add = sourceBetween(create, "async function addAdvancedPromptPasteVideoFiles(", "function advancedPromptPasteImageRule(");
+  assert.match(add, /if \(!advancedPromptPasteSupportsVideoReferences\(provider\)\)/);
+  assert.match(add, /const usesTransientStorage = vegaProviderUsesTransientObjectStorage\(provider\)/);
+  assert.match(add, /usesTransientStorage\s*\? await uploadAdvancedTransientMediaReference\(file, "video", \{ provider \}\)\s*: await uploadAdvancedMediaReference\(file, "video", \{ provider, skipReference: true \}\)/);
+  assert.match(add, /addAdvancedSeedanceMediaReference\(ref, "video"/);
+  assert.match(add, /renderAdvancedAssets\(\)/);
+
+  const routing = new Function(
+    "vegaProviderUsesTransientObjectStorage",
+    `${extractFunction(create, "advancedPastedMediaUsesLibrary")}
+return advancedPastedMediaUsesLibrary;`,
+  )((provider) => ["vega10-lite", "h3-vega"].includes(provider));
+  assert.equal(routing("seedance-nsfw"), true, "Seedance 2.5 must use the normal media library");
+  assert.equal(routing("seedance"), true, "Seedance 2.0 must use the normal media library");
+  assert.equal(routing("seedance20-vega"), true, "Vega Pro must use the media library");
+  assert.equal(routing("seedance25-vega"), true, "Vega Pro 1.5 must use the media library");
+  assert.equal(routing("vega10-lite"), false, "Vega Lite must use transient storage");
+  assert.equal(routing("h3-vega"), false, "Vega Lite 1.5 must use transient storage");
 });
 
 test("Vega prompt paste branches before legacy data-URL paste handling", () => {
