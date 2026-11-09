@@ -765,6 +765,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/account/email/verify") return await handleAccountEmailVerify(req, res);
     if (req.method === "PATCH" && url.pathname === "/api/account/profile") return await handleAccountProfile(req, res);
     if (req.method === "POST" && url.pathname === "/api/account/profile/media") return await handleAccountProfileMedia(req, res);
+    if (req.method === "POST" && url.pathname === "/api/account/security-notice-seen") return await handleAccountSecurityNoticeSeen(req, res);
 
     if (req.method === "POST" && url.pathname === "/api/google/login") {
       return await handleGoogleLogin(req, res);

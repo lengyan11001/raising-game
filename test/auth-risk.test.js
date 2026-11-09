@@ -268,6 +268,23 @@ test("security notice targets accounts without email or Google and opens email b
   assert.match(main, /els\.securityNoticeBindBtn\?\.addEventListener\("click", openAccountEmailBindingFromNotice\)/);
 });
 
+test("email security notice auto-opens at most once per account", () => {
+  const create = read("platform.create.parts/part-06.js");
+  const account = read("server.parts/part-10.js");
+  const routes = read("server.parts/part-42.js");
+  assert.doesNotMatch(create, /ACCOUNT_SECURITY_NOTICE_SNOOZE|SnoozedUntil/);
+  assert.match(create, /localStorage\.getItem\(ACCOUNT_SECURITY_NOTICE_SEEN_LOCAL_KEY/);
+  assert.match(create, /return Boolean\(String\(user\?\.securityNoticeSeenAt \|\| ""\)\.trim\(\)\) \|\| accountSecurityNoticeSeenLocally\(user\);/);
+  assert.match(create, /if \(accountSecurityNoticeSeen\(\)\) \{[\s\S]*?persistAccountSecurityNoticeSeen\(\)\.catch/);
+  assert.match(create, /accountSecurityNoticeTimer = window\.setTimeout\(\(\) => \{\s*if \(!accountSecurityNoticeNeeded\(\) \|\| accountSecurityNoticeSeen\(\)\) return;/);
+  assert.match(create, /els\.accountSecurityNoticeDialog\.showModal\(\);\s*refreshIcons\(\);\s*\/\/ Mark at display time[\s\S]*?persistAccountSecurityNoticeSeen\(\)\.catch/);
+  assert.match(create, /requestJson\("\/api\/account\/security-notice-seen", \{ method: "POST", body: \{\} \}\)/);
+  assert.match(account, /securityNoticeSeenAt: String\(user\.securityNoticeSeenAt \|\| ""\)/);
+  assert.match(account, /async function handleAccountSecurityNoticeSeen\(req, res\)/);
+  assert.match(account, /auth\.user\.securityNoticeSeenAt = new Date\(\)\.toISOString\(\)/);
+  assert.match(routes, /\/api\/account\/security-notice-seen/);
+});
+
 test("anonymous support and chat report preserve source attribution", () => {
   const support = read("server.parts/part-33.js");
   const chat = read("platform.chat.js");

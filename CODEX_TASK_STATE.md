@@ -1,3 +1,14 @@
+## 2026-11-09 Email security notice auto-opens once per account
+
+- User requested that the email-binding/security notice popup appear only once instead of repeatedly after the prior 12-hour session snooze expired.
+- Replaced session-only snooze with an account-scoped durable marker: `securityNoticeSeenAt` is stored in the PostgreSQL user payload and returned by `userView()`.
+- Added `POST /api/account/security-notice-seen`; it writes the timestamp once and returns the updated user without invalidating sessions.
+- Frontend marks the notice seen when it is actually displayed, uses a per-user localStorage fast path, never auto-opens again after that, and retries a failed server sync on later loads without reopening the dialog. Manually opening email binding from the avatar menu remains available.
+- Bumped `platform.html` CSS/JS cache key to `email-notice-once-20261109-1` and added regression `email security notice auto-opens at most once per account`.
+- Verification: focused security-notice tests 2/2, `test/email-auth.test.js` 6/6, JavaScript syntax checks, and `git diff --check` pass.
+- Worktree contains unrelated media/Vega/Test/canvas WIP; publish only `platform.create.parts/part-06.js`, `platform.html`, `server.parts/part-10.js`, `server.parts/part-42.js`, `test/auth-risk.test.js`, `test/advanced-custom-ui.test.js`, and this state record.
+- Deployment pending: commit/push `old-site`, build and push Old `platform-release` from latest remote base, deploy only `scripts/deploy_local.sh --site old`, leave `live-release` untouched.
+
 ## 2026-11-09 Latest result-thumbnail refresh recheck
 
 - User reports Result thumbnails are again refreshing continuously. Scope remains Old production only; do not deploy Live, do not invalidate sessions/tokens or evict logged-in users.

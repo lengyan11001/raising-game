@@ -952,6 +952,7 @@ function userView(user) {
     riskStatus: user.riskStatus === "quarantined" ? "quarantined" : "clear",
     riskReasons: Array.isArray(user.riskReasons) ? user.riskReasons.slice(0, 8).map(String) : [],
     riskReviewedAt: String(user.riskReviewedAt || ""),
+    securityNoticeSeenAt: String(user.securityNoticeSeenAt || ""),
   };
 }
 
@@ -1007,6 +1008,17 @@ async function handleAccountProfile(req, res) {
   auth.user.updatedAt = new Date().toISOString();
   await updateUserInDb(auth.user);
   return sendJson(res, 200, { ok: true, user: userView(auth.user), profileStats: publicProfileStats(auth.db, auth.user) });
+}
+
+async function handleAccountSecurityNoticeSeen(req, res) {
+  const auth = await requireUser(req, res); if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "账号状态保存需要数据库服务。" });
+  if (!String(auth.user.securityNoticeSeenAt || "").trim()) {
+    auth.user.securityNoticeSeenAt = new Date().toISOString();
+    auth.user.updatedAt = auth.user.securityNoticeSeenAt;
+    await updateUserInDb(auth.user);
+  }
+  return sendJson(res, 200, { ok: true, user: userView(auth.user) });
 }
 
 async function handleAccountProfileMedia(req, res) {

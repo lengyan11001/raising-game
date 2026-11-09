@@ -807,29 +807,67 @@ async function completeLogin(payload = {}) {
   await refreshAfterLogin();
 }
 
-const ACCOUNT_SECURITY_NOTICE_SNOOZE_KEY = "raisingGameAccountSecurityNoticeSnoozedUntil";
-const ACCOUNT_SECURITY_NOTICE_SNOOZE_MS = 12 * 60 * 60 * 1000;
+const ACCOUNT_SECURITY_NOTICE_SEEN_LOCAL_KEY = "raisingGameAccountSecurityNoticeSeen";
+const ACCOUNT_SECURITY_NOTICE_SEEN_PENDING_KEY = "raisingGameAccountSecurityNoticeSeenPending";
 let accountSecurityNoticeTimer = 0;
+let accountSecurityNoticeSaving = false;
 
 function accountSecurityNoticeNeeded(user = state.user) {
   if (!user || !state.config?.auth?.email?.enabled) return false;
   return !String(user.email || "").trim() && user.googleLinked !== true;
 }
 
-function accountSecurityNoticeSnoozed() {
+function accountSecurityNoticeSeenLocally(user = state.user) {
+  const userId = String(user?.id || "").trim();
+  if (!userId) return false;
   try {
-    return Number(sessionStorage.getItem(ACCOUNT_SECURITY_NOTICE_SNOOZE_KEY) || 0) > Date.now();
+    const seen = JSON.parse(localStorage.getItem(ACCOUNT_SECURITY_NOTICE_SEEN_LOCAL_KEY) || "{}") || {};
+    return seen[userId] === true;
   } catch {
     return false;
   }
 }
 
-function dismissAccountSecurityNotice() {
+function markAccountSecurityNoticeSeenLocally(user = state.user) {
+  const userId = String(user?.id || "").trim();
+  if (!userId) return;
   try {
-    sessionStorage.setItem(ACCOUNT_SECURITY_NOTICE_SNOOZE_KEY, String(Date.now() + ACCOUNT_SECURITY_NOTICE_SNOOZE_MS));
+    const seen = JSON.parse(localStorage.getItem(ACCOUNT_SECURITY_NOTICE_SEEN_LOCAL_KEY) || "{}") || {};
+    seen[userId] = true;
+    localStorage.setItem(ACCOUNT_SECURITY_NOTICE_SEEN_LOCAL_KEY, JSON.stringify(seen));
   } catch {
-    // Session storage is optional; the dialog still remains dismissible.
+    // Local storage is an optional fast path; the server record remains authoritative.
   }
+}
+
+function accountSecurityNoticeSeen(user = state.user) {
+  return Boolean(String(user?.securityNoticeSeenAt || "").trim()) || accountSecurityNoticeSeenLocally(user);
+}
+
+async function persistAccountSecurityNoticeSeen(user = state.user) {
+  const userId = String(user?.id || "").trim();
+  if (!userId || accountSecurityNoticeSaving) return;
+  markAccountSecurityNoticeSeenLocally(user);
+  const pendingKey = `${ACCOUNT_SECURITY_NOTICE_SEEN_PENDING_KEY}:${userId}`;
+  try {
+    if (sessionStorage.getItem(pendingKey) === "1") return;
+    sessionStorage.setItem(pendingKey, "1");
+  } catch {}
+  accountSecurityNoticeSaving = true;
+  try {
+    const payload = await requestJson("/api/account/security-notice-seen", { method: "POST", body: {} });
+    if (payload?.user && String(state.user?.id || "") === userId) setUser(payload.user);
+    try { sessionStorage.removeItem(pendingKey); } catch {}
+  } catch {
+    // The local marker prevents repeated prompts in this browser; a later login retries the server write.
+  } finally {
+    accountSecurityNoticeSaving = false;
+  }
+}
+
+function dismissAccountSecurityNotice() {
+  markAccountSecurityNoticeSeenLocally();
+  persistAccountSecurityNoticeSeen().catch(() => {});
 }
 
 function scheduleAccountSecurityNotice({ force = false } = {}) {
@@ -839,9 +877,16 @@ function scheduleAccountSecurityNotice({ force = false } = {}) {
     if (els.accountSecurityNoticeDialog.open) els.accountSecurityNoticeDialog.close("bound");
     return;
   }
-  if (!force && accountSecurityNoticeSnoozed()) return;
+  if (accountSecurityNoticeSeen()) {
+    // Repair a server write that failed after the local marker was set. This
+    // never opens the dialog again; it only synchronizes the account record.
+    if (!String(state.user?.securityNoticeSeenAt || "").trim()) {
+      persistAccountSecurityNoticeSeen().catch(() => {});
+    }
+    return;
+  }
   accountSecurityNoticeTimer = window.setTimeout(() => {
-    if (!accountSecurityNoticeNeeded()) return;
+    if (!accountSecurityNoticeNeeded() || accountSecurityNoticeSeen()) return;
     if (typeof document !== "undefined" && document.querySelector("dialog[open]")) {
       accountSecurityNoticeTimer = window.setTimeout(() => scheduleAccountSecurityNotice(), 1200);
       return;
@@ -849,6 +894,9 @@ function scheduleAccountSecurityNotice({ force = false } = {}) {
     prepareModalOpen();
     els.accountSecurityNoticeDialog.showModal();
     refreshIcons();
+    // Mark at display time so a refresh or another tab cannot show it again,
+    // even if the user closes the browser while the dialog is open.
+    persistAccountSecurityNoticeSeen().catch(() => {});
   }, 500);
 }
 
