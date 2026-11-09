@@ -1871,3 +1871,13 @@ CODEX_TASK_STATE.md
 - Verification: focused auth/session/media/deployment/generation suite passed 50/50; `node --check` for the source and regression test passed; scoped `git diff --check` passed.
 - Safety constraints: no session deletion or invalidation; no JSON business-data fallback; Old only; do not touch or deploy Live.
 - Deployment: pending at the time this entry was written.
+
+## 2026-11-09 email login resend countdown
+
+- User confirmed the email-code login flow must show a click/resend countdown.
+- Backend already enforced a PostgreSQL-backed 60-second minimum resend interval, but the frontend only disabled the button during the HTTP request and re-enabled it immediately after success.
+- Added a visible 60-second `Resend in Ns` countdown for `requestEmailLoginCodeBtn`; it survives reopening the login dialog and restores `Send code` at zero. Failed requests release the button immediately.
+- Added a regression test in `test/email-auth.test.js` covering the cooldown constant, countdown rendering, start call, and failed-request release path.
+- Verification: focused auth/risk tests 22/22; full security/auth/session/media/deployment/generation suite 77/77; syntax and scoped diff checks passed.
+- Safety: UI-only change, no session invalidation and no business-data fallback. Old only; Live untouched.
+- Deployment: pending at the time this entry was written.

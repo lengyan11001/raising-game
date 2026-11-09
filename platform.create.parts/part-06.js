@@ -721,6 +721,7 @@ function logout() {
 
 function renderLoginForm() {
   const label = t("nav.login");
+  renderEmailLoginCodeCooldown();
   if (els.loginTitle) els.loginTitle.textContent = label;
   if (els.loginSubmit) els.loginSubmit.textContent = label;
   if (els.loginSubmit) els.loginSubmit.disabled = false;
@@ -826,17 +827,47 @@ async function submitLogin() {
   }
 }
 
+const EMAIL_LOGIN_CODE_COOLDOWN_SECONDS = 60;
+let emailLoginCodeCooldownTimer = null;
+let emailLoginCodeCooldownEndsAt = 0;
+
+function renderEmailLoginCodeCooldown() {
+  const button = els.requestEmailLoginCodeBtn;
+  if (!button) return;
+  const remainingSeconds = Math.max(0, Math.ceil((emailLoginCodeCooldownEndsAt - Date.now()) / 1000));
+  if (remainingSeconds > 0) {
+    button.disabled = true;
+    button.textContent = `Resend in ${remainingSeconds}s`;
+    return;
+  }
+  if (emailLoginCodeCooldownTimer) clearInterval(emailLoginCodeCooldownTimer);
+  emailLoginCodeCooldownTimer = null;
+  emailLoginCodeCooldownEndsAt = 0;
+  button.disabled = false;
+  button.textContent = "Send code";
+}
+
+function startEmailLoginCodeCooldown(seconds = EMAIL_LOGIN_CODE_COOLDOWN_SECONDS) {
+  if (emailLoginCodeCooldownTimer) clearInterval(emailLoginCodeCooldownTimer);
+  emailLoginCodeCooldownEndsAt = Date.now() + Math.max(0, Number(seconds) || 0) * 1000;
+  renderEmailLoginCodeCooldown();
+  emailLoginCodeCooldownTimer = setInterval(renderEmailLoginCodeCooldown, 1000);
+}
+
 async function requestEmailLoginCode() {
   const email = els.loginEmail?.value.trim() || "";
   if (els.requestEmailLoginCodeBtn) els.requestEmailLoginCodeBtn.disabled = true;
+  let requestSucceeded = false;
   try {
     await requestJson("/api/auth/email/request", { method: "POST", body: { email } });
+    requestSucceeded = true;
+    startEmailLoginCodeCooldown();
     if (els.loginMessage) els.loginMessage.textContent = "Verification code sent. Check your inbox and spam folder.";
     els.loginEmailCode?.focus();
   } catch (error) {
     if (els.loginMessage) els.loginMessage.textContent = error.message;
   } finally {
-    if (els.requestEmailLoginCodeBtn) els.requestEmailLoginCodeBtn.disabled = false;
+    if (!requestSucceeded && els.requestEmailLoginCodeBtn) els.requestEmailLoginCodeBtn.disabled = false;
   }
 }
 

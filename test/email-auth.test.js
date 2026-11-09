@@ -55,6 +55,14 @@ test("email verification is the default login method with password as an explici
   assert.match(config, /passwordLoginPanel: document\.querySelector\("#passwordLoginPanel"\)/);
 });
 
+test("email login code requests show a 60-second resend countdown", () => {
+  assert.match(create, /EMAIL_LOGIN_CODE_COOLDOWN_SECONDS = 60/);
+  assert.match(create, /function startEmailLoginCodeCooldown/);
+  assert.match(create, /button\.textContent = `Resend in \$\{remainingSeconds\}s`/);
+  assert.match(create, /startEmailLoginCodeCooldown\(\)/);
+  assert.match(create, /if \(!requestSucceeded && els\.requestEmailLoginCodeBtn\) els\.requestEmailLoginCodeBtn\.disabled = false/);
+});
+
 test("email verification challenges are persisted in PostgreSQL with expiry and attempt limits", () => {
   const database = fs.readFileSync(path.join(__dirname, "..", "db.js"), "utf8");
   assert.match(database, /CREATE TABLE IF NOT EXISTS app_email_challenges/);
