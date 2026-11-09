@@ -2,7 +2,8 @@
 
 - Follow-up to deferred loading: detail playback was still slower because `recordPreviewHtml()` preferred `adminResultPreviewUrl` (the `/api/admin/.../media` proxy) over the same signed CDN/provider URL used by the fast list preview.
 - Detail result playback now prefers `recordVideoUrl(record)` (durable CDN first) while retaining the admin media proxy as fallback when no direct media URL is available.
-- Targeted admin preview/list suites pass 14/14; added assertions for the direct URL preference. Not yet deployed in this follow-up.
+- Targeted admin preview/list suites pass 14/14; added assertions for the direct URL preference.
+- Deployment: `old-site` `f5878a9`; `platform-release` `95862f3`; deployed only `123vips.com` via `scripts/deploy_local.sh --site old`. `/api/health` returned 200; production `admin.js` contains `const directVideo` / `const playbackVideo` and no explicit `previewVideo.load()`. Live was not deployed.
 
 ## 2026-11-09 admin generation detail preview performance
 
