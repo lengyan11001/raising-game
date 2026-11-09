@@ -2136,3 +2136,13 @@ CODEX_TASK_STATE.md
 - Auth smoke: anonymous `/api/generation-records`, `/api/user-assets`, `/api/admin/users`, `/api/admin/generation-records` all returned 401; email-code request with empty body returned 400; Google login with empty body returned 401 `GOOGLE_LOGIN_INVALID`; no `tenantid is not defined` or post-deploy auth exception observed.
 - Media queue: new `advanced_download` jobs observed processing/ready; the 403/404 failures in the 17:55–18:07 window are historical 2026-11-04/06 records retried by the recovery scan, not post-deploy user tasks. No new generation had `posterMaintenanceError` after deployment at verification time.
 - Concurrent publishing guard: remote refs checked before and after; `platform-release` remained `920cdd3`, `old-site=3d56609`, and `live-release=bf1e01a`. No release push was made in this closeout.
+
+## 2026-11-09 Result thumbnail recovery for cgt-20261109003116-70f09f
+
+- User narrowed scope to one production task. Upstream generation had succeeded, but the provider URL expired and R2 ingest failed after retries, leaving no poster/video metadata.
+- Recovered `cgt-20261109003116-70f09f` in production from the correct ARK result and persisted durable media: poster `image/jpeg` 53,653 bytes; video `video/mp4` 5,525,878 bytes. Both signed URLs returned HTTP 200. Record now has `cdnVideoUrl`, `storageKey`, `cdnPosterUrl`, `posterStorageKey`, `r2DownloadReady=true`, `posterPending=false`, `advancedDownloadStatus=ready`.
+- Root cause: completed records treated any provider URL as durable; once the provider URL expired, refresh stopped and no R2 copy was recovered.
+- Code fix: completed records require both `cdnVideoUrl` and `storageKey`; media scanner refreshes missing/expired provider media before advanced-download persistence; cooldown/terminal markers prevent loops.
+- Changed files: `server.parts/part-21.js`, `server.parts/part-23.js`, `test/generation-record-list-refresh.test.js`; integration commit `0a1d435`.
+- Verification: targeted regression suite 46/46 passed; syntax and diff checks passed.
+- Deployment status: pending release build/push Old-only/deploy. Existing sessions must remain untouched. Live must not be pushed or deployed.
