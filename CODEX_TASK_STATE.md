@@ -1,4 +1,4 @@
-## 2026-11-09 Safari prompt image/video paste follow-up (pending deployment)
+## 2026-11-09 Safari prompt image/video paste follow-up (deployed to Old)
 - Follow-up to the user report that text paste works but image/video paste still fails in Safari.
 - `platform.prompt-editor.js` now captures `paste` at document level in the capture phase, scoped to `#advancedPromptEditorMount`, before ProseMirror handles the same event.
 - `handleAdvancedPromptPaste()` is intentionally synchronous for ownership detection. When the clipboard looks like media it synchronously calls `preventDefault()` and returns `true`, so ProseMirror/Safari cannot consume the event while async uploads are still starting.
@@ -8,7 +8,9 @@
 - `/api/advanced/transient-media` now also accepts a remote `url`, downloads into a bounded Buffer, validates MIME/kind/size, and uploads to object storage without creating a media-library record.
 - Legacy textarea paste remains routed through the same synchronous handler, with `Promise.resolve(...)` only for async error reporting.
 - Verification: `test/prompt-editor.test.js` + `test/tencent-vod-vega.test.js` passed 81/81; the two focused Safari clipboard tests passed 2/2; `node --check` passed for all changed JS files including `platform.main.js`; `git diff --check` passed.
-- Deployment status: not yet deployed at the time this note was written; only Old may be released. Live must remain untouched.
+- Deployed to Old only: source `old-site` `f5c1924`; release `platform-release` / `origin/platform-release` = `35dccfe`. `origin/live-release` remains `bf1e01a` and was not pushed or deployed.
+- Post-deploy health: `/api/health` returned `200 {"ok":true}`, `raising-game-demo` active, and HTTP SHA-256 hashes match local for `platform.prompt-editor.js`, `platform.create.parts/part-03.js`, and `platform.main.js`.
+- Immediate rollback: tag `rollback-platform-before-safari-html-paste-20261109` points to previous release `920cdd3`.
 
 ## 2026-11-09 Prompt image/video paste fix (current deployment)
 - Deployed to Old only: source `old-site` `47574a4`; release snapshot `platform-release` / `origin/platform-release` = `c827a8a`. Live is untouched at `origin/live-release` = `bf1e01a`; do not push or deploy Live without a separate request.
