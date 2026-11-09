@@ -536,6 +536,46 @@ a { color: inherit; text-decoration: none; }
 .adm-pricing-table th:nth-child(6) { width: 140px; }
 .adm-pricing-table input { max-width: 180px; }
 .adm-price-ratio-low { color: var(--adm-danger, #ff6b6b); font-weight: 800; }
+.adm-pricing-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px 18px;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.adm-pricing-filter {
+  display: grid;
+  gap: 6px;
+  min-width: 240px;
+  color: var(--adm-muted, #9aa7b8);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.adm-pricing-filter select {
+  min-height: 38px;
+  padding: 7px 34px 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: #111923;
+  color: var(--adm-text, #f4f7fb);
+  font: inherit;
+  cursor: pointer;
+}
+.adm-pricing-filter select:focus-visible {
+  outline: 2px solid rgba(46, 212, 207, 0.72);
+  outline-offset: 2px;
+}
+.adm-pricing-table tr[hidden] { display: none; }
+.adm-pricing-section[hidden] { display: none; }
+@media (max-width: 640px) {
+  .adm-pricing-filter { width: 100%; min-width: 0; }
+  .adm-pricing-filter select { width: 100%; }
+}
 .adm-pricing-formula {
   margin: 0 0 14px;
   padding: 12px 14px;

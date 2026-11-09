@@ -9,9 +9,30 @@ const root = path.resolve(__dirname, "..");
 const application = require("../server");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const platformUi = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
+const adminUi = fs.readFileSync(path.join(root, "admin.js"), "utf8");
 
 test("admin pricing rows use their server definition when saving", () => {
   assert.match(server, /ADVANCED_PRICING_ROWS_BY_KEY\.get\(key\)/);
+});
+
+test("admin pricing can filter by model without dropping hidden rows from save", () => {
+  const tableSource = adminUi.slice(
+    adminUi.indexOf("function renderPricingTable("),
+    adminUi.indexOf("async function renderPricing()", adminUi.indexOf("function renderPricingTable(")),
+  );
+  const pricingSource = adminUi.slice(
+    adminUi.indexOf("async function renderPricing()"),
+    adminUi.indexOf("/* ============ PLATFORM ============ */", adminUi.indexOf("async function renderPricing()")),
+  );
+  const legacySource = adminUi.slice(
+    adminUi.indexOf("async function renderPricingLegacy()"),
+    adminUi.indexOf("async function loadChatLiveVoices()", adminUi.indexOf("async function renderPricingLegacy()")),
+  );
+  assert.match(tableSource, /data-pricing-model="\$\{escapeHtml\(pricingModelFilterKey\(row\)\)\}"/);
+  assert.match(pricingSource, /id="pricingModelFilter"/);
+  assert.match(pricingSource, /tr\.hidden = !show/);
+  assert.ok(pricingSource.includes('const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map'));
+  assert.doesNotMatch(legacySource, /pricingModelFilter|data-pricing-model/);
 });
 
 test("public pricing uses the same configured model rows as the admin", () => {
@@ -97,6 +118,43 @@ test("Vega purchase tables preserve every Tencent VOD international rate", () =>
   assert.match(server, /vega10ProInputVideoPurchaseUsdPerSecondByResolution: \{\s*"480p": 0\.0402,\s*"720p": 0\.0769,\s*"1080p": 0\.1662,\s*"2k": 0\.4108,\s*"4k": 0\.4615,?\s*\}/);
   assert.match(server, /vega15ProPurchaseUsdPerSecondByResolution: \{\s*"480p": 0\.0932,\s*"720p": 0\.1828,\s*"1080p": 0\.3979,\s*"2k": 0\.98,\s*"4k": 1\.078,?\s*\}/);
   assert.match(server, /vega15ProInputVideoPurchaseUsdPerSecondByResolution: \{\s*"480p": 0\.0559,\s*"720p": 0\.1138,\s*"1080p": 0\.2431,\s*"2k": 0\.5938,\s*"4k": 0\.6532,?\s*\}/);
+});
+
+test("Seedance 2.5 defaults to 1.1x and migrates the legacy 1.0x defaults", async () => {
+  const pricing = await application.adminAdvancedPricingView({});
+  for (const [resolution, purchaseCredits, saleCredits] of [
+    ["480p", 8.9955, 9.8951],
+    ["720p", 14.9925, 16.4918],
+  ]) {
+    const row = pricing.rows.find((item) => item.key === `seedance25-${resolution}`);
+    assert.ok(row, `${resolution} row must exist`);
+    assert.equal(row.purchaseCreditsPerSecond, purchaseCredits);
+    assert.equal(row.saleCreditsPerSecond, saleCredits);
+    assert.ok(Math.abs(row.saleCreditsPerSecond / row.purchaseCreditsPerSecond - 1.1) < 1e-5);
+  }
+
+  const migrated = await application.adminAdvancedPricingView({
+    platform: {
+      advancedPricing: {
+        seedance25CreditsPerSecondByResolution: { "480p": 8.995502, "720p": 14.992504 },
+      },
+    },
+  });
+  assert.equal(migrated.rows.find((row) => row.key === "seedance25-480p").saleCreditsPerSecond, 9.8951);
+  assert.equal(migrated.rows.find((row) => row.key === "seedance25-720p").saleCreditsPerSecond, 16.4918);
+
+  const custom = await application.adminAdvancedPricingView({
+    platform: {
+      advancedPricing: {
+        seedance25CreditsPerSecondByResolution: { "480p": 9.1, "720p": 15.1 },
+      },
+    },
+  });
+  assert.equal(custom.rows.find((row) => row.key === "seedance25-480p").saleCreditsPerSecond, 9.1);
+  assert.equal(custom.rows.find((row) => row.key === "seedance25-720p").saleCreditsPerSecond, 15.1);
+  assert.match(server, /const SEEDANCE25_DEFAULT_SALE_MARKUP = 1\.1;/);
+  assert.match(server, /seedance25SaleSiteCreditsPerSecond\("480p"\)/);
+  assert.match(server, /previousPurchaseDefault/);
 });
 
 test("Seedream 5.0 Pro and Qwen Image 3.0 default to a 1.5x sale multiplier and migrate legacy sale prices", () => {

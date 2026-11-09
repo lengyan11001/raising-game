@@ -1094,7 +1094,16 @@ function normalizeAdvancedPricing(pricing = {}) {
     const previousRoundedDefault = pricingNumber(previousDefault, previousDefault);
     const previousIntegerDefault = Math.round(previousDefault);
     const previousLegacyUiDefault = resolution === "720p" ? 40 : 20;
-    const migratedValue = Number.isFinite(numeric) && [previousDefault, previousRoundedDefault, previousIntegerDefault, previousLegacyUiDefault].some((candidate) => Math.abs(numeric - candidate) < 0.0000001)
+    const previousPurchaseDefault = seedance25PurchaseSiteCreditsPerSecond(resolution);
+    const previousPurchaseRoundedDefault = pricingNumber(previousPurchaseDefault, previousPurchaseDefault, 0, 4);
+    const migratedValue = Number.isFinite(numeric) && [
+      previousDefault,
+      previousRoundedDefault,
+      previousIntegerDefault,
+      previousLegacyUiDefault,
+      previousPurchaseDefault,
+      previousPurchaseRoundedDefault,
+    ].some((candidate) => Math.abs(numeric - candidate) < 0.0000001)
       ? fallback
       : value;
     return normalizeStoredCredits(migratedValue, fallback, 6);

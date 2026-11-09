@@ -2272,3 +2272,20 @@ CODEX_TASK_STATE.md
 - Targeted regression: `node --require ./test/source-compat.js --test test/advanced-pricing.test.js test/vega-pricing-label.test.js test/seedance-fast-pricing.test.js` passed 38/38.
 - Deployment status: pending selective commit, platform release snapshot, `platform-release` push, and Old-only deployment. Rollback release must be rechecked immediately before deployment.
 - Deployment completed: `old-site` `66c88ed`; `platform-release` and remote `origin/platform-release` `7e957b8`; Old-only deploy via `scripts/deploy_local.sh --site old`. `/api/health` returned 200 `{"ok":true}`. Rollback release `d2c5b6e`. Live release was not updated or deployed.
+
+## 2026-11-09 Vega overseas purchase-price audit (read-only production)
+
+- User asked to verify Vega overseas-node purchase prices because admin appeared to have blanks; explicitly excluded fast/mini variants.
+- Production DB `app_kv.app_config -> platform.advancedPricing` does not persist Vega purchase tables (only sale credit tables), but `normalizeAdvancedPricing()` fills them from canonical international VOD defaults.
+- Read-only production `adminAdvancedPricingView()` with the live config returned all 41 integrated Vega rows (h3/Wan1.5 Lite, Vega1.0 Lite, Seedance2.0/Vega1.0 Pro, Seedance2.5/Vega1.5 Pro) with positive, editable purchase prices and exactly 1.5x sale prices. No Vega row was blank.
+- Values match the supplied Tencent VOD international price sheet for output, input-video, and Vega1.0 Lite >5 reference image pricing. No code or price changes were needed; no deployment performed.
+
+## 2026-11-09 Seedance 2.5 480p/720p sale markup 1.1x + admin pricing model filter
+
+- Goal: set Seedance 2.5 480p and 720p sale multiplier to 1.1x without changing purchase prices; reduce the long admin pricing page with a model filter.
+- Changed: `server.parts/part-01.js`, `server.parts/part-02.js`, `admin.js`, `admin.css`, `test/advanced-pricing.test.js`.
+- Seedance 2.5 defaults now use `SEEDANCE25_DEFAULT_SALE_MARKUP = 1.1`. Exact legacy defaults at purchase price (8.995502/14.992504 and rounded 8.9955/14.9925) migrate to the new defaults; customized sale prices are preserved.
+- Effective Seedance 2.5 defaults: 480p purchase 8.9955 credits/s, sale 9.8951 credits/s (~1.100006x); 720p purchase 14.9925, sale 16.4918 (~1.100003x). Purchase USD/s remains 0.089955 and 0.149925.
+- Admin pricing now has a model filter (default all models). It hides table rows only, hides empty sections, and save still reads every row, so filtered-out prices are not dropped.
+- Verification: `node --check admin.js server.parts/part-01.js server.parts/part-02.js` passed; `node --require ./test/source-compat.js --test test/advanced-pricing.test.js` passed 26/26; `git diff --check` passed.
+- Deployment status: pending selective commit, platform release snapshot, `platform-release` push, and Old-only deployment. Live must not be deployed.

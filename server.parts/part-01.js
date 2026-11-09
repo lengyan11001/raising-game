@@ -1058,12 +1058,22 @@ const QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS = Object.freeze([
   Object.freeze({ maxInputTokens: 1000000, input: 1.499, output: 5.995 }),
 ]);
 
+const SEEDANCE25_DEFAULT_SALE_MARKUP = 1.1;
+function seedance25SaleSiteCreditsPerSecond(resolution = "480p") {
+  return pricingNumber(
+    seedance25PurchaseSiteCreditsPerSecond(resolution) * SEEDANCE25_DEFAULT_SALE_MARKUP,
+    0,
+    0,
+    6,
+  );
+}
+
 const DEFAULT_ADVANCED_PRICING = {
   unit: "credits",
   creditsPerCny: ADVANCED_CREDITS_PER_CNY,
   seedance25CreditsPerSecondByResolution: {
-    "480p": seedance25PurchaseSiteCreditsPerSecond("480p"),
-    "720p": seedance25PurchaseSiteCreditsPerSecond("720p"),
+    "480p": seedance25SaleSiteCreditsPerSecond("480p"),
+    "720p": seedance25SaleSiteCreditsPerSecond("720p"),
   },
   h3VegaCreditsPerSecondByResolution: {
     "480p": 6.75,

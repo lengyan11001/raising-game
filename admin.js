@@ -6147,6 +6147,45 @@ function pricingMultiplierHtml(row = {}) {
   return `<strong class="${low ? "adm-price-ratio-low" : ""}" data-price-multiplier>${escapeHtml(multiplier.toFixed(3))}x</strong>${low ? `<br/><small class="adm-price-ratio-low">低于 1.5x</small>` : ""}`;
 }
 
+function pricingModelFilterKey(row = {}) {
+  const provider = String(row.provider || "").trim().toLowerCase();
+  const key = String(row.key || "").trim().toLowerCase();
+  if (provider === "seedance") {
+    const fast = String(row.seedanceTier || "").trim().toLowerCase() === "fast" || key.includes("seedance-fast");
+    return fast ? "seedance-fast" : "seedance-standard";
+  }
+  if (provider === "seedance25") return "seedance25";
+  if (provider === "seedance-nsfw") return "seedance-nsfw";
+  if (provider === "wan30") {
+    const capability = String(row.capability || "").trim().toLowerCase();
+    if (capability === "wan30-video-prime-pro") return "wan30-prime-pro";
+    if (capability === "wan30-video-pro") return "wan30-pro";
+    if (capability === "wan30-video-prime" || key.includes("wan30-prime")) return "wan30-prime";
+    return "wan30";
+  }
+  return provider || key || "other";
+}
+
+function pricingModelFilterLabel(row = {}) {
+  const key = pricingModelFilterKey(row);
+  const fixedLabels = {
+    "seedance-standard": "Seedance Standard",
+    "seedance-fast": "Seedance 2.0 Fast",
+    "seedance25": "Seedance 2.5（官转）",
+    "seedance-nsfw": "Seedance 2.5（NSFW）",
+    "wan30": "W3.0",
+    "wan30-prime": "W3.0-Prime",
+    "wan30-pro": "W3.0-Pro",
+    "wan30-prime-pro": "W3.0-VSR-Prime",
+  };
+  if (fixedLabels[key]) return fixedLabels[key];
+  const label = String(row.providerLabel || row.provider || "")
+    .replace(/\s*\+\s*(?:Video|Image)\s*$/i, "")
+    .replace(/\s+(?:视频输入加收|Reference)$/i, "")
+    .trim();
+  return label || key;
+}
+
 function renderPricingTable(rows = []) {
   if (!rows.length) return `<div class="adm-empty">暂无价格项</div>`;
   return `
@@ -6164,7 +6203,7 @@ function renderPricingTable(rows = []) {
         </thead>
         <tbody>
           ${rows.map((row) => `
-            <tr data-provider="${escapeHtml(row.provider)}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}" data-unit="${escapeHtml(row.unit || "")}">
+            <tr data-provider="${escapeHtml(row.provider)}" data-pricing-model="${escapeHtml(pricingModelFilterKey(row))}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}" data-unit="${escapeHtml(row.unit || "")}">
               <td><strong>${escapeHtml(pricingRowTitle(row))}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.model || row.key || row.provider || "")}</small></td>
               <td>${escapeHtml(row.resolution)}<br/><small class="adm-muted">${escapeHtml(pricingRowUsage(row))}</small></td>
               <td>
@@ -6199,6 +6238,14 @@ async function renderPricing() {
   const seedanceOutputRows = rows.filter((row) => String(row.provider || "").toLowerCase() === "seedance" && String(row.rateKind || "output") !== "video_input");
   const seedanceInputRows = rows.filter((row) => String(row.provider || "").toLowerCase() === "seedance" && String(row.rateKind || "") === "video_input");
   const otherRows = rows.filter((row) => String(row.provider || "").toLowerCase() !== "seedance");
+  const pricingModelCounts = new Map();
+  for (const row of rows) {
+    const key = pricingModelFilterKey(row);
+    const current = pricingModelCounts.get(key) || { key, label: pricingModelFilterLabel(row), count: 0 };
+    current.count += 1;
+    pricingModelCounts.set(key, current);
+  }
+  const pricingModelOptions = Array.from(pricingModelCounts.values());
 
   els.adminContent.innerHTML = `
     <section class="adm-page">
@@ -6219,11 +6266,21 @@ async function renderPricing() {
             <p class="adm-muted">计费单位：1 USD = ${escapeHtml(String(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))} 积分。采购来源：${escapeHtml(pricing.upstreamMode || "direct")}</p>
           </div>
         </div>
+        <div class="adm-pricing-toolbar">
+          <label class="adm-pricing-filter">
+            <span>按模型筛选</span>
+            <select id="pricingModelFilter">
+              <option value="">全部模型（${rows.length}）</option>
+              ${pricingModelOptions.map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}（${item.count}）</option>`).join("")}
+            </select>
+          </label>
+          <span class="adm-muted">当前显示 <strong id="pricingFilterCount">${rows.length}</strong> 项</span>
+        </div>
         <div class="adm-pricing-formula">
           Seedance 视频输入任务总扣费 = 基础生成对外价 x 生成视频秒数 + 视频输入加收价 x 输入视频秒数。
         </div>
         <div class="adm-pricing-groups">
-          <section class="adm-pricing-section">
+          <section class="adm-pricing-section" data-pricing-section>
             <div class="adm-pricing-section-head">
               <div>
                 <h4>Seedance 基础生成价格</h4>
@@ -6232,7 +6289,7 @@ async function renderPricing() {
             </div>
             ${renderPricingTable(seedanceOutputRows)}
           </section>
-          <section class="adm-pricing-section">
+          <section class="adm-pricing-section" data-pricing-section>
             <div class="adm-pricing-section-head">
               <div>
                 <h4>Seedance 视频输入加收价格</h4>
@@ -6241,11 +6298,11 @@ async function renderPricing() {
             </div>
             ${renderPricingTable(seedanceInputRows)}
           </section>
-          <section class="adm-pricing-section">
+          <section class="adm-pricing-section" data-pricing-section>
             <div class="adm-pricing-section-head">
               <div>
-                <h4>Wan 3.0、HappyHorse 与图片模型价格</h4>
-                <p class="adm-muted">W3.0、W3.0-Pro、W3.0-Prime、W3.0-VSR-Prime、HappyHorse 及图片模型。Wan3 采购价和对外价均可配置。</p>
+                <h4>Vega、Wan 3.0、HappyHorse 与图片模型价格</h4>
+                <p class="adm-muted">Vega、W3.0、W3.0-Pro、W3.0-Prime、W3.0-VSR-Prime、HappyHorse 及图片模型。采购价和对外价均可配置。</p>
               </div>
             </div>
             ${renderPricingTable(otherRows)}
@@ -6255,6 +6312,24 @@ async function renderPricing() {
     </section>
   `;
   refreshIcons();
+
+  const pricingModelFilter = byId("pricingModelFilter");
+  const pricingFilterCount = byId("pricingFilterCount");
+  const applyPricingModelFilter = () => {
+    const selected = String(pricingModelFilter?.value || "");
+    let visible = 0;
+    els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
+      const show = !selected || tr.dataset.pricingModel === selected;
+      tr.hidden = !show;
+      if (show) visible += 1;
+    });
+    els.adminContent.querySelectorAll("[data-pricing-section]").forEach((section) => {
+      section.hidden = !section.querySelector("tr[data-provider]:not([hidden])");
+    });
+    if (pricingFilterCount) pricingFilterCount.textContent = String(visible);
+  };
+  pricingModelFilter?.addEventListener("change", applyPricingModelFilter);
+  applyPricingModelFilter();
 
   const updateCredits = () => {
     els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
