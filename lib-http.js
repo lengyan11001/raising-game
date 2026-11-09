@@ -1,6 +1,8 @@
 // lib-http.js
 // HTTP response helpers and basic request origin/cookie parsing, extracted from server.js.
 // Self-contained: uses only node globals (Buffer, URL) and PUBLIC_BASE_URL from env.
+const crypto = require("node:crypto");
+
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 
 function sendJson(res, statusCode, payload, { cacheControl = "no-store" } = {}) {
@@ -20,21 +22,33 @@ function sendJson(res, statusCode, payload, { cacheControl = "no-store" } = {}) 
 
 function sendText(res, statusCode, body, { cacheControl = "no-cache", head = false } = {}) {
   const text = String(body ?? "");
-  res.writeHead(statusCode, {
+  const headers = {
     "content-type": "text/plain; charset=utf-8",
     "cache-control": cacheControl,
     "content-length": Buffer.byteLength(text),
-  });
+  };
+  if (/no-store/i.test(cacheControl)) {
+    headers["cdn-cache-control"] = "no-store";
+    headers["cloudflare-cdn-cache-control"] = "no-store";
+  }
+  res.writeHead(statusCode, headers);
   res.end(head ? undefined : text);
 }
 
 function sendHtml(res, statusCode, body, { cacheControl = "no-store", head = false } = {}) {
   const html = String(body ?? "");
-  res.writeHead(statusCode, {
+  const headers = {
     "content-type": "text/html; charset=utf-8",
     "cache-control": cacheControl,
     "content-length": Buffer.byteLength(html),
-  });
+  };
+  // Cloudflare only treats a document as cacheable when the CDN-specific
+  // directive opts it in. Keep private/error responses uncached.
+  if (cacheControl.startsWith("public")) {
+    headers["cdn-cache-control"] = cacheControl;
+    headers["cloudflare-cdn-cache-control"] = cacheControl;
+  }
+  res.writeHead(statusCode, headers);
   res.end(head ? undefined : html);
 }
 

@@ -691,3 +691,11 @@ body.site-custom-workflow.home-active main {
   .w-nav-actions .double-topup-banner-home { max-width: min(240px, 42vw); }
   .w-nav-actions .double-topup-banner-copy { display: none; }
 }
+
+/* Navigation tabs follow the shared Character-page pink selected state. */
+body.site-custom-workflow .top-tab.is-active {
+  border-color: rgba(255,79,163,.72);
+  color: #fff;
+  background: linear-gradient(135deg, rgba(255,79,163,.28), rgba(255,79,163,.2));
+  box-shadow: 0 8px 22px rgba(255,79,163,.13);
+}

@@ -119,11 +119,30 @@ test("Advanced hides the asset panel without removing it from Custom", () => {
   assert.match(platformExploreSource, /state\.advancedCreateKind === ADVANCED_CUSTOM_KIND\.id\) loadAdvancedAssets\(\)/);
 });
 
-test("Advanced results use a compact multi-column card grid", () => {
+test("Advanced results use a compact paged multi-column card grid", () => {
   assert.match(css, /\.advanced-result-list \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(css, /@media \(min-width: 1440px\)[\s\S]*?\.advanced-result-list \{[\s\S]*?repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(html, /id="advancedResultPager"/);
+  assert.match(config, /advancedResultPage: 1/);
+  assert.match(config, /const ADVANCED_RESULT_PAGE_SIZE = 6;/);
+  assert.match(create, /function advancedResultPageData\(/);
+  assert.match(create, /renderSimplePager\(els\.advancedResultPager, pageData/);
+  assert.match(create, /advancedResultPageRecord\(/);
+  assert.match(css, /\.advanced-result-list \{[\s\S]*?max-height:[\s\S]*?overflow-y: auto/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.advanced-result-list \{[\s\S]*?max-height: none;[\s\S]*?overflow-y: visible/);
+  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-form-card \{[\s\S]*?min-height: calc\(100dvh - 100px\);[\s\S]*?max-height: none;[\s\S]*?overflow: visible/);
+  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-fields \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(create, /class="advanced-result-actions"/);
   assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
+});
+
+test("Generate dialogs expand to the available viewport without redundant scrolling", () => {
+  assert.match(css, /\.modal\.advanced-preset-modal \{[\s\S]*?max-height: calc\(100dvh - 28px\)[\s\S]*?overflow: hidden/);
+  assert.match(css, /\.advanced-preset-modal form \{[\s\S]*?display: flex;[\s\S]*?flex-direction: column;[\s\S]*?max-height: calc\(100dvh - 28px\)/);
+  assert.match(css, /\.advanced-preset-modal \.modal-body \{[\s\S]*?flex: 1 1 auto;[\s\S]*?min-height: 0;[\s\S]*?max-height: none;[\s\S]*?overflow-y: auto/);
+  const presetBodyRule = css.match(/\.advanced-preset-modal \.modal-body \{([\s\S]*?)\n\}/)?.[1] || "";
+  assert.doesNotMatch(presetBodyRule, /scrollbar-gutter: stable/);
+  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-form-card \{[\s\S]*?min-height: calc\(100dvh - 100px\);[\s\S]*?max-height: none;[\s\S]*?overflow: visible/);
 });
 
 test("Advanced engine list contains English model families, not task modes", () => {
@@ -326,8 +345,8 @@ test("Wan3.0 exposes free multimodal and frame controls without link fields", ()
   assert.match(ui, /capability === "wan30-video-pro" \|\| capability === "wan30-video-prime-pro"\) return \["1080p", "2k", "4k"\]/);
   assert.match(create, /resolution: currentAdvancedResolution\(\)/);
   assert.match(create, /provider === "seedance25"\s*\? \["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
-  assert.match(create, /const fallbackRatio = provider === "seedance25" \? "16:9"/);
-  assert.match(create, /\["wan30", "seedance-nsfw"\]\.includes\(provider\) && rawRatio === "adaptive" \? "adaptive"/);
+  assert.match(create, /const fallbackRatio = vegaProvider \|\| provider === "seedance25" \? "16:9"/);
+  assert.match(create, /\["wan30", "seedance-nsfw"\]\.includes\(provider\) && rawRatio\.toLowerCase\(\) === "adaptive" \? "adaptive"/);
   assert.match(create, /provider === "seedance25" && normalizeAdvancedResolution[\s\S]*?=== "720p"\s*\? 29/);
   assert.match(create, /\? \[-1, \.\.\.Array\.from\(\{ length: 29 \}/);
   assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
@@ -386,10 +405,133 @@ test("prompt image paste and @ mentions follow the shared upload control for eve
   assert.match(create, /const imageTargets = advancedAssetTargetItems\(\)\.filter\(\(target\) => target\.type === "image"\)/);
   assert.match(create, /else if \(\["wan27", "happyhorse"\]\.includes\(provider\)\) limit = advancedAliyunReferenceImageLimit\(capability\)/);
   assert.match(create, /else if \(advancedUsesSharedReferenceUpload\(provider, capability\)\) limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT/);
-  assert.match(create, /sharedFrameProvider && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.match(create, /if \(isVegaAdvancedProvider\(provider\)\) \{[\s\S]*?normalizeVegaUiMediaMode\(rawMediaMode\)/);
+  assert.match(create, /vegaModeNeedsFirstFrame\(vegaMode\) \|\| vegaModeNeedsLastFrame\(vegaMode\)/);
+  assert.match(create, /if \(sharedFrameProvider && seedanceModeNeedsFirstFrame\(seedanceMode\)\)/);
   assert.match(create, /rule\.target === "frames"/);
   assert.match(create, /syncAdvancedPromptMentionLabels\(previousPromptRefs\)/);
   assert.doesNotMatch(create, /if \(!\["seedance", "seedance25", "seedance-nsfw", "seedream5-image", "qwen-image3"\]\.includes\(currentAdvancedProvider\(\)\)\) return false/);
+});
+
+test("prompt mention label changes preserve the native editing caret and selection", () => {
+  class TestEvent {
+    constructor(type, options = {}) {
+      this.type = type;
+      this.bubbles = Boolean(options.bubbles);
+    }
+  }
+  const textarea = {
+    value: "@Image 1 前面文字，后面文字",
+    selectionStart: 0,
+    selectionEnd: 0,
+    selectionDirection: "none",
+    dispatchCount: 0,
+    setSelectionRange(start, end, direction) {
+      this.selectionStart = start;
+      this.selectionEnd = end;
+      this.selectionDirection = direction;
+    },
+    dispatchEvent() {
+      this.dispatchCount += 1;
+    },
+  };
+  const sync = new Function(
+    "els",
+    "advancedPromptMentionSnapshot",
+    "escapeAdvancedPromptMentionRegExp",
+    "Event",
+    `${extractFunction(create, "syncAdvancedPromptMentionLabels")}
+return syncAdvancedPromptMentionLabels;`,
+  )(
+    { advancedPrompt: textarea },
+    () => [],
+    (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    TestEvent,
+  );
+
+  const marker = "前面文字";
+  textarea.selectionStart = textarea.value.indexOf(marker) + marker.length;
+  textarea.selectionEnd = textarea.selectionStart;
+  assert.equal(sync(
+    [{ key: "image:one", label: "Image 1" }],
+    [{ key: "image:one", label: "Image" }],
+  ), true);
+  assert.equal(textarea.value, "@Image 前面文字，后面文字");
+  assert.equal(textarea.value[textarea.selectionStart - 1], "字");
+  assert.equal(textarea.selectionStart, textarea.value.indexOf(marker) + marker.length);
+  assert.equal(textarea.selectionEnd, textarea.selectionStart);
+  assert.equal(textarea.dispatchCount, 1);
+
+  const selectionStart = textarea.value.indexOf("前面");
+  const selectionEnd = textarea.value.indexOf("，");
+  textarea.selectionStart = selectionStart;
+  textarea.selectionEnd = selectionEnd;
+  textarea.selectionDirection = "backward";
+  assert.equal(sync(
+    [{ key: "image:two", label: "Video 12" }],
+    [{ key: "image:two", label: "V" }],
+  ), false);
+  assert.equal(textarea.value, "@Image 前面文字，后面文字");
+
+  textarea.value = "@Video 12 前面文字，后面文字";
+  textarea.selectionStart = textarea.value.indexOf("前面");
+  textarea.selectionEnd = textarea.value.indexOf("文");
+  assert.equal(sync(
+    [{ key: "image:two", label: "Video 12" }],
+    [{ key: "image:two", label: "V" }],
+  ), true);
+  assert.equal(textarea.value, "@V 前面文字，后面文字");
+  assert.equal(textarea.value.slice(textarea.selectionStart, textarea.selectionEnd), "前面");
+  assert.equal(textarea.selectionDirection, "backward");
+
+  textarea.value = "@Image 1 前面 两个空格";
+  textarea.selectionStart = textarea.value.length;
+  textarea.selectionEnd = textarea.selectionStart;
+  assert.equal(sync(
+    [{ key: "image:one", label: "Image 1" }],
+    [{ key: "image:one", label: "Image" }],
+  ), true);
+  assert.equal(textarea.value, "@Image 前面 两个空格");
+  assert.equal(textarea.selectionStart, textarea.value.length);
+});
+
+test("prompt editor exposes a large keyboard-accessible resize handle", () => {
+  assert.match(html, /id="advancedPromptResizeHandle"[^>]+role="separator"[^>]+tabindex="0"/);
+  assert.match(css, /\.advanced-prompt-resize \{[\s\S]*?width: 30px;[\s\S]*?height: 30px;[\s\S]*?cursor: nwse-resize;/);
+  assert.match(css, /\.advanced-prompt-highlight \{[\s\S]*?padding: 11px 38px 11px 12px;[\s\S]*?word-break: normal;/);
+  assert.match(css, /\.advanced-prompt-field \.advanced-prompt-input-shell textarea \{[\s\S]*?padding: 11px 38px 11px 12px;[\s\S]*?word-break: normal;/);
+  assert.match(create, /function bindAdvancedPromptResizeHandle\(\)/);
+  assert.match(create, /startHeight \+ event\.clientY - startY/);
+  assert.match(main, /bindAdvancedPromptResizeHandle\(\);/);
+});
+
+test("rich prompt editor keeps the composer outline visible around its shell", () => {
+  assert.match(css, /\.advanced-prompt-input-shell \{[\s\S]*?border: 1px solid rgba\(255,255,255,\.14\);/);
+  assert.match(css, /\.advanced-prompt-input-shell:focus-within \{[\s\S]*?border-color: rgba\(255,79,163,\.56\);[\s\S]*?box-shadow: 0 0 0 3px rgba\(255,79,163,\.13\);/);
+  assert.match(html, /platform\.css\?v=email-notice-once-20261109-1/);
+});
+
+test("prompt editor grows to show loaded generated copy and remeasures after the Generate tab is visible", () => {
+  assert.match(create, /function autoSizeAdvancedPrompt\(/);
+  assert.match(create, /function advancedPromptHeightLimits\(\) \{[^}]*const minimumHeight = 136;/);
+  assert.match(create, /textarea\.style\.height = "0px"/);
+  assert.match(create, /textarea\.scrollHeight \+ 2/);
+  assert.match(create, /Math\.min\(maximumHeight, Math\.max\(minimumHeight, contentHeight\)\)/);
+  assert.match(create, /textarea\.style\.overflowY = contentHeight > maximumHeight \+ 1 \? "auto" : "hidden"/);
+  assert.match(create, /function scheduleAutoSizeAdvancedPrompt\(/);
+  assert.match(platformExploreSource, /nextTab === "advanced"[\s\S]*?scheduleAutoSizeAdvancedPrompt\(\)/);
+  assert.match(main, /els\.advancedPrompt\?\.addEventListener\("input", \(\) => scheduleAutoSizeAdvancedPrompt\(\{ force: true \}\)\)/);
+  assert.match(platformExploreSource, /els\.advancedPrompt\.value = template\.prompt[\s\S]*?autoSizeAdvancedPrompt\(\{ force: true, resetManual: true \}\)/);
+  assert.match(create, /els\.advancedPrompt\.value = els\.templatePrompt\?\.value[\s\S]*?autoSizeAdvancedPrompt\(\{ force: true, resetManual: true \}\)/);
+});
+
+test("prompt @ reference tokens render in pink without changing textarea editing", () => {
+  assert.match(html, /<div class="advanced-prompt-highlight" id="advancedPromptHighlight" aria-hidden="true"><\/div>[\s\S]*?<textarea id="advancedPrompt"/);
+  assert.match(create, /function syncAdvancedPromptHighlight\(\)/);
+  assert.match(create, /class="advanced-prompt-mention-token"/);
+  assert.match(css, /\.advanced-prompt-mention-token \{[\s\S]*?color: #ff4fa3;/);
+  assert.match(css, /\.advanced-prompt-field \.advanced-prompt-input-shell textarea \{[\s\S]*?color: transparent;[\s\S]*?caret-color: var\(--text\);/);
+  assert.match(main, /els\.advancedPrompt\?\.addEventListener\("scroll", syncAdvancedPromptHighlight\)/);
 });
 
 test("Wan2.7 video edit follows source duration instead of exposing a manual duration", () => {
@@ -477,7 +619,7 @@ test("shared video uploads use capability-specific duration limits", () => {
   assert.match(ui, /"wan27-video-edit": \{ min: 1\.8, max: 10\.2, displayMin: 2, displayMax: 10 \}/);
   assert.match(ui, /"wan-animate-move": \{ min: 1\.8, max: 30\.2, displayMin: 2, displayMax: 30 \}/);
   assert.match(ui, /"happyhorse-video-edit": \{ min: 2\.8, max: 60\.2, displayMin: 3, displayMax: 60 \}/);
-  assert.match(create, /advancedVideoInputDurationMessage\(durationSeconds, currentAdvancedProvider\(\), currentAdvancedVideoCapability\(\)\)/);
+  assert.match(create, /advancedVideoInputDurationMessage\(durationSeconds, provider, currentAdvancedVideoCapability\(\)\)/);
   assert.match(create, /advancedVideoInputDurationMessage\(aliyunInputVideoSeconds, provider, videoCapability, \{ allowUnknown: true \}\)/);
   assert.match(main, /await uploadAdvancedMediaReference\(file, "video"\)/);
   assert.doesNotMatch(main, /const maxVideoSeconds = capability/);
@@ -497,4 +639,23 @@ test("custom media previews avoid retaining full-resolution image copies", () =>
   assert.match(create, /scaledCanvasSize\(width, height, ADVANCED_CLIENT_IMAGE_MAX_PIXELS\)/);
   assert.match(create, /for \(let index = 0; index < selectedFiles.length; index \+= 1\)/);
   assert.match(create, /loading="lazy" decoding="async"/);
+});
+
+
+test("Create submit gives immediate, persistent and accessible feedback", () => {
+  assert.match(html, /id="advancedSubmitBtn"[^>]*aria-busy="false"/);
+  assert.match(html, /id="advancedNote"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.match(create, /function setAdvancedSubmitButtonBusy\(busy\)/);
+  assert.match(create, /正在创建\.\.\./);
+  assert.match(create, /Creating\.\.\./);
+  assert.match(create, /button\.setAttribute\("aria-busy", "true"\)/);
+  assert.match(create, /function showAdvancedSubmittedNotice\(\)/);
+  assert.match(create, /function showAdvancedSubmitFailure\(error\)/);
+  assert.match(create, /showAdvancedSubmittedNotice\(\)/);
+  assert.match(create, /showAdvancedSubmitFailure\(error\)/);
+  assert.match(ui, /function updateAdvancedButtonCost\(\) \{[\s\S]*?els\.advancedSubmitBtn\.classList\.contains\("is-busy"\)\) return;/);
+  assert.match(css, /\.generate-btn\.is-busy svg \{ animation: generate-button-spin/);
+  assert.match(css, /\.advanced-generator-toolbar \{[\s\S]*?margin-top:\s*10px;/);
+  assert.match(css, /\.advanced-generator-toolbar > \.generate-btn \{[\s\S]*?margin-inline:\s*auto;/);
+  assert.match(css, /#advancedNote\.is-error:not\(:empty\)/);
 });

@@ -99,7 +99,7 @@ test("server applies media checks before upstream generation and mirrors tool up
   assert.match(server, /imageMinDimension: wan30 \? 240/);
   assert.match(server, /if \(wan30\) asset = await ensureWan30R2MirrorForUserMediaAsset\(db, asset\)/);
   assert.match(server, /userAsset\.wan30PublicUrl = uploaded\.publicUrl/);
-  assert.match(server, /if \(!r2Enabled\(\)\) \{/);
+  assert.match(server, /if \(!objectStorageEnabled\(\)\) \{/);
   assert.match(server, /userAsset\.wan30R2Key = uploaded\.key/);
   assert.doesNotMatch(server, /\bTOS\b|TOS_|makeTosAuth|uploadStaticAssetToTos|uploadBufferToTos/);
   assert.doesNotMatch(officialPresets, /\bTOS\b|TOS_|makeTosAuth/);
@@ -115,7 +115,7 @@ test("R2 failures are terminal and never silently fall back to the origin", () =
     server.indexOf("async function publishLocalAssetUrlToObjectStorage"),
   );
   assert.match(localMirrorSource, /const upload = await uploadStaticAssetToObjectStorage/);
-  assert.match(localMirrorSource, /R2 upload completed without a public URL/);
+  assert.match(localMirrorSource, /upload completed without a public URL/);
   assert.doesNotMatch(localMirrorSource, /catch \(error\) \{[\s\S]*?publicUrl: ""/);
   assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?const videoUpload = await uploadStaticAssetToObjectStorage/);
   assert.match(server, /async function saveGeneratedImageFile[\s\S]*?const upload = await uploadStaticAssetToObjectStorage/);
@@ -124,9 +124,9 @@ test("R2 failures are terminal and never silently fall back to the origin", () =
   assert.match(server, /async function uploadStaticAssetToR2[\s\S]*?signal: AbortSignal\.timeout\(uploadTimeoutMs\)/);
   assert.match(server, /R2 upload timed out after \$\{Math\.ceil\(uploadTimeoutMs \/ 1000\)\} seconds/);
   assert.match(server, /uploadError\.retryable = false/);
-  assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?generated-video-r2-upload-failed/);
+  assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?generated-video-object-storage-upload-failed/);
   assert.match(server, /storableRecord\.error = ""/);
-  assert.match(server, /publicUrlMatchesStorageBase\(userAsset\.publicUrl, R2\.publicDomain\)[\s\S]*?userAsset\.wan30PublicUrl = userAsset\.publicUrl/);
+  assert.match(server, /publicUrlMatchesStorageBase\(userAsset\.publicUrl, objectStoragePublicDomain\(\)\)[\s\S]*?userAsset\.wan30PublicUrl = userAsset\.publicUrl/);
 });
 
 test("generated image R2 failures preserve the successful generation status", () => {
@@ -136,8 +136,8 @@ test("generated image R2 failures preserve the successful generation status", ()
   assert.notEqual(end, -1);
   const source = server.slice(start, end);
   assert.match(source, /try \{[\s\S]*?uploadStaticAssetToObjectStorage[\s\S]*?catch \(error\) \{/);
-  assert.match(source, /result\.cdnError = error\.message \|\| "Generated image R2 upload failed\."/);
-  assert.match(source, /\[generated-image-r2-upload-failed\]/);
+  assert.match(source, /result\.cdnError = error\.message \|\| "Generated image object storage upload failed\."/);
+  assert.match(source, /\[generated-image-object-storage-upload-failed\]/);
   assert.doesNotMatch(source, /catch \(error\) \{[\s\S]*?throw error;/);
 });
 
@@ -212,7 +212,9 @@ test("Seedance API references are deduplicated before the nine-image limit and u
 test("all multimodal adapters deduplicate compatibility aliases before counting and sending", () => {
   assert.match(server, /function seedanceReferenceAudioInputsFromBody[\s\S]*?const seen = new Set\(\)/);
   assert.match(server, /function seedance25ReferenceInputs[\s\S]*?const seenItems = new Set\(\)/);
-  assert.match(server, /const imageUrls = \[\.\.\.new Set\(\[\.\.\.await seedance25PublicAssetUrls/);
+  assert.match(server, /const imageUrls = \[\]/);
+  assert.match(server, /imageUrls\.push\(url\)/);
+  assert.match(server, /!imageUrls\.includes\(item\)/);
   assert.match(server, /function aliyunMediaInputs[\s\S]*?const seen = new Set\(\)/);
   assert.match(server, /function uniqueResolvedAliyunMedia/);
   assert.match(server, /const media = uniqueResolvedAliyunMedia\(resolvedMedia\)/);
@@ -224,7 +226,7 @@ test("all multimodal adapters deduplicate compatibility aliases before counting 
 test("public asset ingestion retries transient source failures and reports them as gateway errors", () => {
   assert.match(server, /label: "asset",[\s\S]*?retryCount: 2,[\s\S]*?retryDelayMs: 750/);
   assert.match(server, /const retryableStatus = \[408, 425, 429\]\.includes\(response\.status\) \|\| response\.status >= 500/);
-  assert.match(server, /error\.statusCode = 502;[\s\S]*?error\.code = "REMOTE_DOWNLOAD_FAILED"/);
+  assert.match(server, /error\.statusCode = \[408, 425, 429\]\.includes\(response\.status\) \|\| response\.status >= 500 \? 502 : 400;[\s\S]*?error\.code = error\.statusCode === 502 \? "REMOTE_DOWNLOAD_FAILED" : "INVALID_REMOTE_MEDIA"/);
 });
 
 test("BytePlus CreateAsset relays source URLs upstream and V3 reuses the returned asset id", () => {
@@ -237,6 +239,12 @@ test("BytePlus CreateAsset relays source URLs upstream and V3 reuses the returne
   assert.match(server, /GroupId: USE_GATEWAY_UPSTREAM \? "" : ARK_OPENAPI\.groupId/);
   assert.match(server, /ProjectName: USE_GATEWAY_UPSTREAM \? "" : ARK_OPENAPI\.projectName/);
   assert.match(server, /byteplusActionEnvelope\("CreateAsset", \{ Id: assetId \}\)/);
+});
+
+test("BytePlus CreateAsset retries transient media download timeouts", () => {
+  assert.match(server, /const transientAssetDownload = \/DownloadFailed\[\\s\\S\]\*\(\?:context deadline exceeded|timed\?\\s\*out|read body err\)/);
+  assert.match(server, /action === "CreateAsset" && \(transientAssetDownload\.test/);
+  assert.match(server, /if \(isTransient && attempt < 3\)/);
 });
 
 test("Seedance 2.5 and Seedream use the gateway without copying new2 media into the old bucket", () => {
@@ -262,7 +270,7 @@ test("Seedance 2.5 regeneration preserves all saved multimodal references", () =
 });
 
 test("admin reference previews fall back from upstream asset URIs to playable video URLs", () => {
-  assert.match(admin, /const candidates = \[asset\.videoUrl, asset\.url, asset\.localUrl, asset\.publicUrl\]/);
+  assert.match(admin, /const candidates = \[asset\.videoUrl, asset\.localVideoUrl, asset\.publicUrl, asset\.cdnUrl, asset\.localUrl, asset\.url, asset\.adminPreviewUrl\]/);
   assert.match(admin, /candidates\.find\(\(url\) => isPreviewableVideoUrl\(url\)\)/);
   assert.match(admin, /candidates\.find\(\(url\) => !isInternalAssetUrl\(url\)\)/);
 });
@@ -295,4 +303,153 @@ test("owner and admin parameter views show the payload actually sent upstream", 
   assert.match(server, /publicRecord\.upstreamPayload = listGenerationRecordValue\(record\.upstreamPayload \|\| null\)/);
   assert.match(explore, /params: record\.upstreamPayload \|\| record\.params \|\| null/);
   assert.match(admin, /recordDetailJsonSectionHtml\("upstream", "实际发送参数", record\.upstreamPayload \|\| record\.params\)/);
+});
+
+test("image regeneration restores original providers and input media without a new upload flow", () => {
+  const create = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.parts", "part-04.js"), "utf8");
+  const submit = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.parts", "part-03.js"), "utf8");
+  const regenerateSource = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-29.js"), "utf8");
+  const publicRecords = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-20.js"), "utf8");
+  const restoreProvider = create.slice(
+    create.indexOf("function restoreRecordProvider(record = {})"),
+    create.indexOf("function restoreSeedanceMode("),
+  );
+  const restoreMedia = create.slice(
+    create.indexOf("function restoreRecordMedia(record = {})"),
+    create.indexOf("function restoreVegaMediaItem("),
+  );
+  assert.match(restoreProvider, /"seedream5-image"/);
+  assert.match(restoreProvider, /"qwen-image3"/);
+  assert.match(restoreProvider, /"z-image-spicy-pro"/);
+  assert.match(restoreProvider, /"qwen-image-edit-spicy"/);
+  assert.doesNotMatch(restoreProvider, /source\.includes\("image"\)\) return "wan27-image-edit"/);
+  assert.match(restoreMedia, /const recordedImages = recordImageAssets\(record\)/);
+  assert.match(restoreMedia, /const seenImageKeys = new Set\(\)/);
+  assert.match(restoreMedia, /const imageEntries = recordedImages\.map/);
+  assert.match(submit, /params: \{[\s\S]*?advancedProviderId: provider,[\s\S]*?\},\n          async: true/);
+  assert.match(regenerateSource, /function imageEditRegenerateBody\(record = \{\}\)/);
+  assert.match(regenerateSource, /if \(\["z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image-edit"\]\.includes\(explicitProvider\)\)[\s\S]*?handleWan27ImageEdit/);
+  assert.match(regenerateSource, /rawProvider === "aliyun-wan27-image"[\s\S]*?handleWan27ImageEdit/);
+  assert.match(regenerateSource, /if \(\["seedream5-image", "qwen-image3"\]\.includes\(provider\)\)/);
+  assert.match(regenerateSource, /body\.preservePublicMediaUrls = true/);
+  assert.match(publicRecords, /publicRecord\.userAssetIds = \[\];[\s\S]*?publicRecord\.imageUrls = \[\];[\s\S]*?publicRecord\.sourceImageUrls = \[\];/);
+  const editHelper = regenerateSource.slice(
+    regenerateSource.indexOf("function imageEditRegenerateBody(record = {})"),
+    regenerateSource.indexOf("async function handleRegenerateGenerationRecord("),
+  );
+  assert.match(editHelper, /assetId[\s\S]*?params\.referenceImageAssetIds[\s\S]*?record\.userAssetIds/);
+  assert.match(editHelper, /record\.sourceImageUrls[\s\S]*?record\.imageUrls/);
+  assert.doesNotMatch(editHelper, /cdnImageUrls|imageResultUrls/);
+});
+
+test("legacy regeneration recovers input images from old records without generating again", () => {
+  const createUi = fs.readFileSync(path.resolve(__dirname, "..", "platform.ui.parts", "part-02.js"), "utf8");
+  const createRuntime = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.parts", "part-04.js"), "utf8");
+  const regenerateSource = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-29.js"), "utf8");
+  const extract = (source, name) => {
+    const start = source.indexOf(`function ${name}(`);
+    assert.notEqual(start, -1, `missing ${name}`);
+    let parenDepth = 0;
+    let bodyStart = -1;
+    for (let index = source.indexOf("(", start); index < source.length; index += 1) {
+      if (source[index] === "(") parenDepth += 1;
+      else if (source[index] === ")" && --parenDepth === 0) {
+        bodyStart = source.indexOf("{", index);
+        break;
+      }
+    }
+    let depth = 0;
+    for (let index = bodyStart; index < source.length; index += 1) {
+      if (source[index] === "{") depth += 1;
+      else if (source[index] === "}" && --depth === 0) return source.slice(start, index + 1);
+    }
+    throw new Error(`unterminated ${name}`);
+  };
+  const { recordImageAssets } = new Function([
+    extract(createUi, "mediaAssetPreviewUrl"),
+    extract(createUi, "mediaAssetLabel"),
+    extract(createUi, "upstreamInputImageAssets"),
+    extract(createUi, "recordImageAssets"),
+    "return { recordImageAssets };",
+  ].join("\n"))();
+
+  const sameAssetRecord = {
+    mediaAssets: [],
+    userAssetIds: ["asset-1"],
+    sourceImageUrl: "https://cdn.example.com/original-input.png",
+    imageResultUrl: "https://cdn.example.com/generated-result.png",
+    params: { advancedProviderId: "seedream5-image" },
+  };
+  assert.deepEqual(recordImageAssets(sameAssetRecord).map((item) => item.url), ["https://cdn.example.com/original-input.png"]);
+  assert.equal(recordImageAssets(sameAssetRecord)[0].assetId, "asset-1");
+  assert.doesNotMatch(JSON.stringify(recordImageAssets(sameAssetRecord)), /generated-result/);
+  const vegaFileInfoRecord = {
+    mediaAssets: [],
+    params: { advancedProviderId: "seedance25-vega" },
+    upstreamPayload: {
+      FileInfos: [
+        { Type: "Url", Usage: "FirstFrame", Category: "Image", Url: "https://cdn.example.com/vega-first-frame.png" },
+        { Type: "Url", Usage: "LastFrame", Category: "Image", Url: "https://cdn.example.com/vega-last-frame.png" },
+        { Type: "Url", Usage: "Reference", Category: "Image", Url: "https://cdn.example.com/vega-reference.png" },
+      ],
+      Content: [
+        { role: "reference_image", type: "image_url", image_url: { url: "asset://asset-legacy-reference" } },
+      ],
+      result: { FileInfos: [{ Url: "https://cdn.example.com/vega-generated-result.png" }] },
+    },
+  };
+  const vegaImages = recordImageAssets(vegaFileInfoRecord);
+  assert.deepEqual(vegaImages.map((item) => item.url), [
+    "https://cdn.example.com/vega-first-frame.png",
+    "https://cdn.example.com/vega-last-frame.png",
+    "https://cdn.example.com/vega-reference.png",
+    "asset://asset-legacy-reference",
+  ]);
+  assert.deepEqual(vegaImages.map((item) => item.type), ["first_frame", "last_frame", "reference_image", "reference_image"]);
+  assert.doesNotMatch(JSON.stringify(vegaImages), /vega-generated-result/);
+
+
+  const runtimeHelpers = new Function([
+    extract(createRuntime, "recordParams"),
+    extract(createRuntime, "firstPresent"),
+    extract(createRuntime, "upstreamMediaUrl"),
+    extract(createRuntime, "upstreamMediaType"),
+    extract(createRuntime, "upstreamInputMediaItems"),
+    extract(createRuntime, "arrayFrom"),
+    "return { upstreamInputMediaItems };",
+  ].join("\n"))();
+  const runtimeItems = runtimeHelpers.upstreamInputMediaItems(vegaFileInfoRecord);
+  assert.deepEqual(runtimeItems.map((item) => item.url), [
+    "https://cdn.example.com/vega-first-frame.png",
+    "https://cdn.example.com/vega-last-frame.png",
+    "https://cdn.example.com/vega-reference.png",
+    "asset://asset-legacy-reference",
+  ]);
+  assert.deepEqual(runtimeItems.map((item) => item.type), ["first_frame", "last_frame", "reference_image", "reference_image"]);
+  assert.doesNotMatch(JSON.stringify(runtimeItems), /vega-generated-result/);
+
+  const upstreamOnlyRecord = {
+    mediaAssets: [],
+    params: { advancedProviderId: "wan27-image-edit" },
+    upstreamPayload: {
+      image: "https://cdn.example.com/upstream-input.png",
+      reference_images: ["https://cdn.example.com/upstream-reference.png"],
+    },
+  };
+  assert.deepEqual(recordImageAssets(upstreamOnlyRecord).map((item) => item.url), [
+    "https://cdn.example.com/upstream-input.png",
+    "https://cdn.example.com/upstream-reference.png",
+  ]);
+
+  const serverSource = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-11.js"), "utf8");
+  const serverHelpers = new Function([
+    extract(serverSource, "plainObject"),
+    extract(serverSource, "firstPresent"),
+    extract(regenerateSource, "upstreamPayloadInputImageItems"),
+    "return { upstreamPayloadInputImageItems };",
+  ].join("\n"))();
+  assert.deepEqual(serverHelpers.upstreamPayloadInputImageItems(upstreamOnlyRecord).map((item) => item.url), [
+    "https://cdn.example.com/upstream-input.png",
+    "https://cdn.example.com/upstream-reference.png",
+  ]);
 });

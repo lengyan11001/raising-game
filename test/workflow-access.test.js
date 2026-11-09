@@ -28,20 +28,20 @@ test("workflow wheel zoom only runs over empty canvas space", () => {
   assert.match(ui, /function handleWorkflowWheel\(event\) \{[\s\S]*?if \(workflowWheelZoomBlockedTarget\(event\.target\)\) return;[\s\S]*?event\.preventDefault\(\);/);
 });
 
-test("workflow source, prompt, generation, and output nodes have separate roles", () => {
+test("workflow exposes only image and video generation nodes", () => {
   const ui = read("platform.ui.js");
   const config = read("platform.config.js");
+  const bridge = read("workflow-react/src/site/SiteBridge.js");
 
   assert.match(config, /const WORKFLOW_DEFAULT_NODES = \[\];/);
   assert.match(ui, /function workflowImageNodes\(\)/);
-  assert.match(ui, /function workflowSourceNodes\(\)/);
-  assert.match(ui, /function workflowUploadNode\(\) \{[\s\S]*?imageReference/);
-  assert.match(ui, /data-workflow-action="add-image-reference"/);
-  assert.match(ui, /data-workflow-action="add-video-reference"/);
-  assert.match(ui, /data-workflow-action="add-prompt"/);
-  assert.match(ui, /data-workflow-action="add-output"/);
-  assert.match(ui, /if \(action === "add-image"\) addWorkflowImageNode\(\);/);
-  assert.match(ui, /function workflowVideoReferenceNodes\(\)/);
-  assert.match(ui, /if \(action === "add-video"\) addWorkflowVideoNode\(\);/);
   assert.match(ui, /function workflowGenerationNodes\(\)/);
+  assert.match(ui, /if \(action === "add-image"\) addWorkflowNodeAt\("add-image"\);/);
+  assert.match(ui, /if \(action === "add-video"\) addWorkflowNodeAt\("add-video"\);/);
+  assert.match(bridge, /IMAGE_NODE_TYPES = new Set\(\["imageGenerate"\]\)/);
+  assert.match(bridge, /VIDEO_NODE_TYPES = new Set\(\["unifiedVideoGen"\]\)/);
+  assert.doesNotMatch(ui, /data-workflow-action="add-image-reference"/);
+  assert.doesNotMatch(ui, /data-workflow-action="add-video-reference"/);
+  assert.doesNotMatch(ui, /data-workflow-action="add-prompt"/);
+  assert.doesNotMatch(ui, /data-workflow-action="add-output"/);
 });

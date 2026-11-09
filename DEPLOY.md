@@ -173,17 +173,26 @@ Qwen uses `ALIYUN_QWEN_IMAGE3_BASE_URL` and `ALIYUN_QWEN_IMAGE3_API_KEY` when se
 
 ## Object storage
 
-Production object storage is Cloudflare R2 only. Do not configure or restore a
-TOS fallback. Each site must use its own bucket and public base URL:
+Production object storage supports Cloudflare R2 and Alibaba Cloud OSS. R2 is
+retained for existing media; OSS may be enabled only in Singapore or the US.
+Never use `oss-cn-*` or a mainland-China OSS/CDN endpoint. Do not change the
+existing `media.123vips.com` Cloudflare/R2 DNS record; use a separate CDN
+hostname such as `assets-cdn.123vips.com` for OSS.
 
-- old site: `vipeak-media` via `https://media.123vips.com`
-- new2: `vipeak-media-667zui` via its dedicated R2 public domain
+Each site must use its own bucket and public base URL:
 
-Both environment files must define `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`,
-`R2_SECRET_ACCESS_KEY`, `R2_REGION=auto`, `R2_BUCKET`, and
-`R2_PUBLIC_BASE_URL`. Remove every `TOS_*` entry. The fixed deploy helper rejects
-a deployment if R2 is incomplete, if TOS settings remain, or if new2 points at
-the old site's bucket/domain.
+- old site R2: `vipeak-media` via `https://media.123vips.com`
+- new2 R2: `vipeak-media-667zui` via its dedicated R2 public domain
+
+For OSS set `STORAGE_PROVIDER=oss`, the complete `OSS_*` block from
+`.env.example`, and a Singapore/US `OSS_REGION`. If OSS is selected with
+incomplete configuration, the service fails startup instead of falling back to
+R2. Historical R2 records remain readable through their stored R2 URL/provider.
+`OSS_CDN_REGION` must be the same approved Singapore/US region as `OSS_REGION`.
+`OSS_CDN_BASE_URL` must be the dedicated CDN hostname, not an `aliyuncs.com`
+OSS origin or any `oss-cn-*` endpoint.
+Remove every legacy `TOS_*` entry. The fixed deploy helper rejects TOS settings
+and still enforces the per-site R2 bucket/domain isolation.
 
 From the local machine, use the helper only after pushing:
 

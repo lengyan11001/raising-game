@@ -40,7 +40,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "41.5 秒",
     expectedDuration: 41.5,
     seekMarkers: [23.0, 32.0],
-    src: "/assets/admin/voice-preview/joanna-scene-23s-a-bfa45922.m4a?v=20261030-voice-preview-12",
+    src: "/api/admin/voice-preview/joanna-scene-23s-a-bfa45922.m4a?v=20261030-voice-preview-12",
   },
   {
     id: "user-rule-f",
@@ -50,7 +50,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "46.8 秒",
     expectedDuration: 46.8,
     seekMarkers: [23.0, 32.0],
-    src: "/assets/admin/voice-preview/joanna-scene-23s-b-5c58fa85.m4a?v=20261030-voice-preview-12",
+    src: "/api/admin/voice-preview/joanna-scene-23s-b-5c58fa85.m4a?v=20261030-voice-preview-12",
   },
   {
     id: "qwen3-serena-once",
@@ -60,7 +60,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "64.2 秒",
     expectedDuration: 64.16,
     seekMarkers: [32.0, 48.0],
-    src: "/assets/admin/voice-preview/qwen3-serena-scene-once-cc25477e.m4a?v=20261031-qwen3-serena-once",
+    src: "/api/admin/voice-preview/qwen3-serena-scene-once-cc25477e.m4a?v=20261031-qwen3-serena-once",
   },
   {
     id: "qwen3-serena-more-moans-a",
@@ -70,7 +70,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "51.8 秒",
     expectedDuration: 51.84,
     seekMarkers: [16.0, 32.0],
-    src: "/assets/admin/voice-preview/qwen3-serena-more-moans-a-488ec19b.m4a?v=20261102-qwen3-serena-more-moans-a",
+    src: "/api/admin/voice-preview/qwen3-serena-more-moans-a-488ec19b.m4a?v=20261102-qwen3-serena-more-moans-a",
   },
   {
     id: "qwen3-serena-more-moans-b",
@@ -80,7 +80,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "93.5 秒",
     expectedDuration: 93.52,
     seekMarkers: [31.0, 62.0],
-    src: "/assets/admin/voice-preview/qwen3-serena-more-moans-b-b3ec15c9.m4a?v=20261102-qwen3-serena-more-moans-b",
+    src: "/api/admin/voice-preview/qwen3-serena-more-moans-b-b3ec15c9.m4a?v=20261102-qwen3-serena-more-moans-b",
   },
 ];
 
@@ -185,13 +185,6 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function maskMiddle(value = "") {
-  const text = String(value || "");
-  if (!text) return "—";
-  if (text.length <= 16) return `${text.slice(0, 4)}...${text.slice(-4)}`;
-  return `${text.slice(0, 10)}...${text.slice(-8)}`;
 }
 
 function fmtDate(value) {
@@ -708,6 +701,13 @@ async function renderDashboard() {
   const s = dashboard.stats || {};
   const visits = dashboard.characterVisits || {};
   const visitRows = visits.rows || [];
+  const risk = dashboard.risk || {};
+  const riskEvents = Array.isArray(risk.events) ? risk.events : [];
+  const usersByHour = Array.isArray(risk.usersByHour) ? risk.usersByHour : [];
+  const usersByChannel = Array.isArray(risk.usersByChannel) ? risk.usersByChannel : [];
+  const recentUsers = Array.isArray(risk.recentUsers) ? risk.recentUsers : [];
+  const peakHour = usersByHour.reduce((best, row) => Number(row.count || 0) > Number(best?.count || 0) ? row : best, null);
+  const automationEvents = riskEvents.filter((row) => /automation|failed|locked|rate_limited/.test(String(row.type || ""))).reduce((sum, row) => sum + Number(row.count || 0), 0);
 
   els.adminContent.innerHTML = `
     <section class="adm-page">
@@ -730,6 +730,48 @@ async function renderDashboard() {
         ${statCard("钱包订单", s.walletOrders, `${s.pendingOrders || 0} 待确认`, "wallet", "violet")}
         ${statCard("生成历史", s.generationRecords, "任务记录总数", "history", "mint")}
         ${statCard("用户素材库", s.userAssets, "上传图片素材数量", "images", "amber")}
+      </div>
+
+      <div class="adm-grid adm-grid-4">
+        ${statCard("24h 新增用户", risk.totalUsers || 0, peakHour ? `峰值 ${fmtDate(peakHour.hour)} · ${peakHour.count} 人` : "暂无注册数据", "user-plus", "rose")}
+        ${statCard("登录失败/风控事件", automationEvents, `${risk.loginFailures || 0} 次失败记录`, "shield-alert", "amber")}
+        ${statCard("当前锁定账号", risk.lockedAccounts || 0, "登录失败达到阈值的账号/IP", "lock", "violet")}
+        ${statCard("自动注册事件", riskEvents.find((row) => row.type === "auth_automation_registration")?.count || 0, "PowerShell/curl/无 UA 等客户端", "bot", "mint")}
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>注册与登录风控（近 24 小时）</h3>
+          <div class="adm-page-actions">
+            <span class="adm-badge adm-badge-muted">${escapeHtml(risk.hours || 24)}h</span>
+            <button class="adm-btn adm-btn-ghost adm-btn-sm" data-act="risk-refresh"><i data-lucide="refresh-cw"></i>刷新</button>
+          </div>
+        </header>
+        <div class="adm-card-body">
+          ${usersByHour.length || usersByChannel.length || riskEvents.length ? `
+            <div class="adm-grid adm-grid-2">
+              <div>
+                <h4 class="adm-subhead">按小时注册量</h4>
+                ${usersByHour.length ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>时间</th><th>注册数</th></tr></thead><tbody>${usersByHour.map((row) => `<tr><td>${fmtDate(row.hour)}</td><td><strong>${escapeHtml(row.count || 0)}</strong></td></tr>`).join("")}</tbody></table></div>` : '<div class="adm-empty"><p>暂无注册数据。</p></div>'}
+              </div>
+              <div>
+                <h4 class="adm-subhead">注册渠道与风控事件</h4>
+                <div class="adm-chip-list">
+                  ${usersByChannel.map((row) => `<span class="adm-chip">${escapeHtml(row.channel || "direct")}: <strong>${escapeHtml(row.count || 0)}</strong></span>`).join("")}
+                  ${riskEvents.map((row) => `<span class="adm-chip">${escapeHtml(row.type || "event")}: <strong>${escapeHtml(row.count || 0)}</strong></span>`).join("")}
+                </div>
+              </div>
+            </div>
+          ` : '<div class="adm-empty"><i data-lucide="shield-check"></i><p>暂无风控数据。</p></div>'}
+          ${recentUsers.length ? `
+            <h4 class="adm-subhead adm-mt">最近注册账号</h4>
+            <div class="adm-table-wrap">
+              <table class="adm-table"><thead><tr><th>用户名</th><th>渠道</th><th>角色</th><th>注册时间</th></tr></thead><tbody>
+                ${recentUsers.slice(0, 12).map((user) => `<tr><td class="adm-mono">${escapeHtml(user.username || "")}</td><td>${escapeHtml(user.channel || "direct")}</td><td>${escapeHtml(user.role || "user")}</td><td>${fmtDate(user.createdAt)}</td></tr>`).join("")}
+              </tbody></table>
+            </div>
+          ` : ""}
+        </div>
       </div>
 
       <div class="adm-card">
@@ -758,6 +800,7 @@ async function renderDashboard() {
     </section>
   `;
   els.adminContent.querySelector('[data-act="refresh"]')?.addEventListener("click", () => routeFromHash());
+  els.adminContent.querySelector('[data-act="risk-refresh"]')?.addEventListener("click", () => routeFromHash());
   refreshIcons();
 }
 
@@ -1864,10 +1907,24 @@ function recordResultPosterUrl(record = {}) {
 }
 
 function recordMediaAssetPreviewUrl(asset = {}) {
-  return asset.adminPreviewUrl || asset.imageUrl || asset.sourceImageUrl || asset.localImageUrl || asset.thumbnailUrl || asset.posterUrl || "";
+  return [
+    asset.adminPreviewUrl,
+    asset.imageUrl,
+    asset.sourceImageUrl,
+    asset.localImageUrl,
+    asset.thumbnailUrl,
+    asset.posterUrl,
+    asset.cdnUrl,
+    asset.publicUrl,
+    asset.localUrl,
+    asset.sourceUrl,
+    asset.previewUrl,
+    asset.url,
+  ].map((value) => String(value || "").trim()).find(Boolean) || "";
 }
 
 function recordMediaAssetDownloadUrl(record = {}, asset = {}) {
+  if (asset.adminDownloadUrl) return asset.adminDownloadUrl;
   const index = Number(asset.referenceIndex);
   if (!record.taskId || !Number.isInteger(index) || index < 0) return recordMediaAssetPreviewUrl(asset);
   return `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${index}/media?download=1`;
@@ -1892,6 +1949,11 @@ function isPreviewableVideoUrl(url = "") {
   return Boolean(value) && !isInternalAssetUrl(value) && isVideoUrl(value);
 }
 
+function isPreviewableAudioUrl(url = "") {
+  const value = String(url || "").trim();
+  return Boolean(value) && !isInternalAssetUrl(value) && /\.(mp3|wav|m4a|aac|ogg|opus|flac)(?:[?#]|$)/i.test(value);
+}
+
 function recordMediaAssetLabel(asset = {}, index = 0) {
   if (asset.type === "first_frame" || asset.key === "firstFrame") return "First frame";
   if (asset.type === "last_frame" || asset.key === "lastFrame") return "Last frame";
@@ -1909,12 +1971,14 @@ function recordImageAssets(record = {}) {
     seen.add(url);
     images.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, images.length) });
   };
+  const nonImageTypes = ["driving_audio", "reference_audio", "first_clip", "reference_video"];
+  const isAudio = (asset) => String(asset?.mime || "").startsWith("audio/") || nonImageTypes.includes(asset?.type);
   (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
-    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
+    .filter((asset) => !isAudio(asset))
     .forEach((asset) => pushImage(asset));
   const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
   upstreamMedia
-    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
+    .filter((asset) => !isAudio(asset))
     .forEach((asset) => pushImage(asset));
   pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
   pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
@@ -1941,6 +2005,36 @@ function recordReferenceVideoAssets(record = {}) {
   return videos;
 }
 
+function recordMediaAssetAudioUrl(asset = {}) {
+  const candidates = [asset.audioUrl, asset.localAudioUrl, asset.publicUrl, asset.cdnUrl, asset.localUrl, asset.url, asset.adminPreviewUrl]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return candidates.find((url) => isPreviewableAudioUrl(url))
+    || (String(asset.mime || "").startsWith("audio/") || ["driving_audio", "reference_audio"].includes(asset.type)
+      ? candidates.find((url) => !isInternalAssetUrl(url))
+      : "")
+    || "";
+}
+
+function recordReferenceAudioAssets(record = {}) {
+  const audios = [];
+  const seen = new Set();
+  const pushAudio = (asset = {}, fallbackLabel = "") => {
+    const url = recordMediaAssetAudioUrl(asset);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    audios.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, audios.length) });
+  };
+  (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => ["driving_audio", "reference_audio"].includes(asset.type) || String(asset.mime || "").startsWith("audio/"))
+    .forEach((asset) => pushAudio(asset));
+  const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
+  upstreamMedia
+    .filter((asset) => ["driving_audio", "reference_audio"].includes(asset.type) || String(asset.mime || "").startsWith("audio/"))
+    .forEach((asset) => pushAudio(asset));
+  return audios;
+}
+
 function recordPrimaryImageUrl(record = {}) {
   const images = recordImageAssets(record);
   return toAbsoluteHttpUrl(images[0] ? recordMediaAssetPreviewUrl(images[0]) : "")
@@ -1948,13 +2042,11 @@ function recordPrimaryImageUrl(record = {}) {
 }
 
 function recordMediaAssetVideoUrl(asset = {}) {
-  const candidates = [asset.videoUrl, asset.url, asset.localUrl, asset.publicUrl]
+  const candidates = [asset.videoUrl, asset.localVideoUrl, asset.publicUrl, asset.cdnUrl, asset.localUrl, asset.url, asset.adminPreviewUrl]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
-  const adminUrl = String(asset.adminPreviewUrl || "").trim();
-  return (isPreviewableVideoUrl(adminUrl) ? adminUrl : "")
-    || candidates.find((url) => isPreviewableVideoUrl(url))
-    || candidates.find((url) => !isInternalAssetUrl(url))
+  return candidates.find((url) => isPreviewableVideoUrl(url))
+    || (String(asset.mime || "").startsWith("video/") ? candidates.find((url) => !isInternalAssetUrl(url)) : "")
     || "";
 }
 
@@ -1978,7 +2070,8 @@ function recordInputVideoPosterUrl(record = {}) {
 function recordImageAssetsHtml(record = {}) {
   const images = recordImageAssets(record);
   const videos = recordReferenceVideoAssets(record);
-  if (!images.length && !videos.length) return "";
+  const audios = recordReferenceAudioAssets(record);
+  if (!images.length && !videos.length && !audios.length) return "";
   return `
     <div class="adm-record-reference-grid">
       ${images.map((asset) => `
@@ -1991,10 +2084,26 @@ function recordImageAssetsHtml(record = {}) {
         </figure>
       `).join("")}
       ${videos.map((asset) => `
+        ${(() => {
+          const previewUrl = recordMediaAssetHref(asset, true);
+          return `
         <figure data-reference-item>
-          <button type="button" class="adm-record-reference-preview" data-reference-preview="${escapeHtml(String(asset.referenceIndex ?? ""))}" title="放大预览">
-            <video src="${escapeHtml(recordMediaAssetHref(asset, true))}" muted playsinline preload="metadata"></video>
-          </button>
+          ${adminMediaPreviewTrigger({
+            url: previewUrl,
+            kind: "video",
+            label: asset.label || "参考视频",
+            poster: asset.posterUrl || asset.imageUrl || asset.thumbnailUrl || "",
+            className: "adm-record-reference-preview",
+            preloadVideo: false,
+          })}
+          <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
+          <figcaption>${escapeHtml(asset.label || "")}</figcaption>
+        </figure>`;
+        })()}
+      `).join("")}
+      ${audios.map((asset) => `
+        <figure class="adm-record-reference-audio" data-reference-item>
+          <audio src="${escapeHtml(recordMediaAssetAudioUrl(asset))}" controls preload="metadata"></audio>
           <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
           <figcaption>${escapeHtml(asset.label || "")}</figcaption>
         </figure>
@@ -2033,8 +2142,23 @@ function recordPreviewHtml(record) {
     || recordImageResultUrl(record),
   );
   const poster = adminPreviewMediaUrl(recordResultPosterUrl(record));
-  const posterAttr = poster ? ` poster="${escapeHtml(poster)}"` : "";
-  if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="metadata" playsinline${posterAttr} style="${escapeHtml(recordRatioStyle(record))}"></video>`;
+  // The list already plays the durable CDN/provider URL. The detail endpoint
+  // also exposes an admin media proxy for fallback, but routing playback through
+  // that proxy makes the server copy the whole video a second time.
+  const directVideo = adminPreviewMediaUrl(recordVideoUrl(record));
+  const playbackVideo = directVideo || localVideo;
+  if (playbackVideo) {
+    return adminMediaPreviewTrigger({
+      url: playbackVideo,
+      kind: "video",
+      label: "生成结果",
+      poster,
+      className: "adm-record-detail-media-preview",
+      style: recordRatioStyle(record),
+      preloadVideo: false,
+      inline: true,
+    });
+  }
   if (imageResult) return `<img src="${escapeHtml(imageResult)}" alt="" />`;
   if (remoteVideo) {
     return `
@@ -2740,9 +2864,24 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
       copyText(Object.prototype.hasOwnProperty.call(textMap, key) ? textMap[key] : jsonText(key));
     });
   });
+  const inlinePreview = bodyEl.querySelector("[data-admin-media-inline]");
+  if (inlinePreview) {
+    inlinePreview.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const source = String(inlinePreview.dataset.mediaUrl || "").trim();
+      const container = inlinePreview.parentElement;
+      if (!source || !container) return;
+      container.innerHTML = `<video src="${escapeHtml(source)}" controls autoplay playsinline preload="metadata" style="${escapeHtml(recordRatioStyle(record))}"></video>`;
+      const video = container.querySelector("video");
+      if (video?.play) video.play().catch(() => {});
+      refreshIcons();
+    });
+  }
   const referenceByIndex = new Map([
     ...recordImageAssets(record),
     ...recordReferenceVideoAssets(record),
+    ...recordReferenceAudioAssets(record),
   ].map((asset) => [String(asset.referenceIndex ?? ""), asset]));
   const referenceUrl = (index, download = false) => {
     const asset = referenceByIndex.get(String(index));
@@ -2788,14 +2927,11 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
       }
     });
   });
-  const previewVideo = bodyEl.querySelector(".adm-record-preview video");
-  if (previewVideo) previewVideo.load();
   refreshIcons();
 }
 
 async function fetchAdminGenerationRecordDetail(record = {}) {
   if (!record?.taskId) return record;
-  if (record.adminResultPreviewUrl && (record.upstreamPayload || record.createResponse || record.queryResponse)) return record;
   const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}`);
   return payload.record || record;
 }
@@ -3175,9 +3311,11 @@ async function renderUsers(pageArg = null, limitArg = null) {
   const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
   const q = sessionStorage.getItem("admUsersQuery") || "";
   const role = sessionStorage.getItem("admUsersRole") || "";
+  const riskStatus = sessionStorage.getItem("admUsersRiskStatus") || "";
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (q) params.set("q", q);
   if (role) params.set("role", role);
+  if (riskStatus) params.set("riskStatus", riskStatus);
   const payload = await api(`/api/admin/users?${params.toString()}`);
   if (!isActiveRoute("users")) return;
   const users = payload.users || [];
@@ -3196,6 +3334,11 @@ async function renderUsers(pageArg = null, limitArg = null) {
             <option value="user" ${role === "user" ? "selected" : ""}>普通用户</option>
             <option value="admin" ${role === "admin" ? "selected" : ""}>管理员</option>
           </select>
+          <select id="usersRiskFilter">
+            <option value="" ${riskStatus === "" ? "selected" : ""}>全部风险状态</option>
+            <option value="quarantined" ${riskStatus === "quarantined" ? "selected" : ""}>已隔离</option>
+            <option value="clear" ${riskStatus === "clear" ? "selected" : ""}>正常</option>
+          </select>
           <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
           <button class="adm-btn adm-btn-ghost" id="usersResetFilterBtn" type="button"><i data-lucide="x"></i>清空</button>
         </form>
@@ -3203,16 +3346,17 @@ async function renderUsers(pageArg = null, limitArg = null) {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-user-table">
-            <thead><tr><th>账号</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>会员 / API文档</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
+            <thead><tr><th>账号</th><th>风险</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>会员</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
                 <tr data-id="${escapeHtml(u.id)}">
                   <td><strong>${escapeHtml(u.username)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(u.id)}</span></td>
+                  <td>${u.riskStatus === "quarantined" ? `<span class="adm-pill is-danger" title="${escapeHtml((u.riskReasons || []).join(", "))}">已隔离</span>` : `<span class="adm-pill">正常</span>`}${Array.isArray(u.riskReasons) && u.riskReasons.length ? `<br/><span class="adm-muted">${escapeHtml(u.riskReasons.slice(0, 2).join(", "))}</span>` : ""}</td>
                   <td><strong>${escapeHtml(u.tenantId || "main")}</strong><br/><span class="adm-muted">${escapeHtml(u.registrationChannel || "-")}</span></td>
                   <td><span class="adm-pill ${u.role === "admin" ? "is-admin" : ""}">${escapeHtml(u.role)}</span></td>
                   <td><strong>${escapeHtml(u.credits)}</strong></td>
-                  <td>${statusPill(u.membership?.active ? "active" : "inactive")}<br/><span class="adm-muted">文档 ${u.apiDocs?.active ? "已解锁" : "未解锁"}</span></td>
-                  <td><span class="adm-muted adm-mono">${escapeHtml(maskMiddle(u.apiToken || ""))}</span></td>
+                  <td>${statusPill(u.membership?.active ? "active" : "inactive")}</td>
+                  <td><span class="adm-muted adm-mono">${escapeHtml(u.apiTokenPreview || "")}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.pricingMultiplier))}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.apiPricingMultiplier))}</span></td>
                   <td>${escapeHtml(u.customCharacters || 0)}</td>
@@ -3239,6 +3383,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
   const runUserFilter = () => {
     sessionStorage.setItem("admUsersQuery", els.adminContent.querySelector("#usersSearchInput")?.value.trim() || "");
     sessionStorage.setItem("admUsersRole", els.adminContent.querySelector("#usersRoleFilter")?.value || "");
+    sessionStorage.setItem("admUsersRiskStatus", els.adminContent.querySelector("#usersRiskFilter")?.value || "");
     sessionStorage.setItem("admUsersPager", JSON.stringify({ page: 1, limit }));
     renderUsers(1, limit).catch((err) => renderRouteError("users", err));
   };
@@ -3247,9 +3392,11 @@ async function renderUsers(pageArg = null, limitArg = null) {
     runUserFilter();
   });
   els.adminContent.querySelector("#usersRoleFilter")?.addEventListener("change", runUserFilter);
+  els.adminContent.querySelector("#usersRiskFilter")?.addEventListener("change", runUserFilter);
   els.adminContent.querySelector("#usersResetFilterBtn")?.addEventListener("click", () => {
     sessionStorage.removeItem("admUsersQuery");
     sessionStorage.removeItem("admUsersRole");
+    sessionStorage.removeItem("admUsersRiskStatus");
     sessionStorage.setItem("admUsersPager", JSON.stringify({ page: 1, limit }));
     renderUsers(1, limit).catch((err) => renderRouteError("users", err));
   });
@@ -3272,8 +3419,12 @@ function openEditUserDialog(id, users) {
       <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
       <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
     </select></div>
-    <div class="adm-form-row"><span>API 文档接口权限</span><label class="adm-flex" style="gap:8px;align-items:center;"><input id="editApiDocsAccess" type="checkbox" ${user.apiDocs?.active ? "checked" : ""} style="width:18px;height:18px;" /><span>${user.apiDocs?.active ? "已解锁，可调用外部 API" : "未解锁，外部 API 不可用"}</span></label><small class="adm-muted">只影响 Bearer API Token / 子 Token，不影响网站前端登录后的生成。</small></div>
-    <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
+    <div class="adm-form-row"><span>风控状态</span><select id="editRiskStatus">
+      <option value="clear" ${user.riskStatus !== "quarantined" ? "selected" : ""}>正常</option>
+      <option value="quarantined" ${user.riskStatus === "quarantined" ? "selected" : ""}>隔离（禁止登录，保留数据）</option>
+    </select></div>
+    <div class="adm-form-row"><span>强制下线</span><label class="adm-check"><input id="editForceLogout" type="checkbox" /> 同时强制下线并吊销 API 子 Token（确认是机器人时使用）</label><small class="adm-muted">默认不踢掉已经登录的用户；仅隔离会阻止新登录和 API Token 调用。</small></div>
+    <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiTokenPreview || "")}" disabled /><small class="adm-muted">后台只展示脱敏预览，完整 token 不由后台列表接口返回。</small></div>
     <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
     <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
   `;
@@ -3283,7 +3434,6 @@ function openEditUserDialog(id, users) {
     confirmText: "保存",
     onConfirm: async () => {
       const role = tpl.querySelector("#editRole").value;
-      const apiDocsAccess = Boolean(tpl.querySelector("#editApiDocsAccess")?.checked);
       const pricingMultiplier = Number(tpl.querySelector("#editPricingMultiplier").value);
       const apiPricingMultiplier = Number(tpl.querySelector("#editApiPricingMultiplier").value);
       if (!Number.isFinite(pricingMultiplier) || pricingMultiplier <= 0 || pricingMultiplier > 100) {
@@ -3294,7 +3444,11 @@ function openEditUserDialog(id, users) {
         toast("API价格折扣比例必须大于 0，且不超过 100。", "error");
         return false;
       }
-      const body = { role, apiDocsAccess };
+      const body = {
+        role,
+        riskStatus: tpl.querySelector("#editRiskStatus").value,
+        forceLogout: tpl.querySelector("#editForceLogout").checked === true,
+      };
       body.pricingMultiplier = pricingMultiplier;
       body.apiPricingMultiplier = apiPricingMultiplier;
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
@@ -3348,7 +3502,7 @@ function openResetPwdDialog(id, users) {
   const tpl = document.createElement("div");
   tpl.innerHTML = `
     <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(user.username)}" disabled /></div>
-    <div class="adm-form-row"><span>新密码（至少 6 位）</span><input id="newPwd" type="text" minlength="6" placeholder="新密码（明文，给用户）" /></div>
+    <div class="adm-form-row"><span>新密码（至少 10 位）</span><input id="newPwd" type="text" minlength="10" placeholder="新密码（明文，给用户）" /></div>
     <p class="adm-muted">操作后该用户其他设备的会话会被注销。</p>
   `;
   openDialog({
@@ -3357,7 +3511,7 @@ function openResetPwdDialog(id, users) {
     confirmText: "重置",
     onConfirm: async () => {
       const password = tpl.querySelector("#newPwd").value;
-      if (password.length < 6) { toast("密码至少 6 位。", "error"); return false; }
+      if (password.length < 10) { toast("密码至少 10 位。", "error"); return false; }
       await api(`/api/admin/users/${encodeURIComponent(id)}/password`, { method: "POST", body: { password } });
       toast("密码已重置。", "success");
     },
@@ -4092,7 +4246,7 @@ function adminMediaPreviewType(url = "", kind = "") {
   return "image";
 }
 
-function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", className = "", poster = "", style = "", preloadVideo = true } = {}) {
+function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", className = "", poster = "", style = "", preloadVideo = true, inline = false } = {}) {
   const source = String(url || "").trim();
   if (!source) return '<span class="adm-media-preview-empty">未上传</span>';
   const type = adminMediaPreviewType(source, kind);
@@ -4106,7 +4260,8 @@ function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", class
       ? `<video src="${escapeHtml(thumbSource)}"${posterAttr} muted playsinline preload="metadata"></video><span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
       : `<span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
     : `<img src="${escapeHtml(source)}" alt="" draggable="false" loading="lazy" />`;
-  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}${type === "video" && !preloadVideo ? " adm-media-preview-no-preload" : ""}"${styleAttr} data-admin-media-preview data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">${type === "video" ? "播放" : "预览"}</span></button>`;
+  const previewAttribute = inline ? "data-admin-media-inline" : "data-admin-media-preview";
+  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}${type === "video" && !preloadVideo ? " adm-media-preview-no-preload" : ""}"${styleAttr} ${previewAttribute} data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">${type === "video" ? "播放" : "预览"}</span></button>`;
 }
 
 function closeAdminMediaPreview() {
@@ -5942,8 +6097,8 @@ function pricingRowTitle(row = {}) {
   const key = String(row.key || "");
   const provider = String(row.provider || "").toLowerCase();
   if (row.providerLabel) return row.providerLabel;
-  if (key.startsWith("seedance-fast-video-input")) return "Seedance Fast 视频输入加收";
-  if (key.startsWith("seedance-fast")) return "Seedance Fast";
+  if (key.startsWith("seedance-fast-video-input")) return "Seedance 2.0 Fast 视频输入加收";
+  if (key.startsWith("seedance-fast")) return "Seedance 2.0 Fast";
   if (key.startsWith("seedance-video-input")) return "Seedance 视频输入加收";
   if (provider === "seedance") return "Seedance 基础生成";
   return row.providerLabel || row.provider || "模型";
@@ -6998,7 +7153,9 @@ async function loadVoicePreviewAudio(audio) {
     if (status) status.textContent = `正在载入完整音频（约 ${expectedDuration.toFixed(1)} 秒）...`;
     // Download the whole short audition file before playback. Browser range decoding
     // of long WAV files was stopping the admin player after only a few seconds.
-    const response = await fetch(source);
+    const response = await fetch(source, {
+      headers: state.token ? { authorization: `Bearer ${state.token}` } : {},
+    });
     if (!response.ok) throw new Error(`音频请求失败（HTTP ${response.status}）`);
     const bytes = await response.arrayBuffer();
     if (bytes.byteLength < 100000) throw new Error(`音频下载不完整（${bytes.byteLength} 字节）`);
