@@ -7,7 +7,8 @@
 - Bumped `platform.html` CSS/JS cache key to `email-notice-once-20261109-1` and added regression `email security notice auto-opens at most once per account`.
 - Verification: focused security-notice tests 2/2, `test/email-auth.test.js` 6/6, JavaScript syntax checks, and `git diff --check` pass.
 - Worktree contains unrelated media/Vega/Test/canvas WIP; publish only `platform.create.parts/part-06.js`, `platform.html`, `server.parts/part-10.js`, `server.parts/part-42.js`, `test/auth-risk.test.js`, `test/advanced-custom-ui.test.js`, and this state record.
-- Deployment pending: commit/push `old-site`, build and push Old `platform-release` from latest remote base, deploy only `scripts/deploy_local.sh --site old`, leave `live-release` untouched.
+- Integration commit `old-site` / `708bcf4`; platform release `7a2082a` built from remote base `918da4c`, pushed, and deployed only to `123vips.com`.
+- Production verification: `/api/health` returned `200 {"ok":true}`; served `platform.create.parts/part-06.js` SHA-256 matches release/local (`fb55f76f...`) and contains the once-per-account logic; unauthenticated `/api/account/security-notice-seen` correctly returns `401 LOGIN_REQUIRED`; `live-release` remains `bf1e01a`; Live was not deployed.
 
 ## 2026-11-09 Latest result-thumbnail refresh recheck
 
