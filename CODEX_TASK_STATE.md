@@ -1,3 +1,13 @@
+## 2026-11-09 Result thumbnail missing after result asset was added
+
+- User reports clicking a Generate result now reacts, but its thumbnail is still missing; sample task is `cgt-20261109003626-72c310`. Scope remains Old production only; do not deploy Live, invalidate sessions/tokens, or evict logged-in users.
+- Production record has `resultAssetId=asset-1794200624991-7e34505b`; the corresponding `app_user_assets` row and both local video/poster files exist. The generation record has empty `localVideoUrl/cdnVideoUrl/posterUrl/cdnPosterUrl/storage keys`, so public history/detail responses cannot expose a durable poster even though the asset library is complete.
+- Fixed `server.parts/part-41.js`: `generationRecordMediaAssetIds()` now includes `resultAssetId/resultAssetIds`; hydration fills missing result video/poster/storage fields from the owned result asset without overwriting existing values.
+- Fixed `server.parts/part-36.js`: adding a result to assets now writes the media/poster fields into the generation record; the `alreadyAdded` path backfills missing fields for existing records.
+- Added regression coverage in `test/vega-regeneration-media.test.js` for result-material hydration and fill-only semantics.
+- Verification before deployment: focused suites 62/62 pass (`generated-assets-on-demand`, `vega-regeneration-media`, `advanced-result-refresh`, `media-url-priority`, `oss-storage`); `node --check` and `git diff --check` pass.
+- Worktree contains unrelated WIP; publish only `server.parts/part-36.js`, `server.parts/part-41.js`, `test/vega-regeneration-media.test.js`, and this state record.
+
 ## 2026-11-09 Email security notice auto-opens once per account
 
 - User requested that the email-binding/security notice popup appear only once instead of repeatedly after the prior 12-hour session snooze expired.

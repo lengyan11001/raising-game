@@ -232,6 +232,8 @@ function generationRecordMediaAssetIds(record = {}) {
     if (id && !ids.includes(id)) ids.push(id);
   };
   (Array.isArray(record.mediaAssets) ? record.mediaAssets : []).forEach(add);
+  add(record.resultAssetId);
+  (Array.isArray(record.resultAssetIds) ? record.resultAssetIds : []).forEach(add);
   [
     params.firstFrameAssetId,
     params.first_frame_asset_id,
@@ -245,6 +247,50 @@ function generationRecordMediaAssetIds(record = {}) {
     ...(Array.isArray(params.reference_audio_asset_ids) ? params.reference_audio_asset_ids : []),
   ].forEach(add);
   return ids;
+}
+
+function generationRecordResultAssetMediaFields(asset = {}) {
+  if (!asset || typeof asset !== "object") return {};
+  const mime = String(asset.mime || "").toLowerCase();
+  const kind = String(asset.kind || "").toLowerCase();
+  const isVideo = kind === "video" || mime.startsWith("video/");
+  const isImage = kind === "image" || mime.startsWith("image/");
+  if (!isVideo && !isImage) return {};
+  const localMediaUrl = String(asset.localUrl || asset.localImageUrl || asset.localVideoUrl || "").trim();
+  const storedMediaUrl = String(asset.cdnUrl || asset.publicUrl || "").trim();
+  const storageKey = String(asset.objectStorageKey || asset.storageKey || asset.r2Key || "").trim();
+  if (isVideo) {
+    const localPosterUrl = String(asset.localPosterUrl || "").trim();
+    const storedPosterUrl = String(asset.posterUrl || asset.thumbnailUrl || asset.coverUrl || "").trim();
+    const posterStorageKey = String(asset.posterStorageKey || asset.posterObjectStorageKey || asset.posterR2Key || "").trim();
+    return {
+      localVideoUrl: localMediaUrl,
+      cdnVideoUrl: storedMediaUrl,
+      videoUrl: storedMediaUrl || localMediaUrl,
+      storageKey,
+      localPosterUrl,
+      cdnPosterUrl: storedPosterUrl,
+      posterUrl: storedPosterUrl || localPosterUrl,
+      posterStorageKey,
+    };
+  }
+  return {
+    localImageUrl: localMediaUrl,
+    cdnImageUrl: storedMediaUrl,
+    imageResultUrl: storedMediaUrl || localMediaUrl,
+    storageKey,
+  };
+}
+
+function hydrateGenerationRecordResultAsset(record = {}, asset = null) {
+  if (!record || typeof record !== "object" || !asset) return record;
+  const fields = generationRecordResultAssetMediaFields(asset);
+  const next = { ...record };
+  Object.entries(fields).forEach(([key, value]) => {
+    if (!String(value || "").trim() || String(next[key] || "").trim()) return;
+    next[key] = value;
+  });
+  return next;
 }
 
 function hydratedGenerationRecordMediaAsset(item = {}, resolvedAsset = null) {
@@ -288,7 +334,7 @@ function hydrateGenerationRecordMediaAssetsWithMap(record = {}, assetsById = new
       : "";
     return hydratedGenerationRecordMediaAsset(item, assetsById.get(assetId));
   });
-  return { ...record, mediaAssets };
+  return hydrateGenerationRecordResultAsset({ ...record, mediaAssets }, assetsById.get(String(record.resultAssetId || "").trim()));
 }
 
 async function hydrateGenerationRecordMediaAssets(records = [], userId = "") {

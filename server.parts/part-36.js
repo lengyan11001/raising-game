@@ -579,7 +579,14 @@ async function handleAddGenerationRecordToAssets(req, res, taskId) {
   const existingAssetId = String(record.resultAssetId || "").trim();
   if (existingAssetId) {
     const existingAsset = (auth.db.userAssets || []).find((entry) => entry.id === existingAssetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
-    if (existingAsset) return sendJson(res, 200, { ok: true, asset: publicUserAsset(existingAsset), alreadyAdded: true });
+    if (existingAsset) {
+      const mediaFields = generationRecordResultAssetMediaFields(existingAsset);
+      const missingFields = Object.fromEntries(Object.entries(mediaFields).filter(([key, value]) => String(value || "").trim() && !String(record[key] || "").trim()));
+      if (Object.keys(missingFields).length) {
+        await updateGenerationRecord(taskId, missingFields, "history-add-asset-backfill");
+      }
+      return sendJson(res, 200, { ok: true, asset: publicUserAsset(existingAsset), alreadyAdded: true });
+    }
   }
   const isImageRecord = Boolean(generationRecordImageUrl(record)) && !generationRecordVideoUrl(record);
   const media = isImageRecord ? await bytesForGenerationRecordImage(record) : await bytesForGenerationRecordVideo(record);
@@ -616,6 +623,7 @@ async function handleAddGenerationRecordToAssets(req, res, taskId) {
   await updateGenerationRecord(taskId, {
     resultAssetId: asset.id,
     assetAddedAt: new Date().toISOString(),
+    ...generationRecordResultAssetMediaFields(asset),
   }, "history-add-asset");
   return sendJson(res, 200, { ok: true, asset: publicUserAsset(asset) });
 }

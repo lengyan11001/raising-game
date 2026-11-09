@@ -101,6 +101,8 @@ function generationMediaRuntime(assetsById = new Map(), overrides = {}) {
     [
       extractFunction(serverSource, "firstPresent"),
       extractFunction(serverSource, "generationRecordMediaAssetIds"),
+      extractFunction(serverSource, "generationRecordResultAssetMediaFields"),
+      extractFunction(serverSource, "hydrateGenerationRecordResultAsset"),
       extractFunction(serverSource, "hydratedGenerationRecordMediaAsset"),
       extractFunction(serverSource, "hydrateGenerationRecordMediaAssetsWithMap"),
       extractFunction(serverSource, "hydrateGenerationRecordMediaAssets"),
@@ -455,6 +457,40 @@ test("Generation record hydration plans one stable preview and full address set 
   assert.equal(hydrated.mediaAssets[0].imageUrl, hydrated.mediaAssets[0].previewUrl);
   assert.equal(hydrated.mediaAssets[1].videoUrl, hydrated.mediaAssets[1].previewUrl);
   assert.equal(hydrated.mediaAssets[2].videoUrl, hydrated.mediaAssets[2].previewUrl);
+});
+
+test("Generation record hydration fills video and poster delivery fields from resultAssetId", async () => {
+  const asset = {
+    id: "asset-result-video",
+    kind: "video",
+    mime: "video/mp4",
+    localUrl: "/assets/user-uploads/user-1/asset-result-video.mp4",
+    cdnUrl: "https://assets-cdn.example.com/asset-result-video.mp4",
+    objectStorageKey: "assets/user-uploads/user-1/asset-result-video.mp4",
+    localPosterUrl: "/assets/user-uploads/user-1/asset-result-video.poster.jpg",
+    posterUrl: "https://assets-cdn.example.com/asset-result-video.poster.jpg",
+    posterStorageKey: "assets/user-uploads/user-1/asset-result-video.poster.jpg",
+  };
+  const record = {
+    taskId: "cgt-result-video",
+    kind: "advanced-video",
+    status: "succeeded",
+    resultAssetId: asset.id,
+    mediaAssets: [],
+    cdnPosterUrl: "https://assets-cdn.example.com/existing.poster.jpg",
+    remoteVideoUrl: "https://provider.example.com/expired.mp4",
+  };
+  const { generationRecordMediaAssetIds, hydrateGenerationRecordMediaAssets } = generationMediaRuntime(new Map([[asset.id, asset]]));
+
+  assert.deepEqual(generationRecordMediaAssetIds(record), [asset.id]);
+  const hydrated = await hydrateGenerationRecordMediaAssets(record, "user-1");
+  assert.equal(hydrated.videoUrl, asset.cdnUrl);
+  assert.equal(hydrated.cdnVideoUrl, asset.cdnUrl);
+  assert.equal(hydrated.localVideoUrl, asset.localUrl);
+  assert.equal(hydrated.storageKey, asset.objectStorageKey);
+  assert.equal(hydrated.cdnPosterUrl, "https://assets-cdn.example.com/existing.poster.jpg");
+  assert.equal(hydrated.posterStorageKey, asset.posterStorageKey);
+  assert.equal(hydrated.remoteVideoUrl, record.remoteVideoUrl);
 });
 
 test("Canonical mediaAssets are not expanded by upstream asset URI placeholders", () => {
