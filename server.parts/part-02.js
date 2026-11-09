@@ -1120,9 +1120,19 @@ function normalizeAdvancedPricing(pricing = {}) {
     delete seedreamProSale["2K"];
     delete seedreamProSale["2k"];
   }
+  const migrateSeedreamSaleUsd = (value, purchaseUsd) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && Math.abs(numeric - purchaseUsd) < 0.0000001
+      ? purchaseUsd * SEEDREAM_QWEN_IMAGE_SALE_MARKUP
+      : value;
+  };
   const normalizeSeedreamUsdMap = (sourceMap = {}, fallbackMap = {}) => ({
     "1K": pricingNumber(firstPresent(sourceMap["1K"], sourceMap["1k"]), fallbackMap["1K"] ?? SEEDREAM5_PRO_1K_USD_PER_IMAGE, 0, 6),
     "2K": pricingNumber(firstPresent(sourceMap["2K"], sourceMap["2k"]), fallbackMap["2K"] ?? SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6),
+  });
+  const normalizeSeedreamSaleUsdMap = (sourceMap = {}, fallbackMap = {}) => ({
+    "1K": pricingNumber(migrateSeedreamSaleUsd(firstPresent(sourceMap["1K"], sourceMap["1k"]), SEEDREAM5_PRO_1K_USD_PER_IMAGE), fallbackMap["1K"] ?? SEEDREAM5_PRO_1K_USD_PER_IMAGE, 0, 6),
+    "2K": pricingNumber(migrateSeedreamSaleUsd(firstPresent(sourceMap["2K"], sourceMap["2k"]), SEEDREAM5_PRO_2K_USD_PER_IMAGE), fallbackMap["2K"] ?? SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6),
   });
   const normalizedSeedreamResolutions = ["1K", "2K"];
   const qwenImage3Default = DEFAULT_ADVANCED_PRICING.qwenImage3 || {};
@@ -1138,6 +1148,12 @@ function normalizeAdvancedPricing(pricing = {}) {
     const saleMap = sourceTier.saleUsdPerImageByResolution && typeof sourceTier.saleUsdPerImageByResolution === "object"
       ? sourceTier.saleUsdPerImageByResolution
       : {};
+    const migrateQwenSaleUsd = (value, purchaseUsd) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && Math.abs(numeric - purchaseUsd) < 0.0000001
+        ? purchaseUsd * SEEDREAM_QWEN_IMAGE_SALE_MARKUP
+        : value;
+    };
     return {
       ...defaultTier,
       ...sourceTier,
@@ -1147,11 +1163,11 @@ function normalizeAdvancedPricing(pricing = {}) {
         "2K": pricingNumber(firstPresent(purchaseMap["2K"], purchaseMap["2k"]), defaultTier.purchaseUsdPerImageByResolution?.["2K"] ?? official.outputPerImage["2K"], 0, 6),
       },
       saleUsdPerImageByResolution: {
-        "1K": pricingNumber(firstPresent(saleMap["1K"], saleMap["1k"]), defaultTier.saleUsdPerImageByResolution?.["1K"] ?? purchaseMap["1K"] ?? official.outputPerImage["1K"], 0, 6),
-        "2K": pricingNumber(firstPresent(saleMap["2K"], saleMap["2k"]), defaultTier.saleUsdPerImageByResolution?.["2K"] ?? purchaseMap["2K"] ?? official.outputPerImage["2K"], 0, 6),
+        "1K": pricingNumber(migrateQwenSaleUsd(firstPresent(saleMap["1K"], saleMap["1k"]), official.outputPerImage["1K"]), defaultTier.saleUsdPerImageByResolution?.["1K"] ?? official.outputPerImage["1K"], 0, 6),
+        "2K": pricingNumber(migrateQwenSaleUsd(firstPresent(saleMap["2K"], saleMap["2k"]), official.outputPerImage["2K"]), defaultTier.saleUsdPerImageByResolution?.["2K"] ?? official.outputPerImage["2K"], 0, 6),
       },
       purchaseUsdPerReferenceImage: pricingNumber(sourceTier.purchaseUsdPerReferenceImage, defaultTier.purchaseUsdPerReferenceImage ?? official.inputPerReferenceImage, 0, 6),
-      saleUsdPerReferenceImage: pricingNumber(sourceTier.saleUsdPerReferenceImage, defaultTier.saleUsdPerReferenceImage ?? sourceTier.purchaseUsdPerReferenceImage ?? official.inputPerReferenceImage, 0, 6),
+      saleUsdPerReferenceImage: pricingNumber(migrateQwenSaleUsd(sourceTier.saleUsdPerReferenceImage, official.inputPerReferenceImage), defaultTier.saleUsdPerReferenceImage ?? official.inputPerReferenceImage, 0, 6),
       userConfigured: sourceTier.userConfigured === true,
     };
   };
@@ -1428,8 +1444,13 @@ function normalizeAdvancedPricing(pricing = {}) {
         ...seedreamProSource,
         model: String(seedreamProSource.model || seedreamDefault.pro?.model || SEEDREAM5_PRO_ENDPOINT_ID),
         purchaseUsdPerImageByResolution: normalizeSeedreamUsdMap(seedreamProPurchase, seedreamDefault.pro?.purchaseUsdPerImageByResolution || {}),
-        saleUsdPerImageByResolution: normalizeSeedreamUsdMap(seedreamProSale, seedreamDefault.pro?.saleUsdPerImageByResolution || seedreamProPurchase || {}),
-        referenceUsdPerImageAfterFirst: pricingNumber(seedreamProSource.referenceUsdPerImageAfterFirst, seedreamDefault.pro?.referenceUsdPerImageAfterFirst ?? SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0, 6),
+        saleUsdPerImageByResolution: normalizeSeedreamSaleUsdMap(seedreamProSale, seedreamDefault.pro?.saleUsdPerImageByResolution || seedreamProPurchase || {}),
+        referenceUsdPerImageAfterFirst: pricingNumber(
+          migrateSeedreamSaleUsd(seedreamProSource.referenceUsdPerImageAfterFirst, SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST),
+          seedreamDefault.pro?.referenceUsdPerImageAfterFirst ?? SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST,
+          0,
+          6,
+        ),
       },
       resolutions: normalizedSeedreamResolutions,
       defaultResolution: normalizeSeedream5Resolution(seedreamSource.defaultResolution || seedreamDefault.defaultResolution || "2K"),

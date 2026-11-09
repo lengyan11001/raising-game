@@ -99,6 +99,62 @@ test("Vega purchase tables preserve every Tencent VOD international rate", () =>
   assert.match(server, /vega15ProInputVideoPurchaseUsdPerSecondByResolution: \{\s*"480p": 0\.0559,\s*"720p": 0\.1138,\s*"1080p": 0\.2431,\s*"2k": 0\.5938,\s*"4k": 0\.6532,?\s*\}/);
 });
 
+test("Seedream 5.0 Pro and Qwen Image 3.0 default to a 1.5x sale multiplier and migrate legacy sale prices", () => {
+  const expectations = [
+    ["seedream5-image", { resolution: "1K" }, "outputUsdPerImage", 0.045, 0.0675],
+    ["seedream5-image", { resolution: "2K" }, "outputUsdPerImage", 0.09, 0.135],
+    ["seedream5-image", { resolution: "2K", referenceImageCount: 2 }, "referenceUsdPerImage", 0.003, 0.0045],
+    ["qwen-image3", { tier: "pro", resolution: "1K" }, "outputUsdPerImage", 0.03438, 0.05157],
+    ["qwen-image3", { tier: "pro", resolution: "2K" }, "outputUsdPerImage", 0.068761, 0.103142],
+    ["qwen-image3", { tier: "pro", resolution: "1K", referenceImageCount: 1 }, "inputUsdPerReferenceImage", 0.00275, 0.004125],
+    ["qwen-image3", { tier: "standard", resolution: "1K" }, "outputUsdPerImage", 0.024754, 0.037131],
+    ["qwen-image3", { tier: "standard", resolution: "2K" }, "outputUsdPerImage", 0.024754, 0.037131],
+    ["qwen-image3", { tier: "standard", resolution: "1K", referenceImageCount: 1 }, "inputUsdPerReferenceImage", 0.00275, 0.004125],
+  ];
+  for (const [provider, options, field, purchaseUsd, saleUsd] of expectations) {
+    const estimate = application.advancedModelPricing(provider, options);
+    assert.equal(estimate[field], saleUsd);
+    assert.ok(Math.abs(estimate[field] / purchaseUsd - 1.5) < 1e-5, `${provider} ${JSON.stringify(options)} must sell at 1.5x`);
+  }
+
+  const legacyPricing = {
+    seedream5Image: {
+      pro: {
+        saleUsdPerImageByResolution: { "1K": 0.045, "2K": 0.09 },
+        referenceUsdPerImageAfterFirst: 0.003,
+        userConfigured: true,
+      },
+    },
+    qwenImage3: {
+      pro: {
+        saleUsdPerImageByResolution: { "1K": 0.03438, "2K": 0.068761 },
+        saleUsdPerReferenceImage: 0.00275,
+        userConfigured: true,
+      },
+      standard: {
+        saleUsdPerImageByResolution: { "1K": 0.024754, "2K": 0.024754 },
+        saleUsdPerReferenceImage: 0.00275,
+        userConfigured: true,
+      },
+    },
+  };
+  assert.equal(application.advancedModelPricing("seedream5-image", { resolution: "1K", advancedPricing: legacyPricing }).outputUsdPerImage, 0.0675);
+  assert.equal(application.advancedModelPricing("seedream5-image", { resolution: "2K", referenceImageCount: 2, advancedPricing: legacyPricing }).referenceUsdPerImage, 0.0045);
+  assert.equal(application.advancedModelPricing("qwen-image3", { tier: "pro", resolution: "2K", advancedPricing: legacyPricing }).outputUsdPerImage, 0.103142);
+  assert.equal(application.advancedModelPricing("qwen-image3", { tier: "standard", resolution: "1K", referenceImageCount: 1, advancedPricing: legacyPricing }).inputUsdPerReferenceImage, 0.004125);
+
+  const customPricing = {
+    seedream5Image: { pro: { saleUsdPerImageByResolution: { "1K": 0.08, "2K": 0.18 }, referenceUsdPerImageAfterFirst: 0.006, userConfigured: true } },
+    qwenImage3: {
+      pro: { saleUsdPerImageByResolution: { "1K": 0.05, "2K": 0.11 }, saleUsdPerReferenceImage: 0.005, userConfigured: true },
+      standard: { saleUsdPerImageByResolution: { "1K": 0.04, "2K": 0.04 }, saleUsdPerReferenceImage: 0.004, userConfigured: true },
+    },
+  };
+  assert.equal(application.advancedModelPricing("seedream5-image", { resolution: "1K", advancedPricing: customPricing }).outputUsdPerImage, 0.08);
+  assert.equal(application.advancedModelPricing("qwen-image3", { tier: "pro", resolution: "2K", advancedPricing: customPricing }).outputUsdPerImage, 0.11);
+  assert.equal(application.advancedModelPricing("qwen-image3", { tier: "standard", resolution: "1K", referenceImageCount: 1, advancedPricing: customPricing }).inputUsdPerReferenceImage, 0.004);
+});
+
 test("admin pricing uses a tolerance when flagging multipliers below 1.5x", () => {
   const adminSource = fs.readFileSync(path.join(root, "admin.js"), "utf8");
   assert.match(adminSource, /const PRICING_MULTIPLIER_TOLERANCE = 1e-5/);

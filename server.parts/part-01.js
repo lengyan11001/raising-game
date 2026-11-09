@@ -998,6 +998,7 @@ const SEEDREAM5_LITE_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_LITE_US
 const SEEDREAM5_PRO_1K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_1K_USD_PER_IMAGE, 0.045, 0, 6);
 const SEEDREAM5_PRO_2K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0.09, 0, 6);
 const SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST = pricingNumber(process.env.SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0.003, 0, 6);
+const SEEDREAM_QWEN_IMAGE_SALE_MARKUP = 1.5;
 
 function defaultAliyunSaleCredits(capability, options = {}, fallback = ADVANCED_WAN27_720P_CREDITS_PER_SECOND) {
   const purchase = officialSingaporePurchaseDetails(capability, options);
@@ -1308,10 +1309,10 @@ const DEFAULT_ADVANCED_PRICING = {
         "2K": SEEDREAM5_PRO_2K_USD_PER_IMAGE,
       },
       saleUsdPerImageByResolution: {
-        "1K": SEEDREAM5_PRO_1K_USD_PER_IMAGE,
-        "2K": SEEDREAM5_PRO_2K_USD_PER_IMAGE,
+        "1K": pricingNumber(SEEDREAM5_PRO_1K_USD_PER_IMAGE * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, SEEDREAM5_PRO_1K_USD_PER_IMAGE, 0, 6),
+        "2K": pricingNumber(SEEDREAM5_PRO_2K_USD_PER_IMAGE * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6),
       },
-      referenceUsdPerImageAfterFirst: SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST,
+      referenceUsdPerImageAfterFirst: pricingNumber(SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0, 6),
     },
     resolutions: ["1K", "2K"],
     defaultResolution: "2K",
@@ -1321,16 +1322,22 @@ const DEFAULT_ADVANCED_PRICING = {
     pro: {
       model: QWEN_IMAGE3_MODELS.pro,
       purchaseUsdPerImageByResolution: { ...QWEN_IMAGE3_OFFICIAL_USD.pro.outputPerImage },
-      saleUsdPerImageByResolution: { ...QWEN_IMAGE3_OFFICIAL_USD.pro.outputPerImage },
+      saleUsdPerImageByResolution: {
+        "1K": pricingNumber(QWEN_IMAGE3_OFFICIAL_USD.pro.outputPerImage["1K"] * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, QWEN_IMAGE3_OFFICIAL_USD.pro.outputPerImage["1K"], 0, 6),
+        "2K": pricingNumber(QWEN_IMAGE3_OFFICIAL_USD.pro.outputPerImage["2K"] * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, QWEN_IMAGE3_OFFICIAL_USD.pro.outputPerImage["2K"], 0, 6),
+      },
       purchaseUsdPerReferenceImage: QWEN_IMAGE3_OFFICIAL_USD.pro.inputPerReferenceImage,
-      saleUsdPerReferenceImage: QWEN_IMAGE3_OFFICIAL_USD.pro.inputPerReferenceImage,
+      saleUsdPerReferenceImage: pricingNumber(QWEN_IMAGE3_OFFICIAL_USD.pro.inputPerReferenceImage * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, QWEN_IMAGE3_OFFICIAL_USD.pro.inputPerReferenceImage, 0, 6),
     },
     standard: {
       model: QWEN_IMAGE3_MODELS.standard,
       purchaseUsdPerImageByResolution: { ...QWEN_IMAGE3_OFFICIAL_USD.standard.outputPerImage },
-      saleUsdPerImageByResolution: { ...QWEN_IMAGE3_OFFICIAL_USD.standard.outputPerImage },
+      saleUsdPerImageByResolution: {
+        "1K": pricingNumber(QWEN_IMAGE3_OFFICIAL_USD.standard.outputPerImage["1K"] * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, QWEN_IMAGE3_OFFICIAL_USD.standard.outputPerImage["1K"], 0, 6),
+        "2K": pricingNumber(QWEN_IMAGE3_OFFICIAL_USD.standard.outputPerImage["2K"] * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, QWEN_IMAGE3_OFFICIAL_USD.standard.outputPerImage["2K"], 0, 6),
+      },
       purchaseUsdPerReferenceImage: QWEN_IMAGE3_OFFICIAL_USD.standard.inputPerReferenceImage,
-      saleUsdPerReferenceImage: QWEN_IMAGE3_OFFICIAL_USD.standard.inputPerReferenceImage,
+      saleUsdPerReferenceImage: pricingNumber(QWEN_IMAGE3_OFFICIAL_USD.standard.inputPerReferenceImage * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, QWEN_IMAGE3_OFFICIAL_USD.standard.inputPerReferenceImage, 0, 6),
     },
     resolutions: ["1K", "2K"],
     defaultResolution: "2K",

@@ -1,3 +1,12 @@
+## 2026-11-09 Seedream/Qwen image pricing raised to 1.5x
+
+- Goal: keep purchase prices unchanged and raise sale prices to 1.5x for Seedream 5.0 Pro (1K/2K/reference), Qwen Image 3.0 Pro (1K/2K/reference), and Qwen Image 3.0 Standard (1K/2K/reference).
+- Changed: `server.parts/part-01.js`, `server.parts/part-02.js`, `server.parts/part-39.js`, `test/advanced-pricing.test.js`.
+- Defaults now apply `SEEDREAM_QWEN_IMAGE_SALE_MARKUP = 1.5`; normalization migrates only exact legacy sale values equal to purchase, preserving custom configured prices. Admin display now consistently uses configured sale prices rather than substituting gateway purchase values.
+- New prices: Seedream 5.0 Pro 1K 0.0675 / 2K 0.135 / reference 0.0045; Qwen Image 3.0 Pro 1K 0.05157 / 2K 0.103142 / reference 0.004125; Qwen Image 3.0 Standard 1K 0.037131 / 2K 0.037131 / reference 0.004125.
+- Verification: focused pricing suites 49/49 pass; syntax and `git diff --check` pass; audit shows all 9 target rows `OK` at approximately 1.5x (Qwen Pro 2K is 1.500007x due to six-decimal storage rounding).
+- Deployment target: Old only. Do not update or deploy Live.
+
 ## 2026-11-09 Monthly recharge and consumption report (read-only production query)
 
 - User requested natural-month platform recharge/consumption reporting. Date boundary uses `Asia/Shanghai`; recharge order month uses `paidAt -> matchedAt -> updated_at -> created_at`; consumption uses `app_credit_ledger.created_at`.

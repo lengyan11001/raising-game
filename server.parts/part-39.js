@@ -739,10 +739,7 @@ async function adminAdvancedPricingView(config = {}) {
     const purchaseCredits = hasGatewayPurchase
       ? gatewayPurchase.credits
       : pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
-    const configuredSaleCredits = advancedSaleSeedream5Credits(pricing, resolution);
-    const saleCredits = hasGatewayPurchase && Number.isFinite(Number(purchaseCredits)) && !pricing.seedream5Image?.pro?.userConfigured
-      ? purchaseCredits
-      : configuredSaleCredits;
+    const saleCredits = advancedSaleSeedream5Credits(pricing, resolution);
     rows.push({
       key: `seedream5-pro-${resolution.toLowerCase()}`,
       provider: "seedream5-image",
@@ -765,10 +762,7 @@ async function adminAdvancedPricingView(config = {}) {
     const purchaseCredits = hasGatewayPurchase
       ? gatewayPurchase.credits
       : pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
-    const configuredSaleCredits = advancedSaleSeedream5ReferenceCredits(pricing);
-    const saleCredits = hasGatewayPurchase && Number.isFinite(Number(purchaseCredits)) && !pricing.seedream5Image?.pro?.userConfigured
-      ? purchaseCredits
-      : configuredSaleCredits;
+    const saleCredits = advancedSaleSeedream5ReferenceCredits(pricing);
     rows.push({
       key: "seedream5-pro-reference",
       provider: "seedream5-image",
@@ -792,9 +786,7 @@ async function adminAdvancedPricingView(config = {}) {
       const hasGatewayPurchase = Number.isFinite(Number(gatewayPurchase?.credits));
       const purchaseCredits = hasGatewayPurchase ? Number(gatewayPurchase.credits) : pricingNumber(officialUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
       const configuredSaleUsd = pricingNumber(tierConfig.saleUsdPerImageByResolution?.[resolution], officialUsd, 0, 6);
-      const saleCredits = hasGatewayPurchase && !tierConfig.userConfigured
-        ? purchaseCredits
-        : pricingNumber(configuredSaleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+      const saleCredits = pricingNumber(configuredSaleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
       rows.push({
         key: `qwen-image3-${tier}-${resolution.toLowerCase()}`,
         provider: "qwen-image3",
@@ -817,9 +809,7 @@ async function adminAdvancedPricingView(config = {}) {
       const hasGatewayPurchase = Number.isFinite(Number(gatewayPurchase?.credits));
       const purchaseCredits = hasGatewayPurchase ? Number(gatewayPurchase.credits) : pricingNumber(officialUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
       const configuredSaleUsd = pricingNumber(tierConfig.saleUsdPerReferenceImage, officialUsd, 0, 6);
-      const saleCredits = hasGatewayPurchase && !tierConfig.userConfigured
-        ? purchaseCredits
-        : pricingNumber(configuredSaleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+      const saleCredits = pricingNumber(configuredSaleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
       rows.push({
         key: `qwen-image3-${tier}-reference`,
         provider: "qwen-image3",
