@@ -2288,4 +2288,4 @@ CODEX_TASK_STATE.md
 - Effective Seedance 2.5 defaults: 480p purchase 8.9955 credits/s, sale 9.8951 credits/s (~1.100006x); 720p purchase 14.9925, sale 16.4918 (~1.100003x). Purchase USD/s remains 0.089955 and 0.149925.
 - Admin pricing now has a model filter (default all models). It hides table rows only, hides empty sections, and save still reads every row, so filtered-out prices are not dropped.
 - Verification: `node --check admin.js server.parts/part-01.js server.parts/part-02.js` passed; `node --require ./test/source-compat.js --test test/advanced-pricing.test.js` passed 26/26; `git diff --check` passed.
-- Deployment status: pending selective commit, platform release snapshot, `platform-release` push, and Old-only deployment. Live must not be deployed.
+- Deployment completed: `old-site` `a519959`; `platform-release` / `origin/platform-release` `f7c9a1d`; deployed Old only via `scripts/deploy_local.sh --site old`. `/api/health` returned 200 `{"ok":true}`; production `admin.js`/`admin.css` contain the model filter. Rollback release `f6a08d8`. Live was not deployed.
