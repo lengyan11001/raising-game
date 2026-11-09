@@ -267,10 +267,12 @@ function generationRecordResultAssetMediaFields(asset = {}) {
       localVideoUrl: localMediaUrl,
       cdnVideoUrl: storedMediaUrl,
       videoUrl: storedMediaUrl || localMediaUrl,
+      storageProvider: String(asset.storageProvider || "").trim(),
       storageKey,
       localPosterUrl,
       cdnPosterUrl: storedPosterUrl,
       posterUrl: storedPosterUrl || localPosterUrl,
+      posterStorageProvider: String(asset.posterStorageProvider || "").trim(),
       posterStorageKey,
     };
   }
@@ -278,6 +280,7 @@ function generationRecordResultAssetMediaFields(asset = {}) {
     localImageUrl: localMediaUrl,
     cdnImageUrl: storedMediaUrl,
     imageResultUrl: storedMediaUrl || localMediaUrl,
+    storageProvider: String(asset.storageProvider || "").trim(),
     storageKey,
   };
 }
@@ -337,6 +340,49 @@ function hydrateGenerationRecordMediaAssetsWithMap(record = {}, assetsById = new
   return hydrateGenerationRecordResultAsset({ ...record, mediaAssets }, assetsById.get(String(record.resultAssetId || "").trim()));
 }
 
+function generationRecordResultAssetBackfillPatch(original = {}, hydrated = {}) {
+  if (!String(hydrated?.resultAssetId || "").trim()) return {};
+  const video = Boolean(String(hydrated.localVideoUrl || hydrated.cdnVideoUrl || "").trim());
+  const fields = {
+    ...(video ? {
+      localVideoUrl: hydrated.localVideoUrl || "",
+      cdnVideoUrl: hydrated.cdnVideoUrl || "",
+      videoUrl: hydrated.videoUrl || hydrated.cdnVideoUrl || hydrated.localVideoUrl || "",
+      localPosterUrl: hydrated.localPosterUrl || "",
+      cdnPosterUrl: hydrated.cdnPosterUrl || "",
+      posterUrl: hydrated.posterUrl || hydrated.cdnPosterUrl || hydrated.localPosterUrl || "",
+      posterStorageProvider: hydrated.posterStorageProvider || "",
+      posterStorageKey: hydrated.posterStorageKey || "",
+    } : {
+      localImageUrl: hydrated.localImageUrl || "",
+      cdnImageUrl: hydrated.cdnImageUrl || "",
+      imageResultUrl: hydrated.imageResultUrl || hydrated.cdnImageUrl || hydrated.localImageUrl || "",
+    }),
+    storageProvider: hydrated.storageProvider || "",
+    storageKey: hydrated.storageKey || "",
+  };
+  return Object.fromEntries(Object.entries(fields).filter(([key, value]) => (
+    String(value || "").trim() && !String(original?.[key] || "").trim()
+  )));
+}
+
+async function persistGenerationRecordResultAssetMediaBackfill(original = {}, hydrated = {}) {
+  const taskId = String(hydrated?.taskId || original?.taskId || "").trim();
+  const patch = generationRecordResultAssetBackfillPatch(original, hydrated);
+  if (!taskId || !Object.keys(patch).length || !dbEnabled()) return hydrated;
+  const updated = await backfillGenerationRecordResultAssetMediaFieldsInDb(taskId, patch);
+  return updated ? { ...hydrated, ...updated } : hydrated;
+}
+
+async function persistGenerationRecordResultAssetMediaBackfills(originals = [], hydratedRecords = []) {
+  const originalByTaskId = new Map((Array.isArray(originals) ? originals : [originals])
+    .map((record) => [String(record?.taskId || "").trim(), record])
+    .filter(([taskId]) => taskId));
+  return Promise.all((Array.isArray(hydratedRecords) ? hydratedRecords : [hydratedRecords]).map((record) => (
+    persistGenerationRecordResultAssetMediaBackfill(originalByTaskId.get(String(record?.taskId || "").trim()) || record, record)
+  )));
+}
+
 async function hydrateGenerationRecordMediaAssets(records = [], userId = "") {
   const list = (Array.isArray(records) ? records : [records]).filter(Boolean);
   if (!list.length) return Array.isArray(records) ? records : records;
@@ -346,6 +392,44 @@ async function hydrateGenerationRecordMediaAssets(records = [], userId = "") {
   const assetsById = new Map(assets.map((asset) => [String(asset.id || "").trim(), asset]).filter(([id]) => id));
   const hydrated = list.map((record) => hydrateGenerationRecordMediaAssetsWithMap(record, assetsById));
   return Array.isArray(records) ? hydrated : hydrated[0];
+}
+
+let resultAssetMediaBackfillRunning = false;
+
+async function scanGenerationRecordResultAssetMediaBackfill(reason = "timer") {
+  if (resultAssetMediaBackfillRunning || !dbEnabled()) return;
+  resultAssetMediaBackfillRunning = true;
+  try {
+    const records = await getGenerationRecordsNeedingResultAssetMediaBackfillFromDb({ limit: 50 });
+    let updated = 0;
+    for (const record of records) {
+      const asset = await getUserAssetFromDb(String(record.resultAssetId || "").trim());
+      if (!asset || String(asset.userId || "") !== String(record.userId || "")) continue;
+      const hydrated = hydrateGenerationRecordResultAsset(record, asset);
+      const patch = generationRecordResultAssetBackfillPatch(record, hydrated);
+      if (!Object.keys(patch).length) {
+        await backfillGenerationRecordResultAssetMediaFieldsInDb(record.taskId, {
+          resultAssetMediaBackfillCompletedAt: new Date().toISOString(),
+        });
+        continue;
+      }
+      const saved = await backfillGenerationRecordResultAssetMediaFieldsInDb(record.taskId, {
+        ...patch,
+        resultAssetMediaBackfillCompletedAt: new Date().toISOString(),
+      });
+      if (saved) updated += 1;
+    }
+    if (updated || records.length) console.log("[generation-result-asset-backfill]", reason, { scanned: records.length, updated });
+  } catch (error) {
+    console.warn("[generation-result-asset-backfill-scan-failed]", error.message || error);
+  } finally {
+    resultAssetMediaBackfillRunning = false;
+  }
+}
+
+function startGenerationRecordResultAssetMediaBackfillScheduler() {
+  setTimeout(() => scanGenerationRecordResultAssetMediaBackfill("startup"), 15000).unref?.();
+  setInterval(() => scanGenerationRecordResultAssetMediaBackfill("timer"), 5 * 60 * 1000).unref?.();
 }
 
 async function handleListGenerationRecords(req, res, url) {
@@ -392,9 +476,10 @@ async function handleListGenerationRecords(req, res, url) {
   }
 
   const hydratedRecords = await hydrateGenerationRecordMediaAssets(ownRecords, auth.user.id);
+  const persistedRecords = await persistGenerationRecordResultAssetMediaBackfills(ownRecords, hydratedRecords);
   return sendJson(res, 200, {
     ok: true,
-    records: hydratedRecords.map((record) => publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth))),
+    records: persistedRecords.map((record) => publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth))),
     page,
     limit,
     total,
@@ -734,7 +819,9 @@ async function handleGetGenerationRecord(req, res, taskId) {
   }
 
   let nextRecord = await hydrateVegaRecordMediaAssetIds(record, auth.user.id);
+  const recordBeforeResultAssetHydration = nextRecord;
   nextRecord = await hydrateGenerationRecordMediaAssets(nextRecord, auth.user.id);
+  nextRecord = await persistGenerationRecordResultAssetMediaBackfill(recordBeforeResultAssetHydration, nextRecord);
   if (isStalePreSubmitGenerationRecord(nextRecord)) {
     nextRecord = await failStalePreSubmitGenerationRecord(nextRecord, "detail-stale-submit");
   } else if (needsApizFailureRefund(nextRecord)) {

@@ -103,10 +103,11 @@ function generationMediaRuntime(assetsById = new Map(), overrides = {}) {
       extractFunction(serverSource, "generationRecordMediaAssetIds"),
       extractFunction(serverSource, "generationRecordResultAssetMediaFields"),
       extractFunction(serverSource, "hydrateGenerationRecordResultAsset"),
+      extractFunction(serverSource, "generationRecordResultAssetBackfillPatch"),
       extractFunction(serverSource, "hydratedGenerationRecordMediaAsset"),
       extractFunction(serverSource, "hydrateGenerationRecordMediaAssetsWithMap"),
       extractFunction(serverSource, "hydrateGenerationRecordMediaAssets"),
-      "return { generationRecordMediaAssetIds, hydrateGenerationRecordMediaAssets };",
+      "return { generationRecordMediaAssetIds, hydrateGenerationRecordMediaAssets, generationRecordResultAssetBackfillPatch };",
     ].join("\n"),
   )(
     async ({ userId, assetIds }) => assetIds.map((id) => assetsById.get(id)).filter(Boolean),
@@ -689,4 +690,34 @@ test("Public user assets return the full address set for the frontend fallback c
   assert.match(publicAsset, /posterUrl: deliveryPosterUrl/);
   assert.match(publicAsset, /localPosterUrl/);
   assert.doesNotMatch(publicAsset, /previewUrl: asset\.localUrl \|\|/);
+});
+
+test("Result asset hydration backfills only missing durable media fields", async () => {
+  const asset = {
+    id: "asset-result-video",
+    kind: "video",
+    mime: "video/mp4",
+    localUrl: "/assets/user-uploads/user-1/result.mp4",
+    cdnUrl: "https://assets-cdn.example.com/result.mp4",
+    objectStorageKey: "assets/user-uploads/user-1/result.mp4",
+    localPosterUrl: "/assets/user-uploads/user-1/result.poster.jpg",
+    posterUrl: "https://assets-cdn.example.com/result.poster.jpg",
+    posterStorageKey: "assets/user-uploads/user-1/result.poster.jpg",
+  };
+  const record = {
+    taskId: "cgt-backfill",
+    userId: "user-1",
+    status: "succeeded",
+    resultAssetId: asset.id,
+    localPosterUrl: "/existing/poster.jpg",
+  };
+  const { hydrateGenerationRecordMediaAssets, generationRecordResultAssetBackfillPatch } = generationMediaRuntime(new Map([[asset.id, asset]]));
+  const hydrated = await hydrateGenerationRecordMediaAssets(record, "user-1");
+  const patch = generationRecordResultAssetBackfillPatch(record, hydrated);
+  assert.equal(patch.localVideoUrl, asset.localUrl);
+  assert.equal(patch.cdnVideoUrl, asset.cdnUrl);
+  assert.equal(patch.storageKey, asset.objectStorageKey);
+  assert.equal(patch.cdnPosterUrl, asset.posterUrl);
+  assert.equal(patch.localPosterUrl, undefined, "existing fields must never be overwritten");
+  assert.deepEqual(generationRecordResultAssetBackfillPatch({ taskId: "plain" }, { taskId: "plain", cdnVideoUrl: "https://example.com/v.mp4" }), {});
 });

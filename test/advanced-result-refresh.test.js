@@ -279,3 +279,22 @@ test("history thumbnails degrade once instead of repeatedly loading a broken URL
   assert.match(source, /poster\.hidden = true/);
   assert.match(source, /button\.classList\.add\("is-poster-missing"\)/);
 });
+
+test("durable generated media is never hidden by the 24 hour provider TTL", () => {
+  const ui = fs.readFileSync(path.join(root, "platform.ui.parts", "part-02.js"), "utf8");
+  const legacy = fs.readFileSync(path.join(root, "app.js"), "utf8");
+  const uiRuntime = new Function(
+    "GENERATION_RESULT_TTL_MS",
+    `${extractFunction(ui, "generationResultTimestamp")}\n${extractFunction(ui, "isGenerationResultExpired")}\nreturn { isGenerationResultExpired };`,
+  )(24 * 60 * 60 * 1000);
+  const legacyRuntime = new Function(
+    "GENERATION_RESULT_TTL_MS",
+    `${extractFunction(legacy, "isGenerationResultExpired")}\nreturn { isGenerationResultExpired };`,
+  )(24 * 60 * 60 * 1000);
+  for (const runtime of [uiRuntime, legacyRuntime]) {
+    const old = { createdAt: "2025-01-01T00:00:00.000Z" };
+    assert.equal(runtime.isGenerationResultExpired({ ...old, cdnPosterUrl: "https://cdn.example.com/poster.jpg" }), false);
+    assert.equal(runtime.isGenerationResultExpired({ ...old, localVideoUrl: "/assets/generated/video.mp4" }), false);
+    assert.equal(runtime.isGenerationResultExpired(old), true);
+  }
+});

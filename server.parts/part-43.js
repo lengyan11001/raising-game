@@ -452,6 +452,7 @@ async function bootstrap() {
   startLocalMediaCleanupScheduler();
   startMediaIngestWorkerScheduler();
   startGenerationRecordMediaRecoveryScheduler();
+  startGenerationRecordResultAssetMediaBackfillScheduler();
   startChatLiveSettlementScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {

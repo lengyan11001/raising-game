@@ -709,24 +709,14 @@ function startVideoToolUploadCleanupScheduler() {
 }
 
 async function cleanupStaleLocalMedia() {
-  const cutoffMs = Date.now() - LOCAL_MEDIA_RETENTION_MS;
-  try {
-    const uploads = await removeExpiredFiles(USER_UPLOAD_DIR, cutoffMs);
-    const generatedDirs = [GENERATED_VIDEO_DIR, GENERATED_POSTER_DIR, GENERATED_IMAGE_DIR];
-    const published = await removeExpiredPublishedFiles(generatedDirs, Date.now() - 10 * 60 * 1000);
-    let generated = { files: 0, bytes: 0 };
-    for (const dir of generatedDirs) {
-      const removed = await removeExpiredFiles(dir, Date.now() - LOCAL_MEDIA_RETENTION_MS);
-      generated.files += removed.files;
-      generated.bytes += removed.bytes;
-    }
-    generated.files += published.files;
-    generated.bytes += published.bytes;
-    if (uploads.files || generated.files) {
-      console.log("[local-media-cleanup]", { uploads, generated, retentionHours: 24, generatedRetention: "24h-after-publish-10m" });
-    }
-  } catch (error) {
-    console.warn("[local-media-cleanup-failed]", error.message || error);
+  // Generated results and uploaded source media are business data referenced by
+  // PostgreSQL generation/asset records. Deleting them by file age can make a
+  // completed thumbnail, preview, or playback disappear even though the record
+  // still exists. Keep this scheduler entry point for deployment compatibility
+  // but only clean abandoned chunk-upload temporary directories above.
+  if (!cleanupStaleLocalMedia.disabledLogged) {
+    console.log("[local-media-cleanup-disabled] business media retention is permanent");
+    cleanupStaleLocalMedia.disabledLogged = true;
   }
 }
 
@@ -754,61 +744,17 @@ async function deleteStoredGeneratedObject(key = "", provider = objectStoragePro
 
 let generatedR2ExpiryRunning = false;
 async function expireGeneratedR2Objects() {
+  // Successfully generated results are user data, not disposable cache. The
+  // old hourly retention job removed the only durable copy after 24 hours and
+  // made historical thumbnails/playback disappear. Keep the scheduler entry
+  // point for operational compatibility, but never purge successful outputs.
   if (generatedR2ExpiryRunning || !generatedOutputStorageEnabled() || !dbEnabled()) return;
   generatedR2ExpiryRunning = true;
   try {
-    const { rows } = await dbQuery(`
-      SELECT task_id, payload
-      FROM app_generation_records
-      WHERE COALESCE(NULLIF(payload->>'completedAt', ''), NULLIF(payload->>'createdAt', ''))::timestamptz < NOW() - INTERVAL '24 hours'
-        AND COALESCE(NULLIF(payload->>'completedAt', ''), NULLIF(payload->>'createdAt', ''))::timestamptz > NOW() - INTERVAL '3 days'
-        AND COALESCE(payload->>'r2PurgedAt', '') = ''
-        AND (
-          COALESCE(payload->>'cdnVideoUrl', '') <> ''
-          OR COALESCE(payload->>'cdnImageUrl', '') <> ''
-          OR COALESCE(payload->>'cdnPosterUrl', '') <> ''
-        )
-      ORDER BY created_at ASC
-      LIMIT 25
-    `);
-    for (const row of rows || []) {
-      const payload = row.payload || {};
-      const urls = [
-        payload.cdnVideoUrl,
-        payload.cdnPosterUrl,
-        payload.cdnImageUrl,
-        ...(Array.isArray(payload.cdnImageUrls) ? payload.cdnImageUrls : []),
-      ];
-      for (const url of urls) {
-        const storage = objectStorageDownloadKey({ objectStorageUrl: url });
-        if (!storage.key) continue;
-        await deleteStoredGeneratedObject(storage.key, storage.provider).catch((error) => {
-          console.warn("[generated-r2-delete-failed]", row.task_id, error.message || error);
-        });
-      }
-      await dbQuery(`
-        UPDATE app_generation_records
-        SET payload = payload || jsonb_build_object(
-            'r2PurgedAt', $2::text,
-            'cdnVideoUrl', '',
-            'cdnPosterUrl', '',
-            'cdnImageUrl', '',
-            'cdnImageUrls', '[]'::jsonb,
-            'localVideoUrl', '',
-            'localVideoPath', '',
-            'localPosterUrl', '',
-            'localPosterPath', '',
-            'localImageUrl', '',
-            'remoteVideoUrl', '',
-            'error', ''
-          ),
-          updated_at = NOW()
-        WHERE task_id = $1
-      `, [row.task_id, new Date().toISOString()]);
+    if (!expireGeneratedR2Objects.disabledLogged) {
+      console.log("[generated-r2-expiry-disabled] successful generation media retention is permanent");
+      expireGeneratedR2Objects.disabledLogged = true;
     }
-    if ((rows || []).length) console.log("[generated-r2-expired]", (rows || []).length);
-  } catch (error) {
-    console.warn("[generated-r2-expiry-failed]", error.message || error);
   } finally {
     generatedR2ExpiryRunning = false;
   }

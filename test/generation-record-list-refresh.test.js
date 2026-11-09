@@ -63,7 +63,7 @@ test("completed records stay complete while R2 publication catches up", () => {
   const start = server.indexOf("function publicGenerationRecord");
   const end = server.indexOf("function generationRecordTime", start + 1);
   const source = server.slice(start, end);
-  assert.match(source, /const deliveryVideoUrl = signedOssCdnUrlForDelivery\(cdnUrl/s);
+  assert.match(source, /const deliveryVideoUrl = deliverableStoredMediaUrl\(cdnUrl/s);
   assert.match(source, /const publicVideoUrl = .*?deliveryVideoUrl \|\| providerVideoUrl \|\| localUrl/s);
   assert.match(source, /r2DownloadReady:/);
   assert.doesNotMatch(source, /publicRecord\.status = "running"/);

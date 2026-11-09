@@ -388,9 +388,21 @@ function generationResultTimestamp(record = {}) {
 
 function isGenerationResultExpired(record = {}) {
   const timestamp = generationResultTimestamp(record);
-  // Once a task is older than the provider's 24-hour result window, hide all
-  // media uniformly, including records whose provider URL is already gone.
-  return Boolean(timestamp && Date.now() - timestamp >= GENERATION_RESULT_TTL_MS);
+  if (!timestamp || Date.now() - timestamp < GENERATION_RESULT_TTL_MS) return false;
+  // Provider links expire, but a durable CDN/local result does not. Only hide
+  // a historical result when every stored copy is genuinely unavailable.
+  return !Boolean(
+    record?.cdnVideoUrl
+    || record?.localVideoUrl
+    || record?.cdnPosterUrl
+    || record?.localPosterUrl
+    || record?.posterUrl
+    || record?.cdnImageUrl
+    || record?.localImageUrl
+    || record?.imageResultUrl
+    || (Array.isArray(record?.cdnImageUrls) && record.cdnImageUrls.some((item) => String(item || "").trim()))
+    || (Array.isArray(record?.localImageUrls) && record.localImageUrls.some((item) => String(item || "").trim()))
+  );
 }
 
 function generationExpiredPlaceholderUrl() {

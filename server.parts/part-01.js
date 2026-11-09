@@ -112,11 +112,7 @@ const {
   referenceVideoDurationViolation,
 } = require("./media-inputs");
 const {
-  LOCAL_MEDIA_RETENTION_MS,
-  markPublishedFile,
   markPublishedFileSafely,
-  removeExpiredFiles,
-  removeExpiredPublishedFiles,
 } = require("./local-media-retention");
 const {
   smtpConfig,
@@ -324,6 +320,8 @@ const {
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
   updateGenerationRecordAdvancedDownloadInDb,
+  backfillGenerationRecordResultAssetMediaFieldsInDb,
+  getGenerationRecordsNeedingResultAssetMediaBackfillFromDb,
   enqueueMediaIngestJobInDb,
   claimMediaIngestJobInDb,
   claimNextMediaIngestJobsInDb,

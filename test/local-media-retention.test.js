@@ -67,6 +67,8 @@ test("server schedules hourly local-media cleanup and marks R2 outputs", async (
   const server = await fs.readFile(path.resolve(__dirname, "..", "server.js"), "utf8");
   assert.match(server, /startLocalMediaCleanupScheduler\(\);/);
   assert.match(server, /setInterval\(\(\) => cleanupStaleLocalMedia\(\), 5 \* 60 \* 1000\)/);
+  assert.match(server, /async function cleanupStaleLocalMedia\(\)[\s\S]*?business media retention is permanent/);
+  assert.doesNotMatch(server, /async function cleanupStaleLocalMedia\(\)[\s\S]*?removeExpiredFiles\(USER_UPLOAD_DIR/);
   assert.match(server, /await markPublishedFileSafely\(localVideoPath\)/);
   assert.match(server, /await markPublishedFileSafely\(localPosterPath\)/);
   assert.match(server, /await markPublishedFileSafely\(localImagePath\)/);
@@ -109,13 +111,20 @@ test("generation records recover delayed R2 publication automatically", async ()
   assert.match(await fs.readFile(path.resolve(__dirname, "..", "db.js"), "utf8"), /payload->>'localImagePath'/);
 });
 
-test("expired generated media is terminal and never retried from provider URLs", async () => {
+test("successful generated media retention is permanent and never purged by age", async () => {
   const server = await fs.readFile(path.resolve(__dirname, "..", "server.js"), "utf8");
   const db = await fs.readFile(path.resolve(__dirname, "..", "db.js"), "utf8");
   assert.match(server, /function generationRecordR2Expired\(record = \{\}\)/);
   assert.match(server, /function shouldRefreshGenerationRecord[\s\S]*?if \(generationRecordR2Expired\(record\)\) return false;/);
   assert.match(server, /function generationRecordNeedsMediaMaintenance[\s\S]*?generationRecordR2Expired\(record\)/);
   assert.match(server, /function generationRecordR2PublicationPending[\s\S]*?generationRecordR2Expired\(record\)/);
-  assert.match(server, /'localVideoUrl', ''[\s\S]*?'remoteVideoUrl', ''[\s\S]*?'error', ''/);
-  assert.match(db, /COALESCE\(payload->>'r2PurgedAt', ''\) = ''/);
+  assert.match(server, /async function expireGeneratedR2Objects\(\)[\s\S]*?successful generation media retention is permanent/);
+  assert.doesNotMatch(server, /'localVideoUrl', ''[\s\S]*?'remoteVideoUrl', ''[\s\S]*?'error', ''/);
+  assert.match(db, /async function backfillGenerationRecordResultAssetMediaFieldsInDb/);
+  assert.match(db, /async function getGenerationRecordsNeedingResultAssetMediaBackfillFromDb/);
+  assert.match(db, /JOIN app_user_assets assets[\s\S]*?assets\.user_id = records\.payload->>'userId'/);
+  assert.match(db, /assets\.id = records\.payload->>'resultAssetId'/);
+  assert.match(server, /startGenerationRecordResultAssetMediaBackfillScheduler\(\);/);
+  assert.match(server, /scanGenerationRecordResultAssetMediaBackfill\("startup"\)/);
+  assert.match(db, /COALESCE\(NULLIF\(payload->>'\$\{key\}', ''\), \$\$\{index\}::text\)/);
 });

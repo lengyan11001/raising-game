@@ -6832,6 +6832,82 @@ async function failMediaIngestJobInDb(taskId = "", error = "", {
   return rows[0] || null;
 }
 
+async function getGenerationRecordsNeedingResultAssetMediaBackfillFromDb({ limit = 25 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit || 25) || 25)));
+  const { rows } = await query(`
+    SELECT records.payload
+    FROM app_generation_records records
+    JOIN app_user_assets assets
+      ON assets.user_id = records.payload->>'userId'
+     AND assets.id = records.payload->>'resultAssetId'
+     AND assets.deleted_at IS NULL
+    WHERE COALESCE(records.payload->>'deletedAt', '') = ''
+      AND LOWER(COALESCE(records.payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+      AND COALESCE(records.payload->>'resultAssetId', '') <> ''
+      AND (
+        COALESCE(records.payload->>'cdnVideoUrl', '') = ''
+        OR COALESCE(records.payload->>'cdnPosterUrl', '') = ''
+        OR COALESCE(records.payload->>'cdnImageUrl', '') = ''
+      )
+      AND COALESCE(records.payload->>'resultAssetMediaBackfillCompletedAt', '') = ''
+    ORDER BY records.created_at DESC, records.task_id DESC
+    LIMIT $1
+  `, [safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
+async function backfillGenerationRecordResultAssetMediaFieldsInDb(taskId = "", fields = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  const allowedKeys = [
+    "localVideoUrl",
+    "cdnVideoUrl",
+    "videoUrl",
+    "storageProvider",
+    "storageKey",
+    "localPosterUrl",
+    "cdnPosterUrl",
+    "posterUrl",
+    "posterStorageProvider",
+    "posterStorageKey",
+    "localImageUrl",
+    "cdnImageUrl",
+    "imageResultUrl",
+    "resultAssetMediaBackfillCompletedAt",
+  ];
+  const entries = allowedKeys
+    .filter((key) => Object.prototype.hasOwnProperty.call(fields || {}, key))
+    .map((key) => [key, String(fields[key] || "").trim()])
+    .filter(([, value]) => value);
+  if (!entries.length) return getGenerationRecordFromDb(id);
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const params = [id];
+  const values = entries.map(([key, value]) => {
+    params.push(value);
+    const index = params.length;
+    return `'${key}', COALESCE(NULLIF(payload->>'${key}', ''), $${index}::text)`;
+  });
+  params.push(now);
+  const nowIndex = params.length;
+  const sql = [
+    "UPDATE app_generation_records",
+    "SET payload = payload || jsonb_build_object(",
+    `      ${values.join(",\n      ")}`,
+    `      , 'updatedAt', $${nowIndex}::text`,
+    "      , 'lastUpdateReason', 'result-asset-media-backfill'",
+    "    ),",
+    `    updated_at = $${nowIndex}::timestamptz`,
+    "WHERE task_id = $1",
+    "RETURNING payload",
+  ].join("\n");
+  const { rows } = await query(sql, params);
+  return rows[0]?.payload || null;
+}
+
 async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates = {}) {
   if (!dbEnabled()) return null;
   const id = String(taskId || "").trim();
@@ -8108,6 +8184,8 @@ module.exports = {
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
   updateGenerationRecordAdvancedDownloadInDb,
+  backfillGenerationRecordResultAssetMediaFieldsInDb,
+  getGenerationRecordsNeedingResultAssetMediaBackfillFromDb,
   enqueueMediaIngestJobInDb,
   claimMediaIngestJobInDb,
   claimNextMediaIngestJobsInDb,
