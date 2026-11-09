@@ -2250,4 +2250,4 @@ CODEX_TASK_STATE.md
 - Changed: `server.parts/part-21.js`, `server.parts/part-41.js`, `server.parts/part-20.js`, `platform.ui.parts/part-02.js`, `test/generation-record-list-refresh.test.js`. History-page refresh remains authoritative and is not shallow-merged.
 - Verification: source-compat focused suites 43/43; syntax and `git diff --check` pass.
 - Rollback: rebuild/deploy `9721267`/release `c3ad172`; no database migration.
-- Deployment: source `09320dd`; release snapshot / `platform-release` = `a8a338e`; deployed Old only. Production commit `a8a338e`; `/api/health` 200; service restarted normally; production `platform.ui.parts/part-02.js` contains `poll=1`, merge, and visibility refresh logic. Live was not pushed or deployed.
+- Deployment: source `e49b8f7`; release snapshot / `platform-release` = `d2c5b6e`; deployed Old only. Production commit `d2c5b6e`; `/api/health` 200; service restarted normally; production `platform.ui.parts/part-02.js` contains `poll=1`, merge, and visibility refresh logic. Live was not pushed or deployed.
