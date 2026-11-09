@@ -1862,3 +1862,12 @@ CODEX_TASK_STATE.md
 - Verification: focused security/media/deploy/generation regression passed `49/49`; `git diff --check` and JavaScript syntax checks passed. Earlier live old-session checks (4 normal-user APIs and 3 admin APIs all `200`) and production signed-media upload/read/delete smoke remain valid.
 - Credential handling lesson: never pass `DATABASE_URL` as a shell/Python argument; load environment and use disconnected stdout/stderr handling. Two prior diagnostic exposures were already rotated, old credentials rejected, new credentials verified, service healthy, and sessions preserved.
 - Still open, explicitly not claimed complete: (1) Cloudflare purge for `/assets/user-uploads/`, `/assets/user-characters/`, `/assets/generated/characters/apiz/`, `/assets/generated/panoramas/`, `/assets/admin/voice-preview/` requires an external purge credential; (2) Cloudflare 1010 browser-signature policy may reject real non-browser API clients and needs an allow-rule decision; (3) Node remains root; (4) four root SSH key owners require business confirmation; (5) auditd/AppArmor/SELinux remain disabled.
+
+## 2026-11-09 Google login `tenantid is not defined` production fix
+
+- User-reported failure: Google login returned `Google login failed: tenantid is not defined`.
+- Root cause: `handleGoogleLogin()` called `getUserByGoogleIdInDb(..., tenantId)` although the request descriptor is stored in `tenant`. The risk-control rules were not the cause.
+- Fix: use `tenant.tenantId` in the existing Google-account lookup. Added a static regression test to prevent the undefined-variable form from returning.
+- Verification: focused auth/session/media/deployment/generation suite passed 50/50; `node --check` for the source and regression test passed; scoped `git diff --check` passed.
+- Safety constraints: no session deletion or invalidation; no JSON business-data fallback; Old only; do not touch or deploy Live.
+- Deployment: pending at the time this entry was written.

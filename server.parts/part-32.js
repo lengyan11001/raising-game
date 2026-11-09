@@ -989,7 +989,7 @@ async function handleGoogleLogin(req, res) {
   if (!googleRisk.ok) return authRateLimitedResponse(res, googleRisk);
   try {
     const claims = await verifyGoogleIdToken(body.credential || body.idToken || body.id_token || "");
-    const existingGoogleAccount = await getUserByGoogleIdInDb(String(claims.sub || claims.googleId || ""), tenantId);
+    const existingGoogleAccount = await getUserByGoogleIdInDb(String(claims.sub || claims.googleId || ""), tenant.tenantId);
     if (existingGoogleAccount?.riskStatus === "quarantined") {
       return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
     }

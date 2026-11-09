@@ -311,3 +311,12 @@ test("Telegram support binding updates one message instead of rewriting all acco
   assert.match(update[0], /SET user_id = CASE WHEN \$2 <> '' THEN \$2 ELSE user_id END/);
   assert.match(update[0], /payload = payload \|\| \$3::jsonb/);
 });
+
+test("Google login uses the request tenant descriptor instead of an undefined tenantId", () => {
+  const auth = read("server.parts/part-32.js");
+  const handler = auth.match(/async function handleGoogleLogin[\s\S]*?\n}\r?\n\r?\nasync function handleMe/);
+  assert.ok(handler, "Google login handler should exist");
+  assert.match(handler[0], /const tenant = requestTenantDescriptor\(req\)/);
+  assert.match(handler[0], /getUserByGoogleIdInDb\([^;]+tenant\.tenantId\)/);
+  assert.doesNotMatch(handler[0], /getUserByGoogleIdInDb\([^;]+,\s*tenantId\)/);
+});
