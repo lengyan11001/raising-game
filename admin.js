@@ -2156,6 +2156,7 @@ function recordPreviewHtml(record) {
       className: "adm-record-detail-media-preview",
       style: recordRatioStyle(record),
       preloadVideo: false,
+      inline: true,
     });
   }
   if (imageResult) return `<img src="${escapeHtml(imageResult)}" alt="" />`;
@@ -2863,6 +2864,20 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
       copyText(Object.prototype.hasOwnProperty.call(textMap, key) ? textMap[key] : jsonText(key));
     });
   });
+  const inlinePreview = bodyEl.querySelector("[data-admin-media-inline]");
+  if (inlinePreview) {
+    inlinePreview.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const source = String(inlinePreview.dataset.mediaUrl || "").trim();
+      const container = inlinePreview.parentElement;
+      if (!source || !container) return;
+      container.innerHTML = `<video src="${escapeHtml(source)}" controls autoplay playsinline preload="metadata" style="${escapeHtml(recordRatioStyle(record))}"></video>`;
+      const video = container.querySelector("video");
+      if (video?.play) video.play().catch(() => {});
+      refreshIcons();
+    });
+  }
   const referenceByIndex = new Map([
     ...recordImageAssets(record),
     ...recordReferenceVideoAssets(record),
@@ -4231,7 +4246,7 @@ function adminMediaPreviewType(url = "", kind = "") {
   return "image";
 }
 
-function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", className = "", poster = "", style = "", preloadVideo = true } = {}) {
+function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", className = "", poster = "", style = "", preloadVideo = true, inline = false } = {}) {
   const source = String(url || "").trim();
   if (!source) return '<span class="adm-media-preview-empty">未上传</span>';
   const type = adminMediaPreviewType(source, kind);
@@ -4245,7 +4260,8 @@ function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", class
       ? `<video src="${escapeHtml(thumbSource)}"${posterAttr} muted playsinline preload="metadata"></video><span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
       : `<span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
     : `<img src="${escapeHtml(source)}" alt="" draggable="false" loading="lazy" />`;
-  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}${type === "video" && !preloadVideo ? " adm-media-preview-no-preload" : ""}"${styleAttr} data-admin-media-preview data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">${type === "video" ? "播放" : "预览"}</span></button>`;
+  const previewAttribute = inline ? "data-admin-media-inline" : "data-admin-media-preview";
+  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}${type === "video" && !preloadVideo ? " adm-media-preview-no-preload" : ""}"${styleAttr} ${previewAttribute} data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">${type === "video" ? "播放" : "预览"}</span></button>`;
 }
 
 function closeAdminMediaPreview() {

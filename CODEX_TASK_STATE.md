@@ -1,3 +1,9 @@
+## 2026-11-09 admin generation detail inline playback
+
+- Result videos in the admin generation-record detail now use an inline deferred player: the detail dialog initially shows only a play trigger, and clicking it replaces that preview area with a playable `<video>` in the same dialog.
+- The global media-lightbox handler is no longer used for the detail result, so it does not create a second modal behind/outside the detail dialog. Reference-material tiles still use the existing enlarged-preview behavior.
+- `adminMediaPreviewTrigger` supports an `inline` mode via `data-admin-media-inline`; targeted admin preview/list suites pass 14/14.
+
 ## 2026-11-09 admin generation detail playback CDN preference
 
 - Follow-up to deferred loading: detail playback was still slower because `recordPreviewHtml()` preferred `adminResultPreviewUrl` (the `/api/admin/.../media` proxy) over the same signed CDN/provider URL used by the fast list preview.

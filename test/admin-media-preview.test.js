@@ -68,6 +68,10 @@ test("admin media preview selects images, videos, and audio without autoplaying 
   assert.match(lazyVideo, /adm-media-preview-no-preload/);
   assert.match(lazyVideo, /data-media-url="https:\/\/cdn\.test\/a\.mp4"/);
 
+  const inlineVideo = adminMediaPreviewTrigger({ url: "https://cdn.test/a.mp4", kind: "video", preloadVideo: false, inline: true });
+  assert.match(inlineVideo, /data-admin-media-inline/);
+  assert.doesNotMatch(inlineVideo, /data-admin-media-preview/);
+
   const audio = adminMediaPreviewTrigger({ url: "https://cdn.test/a.mp3", kind: "ambient-music", label: "环境音乐" });
   assert.match(audio, /<audio class="adm-media-preview-audio" src="https:\/\/cdn\.test\/a\.mp3" controls preload="metadata"><\/audio>/);
 });
@@ -90,11 +94,13 @@ test("generation record detail defers video loading until the preview is clicked
   assert.match(source, /adminMediaPreviewTrigger\(\{/);
   assert.match(source, /className: "adm-record-detail-media-preview"/);
   assert.match(source, /preloadVideo: false/);
+  assert.match(source, /inline: true/);
   assert.match(source, /const directVideo = adminPreviewMediaUrl\(recordVideoUrl\(record\)\)/);
   assert.match(source, /const playbackVideo = directVideo \|\| localVideo/);
   assert.match(source, /url: playbackVideo/);
   assert.doesNotMatch(source, /<video src=/);
   assert.doesNotMatch(admin, /previewVideo\.load\(\)/);
+  assert.match(admin, /querySelector\("\[data-admin-media-inline\]"\).*?container\.innerHTML = `<video src=/s);
   assert.match(css, /\.adm-record-detail-media-preview\s*\{[\s\S]*?aspect-ratio:\s*var\(--video-ratio/);
 
   const referenceStart = admin.indexOf("function recordImageAssetsHtml(");
