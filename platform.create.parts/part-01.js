@@ -844,6 +844,45 @@ function advancedResultStableRenderHtml(html = "") {
     .replace(/[?&](?=["'\s<])/g, "");
 }
 
+function advancedResultMediaObjectKey(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text, window.location.href);
+    // The path identifies the stored object. Delivery signatures and image
+    // transforms can rotate between API responses and must not replace an
+    // already loaded thumbnail.
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return text.split(/[?#]/, 1)[0];
+  }
+}
+
+function advancedResultMediaIdentity({
+  resultExpired = false,
+  imageUrls = [],
+  videoUrl = "",
+  posterUrl = "",
+  textResult = "",
+  status = "",
+  ratio = "",
+} = {}) {
+  if (resultExpired) return JSON.stringify(["expired"]);
+  if (imageUrls.length) {
+    return JSON.stringify(["image", imageUrls.map(advancedResultMediaObjectKey)]);
+  }
+  if (videoUrl || posterUrl) {
+    return JSON.stringify([
+      "video",
+      advancedResultMediaObjectKey(videoUrl),
+      advancedResultMediaObjectKey(posterUrl),
+      ratio,
+    ]);
+  }
+  if (textResult) return JSON.stringify(["text", textResult]);
+  return JSON.stringify(["placeholder", status]);
+}
+
 function advancedResultSignedMediaNeedsRefresh(value = "") {
   const text = String(value || "").trim();
   if (!text) return true;
@@ -998,17 +1037,17 @@ function advancedResultCardView(record = {}, index = 0) {
       </button>
     </div>
   `;
-  const mediaKey = JSON.stringify([
+  const mediaKey = advancedResultMediaIdentity({
     resultExpired,
-    ratio,
-    isSucceeded,
-    statusClass(record.status),
-    advancedResultStableRenderHtml(videoUrl),
-    imageUrls.map((url) => advancedResultStableRenderHtml(url)),
-    advancedResultStableRenderHtml(posterUrl),
+    imageUrls,
+    videoUrl,
+    posterUrl,
     textResult,
-    imageUrl ? "image" : videoUrl || posterUrl ? "video" : textResult ? "text" : "placeholder",
-  ]);
+    // Only the visible placeholder copy depends on status. Success status
+    // changes on a card that already has media must not touch its <img>.
+    status: statusClass(record.status) === "failed" ? "failed" : status,
+    ratio,
+  });
   const metaKey = JSON.stringify([
     index,
     publicModelText(publicGenerationDisplayTitle(record, "Generation")),

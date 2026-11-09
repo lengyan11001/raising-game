@@ -90,6 +90,7 @@ test("unchanged result payloads do not tear down and reload thumbnails", () => {
   assert.match(reconcile, /data-advanced-result-task-id/);
   assert.match(reconcile, /if \(!mediaSlot \|\| mediaSlot\.dataset\.advancedResultMediaKey !== view\.mediaKey\)/);
   assert.match(reconcile, /refreshAdvancedResultMediaSources\(records\)/);
+  assert.match(reconcile, /mediaSlot\.dataset\.advancedResultMediaKey !== view\.mediaKey/);
 });
 
 test("rotating OSS signatures do not invalidate the result render cache", () => {
@@ -116,6 +117,42 @@ test("unchanged result payloads refresh only expiring signed media sources", () 
   assert.match(create, /records\.map\(\(record, index\) => advancedResultCardView\(record, index\)\.mediaKey\)/);
   const cardView = create.match(/function advancedResultCardView\(record = \{\}, index = 0\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(cardView, "advancedResultCardView should exist");
-  assert.match(cardView, /advancedResultStableRenderHtml\(posterUrl\)/);
-  assert.match(cardView, /advancedResultStableRenderHtml\(videoUrl\)/);
+  assert.match(cardView, /advancedResultMediaIdentity\(\{/);
+  assert.doesNotMatch(cardView, /mediaKey = JSON\.stringify\(\[\s*resultExpired,\s*ratio,\s*isSucceeded,/);
+});
+
+test("media object identity ignores signatures and status changes", () => {
+  const objectStart = create.indexOf("function advancedResultMediaObjectKey(");
+  const identityStart = create.indexOf("function advancedResultMediaIdentity(");
+  const identityEnd = create.indexOf("function advancedResultSignedMediaNeedsRefresh(", identityStart);
+  const objectHelper = create.slice(objectStart, identityStart);
+  const identityHelper = identityStart >= 0 && identityEnd > identityStart ? create.slice(identityStart, identityEnd) : "";
+  assert.ok(objectHelper, "advancedResultMediaObjectKey should exist");
+  assert.ok(identityHelper, "advancedResultMediaIdentity should exist");
+  const vm = require("node:vm");
+  const context = { URL, window: { location: { href: "https://123vips.com/platform" } } };
+  vm.runInNewContext(`${objectHelper}\n${identityHelper}\nthis.objectKey = advancedResultMediaObjectKey; this.identity = advancedResultMediaIdentity;`, context);
+  assert.equal(
+    context.objectKey("https://assets-cdn.123vips.com/a.jpg?Expires=1&amp;OSSAccessKeyId=k&amp;Signature=one"),
+    context.objectKey("https://assets-cdn.123vips.com/a.jpg?Expires=2&amp;OSSAccessKeyId=k&amp;Signature=two"),
+  );
+  assert.notEqual(
+    context.objectKey("https://assets-cdn.123vips.com/a.jpg?Expires=1"),
+    context.objectKey("https://assets-cdn.123vips.com/b.jpg?Expires=1"),
+  );
+  const imagePending = context.identity({
+    imageUrls: ["https://assets-cdn.123vips.com/a.jpg?Expires=1&Sig=one"],
+    posterUrl: "https://assets-cdn.123vips.com/poster.jpg?Expires=1&Sig=one",
+    status: "Generating",
+  });
+  const imageSucceeded = context.identity({
+    imageUrls: ["https://assets-cdn.123vips.com/a.jpg?Expires=2&Sig=two"],
+    posterUrl: "https://assets-cdn.123vips.com/poster.jpg?Expires=2&Sig=two",
+    status: "Succeeded",
+  });
+  assert.equal(imagePending, imageSucceeded, "status/signature/poster changes must not rebuild a displayed image");
+  assert.notEqual(
+    imageSucceeded,
+    context.identity({ imageUrls: ["https://assets-cdn.123vips.com/b.jpg?Expires=2&Sig=two"], status: "Succeeded" }),
+  );
 });
