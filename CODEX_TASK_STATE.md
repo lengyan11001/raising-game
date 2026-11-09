@@ -1,3 +1,12 @@
+## 2026-11-09 Generate prompt composer outline fix
+
+- User reported the Generate prompt input was missing its surrounding outline after the rich prompt editor layer replaced the visible textarea styling.
+- Root cause: `.advanced-prompt-input-shell` supplied background and radius but no border; the rich editor itself uses `outline: none`, and the legacy textarea border was hidden.
+- Added a visible shell border plus `:focus-within` pink border/ring in `platform.css`; bumped `platform.html` CSS/JS cache key to `prompt-outline-20261109-1`.
+- Added focused regression `rich prompt editor keeps the composer outline visible around its shell` in `test/advanced-custom-ui.test.js`; targeted test passes 1/1 and `git diff --check` passes.
+- Worktree still contains unrelated Vega/Test/canvas WIP; only the three related files plus this state record may be staged.
+- Deployment pending: commit/push `old-site`, build and push Old `platform-release`, deploy only `scripts/deploy_local.sh --site old`, leaving `live-release` untouched.
+
 ## 2026-11-09 Result thumbnail polling flash fixed and deployed
 
 ## 2026-11-09 Email binding UI, translations, and compact buttons

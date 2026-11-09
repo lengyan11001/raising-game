@@ -5701,8 +5701,14 @@ dialog.tool-download-modal {
 .advanced-prompt-input-shell {
   position: relative;
   min-width: 0;
+  border: 1px solid rgba(255,255,255,.14);
   border-radius: 8px;
   background: #202126;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+.advanced-prompt-input-shell:focus-within {
+  border-color: rgba(255,79,163,.56);
+  box-shadow: 0 0 0 3px rgba(255,79,163,.13);
 }
 .advanced-prompt-highlight {
   position: absolute;
