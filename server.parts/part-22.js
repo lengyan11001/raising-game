@@ -130,6 +130,15 @@ async function verifyObjectStorageMedia(upload = {}, { expectedBytes = 0, label 
             error.retryable = true;
             throw error;
           }
+          const signedCdnUrl = makeOssSignedCdnUrl({ key: upload.key, expiresSeconds: 600 })
+            || makeOssSignedDownloadUrl({ key: upload.key, expiresSeconds: 600 });
+          if (signedCdnUrl) {
+            const cdnHead = await fetchPublicRemoteUrl(signedCdnUrl, { method: "HEAD", signal: AbortSignal.timeout(30000) }, { label: `${label} signed CDN` });
+            if (!cdnHead.ok) {
+              lastError = new Error(`${label} signed CDN object is not readable (${cdnHead.status}).`);
+              continue;
+            }
+          }
           verified = head;
           break;
         }

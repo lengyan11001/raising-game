@@ -7,7 +7,7 @@ const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
-const server = read("server.js");
+const server = require("../server-source").readServerSource();
 const ui = read("platform.ui.js");
 const create = read("platform.create.js");
 const explore = read("platform.explore.js");
@@ -20,6 +20,17 @@ test("generated media defaults to on-demand storage", () => {
   assert.match(server, /const GENERATED_ASSETS_ON_DEMAND = .*process\.env\.GENERATED_ASSETS_ON_DEMAND \|\| "true"/);
   assert.match(server, /if \(GENERATED_ASSETS_ON_DEMAND\) return generationRecordNeedsPosterMaintenance\(record\)/);
   assert.match(server, /if \(DISABLE_GENERATED_R2_STORAGE\) return record;\n  if \(!record\?\.taskId\) return record;/);
+});
+
+test("OSS media verification accepts private objects only when signed delivery is readable", () => {
+  const verify = server.slice(
+    server.indexOf("async function verifyObjectStorageMedia"),
+    server.indexOf("async function uploadGeneratedMediaToObjectStorage"),
+  );
+  assert.match(verify, /makeOssSignedCdnUrl\(\{ key: upload\.key, expiresSeconds: 600 \}\)/);
+  assert.match(verify, /fetchPublicRemoteUrl\(signedCdnUrl, \{ method: "HEAD"/);
+  assert.match(verify, /signed CDN object is not readable/);
+  assert.match(verify, /verified = head;/);
 });
 
 test("generated video and image helpers persist only verified object-storage media", () => {
