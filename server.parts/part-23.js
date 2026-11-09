@@ -591,9 +591,66 @@ async function scanGenerationRecordMissingPosterBackfill(reason = "timer") {
   }
 }
 
+let generationMediaPersistenceRunning = false;
+
+async function scanGenerationRecordMissingMediaPersistence(reason = "timer") {
+  if (generationMediaPersistenceRunning || !dbEnabled() || !objectStorageEnabled()) return;
+  generationMediaPersistenceRunning = true;
+  try {
+    const records = await getGenerationRecordsNeedingMediaPersistenceFromDb({
+      limit: GENERATION_MEDIA_PERSISTENCE_BATCH_SIZE,
+      maxAgeMs: GENERATION_MEDIA_PERSISTENCE_MAX_AGE_MS,
+      maxAttempts: GENERATION_MEDIA_PERSISTENCE_MAX_ATTEMPTS,
+      retryDelayMs: GENERATION_MEDIA_PERSISTENCE_RETRY_DELAY_MS,
+    }) || [];
+    let repaired = 0;
+    let failed = 0;
+    for (const candidate of records) {
+      const current = await getGenerationRecord(candidate.taskId).catch(() => null);
+      if (!current || !isSucceededStatus(current.status) || !generationRecordProviderVideoUrl(current)) continue;
+      const previousAttempts = Number(current.mediaPersistenceAttempts || 0);
+      const startedAt = new Date().toISOString();
+      try {
+        await prepareGenerationRecordAdvancedDownload(current);
+        const repairedRecord = await getGenerationRecord(current.taskId).catch(() => null);
+        if (!repairedRecord || (!repairedRecord.localVideoUrl && !repairedRecord.cdnVideoUrl)) {
+          throw new Error("Generated video was not persisted.");
+        }
+        await updateGenerationRecordAdvancedDownloadInDb(current.taskId, {
+          mediaPersistenceAttempts: previousAttempts + 1,
+          mediaPersistenceRetryAt: "",
+          mediaPersistenceTerminalAt: "",
+          mediaPersistenceLastAttemptAt: startedAt,
+        });
+        repaired += 1;
+      } catch (error) {
+        failed += 1;
+        const attempts = Math.min(GENERATION_MEDIA_PERSISTENCE_MAX_ATTEMPTS, previousAttempts + 1);
+        const terminal = attempts >= GENERATION_MEDIA_PERSISTENCE_MAX_ATTEMPTS || !isRetryableMediaIngestError(error);
+        await updateGenerationRecordAdvancedDownloadInDb(current.taskId, {
+          advancedDownloadStatus: terminal ? "failed" : "preparing",
+          advancedDownloadError: advancedDownloadFailureMessage(error),
+          mediaPersistenceAttempts: attempts,
+          mediaPersistenceRetryAt: terminal ? "" : new Date(Date.now() + GENERATION_MEDIA_PERSISTENCE_RETRY_DELAY_MS * attempts).toISOString(),
+          mediaPersistenceTerminalAt: terminal ? new Date().toISOString() : "",
+          mediaPersistenceLastAttemptAt: startedAt,
+        }).catch(() => {});
+      }
+      await delay(1000);
+    }
+    if (records.length) console.log("[generation-media-persistence]", reason, { scanned: records.length, repaired, failed });
+  } catch (error) {
+    console.warn("[generation-media-persistence-scan-failed]", error.message || error);
+  } finally {
+    generationMediaPersistenceRunning = false;
+  }
+}
+
 function startGenerationRecordMediaRecoveryScheduler() {
   setTimeout(() => scanGenerationRecordMediaRecovery("startup"), 20000).unref?.();
   setInterval(() => scanGenerationRecordMediaRecovery("timer"), 5 * 60 * 1000).unref?.();
+  setTimeout(() => scanGenerationRecordMissingMediaPersistence("startup"), 35000).unref?.();
+  setInterval(() => scanGenerationRecordMissingMediaPersistence("timer"), GENERATION_MEDIA_PERSISTENCE_INTERVAL_MS).unref?.();
   setTimeout(function runPosterBackfill() {
     scanGenerationRecordMissingPosterBackfill("startup")
       .catch((error) => console.warn("[generation-poster-backfill-loop-failed]", error.message || error))

@@ -278,6 +278,7 @@ test("history thumbnails degrade once instead of repeatedly loading a broken URL
   assert.match(source, /poster\.addEventListener\("load", \(\) => \{/);
   assert.match(source, /poster\.hidden = true/);
   assert.match(source, /button\.classList\.add\("is-poster-missing"\)/);
+  assert.match(source, /if \(poster\.loading !== "lazy" && poster\.complete && poster\.naturalWidth === 0\) poster\.dispatchEvent\(new Event\("error"\)\);/);
 });
 
 test("durable generated media is never hidden by the 24 hour provider TTL", () => {

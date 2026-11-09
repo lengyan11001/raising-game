@@ -313,6 +313,7 @@ const {
   getStalePreSubmitGenerationRecordsFromDb,
   getGenerationRecordsForScheduledMaintenanceFromDb,
   getGenerationRecordsNeedingPosterMaintenanceFromDb,
+  getGenerationRecordsNeedingMediaPersistenceFromDb,
   getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
@@ -805,6 +806,11 @@ const GENERATION_POSTER_BACKFILL_INTERVAL_MS = Math.max(15000, Number(process.en
 const GENERATION_POSTER_BACKFILL_BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.GENERATION_POSTER_BACKFILL_BATCH_SIZE || 2) || 2));
 const GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS = Math.max(1, Math.min(10, Number(process.env.GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS || 3) || 3));
 const GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS = Math.max(5 * 60 * 1000, Number(process.env.GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS || 30 * 60 * 1000) || 30 * 60 * 1000);
+const GENERATION_MEDIA_PERSISTENCE_INTERVAL_MS = Math.max(60 * 1000, Number(process.env.GENERATION_MEDIA_PERSISTENCE_INTERVAL_MS || 2 * 60 * 1000) || 2 * 60 * 1000);
+const GENERATION_MEDIA_PERSISTENCE_BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.GENERATION_MEDIA_PERSISTENCE_BATCH_SIZE || 2) || 2));
+const GENERATION_MEDIA_PERSISTENCE_MAX_ATTEMPTS = Math.max(1, Math.min(10, Number(process.env.GENERATION_MEDIA_PERSISTENCE_MAX_ATTEMPTS || 3) || 3));
+const GENERATION_MEDIA_PERSISTENCE_RETRY_DELAY_MS = Math.max(5 * 60 * 1000, Number(process.env.GENERATION_MEDIA_PERSISTENCE_RETRY_DELAY_MS || 30 * 60 * 1000) || 30 * 60 * 1000);
+const GENERATION_MEDIA_PERSISTENCE_MAX_AGE_MS = Math.max(60 * 60 * 1000, Number(process.env.GENERATION_MEDIA_PERSISTENCE_MAX_AGE_MS || 7 * 24 * 60 * 60 * 1000) || 7 * 24 * 60 * 60 * 1000);
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const DEFAULT_CREDITS_PER_USD = clampNumber(process.env.CREDITS_PER_USD || process.env.CREDITS_PER_USDT, 100, 0.0001, 100000);

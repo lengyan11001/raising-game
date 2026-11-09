@@ -6225,6 +6225,8 @@ async function getGenerationRecordsNeedingPosterMaintenanceFromDb({
         OR COALESCE(payload->>'providerVideoUrl', '') <> ''
         OR COALESCE(payload->>'upstreamVideoUrl', '') <> ''
         OR COALESCE(payload->>'localVideoUrl', '') <> ''
+        OR COALESCE(payload->'queryResponse'->'content'->>'video_url', '') <> ''
+        OR COALESCE(payload->'createResponse'->'content'->>'video_url', '') <> ''
       )
       AND COALESCE(payload->>'kind', '') NOT ILIKE '%image%'
       AND COALESCE(payload->>'provider', '') NOT ILIKE '%image%'
@@ -6615,6 +6617,18 @@ async function enqueueMediaIngestJobInDb(taskId = "", {
           WHEN app_media_ingest_jobs.status IN ('ready', 'processing') THEN app_media_ingest_jobs.status
           ELSE 'queued'
         END,
+        attempts = CASE
+          WHEN app_media_ingest_jobs.status = 'failed' THEN 0
+          ELSE app_media_ingest_jobs.attempts
+        END,
+        started_at = CASE
+          WHEN app_media_ingest_jobs.status = 'failed' THEN NULL
+          ELSE app_media_ingest_jobs.started_at
+        END,
+        completed_at = CASE
+          WHEN app_media_ingest_jobs.status = 'failed' THEN NULL
+          ELSE app_media_ingest_jobs.completed_at
+        END,
         available_at = CASE
           WHEN app_media_ingest_jobs.status IN ('ready', 'processing') THEN app_media_ingest_jobs.available_at
           ELSE NOW()
@@ -6832,6 +6846,51 @@ async function failMediaIngestJobInDb(taskId = "", error = "", {
   return rows[0] || null;
 }
 
+async function getGenerationRecordsNeedingMediaPersistenceFromDb({
+  limit = 6,
+  maxAgeMs = 7 * 24 * 60 * 60 * 1000,
+  maxAttempts = 3,
+  retryDelayMs = 5 * 60 * 1000,
+} = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(20, Math.trunc(Number(limit || 6) || 6)));
+  const safeMaxAgeMs = Math.max(60 * 60 * 1000, Number(maxAgeMs || 7 * 24 * 60 * 60 * 1000));
+  const safeMaxAttempts = Math.max(1, Math.min(10, Math.trunc(Number(maxAttempts || 3) || 3)));
+  const safeRetryDelayMs = Math.max(60000, Number(retryDelayMs || 5 * 60 * 1000));
+  const retryBefore = new Date(Date.now() - safeRetryDelayMs).toISOString();
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND created_at > NOW() - ($1::bigint * INTERVAL '1 millisecond')
+      AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+      AND LOWER(COALESCE(payload->>'tokenSource', '')) NOT IN ('api_token', 'subtoken')
+      AND LOWER(COALESCE(payload->>'apiTokenSource', '')) NOT IN ('api_token', 'subtoken')
+      AND COALESCE(payload->>'cdnVideoUrl', '') = ''
+      AND COALESCE(payload->>'localVideoUrl', '') = ''
+      AND COALESCE(payload->>'mediaPersistenceTerminalAt', '') = ''
+      AND COALESCE(NULLIF(payload->>'mediaPersistenceAttempts', '')::int, 0) < $2
+      AND (
+        COALESCE(payload->>'mediaPersistenceRetryAt', '') = ''
+        OR payload->>'mediaPersistenceRetryAt' <= $3
+      )
+      AND LOWER(COALESCE(payload->>'advancedDownloadStatus', '')) NOT IN ('preparing', 'queued', 'processing', 'ready')
+      AND (
+        COALESCE(payload->>'remoteVideoUrl', '') <> ''
+        OR COALESCE(payload->>'providerVideoUrl', '') <> ''
+        OR COALESCE(payload->>'upstreamVideoUrl', '') <> ''
+        OR COALESCE(payload->'queryResponse'->'content'->>'video_url', '') <> ''
+        OR COALESCE(payload->'createResponse'->'content'->>'video_url', '') <> ''
+      )
+      AND COALESCE(payload->>'kind', '') NOT ILIKE '%image%'
+      AND COALESCE(payload->>'provider', '') NOT ILIKE '%image%'
+    ORDER BY created_at DESC, updated_at DESC
+    LIMIT $4
+  `, [safeMaxAgeMs, safeMaxAttempts, retryBefore, safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
 async function getGenerationRecordsNeedingResultAssetMediaBackfillFromDb({ limit = 25 } = {}) {
   if (!dbEnabled()) return [];
   await ensureSchema();
@@ -6933,6 +6992,10 @@ async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates =
     "advancedDownloadPreparedAt",
     "advancedDownloadStatus",
     "advancedDownloadError",
+    "mediaPersistenceAttempts",
+    "mediaPersistenceRetryAt",
+    "mediaPersistenceTerminalAt",
+    "mediaPersistenceLastAttemptAt",
   ];
   const patch = Object.fromEntries(
     allowedKeys
@@ -8177,6 +8240,7 @@ module.exports = {
   getStalePreSubmitGenerationRecordsFromDb,
   getGenerationRecordsForScheduledMaintenanceFromDb,
   getGenerationRecordsNeedingPosterMaintenanceFromDb,
+  getGenerationRecordsNeedingMediaPersistenceFromDb,
   getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,

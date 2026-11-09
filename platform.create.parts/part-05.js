@@ -978,7 +978,7 @@ function renderHistory(records = []) {
         button.classList.remove("is-poster-missing");
         if (posterTaskId) delete state.historyPosterFailures?.[posterTaskId];
       });
-      if (poster.complete && poster.naturalWidth === 0) poster.dispatchEvent(new Event("error"));
+      if (poster.loading !== "lazy" && poster.complete && poster.naturalWidth === 0) poster.dispatchEvent(new Event("error"));
       if (poster.complete && poster.naturalWidth > 0) poster.dispatchEvent(new Event("load"));
     }
     const showVideo = () => {

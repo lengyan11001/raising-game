@@ -84,6 +84,33 @@ test("successful generation immediately queues background transfer without waiti
   assert.match(queue, /generationRecordHasR2Download\(record\)/);
 });
 
+test("failed media ingest jobs can be manually requeued after retry exhaustion", () => {
+  const enqueue = db.slice(
+    db.indexOf("async function enqueueMediaIngestJobInDb"),
+    db.indexOf("async function claimMediaIngestJobInDb"),
+  );
+  assert.match(enqueue, /WHEN app_media_ingest_jobs\.status = 'failed' THEN 0/);
+  assert.match(enqueue, /status = CASE[\s\S]*ELSE 'queued'/);
+  assert.match(enqueue, /available_at = CASE[\s\S]*ELSE NOW\(\)/);
+});
+
+test("bounded media persistence recovery only targets succeeded records with provider video", () => {
+  const recovery = db.slice(
+    db.indexOf("async function getGenerationRecordsNeedingMediaPersistenceFromDb"),
+    db.indexOf("async function getGenerationRecordsNeedingResultAssetMediaBackfillFromDb"),
+  );
+  assert.match(recovery, /LOWER\(COALESCE\(payload->>'status', ''\)\) IN \('succeeded', 'completed', 'success', 'done'\)/);
+  assert.match(recovery, /COALESCE\(payload->>'cdnVideoUrl', ''\) = ''/);
+  assert.match(recovery, /COALESCE\(payload->>'localVideoUrl', ''\) = ''/);
+  assert.match(recovery, /mediaPersistenceAttempts/);
+  assert.match(recovery, /mediaPersistenceRetryAt/);
+  assert.match(recovery, /mediaPersistenceTerminalAt/);
+  assert.match(recovery, /queryResponse'->'content'->>'video_url'/);
+  assert.match(server, /async function scanGenerationRecordMissingMediaPersistence/);
+  assert.match(server, /prepareGenerationRecordAdvancedDownload\(current\)/);
+  assert.match(server, /setTimeout\(\(\) => scanGenerationRecordMissingMediaPersistence\("startup"\), 35000\)/);
+});
+
 test("background media transfer uses a global bounded worker pool", () => {
   assert.match(server, /const MEDIA_INGEST_CONCURRENCY = Math\.max\(1, Math\.min\(8/);
   assert.match(server, /const mediaIngestRunning = new Set\(\)/);

@@ -1,3 +1,24 @@
+## 2026-11-09 Old production media completeness recovery (current)
+- Scope: Old production `123vips.com` only. No Live deployment, session eviction, token rotation, or automatic asset-library insertion.
+- Fixed failed media ingest jobs so a retry resets exhausted attempts, stale start/completion timestamps, and returns the job to `queued`; `ready`/`processing` jobs remain untouched.
+- Added bounded historical media persistence recovery: at most 2 successful non-API generation records per run, only within 7 days, only when provider video exists and durable local/CDN media is absent; runs every 2 minutes with at most 3 attempts and exponential retry delay.
+- Recovery persists local video/poster plus OSS/R2 metadata directly into PostgreSQL. It never creates a user asset-library row. Permanent 400/401/403/404/410 errors terminate retries; transient network/5xx/storage errors remain retryable.
+- Poster maintenance now recognizes nested `queryResponse.content.video_url` and `createResponse.content.video_url` so provider records can still generate thumbnails.
+- History lazy-image guard only treats `complete && naturalWidth === 0` as an error for non-lazy images, preventing false broken-thumbnail state before viewport load.
+- Verification: focused media/result/retention/regeneration tests pass 76/76; syntax and `git diff --check` pass.
+- Pending: commit relevant hunks only, build/push `platform-release` from committed `old-site`, deploy only Old, then verify health, runtime errors, sample media fields, media URLs, ingest jobs, no asset-library insertion, and unchanged Live release.
+
+## 2026-11-09 Regeneration parameter backfill (current)
+- User requirement: when clicking regenerate, restore not only prompt/media but also resolution, size, duration, ratio and other model-specific parameters.
+- Changed: `platform.create.parts/part-04.js` now derives ratio/resolution from record fields or `size`, `image_size`, `width`/`height`, including nested `params.parameters`; it restores duration, audio generation, seed, Qwen options, Wan prompt flags and Vega task/draft/asset-group/return/enhance/moderation/generate/quality/output parameters.
+- Critical ordering: both Vega and normal restore paths call `updateAdvancedModelControls()`, then re-apply the historical snapshot and `syncAdvancedVideoSettingsControls()`, because rebuilding model controls otherwise overwrites restored values.
+- Vega auto duration: `platform.ui.parts/part-03.js` now preserves `-1` for smart Vega duration models and shows an `Auto` duration choice instead of clamping it to the minimum.
+- Image size mapping fix: image providers map typical `1024x1536` to `1K`; larger image sizes map to `2K`, while video sizes continue mapping to `480P/720P/768P/1080P/2K/4K`.
+- Preprocess safety: `preprocessReference` is restored only for Seedance models and only when the restored media mode is not edit/extend.
+- Tests added in `test/vega-regeneration-media.test.js`: image size/ratio/options, video size mapping plus Vega auto duration, and explicit record ratio/resolution precedence.
+- Verification: `test/advanced-workspace-routing.test.js` 1/1, `test/vega-regeneration-media.test.js` 17/17, `node --check` for both changed JS files, and `git diff --check` pass. `test/advanced-custom-ui.test.js` still has pre-existing harness/WIP failures such as missing injected `isVegaProviderId`/`els`; none are in the new backfill tests.
+- Not deployed or committed. Unrelated workspace WIP remains untouched.
+
 ## 2026-11-09 Result media persistence and permanent retention (current)
 - Scope: Old production `123vips.com` only. Do not deploy Live, purge sessions/tokens, or evict logged-in users.
 - User requirement: Result/History thumbnails and playback must work for every user; generation media must not be manually added to the asset library. The asset library remains user-initiated only.
