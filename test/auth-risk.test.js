@@ -276,7 +276,7 @@ test("anonymous support and chat report preserve source attribution", () => {
   assert.match(support, /"security notice", "telegram", "chat report"/);
   assert.match(chat, /source: "chat report"/);
   assert.match(explore, /source: els\.supportDialog\?\.dataset\.source/);
-  assert.match(html, /security-auth-20261109-1/);
+  assert.match(html, /security-auth-20261109-2/);
 });
 
 
@@ -325,4 +325,10 @@ test("normal and media request bodies have separated size limits", () => {
     assert.equal(Buffer.byteLength(body), 1024);
     return assert.rejects(readRawBody(tooLarge), (error) => error.statusCode === 413 && error.code === "REQUEST_BODY_TOO_LARGE");
   });
+});
+
+test("HTTP timing-safe comparisons execute without relying on an outer module scope", () => {
+  const { timingSafeEqualString } = require("../lib-http");
+  assert.equal(timingSafeEqualString("webhook-secret", "webhook-secret"), true);
+  assert.equal(timingSafeEqualString("webhook-secret", "wrong-secret"), false);
 });

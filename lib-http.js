@@ -1,6 +1,8 @@
 // lib-http.js
 // HTTP response helpers and basic request origin/cookie parsing, extracted from server.js.
 // Self-contained: uses only node globals (Buffer, URL) and PUBLIC_BASE_URL from env.
+const crypto = require("node:crypto");
+
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 
 function sendJson(res, statusCode, payload, { cacheControl = "no-store" } = {}) {
