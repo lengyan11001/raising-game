@@ -5,8 +5,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
-const platformCreate = fs.readFileSync(path.join(__dirname, "..", "platform.create.js"), "utf8");
+const server = require("../server-source").readServerSource();
+const platformCreate = fs.readdirSync(path.join(__dirname, "..", "platform.create.parts")).filter((name) => /^part-\d+\.js$/.test(name)).sort().map((name) => fs.readFileSync(path.join(__dirname, "..", "platform.create.parts", name), "utf8")).join("");
 
 function functionSource(name, nextName) {
   const start = server.indexOf(`async function ${name}`);
@@ -119,4 +119,56 @@ test("external API results still expose the matching provider URL first", () => 
   const source = server.slice(start, end);
   assert.match(source, /providerOnlyOutputs \|\| providerOnlyVideoUrl/);
   assert.match(source, /providerVideoUrl \|\| deliveryVideoUrl \|\| localUrl/);
+});
+
+test("completed video records without durable media refresh even when a provider URL exists", () => {
+  const start = server.indexOf("function shouldRefreshGenerationRecord(");
+  const end = server.indexOf("function isStalePreSubmitGenerationRecord(", start + 1);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const source = server.slice(start, end);
+  const shouldRefresh = new Function(
+    "isChatCompletionGenerationRecord",
+    "needsApizFailureRefund",
+    "needsSeedanceFailureRefund",
+    "generationRecordR2Expired",
+    "isImageGenerationRecord",
+    "seedanceUsesTokenPricing",
+    "isFailedStatus",
+    "isSucceededStatus",
+    "generationRecordProviderVideoUrl",
+    "GENERATION_MEDIA_PERSISTENCE_RETRY_DELAY_MS",
+    `${source}\nreturn shouldRefreshGenerationRecord;`,
+  )(
+    () => false,
+    () => false,
+    () => false,
+    () => false,
+    () => false,
+    () => false,
+    (status) => String(status).toLowerCase() === "failed",
+    (status) => ["succeeded", "success", "done", "completed"].includes(String(status).toLowerCase()),
+    (record) => String(record.remoteVideoUrl || ""),
+    30 * 60 * 1000,
+  );
+
+  const base = {
+    taskId: "cgt-completed-without-r2",
+    status: "succeeded",
+    provider: "seedance",
+    upstreamSource: "direct",
+    remoteVideoUrl: "https://provider.example/expiring.mp4",
+  };
+  assert.equal(shouldRefresh(base), true);
+  assert.equal(shouldRefresh({ ...base, cdnVideoUrl: "https://media.example/video.mp4", storageKey: "generated/videos/video.mp4" }), false);
+  assert.equal(shouldRefresh({ ...base, mediaPersistenceTerminalAt: new Date().toISOString() }), false);
+  assert.equal(shouldRefresh({ ...base, mediaPersistenceRetryAt: new Date(Date.now() + 60_000).toISOString() }), false);
+
+  const persistenceStart = server.indexOf("async function scanGenerationRecordMissingMediaPersistence(");
+  const persistenceEnd = server.indexOf("setTimeout(() => scanGenerationRecordMissingMediaPersistence", persistenceStart + 1);
+  assert.notEqual(persistenceStart, -1);
+  assert.notEqual(persistenceEnd, -1);
+  const persistenceScanner = server.slice(persistenceStart, persistenceEnd);
+  assert.match(persistenceScanner, /if \(!current\.cdnVideoUrl && shouldRefreshGenerationRecord\(current\)\)[\s\S]*?current = await refreshGenerationRecordStatus\(current\)/);
+  assert.ok(persistenceScanner.indexOf("refreshGenerationRecordStatus(current)") < persistenceScanner.indexOf("prepareGenerationRecordAdvancedDownload(current)"));
 });

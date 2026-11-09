@@ -100,10 +100,19 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (isFailedStatus(status)) return false;
   if (isSucceededStatus(status)) {
     if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.upstreamTaskId || record.taskId);
-    return Boolean(record.taskId)
-      && !record.localVideoUrl
-      && !record.cdnVideoUrl
-      && !generationRecordProviderVideoUrl(record);
+    const hasDurableVideo = Boolean(
+      String(record.cdnVideoUrl || "").trim()
+      && String(record.storageKey || "").trim()
+    );
+    if (hasDurableVideo) return false;
+    if (String(record.mediaPersistenceTerminalAt || "").trim()) return false;
+    const retryAt = Date.parse(record.mediaPersistenceRetryAt || record.cdnRetryAt || "");
+    if (retryAt && retryAt > Date.now()) return false;
+    const lastAttemptAt = Date.parse(record.mediaPersistenceLastAttemptAt || record.statusQueryCheckedAt || "");
+    if (lastAttemptAt && Date.now() - lastAttemptAt < GENERATION_MEDIA_PERSISTENCE_RETRY_DELAY_MS) return false;
+    // A provider URL is temporary. Do not treat it as durable storage: if the
+    // object-storage copy is missing, query upstream again before it expires.
+    return Boolean(record.taskId) && !record.localVideoUrl;
   }
   if (String(record.provider || "").toLowerCase() === "seedance" && record.source === "advanced-seedance") {
     return Boolean(record.upstreamTaskId) && !String(record.upstreamTaskId).startsWith("demo-");

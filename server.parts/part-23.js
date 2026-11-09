@@ -613,11 +613,19 @@ async function scanGenerationRecordMissingMediaPersistence(reason = "timer") {
     let repaired = 0;
     let failed = 0;
     for (const candidate of records) {
-      const current = await getGenerationRecord(candidate.taskId).catch(() => null);
+      let current = await getGenerationRecord(candidate.taskId).catch(() => null);
       if (!current || !isSucceededStatus(current.status) || !generationRecordProviderVideoUrl(current)) continue;
       const previousAttempts = Number(current.mediaPersistenceAttempts || 0);
       const startedAt = new Date().toISOString();
       try {
+        // Refresh an expired provider URL before trying to copy it. A saved
+        // provider URL is not proof that the durable media still exists.
+        if (!current.cdnVideoUrl && shouldRefreshGenerationRecord(current)) {
+          current = await refreshGenerationRecordStatus(current);
+        }
+        if (!current || !isSucceededStatus(current.status) || !generationRecordProviderVideoUrl(current)) {
+          throw new Error("Generated media source is unavailable.");
+        }
         await prepareGenerationRecordAdvancedDownload(current);
         const repairedRecord = await getGenerationRecord(current.taskId).catch(() => null);
         if (!repairedRecord || !repairedRecord.cdnVideoUrl || !repairedRecord.storageKey) {
