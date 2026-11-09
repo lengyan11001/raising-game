@@ -2251,3 +2251,14 @@ CODEX_TASK_STATE.md
 - Verification: source-compat focused suites 43/43; syntax and `git diff --check` pass.
 - Rollback: rebuild/deploy `9721267`/release `c3ad172`; no database migration.
 - Deployment: source `e49b8f7`; release snapshot / `platform-release` = `d2c5b6e`; deployed Old only. Production commit `d2c5b6e`; `/api/health` 200; service restarted normally; production `platform.ui.parts/part-02.js` contains `poll=1`, merge, and visibility refresh logic. Live was not pushed or deployed.
+
+## 2026-11-09 complete advanced model purchase-price audit
+
+- Goal: reconcile every Advanced model purchase price, fill missing Vega purchase prices from Tencent VOD international USD list pricing, show sale/purchase multipliers in Admin, and identify all rows below 1.5x.
+- Changed: `admin.js`, `admin.css`, `server.parts/part-01.js`, `server.parts/part-02.js`, `server.parts/part-39.js`, `test/advanced-pricing.test.js`; added `scripts/audit-advanced-pricing.js`.
+- Vega purchase tables now cover H3/Vega 1.5 Lite, Vega 1.0 Lite, Vega 1.0 Pro, and Vega 1.5 Pro, including separate input-video rates and Vega 1.0 Lite extra-reference-image pricing. All 41 Vega fee rows are editable, source `admin_configured`, and sale/purchase = 1.5x.
+- Audit command: `node scripts/audit-advanced-pricing.js`; result `84 rows`, `OK 68 | LOW 14 | MISSING 0 | RANGE 2`.
+- Real rows below 1.5x: Seedance 2.5 480p/720p (1.000000x); W3.0-Prime 480p/720p/1080p (1.482222x/1.482222x/1.408111x); Seedream 5.0 Pro 1K/2K/reference (1.000000x each); Qwen Image 3.0 Pro 1K/2K/reference (1.000000x each); Qwen Image 3.0 Standard 1K/2K/reference (1.000000x each).
+- HappyHorse has no single official purchase price: 720p range USD 0.084-0.112/s at sale USD 0.168/s (1.5x-2.0x); 1080p range USD 0.108-0.192/s at sale USD 0.288/s (1.5x-2.666667x). The audit reports these as `RANGE`, not missing.
+- Targeted regression: `node --require ./test/source-compat.js --test test/advanced-pricing.test.js test/vega-pricing-label.test.js test/seedance-fast-pricing.test.js` passed 38/38.
+- Deployment status: pending selective commit, platform release snapshot, `platform-release` push, and Old-only deployment. Rollback release must be rechecked immediately before deployment.

@@ -1078,6 +1078,20 @@ const DEFAULT_ADVANCED_PRICING = {
     "2k": 27,
     "4k": 27,
   },
+  h3VegaPurchaseUsdPerSecondByResolution: {
+    "480p": 0.045,
+    "720p": 0.09,
+    "1080p": 0.18,
+    "2k": 0.216,
+    "4k": 0.2592,
+  },
+  h3VegaInputVideoPurchaseUsdPerSecondByResolution: {
+    "480p": 0.045,
+    "720p": 0.09,
+    "1080p": 0.18,
+    "2k": 0.18,
+    "4k": 0.18,
+  },
   vega10LiteCreditsPerSecondByResolution: {
     "480p": 6.855,
     "768p": 8.655,
@@ -1092,7 +1106,22 @@ const DEFAULT_ADVANCED_PRICING = {
     "2k": 14.43,
     "4k": 17.31,
   },
+  vega10LitePurchaseUsdPerSecondByResolution: {
+    "480p": 0.0457,
+    "768p": 0.0577,
+    "1080p": 0.0769,
+    "2k": 0.0962,
+    "4k": 0.1154,
+  },
+  vega10LiteInputVideoPurchaseUsdPerSecondByResolution: {
+    "480p": 0.0457,
+    "768p": 0.0577,
+    "1080p": 0.0769,
+    "2k": 0.0962,
+    "4k": 0.1154,
+  },
   vega10LiteReferenceImageCreditsEach: 4.5,
+  vega10LiteReferenceImagePurchaseUsdEach: 0.03,
   // Tencent VOD international list price x CREDITS_PER_USD (100) x 1.5 markup.
   // Vega 1.0 Pro has separate no-reference and reference-video output rates.
   vega10ProCreditsPerSecondByResolution: {
@@ -1109,6 +1138,20 @@ const DEFAULT_ADVANCED_PRICING = {
     "2k": 61.62,
     "4k": 69.225,
   },
+  vega10ProPurchaseUsdPerSecondByResolution: {
+    "480p": 0.064,
+    "720p": 0.1223,
+    "1080p": 0.2662,
+    "2k": 0.6615,
+    "4k": 0.7538,
+  },
+  vega10ProInputVideoPurchaseUsdPerSecondByResolution: {
+    "480p": 0.0402,
+    "720p": 0.0769,
+    "1080p": 0.1662,
+    "2k": 0.4108,
+    "4k": 0.4615,
+  },
   // Vega 1.5 Pro uses the same reference-video billing shape: input and
   // output are both charged at the reference-video rate.
   vega15ProCreditsPerSecondByResolution: {
@@ -1124,6 +1167,20 @@ const DEFAULT_ADVANCED_PRICING = {
     "1080p": 36.465,
     "2k": 89.07,
     "4k": 97.98,
+  },
+  vega15ProPurchaseUsdPerSecondByResolution: {
+    "480p": 0.0932,
+    "720p": 0.1828,
+    "1080p": 0.3979,
+    "2k": 0.98,
+    "4k": 1.078,
+  },
+  vega15ProInputVideoPurchaseUsdPerSecondByResolution: {
+    "480p": 0.0559,
+    "720p": 0.1138,
+    "1080p": 0.2431,
+    "2k": 0.5938,
+    "4k": 0.6532,
   },
   seedanceNsfwCreditsPerSecondByResolution: {
     "480p": defaultSeedance25DirectSaleCreditsPerSecond("480p"),

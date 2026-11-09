@@ -4097,16 +4097,26 @@ async function renderPricingLegacy() {
 
   const updateCredits = () => {
     els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
-      const input = tr.querySelector('[data-f="saleUsdPerSecond"]');
-      const target = tr.querySelector("[data-price-credits]");
-      const usd = Number(input?.value || 0);
-      target.textContent = Number.isFinite(usd) && usd >= 0
-        ? fmtPrice(usd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
+      const saleInput = tr.querySelector('[data-f="saleUsdPerSecond"]');
+      const purchaseInput = tr.querySelector('[data-f="purchaseUsdPerSecond"]');
+      const creditsTarget = tr.querySelector("[data-price-credits]");
+      const saleUsd = Number(saleInput?.value || 0);
+      creditsTarget.textContent = Number.isFinite(saleUsd) && saleUsd >= 0
+        ? fmtPrice(saleUsd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
         : "-";
+      const multiplierTarget = tr.querySelector("[data-price-ratio]");
+      if (multiplierTarget) {
+        const purchaseUsd = Number(purchaseInput?.value || 0);
+        const multiplier = purchaseUsd > 0 && saleUsd >= 0 ? saleUsd / purchaseUsd : null;
+        const low = isPricingMultiplierLow(multiplier);
+        multiplierTarget.innerHTML = multiplier === null
+          ? `<span class="adm-muted">-</span>`
+          : `<strong class="${low ? "adm-price-ratio-low" : ""}" data-price-multiplier>${escapeHtml(multiplier.toFixed(3))}x</strong>${low ? `<br/><small class="adm-price-ratio-low">低于 1.5x</small>` : ""}`;
+      }
     });
   };
 
-  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"]').forEach((input) => {
+  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"], [data-f="purchaseUsdPerSecond"]').forEach((input) => {
     input.addEventListener("input", updateCredits);
   });
   byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
@@ -6115,6 +6125,28 @@ function pricingRowUsage(row = {}) {
   return "按生成视频秒数";
 }
 
+const PRICING_MULTIPLIER_FLOOR = 1.5;
+const PRICING_MULTIPLIER_TOLERANCE = 1e-5;
+
+function isPricingMultiplierLow(multiplier) {
+  return Number.isFinite(multiplier)
+    && multiplier < PRICING_MULTIPLIER_FLOOR - PRICING_MULTIPLIER_TOLERANCE;
+}
+
+function pricingRowMultiplier(row = {}) {
+  const purchase = Number(row.purchaseUsdPerSecond);
+  const sale = Number(row.saleUsdPerSecond);
+  if (!Number.isFinite(purchase) || purchase <= 0 || !Number.isFinite(sale) || sale < 0) return null;
+  return sale / purchase;
+}
+
+function pricingMultiplierHtml(row = {}) {
+  const multiplier = pricingRowMultiplier(row);
+  if (multiplier === null) return `<span class="adm-muted">-</span>`;
+  const low = isPricingMultiplierLow(multiplier);
+  return `<strong class="${low ? "adm-price-ratio-low" : ""}" data-price-multiplier>${escapeHtml(multiplier.toFixed(3))}x</strong>${low ? `<br/><small class="adm-price-ratio-low">低于 1.5x</small>` : ""}`;
+}
+
 function renderPricingTable(rows = []) {
   if (!rows.length) return `<div class="adm-empty">暂无价格项</div>`;
   return `
@@ -6125,6 +6157,7 @@ function renderPricingTable(rows = []) {
             <th>计费项</th>
             <th>分辨率</th>
             <th>采购价</th>
+            <th>倍率</th>
             <th>对外价</th>
             <th>积分</th>
           </tr>
@@ -6144,6 +6177,7 @@ function renderPricingTable(rows = []) {
                 `}
                 ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
               </td>
+              <td class="adm-mono" data-price-ratio>${pricingMultiplierHtml(row)}</td>
               <td>
                 <input class="adm-price-input" data-f="saleUsdPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleUsdPerSecond))}" />
                 <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))}</small>
@@ -6171,7 +6205,7 @@ async function renderPricing() {
       <div class="adm-page-head">
         <div>
           <h2>价格配置</h2>
-          <p class="adm-muted">配置 Advanced 采购价和对外价格。Wan3 新模型支持分别配置采购价与对外价；Seedance 视频输入任务按两段计费。</p>
+          <p class="adm-muted">配置 Advanced 采购价和对外价格。Vega / Wan3 支持分别配置采购价与对外价；倍率低于 1.5x 会标红；Seedance 视频输入任务按两段计费。</p>
         </div>
         <div class="adm-page-actions">
           <button class="adm-btn adm-btn-ghost" id="reloadPricingBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
@@ -6224,29 +6258,42 @@ async function renderPricing() {
 
   const updateCredits = () => {
     els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
-      const input = tr.querySelector('[data-f="saleUsdPerSecond"]');
-      const target = tr.querySelector("[data-price-credits]");
-      const usd = Number(input?.value || 0);
-      target.textContent = Number.isFinite(usd) && usd >= 0
-        ? fmtPrice(usd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
+      const saleInput = tr.querySelector('[data-f="saleUsdPerSecond"]');
+      const purchaseInput = tr.querySelector('[data-f="purchaseUsdPerSecond"]');
+      const creditsTarget = tr.querySelector("[data-price-credits]");
+      const ratioTarget = tr.querySelector("[data-price-ratio]");
+      const saleUsd = Number(saleInput?.value || 0);
+      const purchaseUsd = Number(purchaseInput?.value || 0);
+      creditsTarget.textContent = Number.isFinite(saleUsd) && saleUsd >= 0
+        ? fmtPrice(saleUsd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
         : "-";
+      if (ratioTarget) {
+        ratioTarget.innerHTML = pricingMultiplierHtml({
+          purchaseUsdPerSecond: purchaseUsd,
+          saleUsdPerSecond: saleUsd,
+        });
+      }
     });
   };
 
-  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"]').forEach((input) => {
+  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"], [data-f="purchaseUsdPerSecond"]').forEach((input) => {
     input.addEventListener("input", updateCredits);
   });
   byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
   byId("savePricingBtn")?.addEventListener("click", async () => {
     try {
-      const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map((tr) => ({
-        provider: tr.dataset.provider,
-        resolution: tr.dataset.resolution,
-        rateKind: tr.dataset.rateKind,
-        key: tr.dataset.key,
-        unit: tr.dataset.unit,
-        saleUsdPerSecond: Number(tr.querySelector('[data-f="saleUsdPerSecond"]')?.value || 0),
-      }));
+      const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map((tr) => {
+        const purchaseInput = tr.querySelector('[data-f="purchaseUsdPerSecond"]');
+        return {
+          provider: tr.dataset.provider,
+          resolution: tr.dataset.resolution,
+          rateKind: tr.dataset.rateKind,
+          key: tr.dataset.key,
+          unit: tr.dataset.unit,
+          saleUsdPerSecond: Number(tr.querySelector('[data-f="saleUsdPerSecond"]')?.value || 0),
+          ...(purchaseInput ? { purchaseUsdPerSecond: Number(purchaseInput.value || 0) } : {}),
+        };
+      });
       const result = await api("/api/admin/pricing", {
         method: "PUT",
         body: { rows: nextRows },

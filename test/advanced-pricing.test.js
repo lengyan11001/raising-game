@@ -72,6 +72,40 @@ test("Vega 1.5 Lite has editable output and input-video pricing rows", () => {
   }
 });
 
+test("Vega purchase prices are complete, editable, and retain a 1.5x sale margin", async () => {
+  const pricing = await application.adminAdvancedPricingView({});
+  const vegaRows = pricing.rows.filter((row) => ["h3-vega", "vega10-lite", "seedance20-vega", "seedance25-vega"].includes(row.provider));
+  assert.equal(vegaRows.length, 41);
+  for (const row of vegaRows) {
+    assert.equal(row.purchaseEditable, true, `${row.key} must expose an editable purchase price`);
+    assert.equal(row.purchaseSource, "admin_configured", `${row.key} must use the configured Vega purchase price`);
+    assert.ok(Number(row.purchaseUsdPerSecond) > 0, `${row.key} must have a positive purchase price`);
+    assert.ok(Number(row.saleUsdPerSecond) > 0, `${row.key} must have a positive sale price`);
+    assert.ok(Math.abs(Number(row.saleUsdPerSecond) / Number(row.purchaseUsdPerSecond) - 1.5) < 1e-5, `${row.key} must keep a 1.5x margin`);
+  }
+  const reference = vegaRows.find((row) => row.key === "vega10-lite-reference-image");
+  assert.equal(reference?.purchaseUsdPerSecond, 0.03);
+  assert.equal(reference?.saleUsdPerSecond, 0.045);
+});
+
+test("Vega purchase tables preserve every Tencent VOD international rate", () => {
+  assert.match(server, /h3VegaPurchaseUsdPerSecondByResolution: \{\s*"480p": 0\.045,\s*"720p": 0\.09,\s*"1080p": 0\.18,\s*"2k": 0\.216,\s*"4k": 0\.2592,?\s*\}/);
+  assert.match(server, /h3VegaInputVideoPurchaseUsdPerSecondByResolution: \{\s*"480p": 0\.045,\s*"720p": 0\.09,\s*"1080p": 0\.18,\s*"2k": 0\.18,\s*"4k": 0\.18,?\s*\}/);
+  assert.match(server, /vega10LitePurchaseUsdPerSecondByResolution: \{\s*"480p": 0\.0457,\s*"768p": 0\.0577,\s*"1080p": 0\.0769,\s*"2k": 0\.0962,\s*"4k": 0\.1154,?\s*\}/);
+  assert.match(server, /vega10LiteReferenceImagePurchaseUsdEach: 0\.03/);
+  assert.match(server, /vega10ProPurchaseUsdPerSecondByResolution: \{\s*"480p": 0\.064,\s*"720p": 0\.1223,\s*"1080p": 0\.2662,\s*"2k": 0\.6615,\s*"4k": 0\.7538,?\s*\}/);
+  assert.match(server, /vega10ProInputVideoPurchaseUsdPerSecondByResolution: \{\s*"480p": 0\.0402,\s*"720p": 0\.0769,\s*"1080p": 0\.1662,\s*"2k": 0\.4108,\s*"4k": 0\.4615,?\s*\}/);
+  assert.match(server, /vega15ProPurchaseUsdPerSecondByResolution: \{\s*"480p": 0\.0932,\s*"720p": 0\.1828,\s*"1080p": 0\.3979,\s*"2k": 0\.98,\s*"4k": 1\.078,?\s*\}/);
+  assert.match(server, /vega15ProInputVideoPurchaseUsdPerSecondByResolution: \{\s*"480p": 0\.0559,\s*"720p": 0\.1138,\s*"1080p": 0\.2431,\s*"2k": 0\.5938,\s*"4k": 0\.6532,?\s*\}/);
+});
+
+test("admin pricing uses a tolerance when flagging multipliers below 1.5x", () => {
+  const adminSource = fs.readFileSync(path.join(root, "admin.js"), "utf8");
+  assert.match(adminSource, /const PRICING_MULTIPLIER_TOLERANCE = 1e-5/);
+  assert.match(adminSource, /multiplier < PRICING_MULTIPLIER_FLOOR - PRICING_MULTIPLIER_TOLERANCE/);
+  assert.doesNotMatch(adminSource, /multiplier < 1\.5/);
+});
+
 
 test("Vega 1.0 Lite pricing rows, defaults, validation, and reference-image fees match the contract", () => {
   const pricingRowsSource = server.slice(
@@ -344,7 +378,7 @@ test("admin pricing exposes persisted purchase and sale inputs for Wan3.0", () =
   assert.match(server, /wan30ProPurchaseUsdPerSecondByResolution: \{ \.\.\.WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY\["wan30-video-pro"\] \}/);
   assert.match(server, /wan30PrimePurchaseUsdPerSecondByResolution: \{ \.\.\.WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY\["wan30-video-prime"\] \}/);
   assert.match(server, /wan30PrimeProPurchaseUsdPerSecondByResolution: \{ \.\.\.WAN30_PURCHASE_USD_PER_SECOND_BY_CAPABILITY\["wan30-video-prime-pro"\] \}/);
-  assert.match(server, /purchaseEditable: Boolean\(wan30PurchaseTable\)/);
+  assert.match(server, /purchaseEditable: Boolean\(wan30PurchaseTable \|\| vegaPurchase\)/);
   assert.match(server, /const rawPurchaseUsd = Number\(row\.purchaseUsdPerSecond\)/);
   assert.match(server, /purchaseTable\[definedRow\.resolution\] = pricingNumber\(rawPurchaseUsd/);
   assert.match(server, /definedRow\?\.provider === "wan30" && rawCredits <= 0/);

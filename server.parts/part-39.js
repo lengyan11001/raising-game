@@ -451,17 +451,67 @@ function seedanceFastOfficialUsdPerSecond(resolution = "720p", rateKind = "outpu
   return pricingNumber((tokensPerSecond * usdPerMillionTokens) / 1000000, 0, 0, 8);
 }
 
-async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard", capability = "", mode = "", model = "", variant = "") {
+function advancedVegaPurchaseForRow(pricing = DEFAULT_ADVANCED_PRICING, row = {}) {
+  const normalized = normalizeAdvancedPricing(pricing);
+  const provider = normalizeAdvancedProvider(row.provider);
+  const rateKind = String(row.rateKind || row.unit || "output").trim().toLowerCase();
+  const resolution = ["vega10-lite", "seedance20-vega"].includes(provider)
+    ? String(row.resolution || "").trim().toLowerCase().replace(/^2160p$/, "4k")
+    : normalizeAdvancedResolution(row.resolution);
+  let table = null;
+  let usdPerSecond = null;
+  let rateKey = resolution;
+  if (provider === "h3-vega") {
+    table = rateKind === "video_input"
+      ? normalized.h3VegaInputVideoPurchaseUsdPerSecondByResolution
+      : normalized.h3VegaPurchaseUsdPerSecondByResolution;
+  } else if (provider === "vega10-lite" && rateKind === "reference_image") {
+    rateKey = "reference";
+    usdPerSecond = normalized.vega10LiteReferenceImagePurchaseUsdEach;
+  } else if (provider === "vega10-lite") {
+    table = rateKind === "video_input"
+      ? normalized.vega10LiteInputVideoPurchaseUsdPerSecondByResolution
+      : normalized.vega10LitePurchaseUsdPerSecondByResolution;
+  } else if (provider === "seedance20-vega") {
+    table = rateKind === "video_input"
+      ? normalized.vega10ProInputVideoPurchaseUsdPerSecondByResolution
+      : normalized.vega10ProPurchaseUsdPerSecondByResolution;
+  } else if (provider === "seedance25-vega") {
+    table = rateKind === "video_input"
+      ? normalized.vega15ProInputVideoPurchaseUsdPerSecondByResolution
+      : normalized.vega15ProPurchaseUsdPerSecondByResolution;
+  } else {
+    return null;
+  }
+  if (table) usdPerSecond = table[rateKey];
+  const normalizedUsd = pricingNumber(usdPerSecond, 0, 0, 8);
+  return {
+    provider,
+    table,
+    rateKey,
+    usdPerSecond: normalizedUsd > 0 ? normalizedUsd : null,
+    creditsPerSecond: normalizedUsd > 0 ? pricingNumber(normalizedUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6) : null,
+    source: "admin_configured",
+    message: "后台配置的 Vega 采购价；对外计费仍使用右侧对外价。",
+  };
+}
+
+async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard", capability = "", mode = "", model = "", variant = "", pricing = DEFAULT_ADVANCED_PRICING) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
-  if (normalizedProvider === "h3-vega" || normalizedProvider === "vega10-lite") {
-    const label = normalizedProvider === "vega10-lite" ? "Vega 1.0 Lite" : "Vega 1.5 Lite";
+  const vegaPurchase = advancedVegaPurchaseForRow(pricing, {
+    provider: normalizedProvider,
+    resolution,
+    rateKind,
+    unit: rateKind,
+  });
+  if (vegaPurchase) {
     return {
-      creditsPerSecond: null,
-      usdPerSecond: null,
-      source: "manual_admin_pricing",
-      message: `采购价未配置；请在后台填写 ${label} 的对外售价。`,
+      creditsPerSecond: vegaPurchase.creditsPerSecond,
+      usdPerSecond: vegaPurchase.usdPerSecond,
+      source: vegaPurchase.source,
+      message: vegaPurchase.message,
     };
   }
   if (normalizedProvider === "wan30") {
@@ -631,21 +681,27 @@ async function adminAdvancedPricingView(config = {}) {
     const saleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode, row.model, row.variant);
     const wan30PurchaseTable = wan30PurchaseTableForRow(pricing, row);
     const configuredWan30PurchaseUsd = wan30PurchaseTable?.[row.resolution];
-    const purchase = await advancedPurchaseCreditsPerSecond(row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode, row.model, row.variant);
+    const vegaPurchase = advancedVegaPurchaseForRow(pricing, row);
+    const purchase = vegaPurchase || await advancedPurchaseCreditsPerSecond(row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode, row.model, row.variant, pricing);
+    const adminConfiguredPurchase = Boolean(wan30PurchaseTable || vegaPurchase);
     return {
       ...row,
-      purchaseCreditsPerSecond: wan30PurchaseTable
-        ? pricingNumber(configuredWan30PurchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6)
+      purchaseCreditsPerSecond: adminConfiguredPurchase
+        ? vegaPurchase
+          ? vegaPurchase.creditsPerSecond
+          : pricingNumber(configuredWan30PurchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6)
         : purchase.creditsPerSecond,
       purchaseCreditsPerSecondRange: Array.isArray(purchase.creditsPerSecondRange) ? purchase.creditsPerSecondRange.slice(0, 2) : null,
-      purchaseUsdPerSecond: wan30PurchaseTable
-        ? configuredWan30PurchaseUsd
+      purchaseUsdPerSecond: adminConfiguredPurchase
+        ? vegaPurchase
+          ? vegaPurchase.usdPerSecond
+          : configuredWan30PurchaseUsd
         : purchase.usdPerSecond ?? usdFromCny(yuanPerSecondFromCredits(purchase.creditsPerSecond, pricing.creditsPerCny)),
       purchaseUsdPerSecondRange: purchase.usdPerSecondRange
         ?? usdRangeFromCny(yuanPerSecondRangeFromCredits(purchase.creditsPerSecondRange, pricing.creditsPerCny)),
-      purchaseSource: wan30PurchaseTable ? "admin_configured" : purchase.source,
-      purchaseMessage: wan30PurchaseTable ? "后台配置的采购价；对外计费仍使用右侧对外价。" : purchase.message || "",
-      purchaseEditable: Boolean(wan30PurchaseTable),
+      purchaseSource: adminConfiguredPurchase ? "admin_configured" : purchase.source,
+      purchaseMessage: adminConfiguredPurchase ? "后台配置的采购价；对外计费仍使用右侧对外价。" : purchase.message || "",
+      purchaseEditable: Boolean(wan30PurchaseTable || vegaPurchase),
       saleCreditsPerSecond,
       saleUsdPerSecond: pricingNumber(saleCreditsPerSecond / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     };
@@ -802,13 +858,23 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     }
     seen.add(key);
     const definedRow = ADVANCED_PRICING_ROWS_BY_KEY.get(key) || null;
-    if (definedRow?.provider === "wan30") {
-      const purchaseTable = wan30PurchaseTableForRow(next, definedRow);
+    if (definedRow) {
+      const vegaPurchase = advancedVegaPurchaseForRow(next, definedRow);
+      const wan30PurchaseTable = wan30PurchaseTableForRow(next, definedRow);
+      const purchaseTable = vegaPurchase?.table || wan30PurchaseTable;
       const rawPurchaseUsd = Number(row.purchaseUsdPerSecond);
-      if (!purchaseTable || !Number.isFinite(rawPurchaseUsd) || rawPurchaseUsd <= 0) {
+      if ((vegaPurchase || wan30PurchaseTable) && (!Number.isFinite(rawPurchaseUsd) || rawPurchaseUsd <= 0)) {
         throw pricingPayloadError(`Invalid purchase price for ${key}`);
       }
-      purchaseTable[definedRow.resolution] = pricingNumber(rawPurchaseUsd, purchaseTable[definedRow.resolution], 0, 8);
+      if (vegaPurchase && rawPurchaseUsd > 0) {
+        if (purchaseTable) {
+          purchaseTable[vegaPurchase.rateKey] = pricingNumber(rawPurchaseUsd, purchaseTable[vegaPurchase.rateKey], 0, 8);
+        } else if (vegaPurchase.provider === "vega10-lite" && vegaPurchase.rateKey === "reference") {
+          next.vega10LiteReferenceImagePurchaseUsdEach = pricingNumber(rawPurchaseUsd, next.vega10LiteReferenceImagePurchaseUsdEach, 0, 8);
+        }
+      } else if (wan30PurchaseTable && rawPurchaseUsd > 0) {
+        purchaseTable[definedRow.resolution] = pricingNumber(rawPurchaseUsd, purchaseTable[definedRow.resolution], 0, 8);
+      }
     }
     if (key === "wan27-image") {
       const rawSale = advancedPricingRowSaleYuan(row, next.creditsPerCny);
