@@ -1355,6 +1355,9 @@ document.addEventListener("click", (event) => {
   closeAccountMenu();
 });
 document.addEventListener("visibilitychange", syncTopupAutoRefresh);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.user) loadNotificationCenter({ silent: true });
+});
 els.loginForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   if (event.submitter?.value === "cancel") {
@@ -1413,18 +1416,8 @@ els.previewDialog?.addEventListener("close", () => {
   if (els.previewActions) els.previewActions.hidden = true;
   if (els.previewDownloadBtn) els.previewDownloadBtn.removeAttribute("href");
 });
-function openSupportDialog({ source = "", subject = "", message = "" } = {}) {
-  prepareModalOpen();
-  if (els.supportEmail) els.supportEmail.value = String(state.user?.email || "");
-  if (els.supportSubject) els.supportSubject.value = subject;
-  if (els.supportMessage) els.supportMessage.value = message;
-  if (els.supportStatus) els.supportStatus.textContent = "";
-  if (els.supportDialog) els.supportDialog.dataset.source = source;
-  els.supportDialog?.showModal();
-  window.requestAnimationFrame(() => {
-    if (state.user?.email) els.supportMessage?.focus();
-    else els.supportEmail?.focus();
-  });
+function openSupportDialog(options = {}) {
+  return openSupportCenter(options);
 }
 
 document.querySelectorAll("[data-analytics-event]").forEach((element) => {
@@ -1443,6 +1436,56 @@ document.querySelectorAll("[data-analytics-event]").forEach((element) => {
 els.supportFab?.addEventListener("click", openSupportDialog);
 els.supportNavBtn?.addEventListener("click", openSupportDialog);
 els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
+els.supportCloseBtn?.addEventListener("click", () => els.supportDialog?.close());
+els.supportRefreshBtn?.addEventListener("click", () => {
+  if (state.user) loadSupportTickets({ selectId: state.activeSupportTicketId });
+  else loadNotificationCenter({ silent: true });
+});
+els.supportNewTicketBtn?.addEventListener("click", () => openSupportNewTicket());
+els.supportEmptyNewBtn?.addEventListener("click", () => openSupportNewTicket());
+els.supportNewBackBtn?.addEventListener("click", () => showSupportView(state.activeSupportTicketId ? "thread" : "empty"));
+els.supportThreadBackBtn?.addEventListener("click", () => {
+  state.activeSupportTicketId = "";
+  showSupportView("empty");
+});
+els.supportCreateBtn?.addEventListener("click", createSupportTicketFromCenter);
+els.supportReplyBtn?.addEventListener("click", sendSupportReply);
+els.supportReplyInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    sendSupportReply();
+  }
+});
+els.supportTicketList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-support-ticket-id]");
+  if (button) openSupportTicket(button.dataset.supportTicketId || "");
+});
+els.notificationBellBtn?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleNotificationPanel();
+});
+els.mobileNotificationBellBtn?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleNotificationPanel();
+});
+els.notificationReadAllBtn?.addEventListener("click", markAllNotificationsRead);
+els.notificationSupportEntry?.addEventListener("click", () => {
+  closeNotificationPanel();
+  openSupportDialog();
+});
+els.notificationList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-notification-id]");
+  if (!button) return;
+  const item = (state.notificationCenter?.notifications || []).find((row) => row.id === button.dataset.notificationId);
+  if (item) openNotificationDetail(item);
+});
+els.notificationDetailClose?.addEventListener("click", () => els.notificationDetailDialog?.close());
+els.notificationDetailOk?.addEventListener("click", () => els.notificationDetailDialog?.close());
+document.addEventListener("click", (event) => {
+  if (els.notificationPanel?.hidden) return;
+  if (els.notificationPanel.contains(event.target) || els.notificationBellBtn?.contains(event.target) || els.mobileNotificationBellBtn?.contains(event.target)) return;
+  closeNotificationPanel();
+});
 els.mobileDrawerTopupBtn?.addEventListener("click", () => {
   closeMobileDrawer();
   openTopupDialog();

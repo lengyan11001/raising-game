@@ -720,7 +720,7 @@ function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, 
   };
 }
 
-function advancedModelPricing(provider = "seedance", options = {}) {
+function advancedModelPricingRaw(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "h3-vega" || normalizedProvider === "vega10-lite" || normalizedProvider === "seedance20-vega" || normalizedProvider === "seedance25-vega") {
     const isVega10Pro = normalizedProvider === "seedance20-vega";
@@ -1161,6 +1161,36 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     credits,
     markup: 1,
     source: "public_duration_rate",
+  };
+}
+
+function advancedModelPricing(provider = "seedance", options = {}) {
+  const estimate = advancedModelPricingRaw(provider, options);
+  const pricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
+  const modelKey = advancedPricingModelKey(provider, {
+    ...options,
+    capability: options.capability || options.videoCapability,
+    tier: options.tier || options.qwenTier || options.seedreamTier,
+  });
+  const setting = advancedModelSetting(pricing, modelKey);
+  if (setting.discount === 1) return { ...estimate, modelKey, modelDiscount: 1 };
+  const scale = (value) => value === undefined || value === null ? value : pricingNumber(Number(value || 0) * setting.discount, 0, 0, 6);
+  const discountCredits = (value) => creditsAmount(Number(value || 0) * setting.discount);
+  return {
+    ...estimate,
+    modelKey,
+    modelDiscount: setting.discount,
+    configuredCredits: creditsAmount(estimate.credits || 0),
+    creditsPerSecond: scale(estimate.creditsPerSecond),
+    outputCreditsPerSecond: scale(estimate.outputCreditsPerSecond),
+    outputCredits: discountCredits(estimate.outputCredits),
+    inputVideoCreditsPerSecond: scale(estimate.inputVideoCreditsPerSecond),
+    videoInputCreditsPerSecond: scale(estimate.videoInputCreditsPerSecond),
+    inputVideoCredits: discountCredits(estimate.inputVideoCredits),
+    videoInputCredits: discountCredits(estimate.videoInputCredits),
+    referenceImageCreditsEach: scale(estimate.referenceImageCreditsEach),
+    referenceImageCredits: discountCredits(estimate.referenceImageCredits),
+    credits: discountCredits(estimate.credits),
   };
 }
 

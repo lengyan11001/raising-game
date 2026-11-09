@@ -307,6 +307,8 @@ function renderTokenDisplays() {
   if (els.supportFab) {
     els.supportFab.hidden = !state.user;
   }
+  if (els.notificationCenter) els.notificationCenter.hidden = !state.user;
+  if (els.mobileNotificationBellBtn) els.mobileNotificationBellBtn.hidden = !state.user;
   if (els.accountName) els.accountName.textContent = state.user?.username || t("account.title");
   if (els.accountCredits) els.accountCredits.textContent = String(Number(state.user?.credits || 0));
   if (els.menuBalanceValue) els.menuBalanceValue.textContent = String(Number(state.user?.credits || 0));

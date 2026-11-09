@@ -938,6 +938,70 @@ function pricingNumber(value, fallback = 0, min = 0, digits = 4) {
   return Math.round(next * scale) / scale;
 }
 
+function advancedPricingModelKey(provider = "", options = {}) {
+  const normalized = normalizeAdvancedProvider(provider);
+  const optionValue = (key) => String(options?.[key] || "").trim().toLowerCase();
+  if (normalized === "seedance") {
+    return normalizeSeedanceTier(options?.seedanceTier || options?.tier || "") === "fast"
+      ? "seedance-fast"
+      : "seedance-standard";
+  }
+  if (normalized === "wan30") {
+    const capability = optionValue("capability");
+    const model = optionValue("model");
+    if (capability === "wan30-video-prime-pro" || model.includes("prime-pro") || model.includes("vsr-prime")) return "wan30-prime-pro";
+    if (capability === "wan30-video-pro" || model.endsWith("-pro")) return "wan30-pro";
+    if (capability === "wan30-video-prime" || model.includes("prime")) return "wan30-prime";
+    return "wan30";
+  }
+  if (normalized === "qwen-image3") {
+    const tier = String(options?.qwenTier || options?.tier || "pro").trim().toLowerCase() === "standard" ? "standard" : "pro";
+    return `qwen-image3-${tier}`;
+  }
+  if (normalized === "wan27") {
+    const capability = optionValue("capability");
+    if (capability === "wan-animate-move" || capability === "wan-animate-mix") return capability;
+    return "wan27";
+  }
+  return normalized;
+}
+
+function normalizeAdvancedModelSettings(value = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const next = {};
+  for (const [rawKey, rawSetting] of Object.entries(source).slice(0, 120)) {
+    const key = String(rawKey || "").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+    if (!key) continue;
+    const setting = rawSetting && typeof rawSetting === "object" && !Array.isArray(rawSetting) ? rawSetting : {};
+    const discount = Number(setting.discount);
+    next[key] = {
+      displayName: String(setting.displayName || "").trim().slice(0, 80),
+      subtitle: String(setting.subtitle || "").trim().slice(0, 160),
+      discount: Number.isFinite(discount) && discount >= 0.01 && discount <= 10 ? Math.round(discount * 10000) / 10000 : 1,
+    };
+  }
+  return next;
+}
+
+function advancedModelSetting(pricing = {}, modelKey = "") {
+  const key = String(modelKey || "").trim().toLowerCase();
+  const settings = pricing?.modelSettings && typeof pricing.modelSettings === "object" ? pricing.modelSettings : {};
+  const setting = settings[key] && typeof settings[key] === "object" ? settings[key] : {};
+  const discount = Number(setting.discount);
+  return {
+    displayName: String(setting.displayName || "").trim(),
+    subtitle: String(setting.subtitle || "").trim(),
+    discount: Number.isFinite(discount) && discount >= 0.01 && discount <= 10 ? discount : 1,
+  };
+}
+
+function applyAdvancedModelDiscount(credits, pricing = {}, modelKey = "") {
+  const amount = Number(credits || 0);
+  if (!(amount > 0)) return 0;
+  const discount = advancedModelSetting(pricing, modelKey).discount;
+  return pricingNumber(amount * discount, amount, 0, 6);
+}
+
 function normalizeAdvancedPricing(pricing = {}) {
   const source = pricing && typeof pricing === "object" && !Array.isArray(pricing) ? pricing : {};
   const seedance25 = source.seedance25CreditsPerSecondByResolution && typeof source.seedance25CreditsPerSecondByResolution === "object"
@@ -1241,6 +1305,7 @@ function normalizeAdvancedPricing(pricing = {}) {
     creditsPerUsd: DEFAULT_CREDITS_PER_USD,
     internalCnyPerUsd: INTERNAL_CNY_PER_USD,
     usdBillingConfigured: true,
+    modelSettings: normalizeAdvancedModelSettings(source.modelSettings),
     seedance25CreditsPerSecondByResolution: {
       "480p": normalizeSeedance25Credits(seedance25["480p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["480p"], "480p"),
       "720p": normalizeSeedance25Credits(seedance25["720p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["720p"], "720p"),

@@ -811,6 +811,240 @@ async function liveDailyTaskView(userId, taskDate) {
   };
 }
 
+
+function ticketView(record = {}) {
+  return {
+    id: String(record.id || ""),
+    userId: String(record.userId || ""),
+    username: String(record.username || ""),
+    email: String(record.email || record.userEmail || ""),
+    subject: String(record.subject || ""),
+    status: String(record.status || "open"),
+    priority: String(record.priority || "normal"),
+    source: String(record.source || ""),
+    lastMessageAt: String(record.lastMessageAt || record.createdAt || ""),
+    createdAt: String(record.createdAt || ""),
+    updatedAt: String(record.updatedAt || ""),
+    messageCount: Number(record.messageCount || 0),
+    userUnreadCount: Number(record.userUnreadCount || 0),
+    adminUnreadCount: Number(record.adminUnreadCount || 0),
+    lastMessage: String(record.lastMessage || ""),
+    lastSenderType: String(record.lastSenderType || ""),
+  };
+}
+
+function ticketMessageView(record = {}) {
+  return {
+    id: String(record.id || ""),
+    ticketId: String(record.ticketId || ""),
+    senderType: String(record.senderType || "user"),
+    senderName: String(record.senderName || ""),
+    body: String(record.body || ""),
+    createdAt: String(record.createdAt || ""),
+  };
+}
+
+async function handleCreateSupportTicket(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "support_ticket_create", limit: 5, windowMs: 60 * 60_000 })) return;
+  const body = await readJson(req);
+  const subject = String(body.subject || "").trim().slice(0, 120);
+  const message = String(body.message || "").trim().slice(0, 5000);
+  if (!message) return sendJson(res, 400, { ok: false, code: "SUPPORT_MESSAGE_REQUIRED", message: "请输入问题描述。" });
+  const now = new Date().toISOString();
+  const ticketId = randomId("ticket");
+  const ticket = await createSupportTicketInDb({
+    id: ticketId,
+    userId: auth.user.id,
+    tenantId: auth.user.tenantId || DEFAULT_TENANT_ID,
+    email: auth.user.email || auth.user.googleEmail || "",
+    subject: subject || "客服咨询",
+    source: String(body.source || "site").slice(0, 80),
+    context: body.context && typeof body.context === "object" ? body.context : {},
+    createdAt: now,
+    message: { id: randomId("ticket-message"), senderName: auth.user.username || "", body: message },
+  });
+  return sendJson(res, 200, { ok: true, ticket: ticketView(ticket), messages: await listSupportTicketMessagesFromDb(ticketId) });
+}
+
+async function handleListSupportTickets(req, res, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
+  const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 30)));
+  const tickets = await listUserSupportTicketsInDb(auth.user.id, limit);
+  return sendJson(res, 200, { ok: true, tickets: tickets.map(ticketView), unreadCount: tickets.reduce((sum, ticket) => sum + Number(ticket.userUnreadCount || 0), 0) });
+}
+
+async function handleGetSupportTicket(req, res, ticketId, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
+  const ticket = await getSupportTicketForUserFromDb(auth.user.id, ticketId);
+  if (!ticket) return sendJson(res, 404, { ok: false, code: "SUPPORT_TICKET_NOT_FOUND", message: "工单不存在。" });
+  if (url.searchParams.get("read") === "1") {
+    await markSupportTicketReadInDb({ ticketId, userId: auth.user.id, readerType: "user" });
+    Object.assign(ticket, await getSupportTicketForUserFromDb(auth.user.id, ticketId) || {});
+  }
+  return sendJson(res, 200, { ok: true, ticket: ticketView(ticket), messages: (await listSupportTicketMessagesFromDb(ticketId)).map(ticketMessageView) });
+}
+
+async function handleReplySupportTicket(req, res, ticketId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
+  if (!await enforceBusinessRateLimit(req, res, auth, { action: "support_ticket_reply", limit: 30, windowMs: 60 * 60_000 })) return;
+  const ticket = await getSupportTicketForUserFromDb(auth.user.id, ticketId);
+  if (!ticket) return sendJson(res, 404, { ok: false, code: "SUPPORT_TICKET_NOT_FOUND", message: "工单不存在。" });
+  const bodyText = String((await readJson(req)).message || "").trim().slice(0, 5000);
+  if (!bodyText) return sendJson(res, 400, { ok: false, code: "SUPPORT_MESSAGE_REQUIRED", message: "请输入消息内容。" });
+  const message = await appendSupportTicketMessageInDb({
+    id: randomId("ticket-message"),
+    ticketId,
+    senderType: "user",
+    senderUserId: auth.user.id,
+    senderName: auth.user.username || "",
+    body: bodyText,
+  });
+  return sendJson(res, 200, { ok: true, message: ticketMessageView(message), ticket: ticketView(await getSupportTicketForUserFromDb(auth.user.id, ticketId)) });
+}
+
+async function handleListSystemNotifications(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统通知需要数据库服务。" });
+  const [notifications, tickets] = await Promise.all([
+    listSystemNotificationsForUserFromDb(auth.user.id, auth.user.tenantId || DEFAULT_TENANT_ID),
+    listUserSupportTicketsInDb(auth.user.id, 100),
+  ]);
+  const ticketUnread = tickets.reduce((sum, ticket) => sum + Number(ticket.userUnreadCount || 0), 0);
+  return sendJson(res, 200, {
+    ok: true,
+    notifications,
+    unreadCount: notifications.filter((item) => item.unread).length,
+    supportUnreadCount: ticketUnread,
+    totalUnreadCount: notifications.filter((item) => item.unread).length + ticketUnread,
+  });
+}
+
+async function handleReadSystemNotification(req, res, notificationId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统通知需要数据库服务。" });
+  const body = await readJson(req);
+  const result = await markSystemNotificationReadInDb(auth.user.id, notificationId, String(body.version || ""));
+  return sendJson(res, 200, { ok: true, notification: result });
+}
+
+async function handleReadAllSystemNotifications(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统通知需要数据库服务。" });
+  const count = await markAllSystemNotificationsReadInDb(auth.user.id, auth.user.tenantId || DEFAULT_TENANT_ID);
+  return sendJson(res, 200, { ok: true, count });
+}
+
+async function handleAdminListSupportTickets(req, res, url) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
+  const paging = pagingFromUrl(url, { defaultLimit: 20, maxLimit: 100 });
+  const result = await getAdminSupportTicketsPageFromDb({
+    page: paging.page,
+    limit: paging.limit,
+    queryText: String(url.searchParams.get("q") || "").trim(),
+    status: String(url.searchParams.get("status") || "").trim(),
+    unreadOnly: url.searchParams.get("unread") === "1",
+  });
+  return sendJson(res, 200, { ok: true, tickets: result.items.map(ticketView), page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages });
+}
+
+async function handleAdminGetSupportTicket(req, res, ticketId, url) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const ticket = await getSupportTicketForAdminFromDb(ticketId);
+  if (!ticket) return sendJson(res, 404, { ok: false, message: "工单不存在。" });
+  if (url.searchParams.get("read") === "1") {
+    await markSupportTicketReadInDb({ ticketId, readerType: "admin" });
+    Object.assign(ticket, await getSupportTicketForAdminFromDb(ticketId) || {});
+  }
+  return sendJson(res, 200, { ok: true, ticket: ticketView(ticket), messages: (await listSupportTicketMessagesFromDb(ticketId)).map(ticketMessageView) });
+}
+
+async function handleAdminReplySupportTicket(req, res, ticketId) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const ticket = await getSupportTicketForAdminFromDb(ticketId);
+  if (!ticket) return sendJson(res, 404, { ok: false, message: "工单不存在。" });
+  const bodyText = String((await readJson(req)).message || "").trim().slice(0, 5000);
+  if (!bodyText) return sendJson(res, 400, { ok: false, code: "SUPPORT_MESSAGE_REQUIRED", message: "请输入回复内容。" });
+  const message = await appendSupportTicketMessageInDb({
+    id: randomId("ticket-message"),
+    ticketId,
+    senderType: "admin",
+    senderUserId: auth.user.id,
+    senderName: auth.user.username || "客服",
+    body: bodyText,
+  });
+  return sendJson(res, 200, { ok: true, message: ticketMessageView(message), ticket: ticketView(await getSupportTicketForAdminFromDb(ticketId)) });
+}
+
+async function handleAdminUpdateSupportTicket(req, res, ticketId) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const body = await readJson(req);
+  const ticket = await updateSupportTicketInDb({ ticketId, status: body.status, priority: body.priority });
+  if (!ticket) return sendJson(res, 404, { ok: false, message: "工单不存在。" });
+  return sendJson(res, 200, { ok: true, ticket: ticketView(ticket) });
+}
+
+async function handleAdminListSystemNotifications(req, res) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const notifications = await listAdminSystemNotificationsFromDb(auth.user.tenantId || DEFAULT_TENANT_ID);
+  return sendJson(res, 200, { ok: true, notifications });
+}
+
+async function handleAdminCreateSystemNotification(req, res) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const body = await readJson(req);
+  const title = String(body.title || "").trim().slice(0, 120);
+  const text = String(body.body || "").trim().slice(0, 5000);
+  if (!title || !text) return sendJson(res, 400, { ok: false, message: "标题和内容不能为空。" });
+  const notification = await createSystemNotificationInDb({
+    id: randomId("system-notification"),
+    tenantId: auth.user.tenantId || DEFAULT_TENANT_ID,
+    title,
+    body: text,
+    pinned: body.pinned === true,
+    active: body.active !== false,
+    publishAt: body.publishAt || "",
+    expiresAt: body.expiresAt || "",
+    createdByUserId: auth.user.id,
+  });
+  return sendJson(res, 200, { ok: true, notification });
+}
+
+async function handleAdminUpdateSystemNotification(req, res, notificationId) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const body = await readJson(req);
+  const notification = await updateSystemNotificationInDb(notificationId, body);
+  if (!notification) return sendJson(res, 404, { ok: false, message: "通知不存在。" });
+  return sendJson(res, 200, { ok: true, notification });
+}
+
+async function handleAdminDeleteSystemNotification(req, res, notificationId) {
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const deleted = await deleteSystemNotificationInDb(notificationId);
+  if (!deleted) return sendJson(res, 404, { ok: false, message: "通知不存在。" });
+  return sendJson(res, 200, { ok: true });
+}
+
 async function handleListLiveNotifications(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;

@@ -179,22 +179,22 @@ function yuanPerSecondRangeFromCredits(creditsPerSecondRange, creditsPerCny) {
   return creditsPerSecondRange.slice(0, 2).map((value) => yuanPerSecondFromCredits(value, creditsPerCny));
 }
 
-function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard", capability = "", mode = "", model = "", variant = "") {
+function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard", capability = "", mode = "", model = "", variant = "", options = {}) {
   const normalized = normalizeAdvancedPricing(pricing);
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const normalizedModel = String(model || "").trim().toLowerCase();
+  let saleCredits = 0;
   if (capability === "wan-legacy" && normalizedModel && normalized.aliyunVideoCreditsPerSecondByModel?.[normalizedModel]) {
     const rateKey = variant
       ? `${normalizeAdvancedResolution(resolution)}-${String(variant).toLowerCase()}`
       : normalizeAdvancedResolution(resolution);
-    return pricingNumber(normalized.aliyunVideoCreditsPerSecondByModel[normalizedModel][rateKey], 0);
-  }
-  if (capability && normalized.aliyunVideoCreditsPerSecondByCapability?.[capability]) {
+    saleCredits = pricingNumber(normalized.aliyunVideoCreditsPerSecondByModel[normalizedModel][rateKey], 0);
+  } else if (capability && normalized.aliyunVideoCreditsPerSecondByCapability?.[capability]) {
     const rateKey = mode || String(resolution || "").toLowerCase();
-    return pricingNumber(normalized.aliyunVideoCreditsPerSecondByCapability[capability][rateKey], 0);
-  }
-  const isFast = normalizedProvider === "seedance" && normalizeSeedanceTier(seedanceTier) === "fast";
-  const table = normalizedProvider === "seedance25"
+    saleCredits = pricingNumber(normalized.aliyunVideoCreditsPerSecondByCapability[capability][rateKey], 0);
+  } else {
+    const isFast = normalizedProvider === "seedance" && normalizeSeedanceTier(seedanceTier) === "fast";
+    const table = normalizedProvider === "seedance25"
     ? normalized.seedance25CreditsPerSecondByResolution
     : normalizedProvider === "h3-vega" && rateKind === "video_input"
     ? normalized.h3VegaInputVideoCreditsPerSecondByResolution
@@ -236,16 +236,26 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     ? normalized.wan27CreditsPerSecondByResolution
     : normalizedProvider === "happyhorse"
     ? normalized.happyhorseCreditsPerSecondByResolution
-    : normalized.seedanceCreditsPerSecondByResolution;
-  const rateKey = ["vega10-lite", "seedance20-vega"].includes(normalizedProvider)
-    ? String(resolution || "").trim().toLowerCase().replace(/^2160p$/, "4k")
-    : normalizeAdvancedResolution(resolution);
-  return pricingNumber(table[rateKey], 0, 0, isFast ? 6 : 4);
+      : normalized.seedanceCreditsPerSecondByResolution;
+    const rateKey = ["vega10-lite", "seedance20-vega"].includes(normalizedProvider)
+      ? String(resolution || "").trim().toLowerCase().replace(/^2160p$/, "4k")
+      : normalizeAdvancedResolution(resolution);
+    saleCredits = pricingNumber(table[rateKey], 0, 0, isFast ? 6 : 4);
+  }
+  if (options.applyDiscount === false) return saleCredits;
+  return applyAdvancedModelDiscount(saleCredits, normalized, advancedPricingModelKey(provider, {
+    capability,
+    mode,
+    model,
+    seedanceTier,
+    tier: normalizedProvider === "qwen-image3" ? mode : "",
+  }));
 }
 
 function advancedSaleImageCredits(pricing = DEFAULT_ADVANCED_PRICING) {
   const normalized = normalizeAdvancedPricing(pricing);
-  return pricingNumber(Number(normalized.wan27ImagePro.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6);
+  const saleCredits = pricingNumber(Number(normalized.wan27ImagePro.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6);
+  return applyAdvancedModelDiscount(saleCredits, normalized, "wan27");
 }
 
 function seedream5ProOfficialUsdPerImage(resolution = "2K") {
@@ -263,7 +273,7 @@ function advancedSaleSeedream5Credits(pricing = DEFAULT_ADVANCED_PRICING, resolu
     0,
     6,
   );
-  return pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+  return applyAdvancedModelDiscount(pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6), normalized, "seedream5-image");
 }
 
 function advancedSaleSeedream5ReferenceCredits(pricing = DEFAULT_ADVANCED_PRICING) {
@@ -274,7 +284,7 @@ function advancedSaleSeedream5ReferenceCredits(pricing = DEFAULT_ADVANCED_PRICIN
     0,
     6,
   );
-  return pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+  return applyAdvancedModelDiscount(pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6), normalized, "seedream5-image");
 }
 
 function purchaseUsdFromCredits(credits) {
@@ -678,7 +688,10 @@ function wan30PurchaseTableForRow(pricing = DEFAULT_ADVANCED_PRICING, row = {}) 
 async function adminAdvancedPricingView(config = {}) {
   const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
   const rows = await Promise.all(ADVANCED_PRICING_ROWS.filter(adminAdvancedPricingRowVisible).map(async (row) => {
-    const saleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode, row.model, row.variant);
+    const modelKey = advancedPricingModelKey(row.provider, row);
+    const modelSetting = advancedModelSetting(pricing, modelKey);
+    const configuredSaleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode, row.model, row.variant, { applyDiscount: false });
+    const saleCreditsPerSecond = applyAdvancedModelDiscount(configuredSaleCreditsPerSecond, pricing, modelKey);
     const wan30PurchaseTable = wan30PurchaseTableForRow(pricing, row);
     const configuredWan30PurchaseUsd = wan30PurchaseTable?.[row.resolution];
     const vegaPurchase = advancedVegaPurchaseForRow(pricing, row);
@@ -702,6 +715,11 @@ async function adminAdvancedPricingView(config = {}) {
       purchaseSource: adminConfiguredPurchase ? "admin_configured" : purchase.source,
       purchaseMessage: adminConfiguredPurchase ? "后台配置的采购价；对外计费仍使用右侧对外价。" : purchase.message || "",
       purchaseEditable: Boolean(wan30PurchaseTable || vegaPurchase),
+      modelKey,
+      modelDisplayName: modelSetting.displayName,
+      modelSubtitle: modelSetting.subtitle,
+      modelDiscount: modelSetting.discount,
+      configuredSaleCreditsPerSecond,
       saleCreditsPerSecond,
       saleUsdPerSecond: pricingNumber(saleCreditsPerSecond / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     };
@@ -786,7 +804,10 @@ async function adminAdvancedPricingView(config = {}) {
       const hasGatewayPurchase = Number.isFinite(Number(gatewayPurchase?.credits));
       const purchaseCredits = hasGatewayPurchase ? Number(gatewayPurchase.credits) : pricingNumber(officialUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
       const configuredSaleUsd = pricingNumber(tierConfig.saleUsdPerImageByResolution?.[resolution], officialUsd, 0, 6);
-      const saleCredits = pricingNumber(configuredSaleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+      const configuredSaleCredits = pricingNumber(configuredSaleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+      const modelKey = `qwen-image3-${tier}`;
+      const modelSetting = advancedModelSetting(pricing, modelKey);
+      const saleCredits = applyAdvancedModelDiscount(configuredSaleCredits, pricing, modelKey);
       rows.push({
         key: `qwen-image3-${tier}-${resolution.toLowerCase()}`,
         provider: "qwen-image3",
@@ -798,6 +819,11 @@ async function adminAdvancedPricingView(config = {}) {
         purchaseUsdPerSecond: hasGatewayPurchase ? purchaseUsdFromCredits(purchaseCredits) : officialUsd,
         purchaseSource: gatewayPurchase?.source || "aliyun_singapore_official_model_pricing",
         purchaseMessage: gatewayPurchase?.message || "Alibaba Cloud Model Studio Singapore official output image price.",
+        modelKey,
+        modelDisplayName: modelSetting.displayName,
+        modelSubtitle: modelSetting.subtitle,
+        modelDiscount: modelSetting.discount,
+        configuredSaleCreditsPerSecond: configuredSaleCredits,
         saleCreditsPerSecond: saleCredits,
         saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
         model: QWEN_IMAGE3_MODELS[tier],
@@ -809,7 +835,10 @@ async function adminAdvancedPricingView(config = {}) {
       const hasGatewayPurchase = Number.isFinite(Number(gatewayPurchase?.credits));
       const purchaseCredits = hasGatewayPurchase ? Number(gatewayPurchase.credits) : pricingNumber(officialUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
       const configuredSaleUsd = pricingNumber(tierConfig.saleUsdPerReferenceImage, officialUsd, 0, 6);
-      const saleCredits = pricingNumber(configuredSaleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+      const configuredSaleCredits = pricingNumber(configuredSaleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+      const modelKey = `qwen-image3-${tier}`;
+      const modelSetting = advancedModelSetting(pricing, modelKey);
+      const saleCredits = applyAdvancedModelDiscount(configuredSaleCredits, pricing, modelKey);
       rows.push({
         key: `qwen-image3-${tier}-reference`,
         provider: "qwen-image3",
@@ -821,6 +850,11 @@ async function adminAdvancedPricingView(config = {}) {
         purchaseUsdPerSecond: hasGatewayPurchase ? purchaseUsdFromCredits(purchaseCredits) : officialUsd,
         purchaseSource: gatewayPurchase?.source || "aliyun_singapore_official_model_pricing",
         purchaseMessage: gatewayPurchase?.message || "Alibaba Cloud Model Studio Singapore official input price per reference image.",
+        modelKey,
+        modelDisplayName: modelSetting.displayName,
+        modelSubtitle: modelSetting.subtitle,
+        modelDiscount: modelSetting.discount,
+        configuredSaleCreditsPerSecond: configuredSaleCredits,
         saleCreditsPerSecond: saleCredits,
         saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
         model: QWEN_IMAGE3_MODELS[tier],
@@ -831,6 +865,7 @@ async function adminAdvancedPricingView(config = {}) {
     unit: "credits",
     creditsPerUsd: DEFAULT_CREDITS_PER_USD,
     upstreamMode: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
+    modelSettings: { ...pricing.modelSettings },
     rows,
   };
 }
@@ -840,6 +875,12 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     throw pricingPayloadError("Pricing save requires the latest row-based form. Refresh the admin page and try again.", "PRICING_ROWS_REQUIRED");
   }
   const next = normalizeAdvancedPricing(currentPricing);
+  if (Object.prototype.hasOwnProperty.call(body, "modelSettings")) {
+    const source = body.modelSettings && typeof body.modelSettings === "object" && !Array.isArray(body.modelSettings)
+      ? body.modelSettings
+      : {};
+    next.modelSettings = normalizeAdvancedModelSettings({ ...next.modelSettings, ...source });
+  }
   const seen = new Set();
   for (const row of body.rows) {
     const key = advancedPricingRowKey(row);

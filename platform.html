@@ -73,6 +73,9 @@
         <span class="eleven-eleven-badge">11.11</span>
         <span class="eleven-eleven-mobile-time"><strong id="elevenElevenMobileCountdown">--:--:--</strong></span>
       </button>
+      <button class="notification-bell mobile-notification-bell" id="mobileNotificationBellBtn" type="button" aria-label="系统通知" hidden>
+        <i data-lucide="bell"></i><span class="notification-dot" id="mobileNotificationDot" hidden></span>
+      </button>
       <button class="topup-trigger mobile-topup-trigger" id="mobileDrawerTopupBtn" type="button">
         <i data-lucide="coins"></i>
         <span data-i18n="topup.compact">Top Up</span>
@@ -142,6 +145,7 @@
         <button class="side-utility-link is-support" id="supportNavBtn" type="button" aria-label="Support" data-analytics-event="support_open" data-analytics-location="side_nav">
           <i data-lucide="messages-square"></i>
           <span data-i18n="common.support">Support</span>
+          <b class="nav-unread-dot" id="supportNavDot" hidden></b>
         </button>
       </nav>
       <div class="mobile-drawer-account">
@@ -194,6 +198,24 @@
           <i data-lucide="coins"></i>
           <span data-i18n="topup.buyCoins">Buy credits</span>
         </button>
+        <div class="notification-center" id="notificationCenter" hidden>
+          <button class="notification-bell" id="notificationBellBtn" type="button" aria-label="系统通知" aria-expanded="false">
+            <i data-lucide="bell"></i>
+            <span class="notification-dot" id="notificationBellDot" hidden></span>
+          </button>
+          <section class="notification-panel" id="notificationPanel" hidden>
+            <header class="notification-panel-head">
+              <div><span class="notification-kicker">INBOX</span><strong>消息中心</strong></div>
+              <button class="notification-read-all" id="notificationReadAllBtn" type="button">全部已读</button>
+            </header>
+            <button class="notification-support-card" id="notificationSupportEntry" type="button">
+              <span class="notification-support-icon"><i data-lucide="messages-square"></i></span>
+              <span><strong>在线客服</strong><small>查看工单与客服回复</small></span>
+              <b id="notificationSupportUnread" hidden>0</b>
+            </button>
+            <div class="notification-list" id="notificationList"></div>
+          </section>
+        </div>
         <button class="primary-pill account-menu-trigger" id="accountMenuBtn" type="button">
           <i data-lucide="user-round"></i>
           <span id="accountMenuLabel">Login / Sign up</span>
@@ -1096,6 +1118,7 @@
     <button class="support-fab" id="supportFab" type="button" aria-label="Support">
       <i data-lucide="messages-square"></i>
       <span data-i18n="common.support">Support</span>
+      <b class="support-fab-dot" id="supportFabDot" hidden></b>
     </button>
 
     <div class="video-tool-fabs" id="videoToolFabs" hidden>
@@ -1497,33 +1520,89 @@
       </form>
     </dialog>
 
-    <dialog id="supportDialog" class="modal">
-      <form method="dialog">
-        <header>
-          <strong data-i18n="common.support">Support</strong>
-          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+    <dialog id="supportDialog" class="modal support-center-modal">
+      <div class="support-center-shell">
+        <header class="support-center-head">
+          <div class="support-center-title">
+            <span class="support-center-mark"><i data-lucide="messages-square"></i></span>
+            <div><span>VIPEAK CARE</span><strong data-i18n="common.support">客服中心</strong></div>
+          </div>
+          <div class="support-center-head-actions">
+            <button class="support-refresh-btn" id="supportRefreshBtn" type="button" title="刷新"><i data-lucide="refresh-cw"></i></button>
+            <button class="icon-btn" id="supportCloseBtn" type="button" aria-label="关闭"><i data-lucide="x"></i></button>
+          </div>
         </header>
-        <div class="modal-body">
-          <label class="field">
-            <span>Email</span>
-            <input id="supportEmail" type="email" placeholder="name@example.com" />
-          </label>
-          <label class="field">
-            <span>Subject</span>
-            <input id="supportSubject" type="text" placeholder="Optional" />
-          </label>
-          <label class="field">
-            <span>Message</span>
-            <textarea id="supportMessage" rows="6" placeholder="Describe your issue..."></textarea>
-          </label>
-          <p class="job-note">No sign-in is required to send a support message. Include the email where we can reach you.</p>
-          <a class="copy-btn" href="https://t.me/VipeakSupportBot" target="_blank" rel="noopener noreferrer" data-direct-url="https://t.me/VipeakSupportBot" data-analytics-event="telegram_support_click">
-            <i data-lucide="send"></i>Open Telegram support
-          </a>
+
+        <section class="support-anon-panel" id="supportAnonPanel" hidden>
+          <div class="support-anon-copy">
+            <span>无需登录</span>
+            <h3>留下联系方式，我们会尽快回复</h3>
+            <p>登录后可创建工单，并在站内持续查看客服回复。</p>
+          </div>
+          <label class="field"><span>邮箱</span><input id="supportEmail" type="email" placeholder="name@example.com" /></label>
+          <label class="field"><span>主题</span><input id="supportSubject" type="text" placeholder="可选" /></label>
+          <label class="field"><span>问题描述</span><textarea id="supportMessage" rows="5" placeholder="请描述遇到的问题..."></textarea></label>
           <p class="job-note" id="supportStatus"></p>
-          <button class="copy-btn" id="supportSubmitBtn" type="button"><i data-lucide="send"></i>Send</button>
-        </div>
-      </form>
+          <button class="support-primary-btn" id="supportSubmitBtn" type="button"><i data-lucide="send"></i>发送消息</button>
+        </section>
+
+        <section class="support-app" id="supportAppPanel" hidden>
+          <aside class="support-ticket-sidebar">
+            <div class="support-sidebar-head">
+              <div><span class="notification-kicker">TICKETS</span><strong>我的工单</strong></div>
+              <button class="support-new-btn" id="supportNewTicketBtn" type="button"><i data-lucide="plus"></i>新建</button>
+            </div>
+            <div class="support-ticket-list" id="supportTicketList"></div>
+          </aside>
+          <main class="support-conversation-pane">
+            <div class="support-empty-state" id="supportEmptyState">
+              <span><i data-lucide="message-square-dashed"></i></span>
+              <h3>有问题，直接说</h3>
+              <p>创建工单后，客服回复会实时出现在这里。</p>
+              <button class="support-primary-btn" id="supportEmptyNewBtn" type="button"><i data-lucide="plus"></i>创建第一个工单</button>
+            </div>
+
+            <section class="support-new-ticket" id="supportNewTicketPanel" hidden>
+              <div class="support-conversation-head">
+                <button class="support-back-btn" id="supportNewBackBtn" type="button"><i data-lucide="arrow-left"></i></button>
+                <div><span>NEW TICKET</span><h3>描述你的问题</h3></div>
+              </div>
+              <label class="support-input-label"><span>主题</span><input id="supportTicketSubject" maxlength="120" placeholder="例如：视频生成失败" /></label>
+              <label class="support-input-label"><span>详细描述</span><textarea id="supportTicketBody" maxlength="5000" rows="8" placeholder="请说明发生了什么、任务编号或你希望我们怎么协助..."></textarea></label>
+              <p class="support-inline-status" id="supportCreateStatus"></p>
+              <button class="support-primary-btn" id="supportCreateBtn" type="button"><i data-lucide="send"></i>提交工单</button>
+            </section>
+
+            <section class="support-thread" id="supportThreadPanel" hidden>
+              <div class="support-conversation-head">
+                <button class="support-back-btn" id="supportThreadBackBtn" type="button"><i data-lucide="arrow-left"></i></button>
+                <div>
+                  <span id="supportThreadMeta">工单</span>
+                  <h3 id="supportThreadSubject">咨询</h3>
+                </div>
+                <span class="support-status-pill" id="supportThreadStatus">处理中</span>
+              </div>
+              <div class="support-messages" id="supportMessages"></div>
+              <div class="support-composer">
+                <textarea id="supportReplyInput" rows="2" maxlength="5000" placeholder="输入回复，Enter 发送，Shift + Enter 换行"></textarea>
+                <button class="support-send-btn" id="supportReplyBtn" type="button" aria-label="发送"><i data-lucide="send"></i></button>
+              </div>
+              <p class="support-inline-status" id="supportReplyStatus"></p>
+            </section>
+          </main>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="notificationDetailDialog" class="modal notification-detail-modal">
+      <div class="notification-detail-shell">
+        <header>
+          <div><span class="notification-kicker" id="notificationDetailKicker">系统通知</span><h3 id="notificationDetailTitle">通知详情</h3></div>
+          <button class="icon-btn" id="notificationDetailClose" type="button" aria-label="关闭"><i data-lucide="x"></i></button>
+        </header>
+        <div class="notification-detail-body" id="notificationDetailBody"></div>
+        <footer><time id="notificationDetailTime"></time><button class="support-primary-btn" id="notificationDetailOk" type="button">我知道了</button></footer>
+      </div>
     </dialog>
 
     <dialog id="historyDetailDialog" class="modal history-detail-modal">

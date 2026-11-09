@@ -1,5 +1,4 @@
 ## 2026-11-09 Seedream/Qwen image pricing raised to 1.5x
-
 - Goal: keep purchase prices unchanged and raise sale prices to 1.5x for Seedream 5.0 Pro (1K/2K/reference), Qwen Image 3.0 Pro (1K/2K/reference), and Qwen Image 3.0 Standard (1K/2K/reference).
 - Changed: `server.parts/part-01.js`, `server.parts/part-02.js`, `server.parts/part-39.js`, `test/advanced-pricing.test.js`.
 - Defaults now apply `SEEDREAM_QWEN_IMAGE_SALE_MARKUP = 1.5`; normalization migrates only exact legacy sale values equal to purchase, preserving custom configured prices. Admin display now consistently uses configured sale prices rather than substituting gateway purchase values.
@@ -2296,3 +2295,22 @@ CODEX_TASK_STATE.md
 - Production `app_kv.app_config -> platform.advancedPricing.seedance25CreditsPerSecondByResolution` contained legacy simplified values `480p: 9`, `720p: 16`; these differed from the exact purchase-price legacy defaults and were therefore preserved as custom prices.
 - Added `previousSimplifiedUiDefault` (`9`/`16`) to the normalized legacy-default migration set and extended the regression test to cover both stored forms. Custom values outside these known legacy defaults remain preserved.
 - Deployment completed: `old-site` `ace9d54`; `platform-release` / `origin/platform-release` `78b575e`; deployed Old only via `scripts/deploy_local.sh --site old`. `/api/health` returned 200. Re-running `adminAdvancedPricingView()` against the actual production config now returns Seedance 2.5 480p `purchase 8.9955 / sale 9.8951` and 720p `purchase 14.9925 / sale 16.4918`. Rollback release `f7c9a1d`. Live was not deployed.
+
+## 2026-11-09 model picker + admin pricing model details (in progress)
+
+- Goal: generate page model selection follows the supplied popover reference (icon/name/subtitle/check); admin pricing first shows a model list, each model opens detailed pricing, and a settings dialog edits display name, subtitle, and model discount.
+- Decision: persist `advancedPricing.modelSettings[<modelKey>]` as `{ displayName, subtitle, discount }` in the existing PostgreSQL-backed pricing config. `discount` is a multiplier (`0.9` = 9折); `1` means no discount.
+- Decision: effective user-facing sale price is configured sale price × model discount. Purchase price and base sale price remain unchanged; admin detail should show both base and effective values.
+- Compatibility: preserve the native `advancedProvider` select in the DOM/backing logic and layer a custom popover over it.
+- Target environment: Old only after commit/release/deploy; do not deploy Live.
+
+## 2026-11-09 客服工单 + 系统通知（待部署）
+
+- Goal: support becomes database-backed ticket threads; users and admins converse in one ticket, unread replies show red dots, ringing bell opens a notification center, and admins configure pinned/scheduled/expiring broadcasts.
+- Data: PostgreSQL tables `app_support_tickets`, `app_support_ticket_messages`, `app_system_notifications`, `app_system_notification_reads`. No file fallback. Old `app_support_messages` and live notification APIs remain compatible.
+- APIs: user ticket create/list/detail/reply; user notification list/read-one/read-all; admin ticket list/detail/update/reply; admin notification CRUD. New user code is in `server.parts/part-33.js`, routes in `server.parts/part-42.js`, DB readers/writers in `db.js`.
+- User UI: `platform.html`, `platform.config.js`, `platform.explore.js`, `platform.main.js`, `platform.css`, and UI sync hook in `platform.ui.parts/part-01.js`/`part-02.js`. Bell/dropdown/detail, 25s polling, unread title and red dots, ticket list/new-thread/chat composer, header buttons.
+- Admin UI: `admin.html`, `admin.js`, `admin.css`. Routes `#/support-tickets` and `#/system-notifications`; search/status/unread filtering, ticket thread replies, status/priority controls, notification create/edit/delete/toggle, publish/expiry/pin and user preview.
+- Read consistency: ticket read markers now use PostgreSQL `NOW()` when no explicit timestamp is supplied, matching database-generated message timestamps and avoiding persistent false unread badges.
+- Verification: syntax checks passed for all changed JS; focused support/auth/chat/admin/mobile/platform/site/email tests passed (6/6 support, 25/25 auth, 44/44 chat settlement, 78/78 selected UI/site). `git diff --check` pending final state-file cleanup.
+- Pending: selective commit, build/push `platform-release`, deploy Old only via `scripts/deploy_local.sh --site old`, then verify health and production assets/API.

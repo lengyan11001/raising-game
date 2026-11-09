@@ -3681,6 +3681,361 @@ function previewImage({ title = "", imageUrl = "" } = {}) {
   if (!els.previewDialog.open) els.previewDialog.showModal();
 }
 
+
+/* ============ notification center ============ */
+function notificationTimeLabel(value = "") {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  const diff = Date.now() - date.getTime();
+  if (diff >= 0 && diff < 60_000) return "刚刚";
+  if (diff >= 0 && diff < 3_600_000) return `${Math.max(1, Math.floor(diff / 60_000))} 分钟前`;
+  if (diff >= 0 && diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function notificationTypeMeta(kind = "") {
+  if (kind === "support") return { icon: "message-circle", label: "客服回复", tone: "support" };
+  return { icon: "megaphone", label: "系统通知", tone: "system" };
+}
+
+function renderNotificationCenter(payload = {}) {
+  const notifications = Array.isArray(payload.notifications) ? payload.notifications : [];
+  const supportUnread = Number(payload.supportUnreadCount || 0);
+  const unread = Number(payload.unreadCount ?? notifications.filter((item) => item.unread).length);
+  const total = Number(payload.totalUnreadCount ?? unread + supportUnread);
+  state.notificationCenter = payload;
+  if (els.notificationCenter) els.notificationCenter.hidden = !state.user;
+  if (els.mobileNotificationBellBtn) els.mobileNotificationBellBtn.hidden = !state.user;
+  if (els.notificationBellDot) els.notificationBellDot.hidden = unread <= 0;
+  if (els.mobileNotificationDot) els.mobileNotificationDot.hidden = total <= 0;
+  if (els.notificationSupportUnread) {
+    els.notificationSupportUnread.hidden = supportUnread <= 0;
+    els.notificationSupportUnread.textContent = supportUnread > 99 ? "99+" : String(supportUnread);
+  }
+  if (els.supportNavDot) els.supportNavDot.hidden = supportUnread <= 0;
+  if (els.supportFabDot) els.supportFabDot.hidden = supportUnread <= 0;
+  document.title = total > 0 ? `(${total > 99 ? "99+" : total}) ${state.notificationBaseTitle || document.title.replace(/^\(\d+\+?\)\s*/, "")}` : (state.notificationBaseTitle || document.title.replace(/^\(\d+\+?\)\s*/, ""));
+  if (!els.notificationList) return;
+  if (!state.user) {
+    els.notificationList.innerHTML = '<div class="notification-empty">登录后查看消息</div>';
+    return;
+  }
+  if (!notifications.length) {
+    els.notificationList.innerHTML = '<div class="notification-empty"><span>暂无新系统通知</span><small>有新公告时会显示在这里</small></div>';
+    return;
+  }
+  els.notificationList.innerHTML = notifications.map((item) => `
+    <button class="notification-item${item.unread ? " is-unread" : ""}" type="button" data-notification-id="${escapeHtml(item.id)}">
+      <span class="notification-item-icon"><i data-lucide="megaphone"></i></span>
+      <span class="notification-item-copy">
+        <span class="notification-item-top">${item.pinned ? '<b class="notification-pin"><i data-lucide="pin"></i>置顶</b>' : ""}<time>${escapeHtml(notificationTimeLabel(item.publishAt || item.createdAt))}</time></span>
+        <strong>${escapeHtml(item.title || "系统通知")}</strong>
+        <small>${escapeHtml(String(item.body || "").replace(/\s+/g, " ").slice(0, 72))}</small>
+      </span>
+      ${item.unread ? '<i class="notification-unread-pip"></i>' : ""}
+    </button>
+  `).join("");
+  refreshIcons();
+}
+
+async function loadNotificationCenter({ silent = false } = {}) {
+  if (!state.user || !state.token) {
+    renderNotificationCenter({});
+    return;
+  }
+  try {
+    const payload = await requestJson("/api/system-notifications", { timeoutMs: 12_000 });
+    renderNotificationCenter(payload);
+    if (!silent && state.supportDialog?.open) renderSupportTicketList();
+  } catch (error) {
+    if (!silent && els.notificationList) {
+      els.notificationList.innerHTML = `<div class="notification-empty is-error">${escapeHtml(error.message || "消息加载失败")}</div>`;
+    }
+  }
+}
+
+function scheduleNotificationPoll() {
+  window.clearTimeout(state.notificationPollTimer);
+  state.notificationPollTimer = 0;
+  if (!state.user) return;
+  state.notificationPollTimer = window.setTimeout(async () => {
+    if (document.visibilityState === "visible") await loadNotificationCenter({ silent: true });
+    scheduleNotificationPoll();
+  }, 25_000);
+}
+
+function syncNotificationCenter() {
+  state.notificationBaseTitle = state.notificationBaseTitle || document.title;
+  if (!state.user) {
+    window.clearTimeout(state.notificationPollTimer);
+    state.notificationPollTimer = 0;
+    closeNotificationPanel();
+    renderNotificationCenter({});
+    return;
+  }
+  loadNotificationCenter({ silent: true }).finally(scheduleNotificationPoll);
+}
+
+function closeNotificationPanel() {
+  if (els.notificationPanel) els.notificationPanel.hidden = true;
+  els.notificationBellBtn?.setAttribute("aria-expanded", "false");
+}
+
+function toggleNotificationPanel() {
+  if (!state.user) return openLogin();
+  if (!els.notificationPanel) return;
+  const willOpen = els.notificationPanel.hidden;
+  els.notificationPanel.hidden = !willOpen;
+  els.notificationBellBtn?.setAttribute("aria-expanded", String(willOpen));
+  if (willOpen) {
+    loadNotificationCenter({ silent: true });
+    refreshIcons();
+  }
+}
+
+async function markNotificationRead(id = "", version = "") {
+  try {
+    await requestJson(`/api/system-notifications/${encodeURIComponent(id)}/read`, { method: "POST", body: { version } });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function openNotificationDetail(item = {}) {
+  if (!item?.id || !els.notificationDetailDialog) return;
+  closeNotificationPanel();
+  if (els.notificationDetailKicker) els.notificationDetailKicker.textContent = item.pinned ? "置顶通知" : "系统通知";
+  if (els.notificationDetailTitle) els.notificationDetailTitle.textContent = item.title || "通知详情";
+  if (els.notificationDetailBody) els.notificationDetailBody.textContent = item.body || "";
+  if (els.notificationDetailTime) els.notificationDetailTime.textContent = item.publishAt ? `发布于 ${notificationTimeLabel(item.publishAt)}` : "";
+  els.notificationDetailDialog.showModal();
+  refreshIcons();
+  if (item.unread) {
+    markNotificationRead(item.id, item.updatedAt || "").finally(() => loadNotificationCenter({ silent: true }));
+  }
+}
+
+async function markAllNotificationsRead() {
+  if (!state.user) return;
+  if (els.notificationReadAllBtn) els.notificationReadAllBtn.disabled = true;
+  try {
+    await requestJson("/api/system-notifications/read-all", { method: "POST", body: {} });
+    await loadNotificationCenter({ silent: true });
+  } catch (error) {
+    if (els.notificationList) els.notificationList.innerHTML = `<div class="notification-empty is-error">${escapeHtml(error.message || "操作失败")}</div>`;
+  } finally {
+    if (els.notificationReadAllBtn) els.notificationReadAllBtn.disabled = false;
+  }
+}
+
+/* ============ support ticket center ============ */
+const SUPPORT_TICKET_STATUS_LABELS = { open: "处理中", pending: "等待回复", closed: "已结束" };
+const SUPPORT_TICKET_PRIORITY_LABELS = { low: "低", normal: "普通", high: "高", urgent: "紧急" };
+
+function supportStatusLabel(status = "") {
+  return SUPPORT_TICKET_STATUS_LABELS[status] || "处理中";
+}
+
+function supportTicketPreview(ticket = {}) {
+  return String(ticket.lastMessage || "").replace(/\s+/g, " ").slice(0, 58) || "暂无消息";
+}
+
+function renderSupportTicketList(tickets = state.supportTickets || []) {
+  if (!els.supportTicketList) return;
+  if (!tickets.length) {
+    els.supportTicketList.innerHTML = '<div class="support-sidebar-empty"><i data-lucide="inbox"></i><span>还没有工单</span><small>创建工单后，客服回复会同步到这里</small></div>';
+    refreshIcons();
+    return;
+  }
+  els.supportTicketList.innerHTML = tickets.map((ticket) => `
+    <button class="support-ticket-card${ticket.id === state.activeSupportTicketId ? " is-active" : ""}" type="button" data-support-ticket-id="${escapeHtml(ticket.id)}">
+      <span class="support-ticket-card-top">
+        <span class="support-ticket-status-dot is-${escapeHtml(ticket.status || "open")}"></span>
+        <strong>${escapeHtml(ticket.subject || "客服咨询")}</strong>
+        ${Number(ticket.userUnreadCount || 0) > 0 ? `<b class="support-ticket-unread">${Number(ticket.userUnreadCount) > 99 ? "99+" : Number(ticket.userUnreadCount)}</b>` : ""}
+      </span>
+      <span class="support-ticket-preview">${escapeHtml(supportTicketPreview(ticket))}</span>
+      <span class="support-ticket-card-bottom"><time>${escapeHtml(notificationTimeLabel(ticket.lastMessageAt || ticket.createdAt))}</time><em>${escapeHtml(supportStatusLabel(ticket.status))}</em></span>
+    </button>
+  `).join("");
+  refreshIcons();
+}
+
+function showSupportView(view = "empty") {
+  els.supportAppPanel?.classList.toggle("is-viewing-thread", view === "thread");
+  els.supportAppPanel?.classList.toggle("is-viewing-new", view === "new");
+  if (els.supportEmptyState) els.supportEmptyState.hidden = view !== "empty";
+  if (els.supportNewTicketPanel) els.supportNewTicketPanel.hidden = view !== "new";
+  if (els.supportThreadPanel) els.supportThreadPanel.hidden = view !== "thread";
+}
+
+function openSupportNewTicket({ subject = "", message = "" } = {}) {
+  showSupportView("new");
+  if (els.supportTicketSubject) els.supportTicketSubject.value = subject || "";
+  if (els.supportTicketBody) els.supportTicketBody.value = message || "";
+  if (els.supportCreateStatus) els.supportCreateStatus.textContent = "";
+  window.requestAnimationFrame(() => (subject ? els.supportTicketBody : els.supportTicketSubject)?.focus());
+}
+
+async function loadSupportTickets({ selectId = "" } = {}) {
+  if (!state.user) return;
+  if (els.supportTicketList) els.supportTicketList.innerHTML = '<div class="support-sidebar-loading"><span></span><span></span><span></span></div>';
+  try {
+    const payload = await requestJson("/api/support/tickets?limit=50", { timeoutMs: 12_000 });
+    state.supportTickets = Array.isArray(payload.tickets) ? payload.tickets : [];
+    renderSupportTicketList(state.supportTickets);
+    const nextId = selectId || state.activeSupportTicketId || state.supportTickets[0]?.id || "";
+    if (nextId) await openSupportTicket(nextId);
+    else showSupportView("empty");
+    renderNotificationCenter({ ...(state.notificationCenter || {}), supportUnreadCount: Number(payload.unreadCount || 0), totalUnreadCount: Number(payload.unreadCount || 0) + Number(state.notificationCenter?.unreadCount || 0) });
+  } catch (error) {
+    if (els.supportTicketList) els.supportTicketList.innerHTML = `<div class="support-sidebar-empty is-error">${escapeHtml(error.message || "工单加载失败")}</div>`;
+  }
+}
+
+function renderSupportMessages(messages = []) {
+  if (!els.supportMessages) return;
+  if (!messages.length) {
+    els.supportMessages.innerHTML = '<div class="support-thread-empty">还没有消息，发送第一条回复吧</div>';
+    return;
+  }
+  let previousDay = "";
+  els.supportMessages.innerHTML = messages.map((message) => {
+    const date = new Date(message.createdAt || "");
+    const day = Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
+    const dayDivider = day && day !== previousDay ? `<div class="support-day-divider"><span>${escapeHtml(day)}</span></div>` : "";
+    previousDay = day || previousDay;
+    const admin = message.senderType === "admin";
+    return `${dayDivider}<div class="support-message ${admin ? "is-admin" : "is-user"}">
+      <div class="support-message-avatar">${admin ? '<i data-lucide="headphones"></i>' : escapeHtml(String(state.user?.username || "我").slice(0, 1).toUpperCase())}</div>
+      <div class="support-message-main">
+        <span class="support-message-name">${admin ? "VIPEAK 客服" : "我"}<time>${escapeHtml(notificationTimeLabel(message.createdAt))}</time></span>
+        <div class="support-message-bubble">${escapeHtml(message.body || "")}</div>
+      </div>
+    </div>`;
+  }).join("");
+  refreshIcons();
+  window.requestAnimationFrame(() => { if (els.supportMessages) els.supportMessages.scrollTop = els.supportMessages.scrollHeight; });
+}
+
+async function openSupportTicket(ticketId = "") {
+  if (!ticketId || !state.user) return;
+  state.activeSupportTicketId = ticketId;
+  showSupportView("thread");
+  if (els.supportMessages) els.supportMessages.innerHTML = '<div class="support-message-loading"><span></span><span></span><span></span></div>';
+  try {
+    const payload = await requestJson(`/api/support/tickets/${encodeURIComponent(ticketId)}?read=1`, { timeoutMs: 12_000 });
+    const ticket = payload.ticket || {};
+    if (els.supportThreadSubject) els.supportThreadSubject.textContent = ticket.subject || "客服咨询";
+    if (els.supportThreadMeta) els.supportThreadMeta.textContent = `${ticket.id || ""} · ${SUPPORT_TICKET_PRIORITY_LABELS[ticket.priority] || "普通"}优先级`;
+    if (els.supportThreadStatus) {
+      els.supportThreadStatus.textContent = supportStatusLabel(ticket.status);
+      els.supportThreadStatus.className = `support-status-pill is-${ticket.status || "open"}`;
+    }
+    state.supportMessages = Array.isArray(payload.messages) ? payload.messages : [];
+    renderSupportMessages(state.supportMessages);
+    state.supportTickets = (state.supportTickets || []).map((item) => item.id === ticket.id ? { ...item, ...ticket, userUnreadCount: 0 } : item);
+    renderSupportTicketList();
+    loadNotificationCenter({ silent: true });
+  } catch (error) {
+    if (els.supportMessages) els.supportMessages.innerHTML = `<div class="support-thread-empty is-error">${escapeHtml(error.message || "工单加载失败")}</div>`;
+  }
+}
+
+async function createSupportTicketFromCenter() {
+  if (!state.user) return openLogin();
+  const subject = String(els.supportTicketSubject?.value || "").trim();
+  const message = String(els.supportTicketBody?.value || "").trim();
+  if (!message) {
+    if (els.supportCreateStatus) els.supportCreateStatus.textContent = "请填写详细描述。";
+    els.supportTicketBody?.focus();
+    return;
+  }
+  if (els.supportCreateBtn) {
+    els.supportCreateBtn.disabled = true;
+    els.supportCreateBtn.innerHTML = '<i data-lucide="loader-circle"></i>提交中...';
+    refreshIcons();
+  }
+  if (els.supportCreateStatus) els.supportCreateStatus.textContent = "";
+  try {
+    const payload = await requestJson("/api/support/tickets", {
+      method: "POST",
+      body: { subject, message, source: els.supportDialog?.dataset.source || "site" },
+    });
+    state.supportTickets = [payload.ticket, ...(state.supportTickets || [])];
+    state.activeSupportTicketId = payload.ticket?.id || "";
+    if (els.supportTicketSubject) els.supportTicketSubject.value = "";
+    if (els.supportTicketBody) els.supportTicketBody.value = "";
+    renderSupportTicketList();
+    if (payload.ticket?.id) await openSupportTicket(payload.ticket.id);
+    loadNotificationCenter({ silent: true });
+  } catch (error) {
+    if (els.supportCreateStatus) els.supportCreateStatus.textContent = error.message || "创建工单失败";
+  } finally {
+    if (els.supportCreateBtn) {
+      els.supportCreateBtn.disabled = false;
+      els.supportCreateBtn.innerHTML = '<i data-lucide="send"></i>提交工单';
+      refreshIcons();
+    }
+  }
+}
+
+async function sendSupportReply() {
+  const ticketId = state.activeSupportTicketId;
+  const message = String(els.supportReplyInput?.value || "").trim();
+  if (!ticketId || !message) return;
+  if (els.supportReplyBtn) {
+    els.supportReplyBtn.disabled = true;
+    els.supportReplyBtn.innerHTML = '<i data-lucide="loader-circle"></i>';
+    refreshIcons();
+  }
+  if (els.supportReplyStatus) els.supportReplyStatus.textContent = "";
+  try {
+    const payload = await requestJson(`/api/support/tickets/${encodeURIComponent(ticketId)}/messages`, {
+      method: "POST",
+      body: { message },
+    });
+    if (els.supportReplyInput) els.supportReplyInput.value = "";
+    const current = Array.isArray(state.supportMessages) ? state.supportMessages : [];
+    state.supportMessages = [...current, payload.message].filter(Boolean);
+    renderSupportMessages(state.supportMessages);
+    if (payload.ticket) {
+      state.supportTickets = (state.supportTickets || []).map((item) => item.id === ticketId ? { ...item, ...payload.ticket } : item);
+      renderSupportTicketList();
+    }
+  } catch (error) {
+    if (els.supportReplyStatus) els.supportReplyStatus.textContent = error.message || "发送失败";
+  } finally {
+    if (els.supportReplyBtn) {
+      els.supportReplyBtn.disabled = false;
+      els.supportReplyBtn.innerHTML = '<i data-lucide="send"></i>';
+      refreshIcons();
+    }
+  }
+}
+
+function openSupportCenter({ source = "", subject = "", message = "" } = {}) {
+  prepareModalOpen();
+  if (!state.notificationBaseTitle) state.notificationBaseTitle = document.title.replace(/^\(\d+\+?\)\s*/, "");
+  if (els.supportDialog) els.supportDialog.dataset.source = source;
+  if (els.supportAnonPanel) els.supportAnonPanel.hidden = Boolean(state.user);
+  if (els.supportAppPanel) els.supportAppPanel.hidden = !state.user;
+  if (!state.user) {
+    if (els.supportEmail) els.supportEmail.value = "";
+    if (els.supportSubject) els.supportSubject.value = subject;
+    if (els.supportMessage) els.supportMessage.value = message;
+    if (els.supportStatus) els.supportStatus.textContent = "";
+  }
+  els.supportDialog?.showModal();
+  refreshIcons();
+  if (state.user) {
+    loadSupportTickets().then(() => {
+      if (subject || message) openSupportNewTicket({ subject, message });
+    }).catch(() => {});
+  }
+}
+
 async function submitSupportMessage() {
   const email = String(els.supportEmail?.value || "").trim();
   const subject = String(els.supportSubject?.value || "").trim();

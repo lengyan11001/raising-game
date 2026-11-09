@@ -1108,6 +1108,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   }
   syncTopupAutoRefresh();
   syncGenerationCompletionRefresh();
+  if (typeof syncNotificationCenter === "function") syncNotificationCenter();
   if (typeof scheduleAccountSecurityNotice === "function") {
     scheduleAccountSecurityNotice({ force: userChanged && Boolean(state.user) });
   }

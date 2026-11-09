@@ -991,6 +991,95 @@ async function ensureSchemaInner() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_live_notifications_user_pinned_idx ON app_live_notifications (user_id, pinned DESC, created_at DESC);`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_support_tickets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      email TEXT NOT NULL DEFAULT '',
+      subject TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'open',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      source TEXT NOT NULL DEFAULT '',
+      last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      user_last_read_at TIMESTAMPTZ,
+      admin_last_read_at TIMESTAMPTZ,
+      assigned_user_id TEXT NOT NULL DEFAULT '',
+      context_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_support_tickets
+      ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
+      ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS subject TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'open',
+      ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'normal',
+      ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS user_last_read_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS admin_last_read_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS assigned_user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS context_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_support_tickets_user_last_idx ON app_support_tickets (user_id, last_message_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_support_tickets_status_last_idx ON app_support_tickets (status, last_message_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_support_ticket_messages (
+      id TEXT PRIMARY KEY,
+      ticket_id TEXT NOT NULL,
+      sender_type TEXT NOT NULL DEFAULT 'user',
+      sender_user_id TEXT NOT NULL DEFAULT '',
+      sender_name TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_ticket_created_idx ON app_support_ticket_messages (ticket_id, created_at ASC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_system_notifications (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      pinned BOOLEAN NOT NULL DEFAULT FALSE,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      publish_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ,
+      created_by_user_id TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_system_notifications
+      ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
+      ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS body TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS publish_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_by_user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_system_notifications_active_publish_idx ON app_system_notifications (active, publish_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_system_notification_reads (
+      notification_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      read_version TEXT NOT NULL DEFAULT '',
+      read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (notification_id, user_id)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_system_notification_reads_user_idx ON app_system_notification_reads (user_id, read_at DESC);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_live_checkins (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -5125,6 +5214,346 @@ async function markAllLiveNotificationsReadInDb(userId = "") {
   return Number(rowCount || 0);
 }
 
+
+function supportTicketFromRow(row = {}) {
+  const count = (key) => Number(row[key] || 0);
+  return {
+    id: String(row.id || ""),
+    userId: String(row.user_id || ""),
+    tenantId: String(row.tenant_id || "main"),
+    email: String(row.email || ""),
+    subject: String(row.subject || ""),
+    status: String(row.status || "open"),
+    priority: String(row.priority || "normal"),
+    source: String(row.source || ""),
+    lastMessageAt: row.last_message_at ? new Date(row.last_message_at).toISOString() : "",
+    userLastReadAt: row.user_last_read_at ? new Date(row.user_last_read_at).toISOString() : "",
+    adminLastReadAt: row.admin_last_read_at ? new Date(row.admin_last_read_at).toISOString() : "",
+    assignedUserId: String(row.assigned_user_id || ""),
+    context: row.context_payload && typeof row.context_payload === "object" ? row.context_payload : {},
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+    messageCount: count("message_count"),
+    userUnreadCount: count("user_unread_count"),
+    adminUnreadCount: count("admin_unread_count"),
+    lastMessage: String(row.last_message || ""),
+    lastSenderType: String(row.last_sender_type || ""),
+    username: String(row.username || ""),
+    userEmail: String(row.user_email || ""),
+  };
+}
+
+function supportTicketMessageFromRow(row = {}) {
+  return {
+    id: String(row.id || ""),
+    ticketId: String(row.ticket_id || ""),
+    senderType: String(row.sender_type || "user"),
+    senderUserId: String(row.sender_user_id || ""),
+    senderName: String(row.sender_name || ""),
+    body: String(row.body || ""),
+    meta: row.meta && typeof row.meta === "object" ? row.meta : {},
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+  };
+}
+
+const SUPPORT_TICKET_SELECT = `
+  SELECT t.*,
+    u.username,
+    COALESCE(NULLIF(u.payload->>'email',''), t.email) AS user_email,
+    (SELECT COUNT(*)::int FROM app_support_ticket_messages tm WHERE tm.ticket_id = t.id) AS message_count,
+    (SELECT COUNT(*)::int FROM app_support_ticket_messages tm
+      WHERE tm.ticket_id = t.id AND tm.sender_type = 'admin'
+        AND (t.user_last_read_at IS NULL OR tm.created_at > t.user_last_read_at)) AS user_unread_count,
+    (SELECT COUNT(*)::int FROM app_support_ticket_messages tm
+      WHERE tm.ticket_id = t.id AND tm.sender_type = 'user'
+        AND (t.admin_last_read_at IS NULL OR tm.created_at > t.admin_last_read_at)) AS admin_unread_count,
+    COALESCE((SELECT tm.body FROM app_support_ticket_messages tm WHERE tm.ticket_id = t.id ORDER BY tm.created_at DESC LIMIT 1), '') AS last_message,
+    COALESCE((SELECT tm.sender_type FROM app_support_ticket_messages tm WHERE tm.ticket_id = t.id ORDER BY tm.created_at DESC LIMIT 1), '') AS last_sender_type
+  FROM app_support_tickets t
+  LEFT JOIN app_users u ON u.id = t.user_id
+`;
+
+async function createSupportTicketInDb({ id = "", userId = "", tenantId = "main", email = "", subject = "", source = "", context = {}, createdAt = "", message = null } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanId || !cleanUserId) return null;
+  await ensureSchema();
+  const now = createdAt || new Date().toISOString();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`
+      INSERT INTO app_support_tickets(id, user_id, tenant_id, email, subject, source, context_payload, last_message_at, user_last_read_at, admin_last_read_at, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, NULL, NULL, $8::timestamptz, $8::timestamptz)
+    `, [cleanId, cleanUserId, String(tenantId || "main"), String(email || ""), String(subject || ""), String(source || ""), JSON.stringify(context || {}), now]);
+    if (message?.body) {
+      await client.query(`
+        INSERT INTO app_support_ticket_messages(id, ticket_id, sender_type, sender_user_id, sender_name, body, meta, created_at)
+        VALUES ($1, $2, 'user', $3, $4, $5, $6::jsonb, $7::timestamptz)
+      `, [String(message.id || `${cleanId}-m1`), cleanId, cleanUserId, String(message.senderName || ""), String(message.body || ""), JSON.stringify(message.meta || {}), now]);
+    }
+    const result = await client.query(`${SUPPORT_TICKET_SELECT} WHERE t.id = $1 LIMIT 1`, [cleanId]);
+    await client.query("COMMIT");
+    return result.rows[0] ? supportTicketFromRow(result.rows[0]) : null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function listUserSupportTicketsInDb(userId = "", limit = 30) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 30));
+  const { rows } = await query(`${SUPPORT_TICKET_SELECT}
+    WHERE t.user_id = $1
+    ORDER BY (t.status = 'closed') ASC, t.last_message_at DESC
+    LIMIT $2
+  `, [String(userId || ""), safeLimit]);
+  return rows.map(supportTicketFromRow);
+}
+
+async function getSupportTicketForUserFromDb(userId = "", ticketId = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`${SUPPORT_TICKET_SELECT} WHERE t.id = $1 AND t.user_id = $2 LIMIT 1`, [String(ticketId || ""), String(userId || "")]);
+  return rows[0] ? supportTicketFromRow(rows[0]) : null;
+}
+
+async function getSupportTicketForAdminFromDb(ticketId = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`${SUPPORT_TICKET_SELECT} WHERE t.id = $1 LIMIT 1`, [String(ticketId || "")]);
+  return rows[0] ? supportTicketFromRow(rows[0]) : null;
+}
+
+async function listSupportTicketMessagesFromDb(ticketId = "", limit = 200) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 200));
+  const { rows } = await query(`
+    SELECT * FROM app_support_ticket_messages WHERE ticket_id = $1
+    ORDER BY created_at ASC, id ASC LIMIT $2
+  `, [String(ticketId || ""), safeLimit]);
+  return rows.map(supportTicketMessageFromRow);
+}
+
+async function appendSupportTicketMessageInDb({ id = "", ticketId = "", senderType = "user", senderUserId = "", senderName = "", body = "", meta = {}, createdAt = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanTicketId = String(ticketId || "").trim();
+  const cleanBody = String(body || "").trim();
+  if (!cleanTicketId || !cleanBody) return null;
+  await ensureSchema();
+  const now = createdAt || new Date().toISOString();
+  const cleanSender = senderType === "admin" ? "admin" : "user";
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const message = await client.query(`
+      INSERT INTO app_support_ticket_messages(id, ticket_id, sender_type, sender_user_id, sender_name, body, meta, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz)
+      RETURNING *
+    `, [String(id || ""), cleanTicketId, cleanSender, String(senderUserId || ""), String(senderName || ""), cleanBody, JSON.stringify(meta || {}), now]);
+    const readColumn = cleanSender === "admin" ? "admin_last_read_at" : "user_last_read_at";
+    await client.query(`
+      UPDATE app_support_tickets SET
+        status = CASE WHEN status = 'closed' AND $2 = 'user' THEN 'open' ELSE status END,
+        last_message_at = $3::timestamptz,
+        ${readColumn} = $3::timestamptz,
+        updated_at = $3::timestamptz
+      WHERE id = $1
+    `, [cleanTicketId, cleanSender, now]);
+    await client.query("COMMIT");
+    return message.rows[0] ? supportTicketMessageFromRow(message.rows[0]) : null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function markSupportTicketReadInDb({ ticketId = "", userId = "", readerType = "user", readAt = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const hasReadAt = Boolean(readAt);
+  const admin = readerType === "admin";
+  const updateSql = admin
+    ? `UPDATE app_support_tickets SET admin_last_read_at = CASE WHEN $3::boolean THEN $2::timestamptz ELSE NOW() END, updated_at = NOW() WHERE id = $1 RETURNING *`
+    : `UPDATE app_support_tickets SET user_last_read_at = CASE WHEN $4::boolean THEN $3::timestamptz ELSE NOW() END, updated_at = NOW() WHERE id = $1 AND user_id = $2 RETURNING *`;
+  const params = admin
+    ? [String(ticketId || ""), readAt || null, hasReadAt]
+    : [String(ticketId || ""), String(userId || ""), readAt || null, hasReadAt];
+  const { rows } = await query(updateSql, params);
+  if (!rows[0]) return null;
+  return admin ? getSupportTicketForAdminFromDb(ticketId) : getSupportTicketForUserFromDb(userId, ticketId);
+}
+
+async function updateSupportTicketInDb({ ticketId = "", status = "", priority = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const nextStatus = ["open", "pending", "closed"].includes(String(status || "")) ? String(status) : "";
+  const nextPriority = ["low", "normal", "high", "urgent"].includes(String(priority || "")) ? String(priority) : "";
+  const { rows } = await query(`
+    UPDATE app_support_tickets SET
+      status = CASE WHEN $2 <> '' THEN $2 ELSE status END,
+      priority = CASE WHEN $3 <> '' THEN $3 ELSE priority END,
+      updated_at = NOW()
+    WHERE id = $1 RETURNING *
+  `, [String(ticketId || ""), nextStatus, nextPriority]);
+  return rows[0] ? getSupportTicketForAdminFromDb(ticketId) : null;
+}
+
+async function getAdminSupportTicketsPageFromDb({ page = 1, limit = 20, queryText = "", status = "", unreadOnly = false } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safePage = Math.max(1, Number(page) || 1);
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+  const params = [];
+  const clauses = ["1=1"];
+  if (status) { params.push(String(status)); clauses.push(`t.status = $${params.length}`); }
+  if (queryText) {
+    params.push(`%${String(queryText).toLowerCase()}%`);
+    clauses.push(`LOWER(CONCAT_WS(' ', t.id, t.subject, t.email, u.username, u.payload->>'email')) LIKE $${params.length}`);
+  }
+  if (unreadOnly) clauses.push("(t.admin_last_read_at IS NULL OR EXISTS (SELECT 1 FROM app_support_ticket_messages tm WHERE tm.ticket_id=t.id AND tm.sender_type='user' AND tm.created_at > t.admin_last_read_at))");
+  const where = clauses.join(" AND ");
+  const countResult = await query(`SELECT COUNT(*)::int AS total FROM app_support_tickets t LEFT JOIN app_users u ON u.id=t.user_id WHERE ${where}`, params);
+  const total = Number(countResult.rows[0]?.total || 0);
+  params.push(safeLimit, (safePage - 1) * safeLimit);
+  const { rows } = await query(`${SUPPORT_TICKET_SELECT}
+    WHERE ${where}
+    ORDER BY
+      CASE WHEN (t.admin_last_read_at IS NULL OR EXISTS (SELECT 1 FROM app_support_ticket_messages tm WHERE tm.ticket_id=t.id AND tm.sender_type='user' AND tm.created_at > t.admin_last_read_at)) THEN 0 ELSE 1 END,
+      CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+      t.last_message_at DESC
+    LIMIT $${params.length - 1} OFFSET $${params.length}
+  `, params);
+  return { items: rows.map(supportTicketFromRow), page: safePage, limit: safeLimit, total, totalPages: Math.max(1, Math.ceil(total / safeLimit)) };
+}
+
+function systemNotificationFromRow(row = {}) {
+  return {
+    id: String(row.id || ""),
+    title: String(row.title || ""),
+    body: String(row.body || ""),
+    pinned: row.pinned === true,
+    active: row.active === true,
+    publishAt: row.publish_at ? new Date(row.publish_at).toISOString() : "",
+    expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : "",
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+    readAt: row.read_at ? new Date(row.read_at).toISOString() : "",
+    readVersion: String(row.read_version || ""),
+  };
+}
+
+async function listSystemNotificationsForUserFromDb(userId = "", tenantId = "main") {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return [];
+  const { rows } = await query(`
+    SELECT n.*, r.read_at, r.read_version
+    FROM app_system_notifications n
+    LEFT JOIN app_system_notification_reads r ON r.notification_id = n.id AND r.user_id = $1
+    WHERE n.tenant_id = $2 AND n.active = TRUE
+      AND n.publish_at <= NOW()
+      AND (n.expires_at IS NULL OR n.expires_at > NOW())
+    ORDER BY n.pinned DESC, n.publish_at DESC, n.created_at DESC
+    LIMIT 50
+  `, [cleanUserId, String(tenantId || "main")]);
+  return rows.map(systemNotificationFromRow).map((item) => ({
+    ...item,
+    unread: !item.readAt || item.readVersion !== item.updatedAt,
+  }));
+}
+
+async function listAdminSystemNotificationsFromDb(tenantId = "main") {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT * FROM app_system_notifications WHERE tenant_id = $1
+    ORDER BY pinned DESC, publish_at DESC, created_at DESC LIMIT 200
+  `, [String(tenantId || "main")]);
+  return rows.map(systemNotificationFromRow);
+}
+
+async function createSystemNotificationInDb(record = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const id = String(record.id || "").trim();
+  if (!id) return null;
+  const now = new Date().toISOString();
+  const { rows } = await query(`
+    INSERT INTO app_system_notifications(id, tenant_id, title, body, pinned, active, publish_at, expires_at, created_by_user_id, created_at, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7::timestamptz,$8::timestamptz,$9,$10::timestamptz,$10::timestamptz)
+    RETURNING *
+  `, [id, String(record.tenantId || "main"), String(record.title || ""), String(record.body || ""), record.pinned === true, record.active !== false, record.publishAt || now, record.expiresAt || null, String(record.createdByUserId || ""), now]);
+  return rows[0] ? systemNotificationFromRow(rows[0]) : null;
+}
+
+async function updateSystemNotificationInDb(notificationId = "", patch = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const hasExpiresAt = Object.prototype.hasOwnProperty.call(patch, "expiresAt");
+  const { rows } = await query(`
+    UPDATE app_system_notifications SET
+      title = COALESCE($2, title), body = COALESCE($3, body),
+      pinned = COALESCE($4, pinned), active = COALESCE($5, active),
+      publish_at = COALESCE($6::timestamptz, publish_at),
+      expires_at = CASE WHEN $8::boolean THEN $7::timestamptz ELSE expires_at END,
+      updated_at = NOW()
+    WHERE id = $1 RETURNING *
+  `, [String(notificationId || ""), patch.title === undefined ? null : String(patch.title || ""), patch.body === undefined ? null : String(patch.body || ""), typeof patch.pinned === "boolean" ? patch.pinned : null, typeof patch.active === "boolean" ? patch.active : null, patch.publishAt || null, hasExpiresAt ? (patch.expiresAt || null) : null, hasExpiresAt]);
+  return rows[0] ? systemNotificationFromRow(rows[0]) : null;
+}
+
+async function deleteSystemNotificationInDb(notificationId = "") {
+  if (!dbEnabled()) return false;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM app_system_notification_reads WHERE notification_id = $1`, [String(notificationId || "")]);
+    const result = await client.query(`DELETE FROM app_system_notifications WHERE id = $1`, [String(notificationId || "")]);
+    await client.query("COMMIT");
+    return Number(result.rowCount || 0) > 0;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally { client.release(); }
+}
+
+async function markSystemNotificationReadInDb(userId = "", notificationId = "", version = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    INSERT INTO app_system_notification_reads(notification_id, user_id, read_version, read_at)
+    VALUES ($1,$2,$3,NOW())
+    ON CONFLICT (notification_id, user_id) DO UPDATE SET read_version=EXCLUDED.read_version, read_at=NOW()
+    RETURNING *
+  `, [String(notificationId || ""), String(userId || ""), String(version || "")]);
+  return rows[0] ? { notificationId: rows[0].notification_id, userId: rows[0].user_id, readAt: new Date(rows[0].read_at).toISOString(), readVersion: rows[0].read_version } : null;
+}
+
+async function markAllSystemNotificationsReadInDb(userId = "", tenantId = "main") {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const { rowCount } = await query(`
+    INSERT INTO app_system_notification_reads(notification_id, user_id, read_version, read_at)
+    SELECT n.id, $1, n.updated_at::text, NOW()
+    FROM app_system_notifications n
+    WHERE n.tenant_id = $2 AND n.active = TRUE AND n.publish_at <= NOW()
+      AND (n.expires_at IS NULL OR n.expires_at > NOW())
+    ON CONFLICT (notification_id, user_id) DO UPDATE SET read_version=EXCLUDED.read_version, read_at=NOW()
+  `, [String(userId || ""), String(tenantId || "main")]);
+  return Number(rowCount || 0);
+}
+
 async function getLiveCheckinInDb(userId = "", checkinDate = "") {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -8127,6 +8556,22 @@ module.exports = {
   getAdminUserCharactersPageFromDb,
   getUserCharactersPageFromDb,
   getAdminSupportMessagesPageFromDb,
+  createSupportTicketInDb,
+  listUserSupportTicketsInDb,
+  getSupportTicketForUserFromDb,
+  getSupportTicketForAdminFromDb,
+  listSupportTicketMessagesFromDb,
+  appendSupportTicketMessageInDb,
+  markSupportTicketReadInDb,
+  updateSupportTicketInDb,
+  getAdminSupportTicketsPageFromDb,
+  listSystemNotificationsForUserFromDb,
+  listAdminSystemNotificationsFromDb,
+  createSystemNotificationInDb,
+  updateSystemNotificationInDb,
+  deleteSystemNotificationInDb,
+  markSystemNotificationReadInDb,
+  markAllSystemNotificationsReadInDb,
   listUserSupportMessagesInDb,
   listLiveNotificationsInDb,
   createLiveNotificationInDb,

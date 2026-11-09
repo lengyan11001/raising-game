@@ -91,6 +91,8 @@ const ROUTES = [
   { id: "characters", title: "角色管理", render: renderCharacters },
   { id: "records", title: "生成记录", render: renderGenerationRecords },
   { id: "users", title: "用户管理", render: renderUsers },
+  { id: "support-tickets", title: "客服工单", render: renderSupportTickets },
+  { id: "system-notifications", title: "系统通知", render: renderSystemNotifications },
   { id: "support", title: "站内信", render: renderSupportMessages },
   { id: "recharges", title: "充值流水", render: renderRecharges },
   { id: "wallet", title: "钱包订单", render: renderWallet },
@@ -4012,6 +4014,409 @@ async function renderSupportMessages(pageArg = null, limitArg = null) {
   });
   bindAdminPager(els.adminContent, payload, ({ page, limit }) => renderSupportMessages(page, limit).catch((err) => renderRouteError(routeId, err)));
   refreshIcons();
+}
+
+function supportTicketStatusLabel(status = "") {
+  return ({ open: "待处理", pending: "跟进中", closed: "已关闭" })[String(status || "open")] || String(status || "open");
+}
+
+function supportTicketPriorityLabel(priority = "") {
+  return ({ low: "低", normal: "普通", high: "高", urgent: "紧急" })[String(priority || "normal")] || String(priority || "normal");
+}
+
+function supportTicketStatusPill(status = "") {
+  const value = String(status || "open");
+  return `<span class="adm-ticket-status is-${escapeHtml(value)}">${escapeHtml(supportTicketStatusLabel(value))}</span>`;
+}
+
+function supportTicketPriorityPill(priority = "") {
+  const value = String(priority || "normal");
+  return `<span class="adm-ticket-priority is-${escapeHtml(value)}">${escapeHtml(supportTicketPriorityLabel(value))}</span>`;
+}
+
+async function renderSupportTickets(pageArg = null, limitArg = null) {
+  const routeId = "support-tickets";
+  if (!isActiveRoute(routeId)) return;
+  const savedPager = JSON.parse(sessionStorage.getItem("admTicketsPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admTicketsQuery") || "";
+  const status = sessionStorage.getItem("admTicketsStatus") || "";
+  const unreadOnly = sessionStorage.getItem("admTicketsUnread") === "1";
+  const selectedId = sessionStorage.getItem("admTicketsSelected") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  if (status) params.set("status", status);
+  if (unreadOnly) params.set("unread", "1");
+  const payload = await api(`/api/admin/support-tickets?${params.toString()}`);
+  if (!isActiveRoute(routeId)) return;
+  const tickets = Array.isArray(payload.tickets) ? payload.tickets : [];
+  sessionStorage.setItem("admTicketsPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+
+  els.adminContent.innerHTML = `
+    <section class="adm-page adm-ticket-page">
+      <div class="adm-page-head adm-ticket-page-head">
+        <div>
+          <span class="adm-ticket-eyebrow"><i data-lucide="headset"></i> Customer Care</span>
+          <h1>客服工单</h1>
+          <p>与用户在同一个会话中持续沟通，处理状态、优先级和未读回复。</p>
+        </div>
+        <div class="adm-page-actions">
+          <span class="adm-ticket-total"><strong>${Number(payload.total || 0)}</strong> 个工单</span>
+          <button class="adm-btn adm-btn-ghost" type="button" data-act="refresh"><i data-lucide="refresh-cw"></i>刷新</button>
+        </div>
+      </div>
+      <div class="adm-ticket-toolbar">
+        <form id="ticketFilterForm" class="adm-ticket-filters">
+          <label class="adm-ticket-search"><i data-lucide="search"></i><input id="ticketSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索工单、用户或邮箱" /></label>
+          <select id="ticketStatusFilter" aria-label="工单状态">
+            <option value="" ${!status ? "selected" : ""}>全部状态</option>
+            <option value="open" ${status === "open" ? "selected" : ""}>待处理</option>
+            <option value="pending" ${status === "pending" ? "selected" : ""}>跟进中</option>
+            <option value="closed" ${status === "closed" ? "selected" : ""}>已关闭</option>
+          </select>
+          <label class="adm-ticket-unread-toggle"><input id="ticketUnreadFilter" type="checkbox" ${unreadOnly ? "checked" : ""} /><span>只看未读</span></label>
+          <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="scan-search"></i>筛选</button>
+          <button class="adm-btn adm-btn-ghost" id="ticketResetFilter" type="button">清空</button>
+        </form>
+      </div>
+      <div class="adm-ticket-shell">
+        <aside class="adm-ticket-list-panel">
+          <header>
+            <div><strong>收件箱</strong><small>按未读和优先级排序</small></div>
+            <span class="adm-ticket-live-dot"><i></i>实时</span>
+          </header>
+          <div id="ticketList" class="adm-ticket-list"></div>
+          ${adminPagerHtml(payload)}
+        </aside>
+        <section id="ticketDetail" class="adm-ticket-detail" aria-live="polite">
+          <div class="adm-ticket-welcome"><span><i data-lucide="messages-square"></i></span><strong>选择一条工单</strong><p>查看完整对话并回复用户。</p></div>
+        </section>
+      </div>
+    </section>
+  `;
+
+  els.adminContent.querySelector('[data-act="refresh"]')?.addEventListener("click", () => renderSupportTickets(page, limit).catch((err) => renderRouteError(routeId, err)));
+  const runFilter = () => {
+    sessionStorage.setItem("admTicketsQuery", els.adminContent.querySelector("#ticketSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admTicketsStatus", els.adminContent.querySelector("#ticketStatusFilter")?.value || "");
+    sessionStorage.setItem("admTicketsUnread", els.adminContent.querySelector("#ticketUnreadFilter")?.checked ? "1" : "0");
+    sessionStorage.removeItem("admTicketsSelected");
+    renderSupportTickets(1, limit).catch((err) => renderRouteError(routeId, err));
+  };
+  els.adminContent.querySelector("#ticketFilterForm")?.addEventListener("submit", (event) => { event.preventDefault(); runFilter(); });
+  els.adminContent.querySelector("#ticketStatusFilter")?.addEventListener("change", runFilter);
+  els.adminContent.querySelector("#ticketUnreadFilter")?.addEventListener("change", runFilter);
+  els.adminContent.querySelector("#ticketResetFilter")?.addEventListener("click", () => {
+    ["admTicketsQuery", "admTicketsStatus", "admTicketsUnread", "admTicketsSelected"].forEach((key) => sessionStorage.removeItem(key));
+    renderSupportTickets(1, limit).catch((err) => renderRouteError(routeId, err));
+  });
+  bindAdminPager(els.adminContent, payload, ({ page: nextPage, limit: nextLimit }) => renderSupportTickets(nextPage, nextLimit).catch((err) => renderRouteError(routeId, err)));
+
+  let activeTickets = tickets.slice();
+  const detail = () => els.adminContent.querySelector("#ticketDetail");
+  const list = () => els.adminContent.querySelector("#ticketList");
+
+  const renderList = () => {
+    const root = list();
+    if (!root) return;
+    root.innerHTML = activeTickets.length ? activeTickets.map((ticket) => {
+      const isActive = ticket.id === sessionStorage.getItem("admTicketsSelected");
+      const who = ticket.username || ticket.userEmail || ticket.email || ticket.userId || "用户";
+      return `
+        <button class="adm-ticket-item ${isActive ? "is-active" : ""} ${Number(ticket.adminUnreadCount || 0) > 0 ? "has-unread" : ""}" type="button" data-ticket-id="${escapeHtml(ticket.id)}">
+          <span class="adm-ticket-item-top">
+            <strong>${escapeHtml(ticket.subject || "客服咨询")}</strong>
+            ${Number(ticket.adminUnreadCount || 0) > 0 ? `<em>${Number(ticket.adminUnreadCount)}</em>` : ""}
+          </span>
+          <span class="adm-ticket-item-user">${escapeHtml(who)} <small>${escapeHtml(ticket.userEmail || ticket.email || "")}</small></span>
+          <span class="adm-ticket-item-preview">${escapeHtml(shortText(ticket.lastMessage || "暂无消息", 72))}</span>
+          <span class="adm-ticket-item-meta">${supportTicketStatusPill(ticket.status)}${supportTicketPriorityPill(ticket.priority)}<time>${escapeHtml(fmtRelative(ticket.lastMessageAt || ticket.updatedAt || ticket.createdAt))}</time></span>
+        </button>
+      `;
+    }).join("") : '<div class="adm-empty"><i data-lucide="inbox"></i><p>没有符合条件的工单</p></div>';
+    root.querySelectorAll("[data-ticket-id]").forEach((button) => button.addEventListener("click", () => {
+      loadTicket(button.dataset.ticketId).catch((err) => renderRouteError(routeId, err));
+    }));
+    refreshIcons();
+  };
+
+  const upsertTicket = (nextTicket) => {
+    if (!nextTicket) return;
+    const index = activeTickets.findIndex((item) => item.id === nextTicket.id);
+    if (index >= 0) activeTickets[index] = { ...activeTickets[index], ...nextTicket };
+    else activeTickets.unshift(nextTicket);
+    renderList();
+  };
+
+  const renderMessages = (ticket, messages = []) => {
+    const panel = detail();
+    if (!panel) return;
+    const who = ticket.username || ticket.userEmail || ticket.email || ticket.userId || "用户";
+    panel.innerHTML = `
+      <header class="adm-ticket-detail-head">
+        <div class="adm-ticket-contact">
+          <span class="adm-ticket-avatar">${escapeHtml(String(who).slice(0, 1).toUpperCase())}</span>
+          <div><h2>${escapeHtml(ticket.subject || "客服咨询")}</h2><p>${escapeHtml(who)} · ${escapeHtml(ticket.userEmail || ticket.email || "未绑定邮箱")}</p></div>
+        </div>
+        <div class="adm-ticket-detail-controls">
+          <label><span>状态</span><select id="ticketStatusSelect">
+            ${[["open", "待处理"], ["pending", "跟进中"], ["closed", "已关闭"]].map(([value, label]) => `<option value="${value}" ${ticket.status === value ? "selected" : ""}>${label}</option>`).join("")}
+          </select></label>
+          <label><span>优先级</span><select id="ticketPrioritySelect">
+            ${[["low", "低"], ["normal", "普通"], ["high", "高"], ["urgent", "紧急"]].map(([value, label]) => `<option value="${value}" ${ticket.priority === value ? "selected" : ""}>${label}</option>`).join("")}
+          </select></label>
+        </div>
+      </header>
+      <div class="adm-ticket-context">
+        <span><i data-lucide="hash"></i>${escapeHtml(ticket.id)}</span>
+        <span><i data-lucide="radio"></i>${escapeHtml(ticket.source || "站内")}</span>
+        <span><i data-lucide="clock-3"></i>创建于 ${escapeHtml(fmtDate(ticket.createdAt))}</span>
+      </div>
+      <div class="adm-ticket-thread" id="ticketThread">
+        ${messages.length ? messages.map((message) => {
+          const isAdmin = message.senderType === "admin";
+          return `
+            <article class="adm-ticket-message ${isAdmin ? "is-admin" : "is-user"}">
+              <div class="adm-ticket-bubble">
+                <header><strong>${escapeHtml(isAdmin ? (message.senderName || "客服") : (message.senderName || who))}</strong><time>${escapeHtml(fmtDate(message.createdAt))}</time></header>
+                <p>${escapeHtml(message.body || "")}</p>
+              </div>
+              <span class="adm-ticket-bubble-avatar">${isAdmin ? "客" : escapeHtml(String(who).slice(0, 1).toUpperCase())}</span>
+            </article>
+          `;
+        }).join("") : '<div class="adm-empty"><i data-lucide="message-circle-off"></i><p>暂无对话消息</p></div>'}
+      </div>
+      <form class="adm-ticket-composer" id="ticketReplyForm">
+        <textarea id="ticketReplyText" rows="3" maxlength="5000" placeholder="回复用户，支持多行内容…"></textarea>
+        <div class="adm-ticket-composer-foot">
+          <span><i data-lucide="shield-check"></i>回复后会实时同步到用户端</span>
+          <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="send"></i>发送回复</button>
+        </div>
+      </form>
+    `;
+    refreshIcons();
+    const thread = panel.querySelector("#ticketThread");
+    if (thread) thread.scrollTop = thread.scrollHeight;
+    panel.querySelector("#ticketStatusSelect")?.addEventListener("change", async (event) => {
+      event.target.disabled = true;
+      try {
+        const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticket.id)}`, { method: "PATCH", body: { status: event.target.value } });
+        upsertTicket(result.ticket);
+        toast("工单状态已更新", "success");
+      } catch (err) {
+        event.target.value = ticket.status;
+        toast(err.message || "更新失败", "error");
+      } finally { event.target.disabled = false; }
+    });
+    panel.querySelector("#ticketPrioritySelect")?.addEventListener("change", async (event) => {
+      event.target.disabled = true;
+      try {
+        const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticket.id)}`, { method: "PATCH", body: { priority: event.target.value } });
+        upsertTicket(result.ticket);
+        toast("优先级已更新", "success");
+      } catch (err) {
+        event.target.value = ticket.priority;
+        toast(err.message || "更新失败", "error");
+      } finally { event.target.disabled = false; }
+    });
+    panel.querySelector("#ticketReplyForm")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const textarea = panel.querySelector("#ticketReplyText");
+      const text = String(textarea?.value || "").trim();
+      if (!text) { toast("请输入回复内容", "error"); textarea?.focus(); return; }
+      const submit = panel.querySelector('#ticketReplyForm button[type="submit"]');
+      submit.disabled = true;
+      try {
+        const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticket.id)}/messages`, { method: "POST", body: { message: text } });
+        upsertTicket({ ...result.ticket, adminUnreadCount: 0 });
+        await loadTicket(ticket.id, { read: false });
+        toast("回复已发送", "success");
+      } catch (err) {
+        toast(err.message || "发送失败", "error");
+      } finally { submit.disabled = false; }
+    });
+  };
+
+  const loadTicket = async (ticketId, options = {}) => {
+    if (!ticketId) return;
+    sessionStorage.setItem("admTicketsSelected", ticketId);
+    renderList();
+    const panel = detail();
+    if (panel) panel.innerHTML = '<div class="adm-ticket-welcome"><div class="adm-spinner"></div><strong>正在加载对话</strong><p>请稍候…</p></div>';
+    const read = options.read !== false;
+    const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticketId)}${read ? "?read=1" : ""}`);
+    if (!isActiveRoute(routeId)) return;
+    const ticket = result.ticket || {};
+    upsertTicket({ ...ticket, adminUnreadCount: 0 });
+    renderMessages(ticket, Array.isArray(result.messages) ? result.messages : []);
+  };
+
+  renderList();
+  if (tickets.length) {
+    const initial = tickets.find((ticket) => ticket.id === selectedId) || tickets[0];
+    await loadTicket(initial.id);
+  }
+
+  refreshIcons();
+}
+
+function notificationDateTimeInput(value = "") {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function notificationDateTimePayload(value = "") {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function systemNotificationState(notification = {}) {
+  const now = Date.now();
+  if (notification.active !== true) return { key: "disabled", label: "已停用" };
+  if (notification.publishAt && new Date(notification.publishAt).getTime() > now) return { key: "scheduled", label: "待发布" };
+  if (notification.expiresAt && new Date(notification.expiresAt).getTime() <= now) return { key: "expired", label: "已过期" };
+  return { key: "active", label: "展示中" };
+}
+
+async function renderSystemNotifications() {
+  const routeId = "system-notifications";
+  if (!isActiveRoute(routeId)) return;
+  const payload = await api("/api/admin/system-notifications");
+  if (!isActiveRoute(routeId)) return;
+  const notifications = Array.isArray(payload.notifications) ? payload.notifications : [];
+  const activeCount = notifications.filter((item) => systemNotificationState(item).key === "active").length;
+  const pinnedCount = notifications.filter((item) => item.pinned).length;
+  const previewItems = notifications.filter((item) => systemNotificationState(item).key === "active").slice(0, 3);
+  els.adminContent.innerHTML = `
+    <section class="adm-page adm-notice-page">
+      <div class="adm-page-head adm-notice-page-head">
+        <div>
+          <span class="adm-ticket-eyebrow"><i data-lucide="bell-ring"></i> Broadcast Center</span>
+          <h1>系统通知</h1>
+          <p>配置用户端铃铛消息，支持置顶、定时发布、过期和启用状态。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-primary" type="button" id="createNotificationBtn"><i data-lucide="plus"></i>新建通知</button>
+        </div>
+      </div>
+      <div class="adm-notice-stats">
+        <div><span class="is-rose"><i data-lucide="bell"></i></span><p>全部通知<strong>${notifications.length}</strong></p></div>
+        <div><span class="is-mint"><i data-lucide="radio-tower"></i></span><p>展示中<strong>${activeCount}</strong></p></div>
+        <div><span class="is-amber"><i data-lucide="pin"></i></span><p>置顶消息<strong>${pinnedCount}</strong></p></div>
+      </div>
+      <div class="adm-notice-layout">
+        <section class="adm-notice-list-panel">
+          <header><div><strong>消息列表</strong><small>置顶优先，其余按发布时间倒序</small></div><button class="adm-btn adm-btn-ghost adm-btn-sm" id="refreshNotificationsBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button></header>
+          <div class="adm-notice-list">
+            ${notifications.length ? notifications.map((notification) => {
+              const state = systemNotificationState(notification);
+              return `
+                <article class="adm-notice-card ${notification.pinned ? "is-pinned" : ""}">
+                  <div class="adm-notice-card-main">
+                    <div class="adm-notice-card-badges">
+                      ${notification.pinned ? '<span class="adm-notice-badge is-pin"><i data-lucide="pin"></i>置顶</span>' : ""}
+                      <span class="adm-notice-badge is-${state.key}">${state.label}</span>
+                    </div>
+                    <h3>${escapeHtml(notification.title || "未命名通知")}</h3>
+                    <p>${escapeHtml(shortText(notification.body || "", 160))}</p>
+                    <footer><span><i data-lucide="calendar-clock"></i>${escapeHtml(fmtDate(notification.publishAt || notification.createdAt))}</span>${notification.expiresAt ? `<span>至 ${escapeHtml(fmtDate(notification.expiresAt))}</span>` : ""}</footer>
+                  </div>
+                  <div class="adm-notice-card-actions">
+                    <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-notice-edit="${escapeHtml(notification.id)}"><i data-lucide="pen-line"></i>编辑</button>
+                    <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-notice-toggle="${escapeHtml(notification.id)}"><i data-lucide="${notification.active ? "pause" : "play"}"></i>${notification.active ? "停用" : "启用"}</button>
+                    <button class="adm-btn adm-btn-ghost adm-btn-sm adm-notice-delete" type="button" data-notice-delete="${escapeHtml(notification.id)}"><i data-lucide="trash-2"></i>删除</button>
+                  </div>
+                </article>
+              `;
+            }).join("") : '<div class="adm-empty"><i data-lucide="bell-off"></i><p>还没有系统通知，创建第一条吧</p></div>'}
+          </div>
+        </section>
+        <aside class="adm-notice-preview-panel">
+          <div class="adm-notice-preview-head"><div><span>用户端预览</span><strong>消息中心</strong></div><span class="adm-notice-preview-bell"><i data-lucide="bell"></i><em>${previewItems.filter((item) => item.pinned).length || previewItems.length || ""}</em></span></div>
+          <div class="adm-notice-preview-card">
+            <header><strong>系统通知</strong><span>全部已读</span></header>
+            ${previewItems.length ? previewItems.map((item) => `
+              <div class="adm-notice-preview-item ${item.pinned ? "is-pinned" : ""}">
+                <span><i data-lucide="${item.pinned ? "pin" : "bell"}"></i></span>
+                <div><strong>${escapeHtml(item.title || "")}</strong><p>${escapeHtml(shortText(item.body || "", 64))}</p><time>${escapeHtml(fmtRelative(item.publishAt || item.createdAt))}</time></div>
+              </div>
+            `).join("") : '<div class="adm-notice-preview-empty"><i data-lucide="inbox"></i><p>暂无展示中的通知</p></div>'}
+          </div>
+          <p class="adm-notice-preview-tip"><i data-lucide="sparkles"></i>置顶通知会固定显示在列表顶部，用户点击后可查看完整内容。</p>
+        </aside>
+      </div>
+    </section>
+  `;
+  refreshIcons();
+
+  const openNotificationEditor = (notification = null) => openDialog({
+    title: notification ? "编辑系统通知" : "新建系统通知",
+    confirmText: notification ? "保存修改" : "发布通知",
+    body: `
+      <div class="adm-notice-editor">
+        <label class="adm-form-row"><span>通知标题</span><input id="noticeTitleInput" maxlength="120" value="${escapeHtml(notification?.title || "")}" placeholder="例如：服务升级通知" /></label>
+        <label class="adm-form-row"><span>通知内容</span><textarea id="noticeBodyInput" rows="7" maxlength="5000" placeholder="输入用户打开铃铛后看到的完整内容…">${escapeHtml(notification?.body || "")}</textarea></label>
+        <div class="adm-notice-editor-grid">
+          <label class="adm-form-row"><span>发布时间</span><input id="noticePublishInput" type="datetime-local" value="${escapeHtml(notificationDateTimeInput(notification?.publishAt || ""))}" /></label>
+          <label class="adm-form-row"><span>过期时间（可选）</span><input id="noticeExpiresInput" type="datetime-local" value="${escapeHtml(notificationDateTimeInput(notification?.expiresAt || ""))}" /></label>
+        </div>
+        <div class="adm-notice-editor-switches">
+          <label><input id="noticePinnedInput" type="checkbox" ${notification?.pinned ? "checked" : ""} /><span><strong>置顶消息</strong><small>固定在通知列表最上方</small></span></label>
+          <label><input id="noticeActiveInput" type="checkbox" ${!notification || notification.active ? "checked" : ""} /><span><strong>立即启用</strong><small>关闭后用户端不可见</small></span></label>
+        </div>
+        <p class="adm-notice-editor-hint"><i data-lucide="info"></i>发布时间留空表示立即发布；过期时间留空表示长期有效。</p>
+      </div>
+    `,
+    onConfirm: async () => {
+      const title = byId("noticeTitleInput")?.value.trim() || "";
+      const text = byId("noticeBodyInput")?.value.trim() || "";
+      if (!title || !text) { toast("标题和内容不能为空", "error"); return false; }
+      const body = {
+        title,
+        body: text,
+        publishAt: notificationDateTimePayload(byId("noticePublishInput")?.value || ""),
+        expiresAt: notificationDateTimePayload(byId("noticeExpiresInput")?.value || ""),
+        pinned: byId("noticePinnedInput")?.checked === true,
+        active: byId("noticeActiveInput")?.checked === true,
+      };
+      await api(notification ? `/api/admin/system-notifications/${encodeURIComponent(notification.id)}` : "/api/admin/system-notifications", {
+        method: notification ? "PATCH" : "POST",
+        body,
+      });
+      toast(notification ? "通知已更新" : "通知已发布", "success");
+      renderSystemNotifications().catch((err) => renderRouteError(routeId, err));
+    },
+  });
+
+  els.adminContent.querySelector("#createNotificationBtn")?.addEventListener("click", () => openNotificationEditor());
+  els.adminContent.querySelector("#refreshNotificationsBtn")?.addEventListener("click", () => renderSystemNotifications().catch((err) => renderRouteError(routeId, err)));
+  els.adminContent.querySelectorAll("[data-notice-edit]").forEach((button) => button.addEventListener("click", () => {
+    const notification = notifications.find((item) => item.id === button.dataset.noticeEdit);
+    if (notification) openNotificationEditor(notification);
+  }));
+  els.adminContent.querySelectorAll("[data-notice-toggle]").forEach((button) => button.addEventListener("click", async () => {
+    const notification = notifications.find((item) => item.id === button.dataset.noticeToggle);
+    if (!notification) return;
+    button.disabled = true;
+    try {
+      await api(`/api/admin/system-notifications/${encodeURIComponent(notification.id)}`, { method: "PATCH", body: { active: !notification.active } });
+      toast(notification.active ? "通知已停用" : "通知已启用", "success");
+      await renderSystemNotifications();
+    } catch (err) { toast(err.message || "更新失败", "error"); button.disabled = false; }
+  }));
+  els.adminContent.querySelectorAll("[data-notice-delete]").forEach((button) => button.addEventListener("click", async () => {
+    const notification = notifications.find((item) => item.id === button.dataset.noticeDelete);
+    if (!notification) return;
+    const ok = await confirmAction("删除通知", `确认删除「${notification.title || "未命名通知"}」？用户端也将立即移除。`, { danger: true, confirmText: "删除" });
+    if (!ok) return;
+    await api(`/api/admin/system-notifications/${encodeURIComponent(notification.id)}`, { method: "DELETE" });
+    toast("通知已删除", "success");
+    renderSystemNotifications().catch((err) => renderRouteError(routeId, err));
+  }));
 }
 
 /* ============ PRICING ============ */

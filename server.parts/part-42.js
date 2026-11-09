@@ -826,6 +826,30 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/support-messages") {
       return await handleListUserSupportMessages(req, res, url);
     }
+    if (req.method === "POST" && url.pathname === "/api/support/tickets") {
+      return await handleCreateSupportTicket(req, res);
+    }
+    if (req.method === "GET" && url.pathname === "/api/support/tickets") {
+      return await handleListSupportTickets(req, res, url);
+    }
+    const supportTicketMatch = url.pathname.match(/^\/api\/support\/tickets\/([^/]+)$/);
+    if (req.method === "GET" && supportTicketMatch) {
+      return await handleGetSupportTicket(req, res, decodeURIComponent(supportTicketMatch[1]), url);
+    }
+    const supportTicketReplyMatch = url.pathname.match(/^\/api\/support\/tickets\/([^/]+)\/messages$/);
+    if (req.method === "POST" && supportTicketReplyMatch) {
+      return await handleReplySupportTicket(req, res, decodeURIComponent(supportTicketReplyMatch[1]));
+    }
+    if (req.method === "GET" && url.pathname === "/api/system-notifications") {
+      return await handleListSystemNotifications(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/system-notifications/read-all") {
+      return await handleReadAllSystemNotifications(req, res);
+    }
+    const systemNotificationReadMatch = url.pathname.match(/^\/api\/system-notifications\/([^/]+)\/read$/);
+    if (req.method === "POST" && systemNotificationReadMatch) {
+      return await handleReadSystemNotification(req, res, decodeURIComponent(systemNotificationReadMatch[1]));
+    }
     if (req.method === "GET" && url.pathname === "/api/live/notifications") {
       return await handleListLiveNotifications(req, res);
     }
@@ -1384,6 +1408,33 @@ async function handleRequest(req, res) {
       return await handleAdminListUserAssets(req, res, url);
     }
 
+    if (req.method === "GET" && url.pathname === "/api/admin/support-tickets") {
+      return await handleAdminListSupportTickets(req, res, url);
+    }
+    const adminSupportTicketMatch = url.pathname.match(/^\/api\/admin\/support-tickets\/([^/]+)$/);
+    if (req.method === "GET" && adminSupportTicketMatch) {
+      return await handleAdminGetSupportTicket(req, res, decodeURIComponent(adminSupportTicketMatch[1]), url);
+    }
+    if (req.method === "PATCH" && adminSupportTicketMatch) {
+      return await handleAdminUpdateSupportTicket(req, res, decodeURIComponent(adminSupportTicketMatch[1]));
+    }
+    const adminSupportTicketMessagesMatch = url.pathname.match(/^\/api\/admin\/support-tickets\/([^/]+)\/messages$/);
+    if (req.method === "POST" && adminSupportTicketMessagesMatch) {
+      return await handleAdminReplySupportTicket(req, res, decodeURIComponent(adminSupportTicketMessagesMatch[1]));
+    }
+    if (req.method === "GET" && url.pathname === "/api/admin/system-notifications") {
+      return await handleAdminListSystemNotifications(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/admin/system-notifications") {
+      return await handleAdminCreateSystemNotification(req, res);
+    }
+    const adminSystemNotificationMatch = url.pathname.match(/^\/api\/admin\/system-notifications\/([^/]+)$/);
+    if (req.method === "PATCH" && adminSystemNotificationMatch) {
+      return await handleAdminUpdateSystemNotification(req, res, decodeURIComponent(adminSystemNotificationMatch[1]));
+    }
+    if (req.method === "DELETE" && adminSystemNotificationMatch) {
+      return await handleAdminDeleteSystemNotification(req, res, decodeURIComponent(adminSystemNotificationMatch[1]));
+    }
     if (req.method === "GET" && url.pathname === "/api/admin/support-messages") {
       return await handleAdminListSupportMessages(req, res, url);
     }
