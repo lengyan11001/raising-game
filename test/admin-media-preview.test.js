@@ -90,6 +90,9 @@ test("generation record detail defers video loading until the preview is clicked
   assert.match(source, /adminMediaPreviewTrigger\(\{/);
   assert.match(source, /className: "adm-record-detail-media-preview"/);
   assert.match(source, /preloadVideo: false/);
+  assert.match(source, /const directVideo = adminPreviewMediaUrl\(recordVideoUrl\(record\)\)/);
+  assert.match(source, /const playbackVideo = directVideo \|\| localVideo/);
+  assert.match(source, /url: playbackVideo/);
   assert.doesNotMatch(source, /<video src=/);
   assert.doesNotMatch(admin, /previewVideo\.load\(\)/);
   assert.match(css, /\.adm-record-detail-media-preview\s*\{[\s\S]*?aspect-ratio:\s*var\(--video-ratio/);

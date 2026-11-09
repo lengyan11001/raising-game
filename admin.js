@@ -2142,9 +2142,14 @@ function recordPreviewHtml(record) {
     || recordImageResultUrl(record),
   );
   const poster = adminPreviewMediaUrl(recordResultPosterUrl(record));
-  if (localVideo) {
+  // The list already plays the durable CDN/provider URL. The detail endpoint
+  // also exposes an admin media proxy for fallback, but routing playback through
+  // that proxy makes the server copy the whole video a second time.
+  const directVideo = adminPreviewMediaUrl(recordVideoUrl(record));
+  const playbackVideo = directVideo || localVideo;
+  if (playbackVideo) {
     return adminMediaPreviewTrigger({
-      url: localVideo,
+      url: playbackVideo,
       kind: "video",
       label: "生成结果",
       poster,

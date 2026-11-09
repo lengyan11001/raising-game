@@ -1,3 +1,9 @@
+## 2026-11-09 admin generation detail playback CDN preference
+
+- Follow-up to deferred loading: detail playback was still slower because `recordPreviewHtml()` preferred `adminResultPreviewUrl` (the `/api/admin/.../media` proxy) over the same signed CDN/provider URL used by the fast list preview.
+- Detail result playback now prefers `recordVideoUrl(record)` (durable CDN first) while retaining the admin media proxy as fallback when no direct media URL is available.
+- Targeted admin preview/list suites pass 14/14; added assertions for the direct URL preference. Not yet deployed in this follow-up.
+
 ## 2026-11-09 admin generation detail preview performance
 
 - Admin generation-record list had always used `adminMediaPreviewTrigger({ preloadVideo: false })`, so it did not request video files until the user clicked play.
