@@ -7,7 +7,8 @@
 - Tightened the security notice and email binding actions: removed conflicting grid/flex declarations, reduced desktop actions to 34px, mobile actions to 32px, and made “Not now” a smaller subdued action.
 - Updated cache version to `email-binding-i18n-20261109-2` and focused regression assertions to the new behavior.
 - Verification: syntax checks and `git diff --check` pass; `test/email-auth.test.js`, `test/mobile-tool-ux.test.js`, `test/auth-risk.test.js`, and `test/advanced-result-refresh.test.js` pass 51/51.
-- Deployment status: pending Old-only release.
+- Integration commit `old-site` / `57daad9`; platform release `9c17593` built from it with parent `e47780c`, pushed, and deployed only to `123vips.com` with `scripts/deploy_local.sh --site old`.
+- Production verification: `/api/health` returned `200 {"ok":true}`; `platform.css` and `platform.create.parts/part-06.js` SHA-256 match local; online HTML contains standalone `emailBindingDialog`; `live-release` remains `bf1e01a`; Live was not deployed.
 
 - User reported Result thumbnails appearing, disappearing, reloading, and the panel jumping every few seconds.
 - Root cause: the 10-second generation-completion poll called `renderAdvancedResultPanel()`, which always replaced the entire result grid `innerHTML`; every poll destroyed and recreated thumbnail/video nodes.
