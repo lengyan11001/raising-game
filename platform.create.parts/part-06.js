@@ -67,8 +67,16 @@ async function loadHistory({
       // fetch its detail once so a stale list status cannot survive login.
       if (state.user) refreshAdvancedResultRecord();
     }
-    } catch (error) {
-    if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loadFailed", { message: error.message || String(error) }))}</div>`;
+  } catch (error) {
+    // requestJson() clears the account as soon as it sees an expired or replaced
+    // session. Do not replace the login-required state with a generic load
+    // error, which made stale history look recoverable while logged out.
+    if (!state.user) {
+      historyRecordsSignature = "";
+      renderHistory([]);
+    } else if (!silent) {
+      els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loadFailed", { message: error.message || String(error) }))}</div>`;
+    }
   } finally {
     historyLoading = false;
     historyRefreshInFlight = false;
@@ -692,23 +700,28 @@ function openAccount({ focusEmail = false } = {}) {
   if (focusEmail && !boundEmail) window.requestAnimationFrame(() => els.accountEmail?.focus());
 }
 
-function logout() {
+async function logout() {
+  if (state.logoutPending) return;
+  if (state.user) {
+    state.logoutPending = true;
+    let confirmed = false;
+    try {
+      confirmed = await showInlineDialog({
+        title: t("account.logoutConfirmTitle", {}, "Log out?"),
+        body: `<p class="job-note">${escapeHtml(t("account.logoutConfirmBody", {}, "You will need to sign in again to view your account and generation history."))}</p>`,
+        confirmText: t("account.logout", {}, "Log out"),
+      }) === "confirm";
+    } finally {
+      state.logoutPending = false;
+    }
+    if (!confirmed) return;
+  }
   closeMobileDrawer();
   const token = state.token;
   if (token) fetch("/api/auth/logout", { method: "POST", headers: { authorization: `Bearer ${token}` } }).catch(() => {});
-  state.token = "";
-  state.user = null;
-  state.showAccessToken = false;
-  state.showAccountToken = false;
-  state.apiSubtokens = [];
-  state.apiSubtokensLoaded = false;
-  state.apiSubtokenMessage = "";
-  state.createdApiSubtoken = null;
-  localStorage.removeItem(TOKEN_KEY);
+  clearClientAuthState();
   els.accountDialog?.close();
   closeAccountMenu();
-  setUser(null);
-  if (state.tab === "history") renderHistory([]);
   if (state.tab === "topups") renderTopupRecords();
   if (state.tab === "spending") renderSpendingRecords();
   if (state.tab === "assets") renderAssets([]);

@@ -276,7 +276,28 @@ test("anonymous support and chat report preserve source attribution", () => {
   assert.match(support, /"security notice", "telegram", "chat report"/);
   assert.match(chat, /source: "chat report"/);
   assert.match(explore, /source: els\.supportDialog\?\.dataset\.source/);
-  assert.match(html, /security-auth-20261109-2/);
+  assert.match(html, /logout-confirm-20261109-1/);
+});
+
+test("logout requires confirmation and expired sessions clear stale account views", () => {
+  const createUi = read("platform.create.parts/part-06.js");
+  const uiClient = read("platform.ui.parts/part-04.js");
+  const uiState = read("platform.ui.parts/part-01.js");
+  const logout = createUi.match(/async function logout\(\) \{[\s\S]*?\n}\r?\n\r?\nfunction renderLoginForm/);
+  assert.ok(logout, "logout should exist");
+  assert.match(logout[0], /state\.logoutPending/);
+  assert.match(logout[0], /account\.logoutConfirmTitle/);
+  assert.match(logout[0], /account\.logoutConfirmBody/);
+  assert.match(logout[0], /\) === "confirm"/);
+  assert.match(logout[0], /if \(!confirmed\) return;/);
+  assert.match(logout[0], /clearClientAuthState\(\)/);
+  assert.match(uiClient, /const sessionLost = response\.status === 401 && Boolean\(state\.token\)[\s\S]*?clearClientAuthState\(\);/);
+  const clear = uiClient.match(/function clearClientAuthState\(\) \{[\s\S]*?\n}\r?\n/);
+  assert.ok(clear, "clearClientAuthState should exist");
+  assert.match(clear[0], /setUser\(null\)/);
+  assert.match(clear[0], /renderHistory\(\[\]\)/);
+  assert.match(uiState, /state\.historyRecords = \[\];/);
+  assert.match(uiState, /state\.advancedResultRecords = \[\];/);
 });
 
 

@@ -1011,6 +1011,16 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     state.generationCompletionStatuses = typeof readGenerationCompletionStatuses === "function"
       ? readGenerationCompletionStatuses(nextUserId)
       : {};
+    // Account-scoped result data must not remain visible after a logout,
+    // session expiry, or switch to another account.
+    state.historyRecords = [];
+    state.historyRecordsPage = 1;
+    state.historyRecordsTotal = 0;
+    state.historyRecordsTotalPages = 1;
+    state.advancedResultRecords = [];
+    state.advancedResultTaskId = "";
+    state.advancedResultPage = 1;
+    state.advancedResultLoading = false;
   }
   const nextMultiplier = Number(state.user?.pricingMultiplier || 1);
   if ((state.user?.id || "") !== previousUserId) {

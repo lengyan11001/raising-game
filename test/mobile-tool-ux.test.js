@@ -56,7 +56,8 @@ test("mobile drawer shows one authentication entry while logged out", () => {
   assert.match(config, /mobileDrawerLogoutBtn: document\.querySelector\("#mobileDrawerLogoutBtn"\)/);
   assert.match(ui, /els\.mobileDrawerLogoutBtn\.hidden = !loggedIn/);
   assert.match(main, /els\.mobileDrawerLogoutBtn\?\.addEventListener\("click", logout\)/);
-  assert.match(create, /function logout\(\) \{\s*closeMobileDrawer\(\);/);
+  assert.match(create, /async function logout\(\) \{[\s\S]*?showInlineDialog\(\{[\s\S]*?account\.logoutConfirmTitle[\s\S]*?account\.logoutConfirmBody[\s\S]*?\}\) === "confirm";[\s\S]*?if \(!confirmed\) return;/);
+  assert.match(create, /closeMobileDrawer\(\);[\s\S]*?clearClientAuthState\(\);/);
 });
 
 test("account dropdown avoids duplicate top-up and referral entries", () => {

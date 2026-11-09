@@ -866,10 +866,12 @@ async function requestJson(url, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
+    const sessionLost = response.status === 401 && Boolean(state.token)
+      && (payload.code === "SESSION_REPLACED" || payload.code === "LOGIN_REQUIRED");
+    if (sessionLost) {
+      clearClientAuthState();
+    }
     if (payload.code === "SESSION_REPLACED") {
-      state.token = "";
-      state.user = null;
-      localStorage.removeItem(TOKEN_KEY);
       window.dispatchEvent(new CustomEvent("raising-session-replaced", { detail: payload }));
     }
     const error = new Error(payload.message || payload.detail || `Request failed: ${response.status}`);
@@ -880,6 +882,27 @@ async function requestJson(url, options = {}) {
     throw error;
   }
   return payload;
+}
+
+function clearClientAuthState() {
+  state.token = "";
+  state.showAccessToken = false;
+  state.showAccountToken = false;
+  state.apiSubtokens = [];
+  state.apiSubtokensLoaded = false;
+  state.apiSubtokenMessage = "";
+  state.createdApiSubtoken = null;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {}
+  if (typeof setUser === "function") setUser(null);
+  else state.user = null;
+  // setUser clears account-scoped arrays, but the visible history/result DOM
+  // must also be replaced so an expired session cannot leave stale records on
+  // screen while the login dialog is shown.
+  if (state.tab === "history" && typeof renderHistory === "function") renderHistory([]);
+  if (typeof isAdvancedWorkspaceTab === "function" && isAdvancedWorkspaceTab(state.tab)
+    && typeof renderAdvancedResultPanel === "function") renderAdvancedResultPanel();
 }
 
 const WORKFLOW_CANVAS_BASE_WIDTH = 3200;

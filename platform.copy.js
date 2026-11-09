@@ -624,6 +624,8 @@ const I18N = {
     "account.contactSupport": "Contact support",
     "account.securityNoticeLater": "Not now",
     "account.logout": "Log out",
+    "account.logoutConfirmTitle": "Log out?",
+    "account.logoutConfirmBody": "You will need to sign in again to view your account and generation history.",
   },
   vi: {
     "nav.gallery": "Thư viện",
@@ -929,6 +931,8 @@ const I18N = {
     "account.contactSupport": "Liên hệ hỗ trợ",
     "account.securityNoticeLater": "Để sau",
     "account.logout": "Đăng xuất",
+    "account.logoutConfirmTitle": "Đăng xuất?",
+    "account.logoutConfirmBody": "Bạn sẽ cần đăng nhập lại để xem tài khoản và lịch sử tạo nội dung.",
   },
   ja: {
     "nav.gallery": "ギャラリー",
@@ -1233,6 +1237,8 @@ const I18N = {
     "account.contactSupport": "サポートに連絡",
     "account.securityNoticeLater": "後で",
     "account.logout": "ログアウト",
+    "account.logoutConfirmTitle": "ログアウトしますか？",
+    "account.logoutConfirmBody": "アカウントと生成履歴を表示するには、再度ログインする必要があります。",
   },
   ko: {
     "nav.gallery": "갤러리",
@@ -1537,6 +1543,8 @@ const I18N = {
     "account.contactSupport": "고객 지원",
     "account.securityNoticeLater": "나중에",
     "account.logout": "로그아웃",
+    "account.logoutConfirmTitle": "로그아웃할까요?",
+    "account.logoutConfirmBody": "계정과 생성 기록을 보려면 다시 로그인해야 합니다.",
   },
   id: {
     "nav.gallery": "Galeri",
@@ -1841,6 +1849,8 @@ const I18N = {
     "account.contactSupport": "Hubungi dukungan",
     "account.securityNoticeLater": "Nanti saja",
     "account.logout": "Logout",
+    "account.logoutConfirmTitle": "Log out?",
+    "account.logoutConfirmBody": "You will need to sign in again to view your account and generation history.",
   },
 };
 
@@ -3659,6 +3669,8 @@ I18N.zh = {
   "account.contactSupport": "联系客服",
   "account.securityNoticeLater": "稍后再说",
   "account.logout": "退出登录",
+  "account.logoutConfirmTitle": "确认退出登录？",
+  "account.logoutConfirmBody": "退出后需要重新登录才能查看账户和生成记录。",
   "file.choose": "选择文件",
   "file.chooseImage": "选择图片",
   "file.chooseVideo": "选择视频",

@@ -1012,6 +1012,7 @@ const state = {
   user: null,
   showAccessToken: false,
   showAccountToken: false,
+  logoutPending: false,
   topupRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [] },
   spendingRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [], types: [] },
   referral: null,
