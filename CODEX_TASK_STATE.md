@@ -1,4 +1,15 @@
-## 2026-11-09 Safari prompt image/video paste follow-up (deployed to Old)
+## 2026-11-09 Safari prompt image/video paste cache-bust follow-up (deployed to Old)
+- User still reported image/video paste failing after the prior release. Production had the correct source hashes, but the HTML still referenced `platform.js?v=result-media-20261109-1`, and that URL was served as `public, max-age=31536000, immutable` with a Cloudflare HIT. The versioned URL is inherited by every child chunk, so Safari could keep executing stale `platform.prompt-editor.js` / `platform.create.parts/part-03.js` from local immutable HTTP cache.
+- Cache fix: `platform.html` now loads the generated current build version (`platform.js?v=14226eccd72a` in production) and `platform.prompt-editor.css?v=safari-paste-20261109-2`. `platform-sw.js` navigation and platform chunk fetches now explicitly use `cache: "no-cache"`.
+- Safari clipboard fix: paste now takes a synchronous snapshot of media files, HTML/URL candidates, and media-like clipboard types inside the paste dispatch. Upload work still runs asynchronously, but no longer rereads the expired `ClipboardEvent` in a microtask. Added capture listeners directly on the rich editor and mount; document capture remains as backup.
+- Safari clipboard fallback now recognizes direct MIME clipboard types and reads `text/uri-list`, `text/html`, `text/plain` through `ClipboardItem.getType()` from both the paste items and `navigator.clipboard.read()`.
+- Verification: `test/prompt-editor.test.js`, `test/tencent-vod-vega.test.js`, and `test/platform-refresh-performance.test.js` passed 92/92; all changed JS passed `node --check`; `git diff --check` passed.
+- Release: source `old-site` `32c75f4`; `platform-release` / `origin/platform-release` = `a7a3108`; deployed to Old only. Production `/api/health` 200, HTML loads `platform.js?v=14226eccd72a`, and remote SHA-256 matches local for `platform.js`, `platform.prompt-editor.js`, `platform.create.parts/part-03.js`, and `platform-sw.js`.
+- Rollback: tag `rollback-platform-before-safari-cache-bump-20261109` -> `35dccfe` (previous deployed Old release). `origin/live-release` remains `bf1e01a`; Live was not pushed or deployed.
+- Remaining verification: needs one real Safari copy-image/copy-video test after fully closing/reopening the page (or clearing website data once). Existing open tabs can still keep the old document until reloaded.
+
+
+## 2026-11-09 Safari prompt image/video paste prior attempt (superseded)
 - Follow-up to the user report that text paste works but image/video paste still fails in Safari.
 - `platform.prompt-editor.js` now captures `paste` at document level in the capture phase, scoped to `#advancedPromptEditorMount`, before ProseMirror handles the same event.
 - `handleAdvancedPromptPaste()` is intentionally synchronous for ownership detection. When the clipboard looks like media it synchronously calls `preventDefault()` and returns `true`, so ProseMirror/Safari cannot consume the event while async uploads are still starting.
