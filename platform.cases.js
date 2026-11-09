@@ -324,6 +324,7 @@ function refreshCaseLibraryAccess() {
 
 async function renderCaseLibrary() {
   bindCaseLibraryEvents();
+  if (typeof renderGalleryModeTabs === "function") renderGalleryModeTabs();
   const grid = document.getElementById("caseLibraryGrid");
   const status = document.getElementById("caseLibraryStatus");
   try {

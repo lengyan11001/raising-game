@@ -500,3 +500,39 @@ body.tenant-tool-video .video-tool-fab span {
     width: 100%;
   }
 }
+
+/* Shared navigation tab language: match the Character page's pink selected state. */
+body.tenant-tool-video .top-tab {
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 999px;
+  color: rgba(247,247,251,.7);
+  background: rgba(255,255,255,.055);
+  box-shadow: none;
+}
+
+body.tenant-tool-video .top-tab:hover {
+  border-color: rgba(255,79,163,.34);
+  color: #fff;
+  background: rgba(255,255,255,.095);
+}
+
+body.tenant-tool-video .top-tab.is-active {
+  border-color: rgba(255,79,163,.72);
+  color: #fff;
+  background: linear-gradient(135deg, rgba(255,79,163,.28), rgba(255,79,163,.2));
+  box-shadow: 0 8px 22px rgba(255,79,163,.13);
+}
+
+body.tenant-tool-video .top-tab.is-active svg {
+  color: #ff79bd;
+}
+
+body.tenant-tool-video .top-tab strong {
+  color: rgba(247,247,251,.62);
+  background: rgba(255,255,255,.08);
+}
+
+body.tenant-tool-video .top-tab.is-active strong {
+  color: #18181c;
+  background: #fff;
+}

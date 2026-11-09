@@ -1054,7 +1054,19 @@ const GENERATION_EXPIRED_PLACEHOLDER_URL = "/assets/brand/generation-expired.svg
 
 function isGenerationResultExpired(record = {}) {
   const timestamp = Date.parse(String(record.createdAt || record.created_at || record.updatedAt || record.updated_at || ""));
-  return Number.isFinite(timestamp) && Date.now() - timestamp >= GENERATION_RESULT_TTL_MS;
+  if (!Number.isFinite(timestamp) || Date.now() - timestamp < GENERATION_RESULT_TTL_MS) return false;
+  return !Boolean(
+    record?.cdnVideoUrl
+    || record?.localVideoUrl
+    || record?.cdnPosterUrl
+    || record?.localPosterUrl
+    || record?.posterUrl
+    || record?.cdnImageUrl
+    || record?.localImageUrl
+    || record?.imageResultUrl
+    || (Array.isArray(record?.cdnImageUrls) && record.cdnImageUrls.some((item) => String(item || "").trim()))
+    || (Array.isArray(record?.localImageUrls) && record.localImageUrls.some((item) => String(item || "").trim()))
+  );
 }
 
 function generationRecordKindLabel(record) {

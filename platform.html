@@ -6,9 +6,20 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=chat-inline-20261026-1" />
-    <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
+    <link rel="preconnect" href="https://media.123vips.com" crossorigin />
+    <link rel="dns-prefetch" href="https://media.123vips.com" />
+    <link rel="stylesheet" href="./platform.css?v=result-media-20261109-1" />
+    <link rel="stylesheet" href="./platform.prompt-editor.css?v=chrome-video-paste-20261109-3" />
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
+    <script>
+      (function () {
+        const lang = (() => {
+          try { return localStorage.getItem("raisingGameLanguage") || "en"; } catch (error) { return "en"; }
+        })();
+        document.documentElement.lang = lang;
+        document.documentElement.classList.add(`i18n-${lang}`);
+      })();
+    </script>
   </head>
   <body class="age-gate-locked">
     <div id="generationCompletionNotices" class="generation-completion-notices" aria-live="polite" aria-atomic="false"></div>
@@ -58,6 +69,10 @@
         <i data-lucide="download"></i>
         <span data-i18n="install.download">Download</span>
       </button>
+      <button class="eleven-eleven-entry eleven-eleven-entry-mobile" type="button" aria-label="11.11 限时活动" hidden>
+        <span class="eleven-eleven-badge">11.11</span>
+        <span class="eleven-eleven-mobile-time"><strong id="elevenElevenMobileCountdown">--:--:--</strong></span>
+      </button>
       <button class="topup-trigger mobile-topup-trigger" id="mobileDrawerTopupBtn" type="button">
         <i data-lucide="coins"></i>
         <span data-i18n="topup.compact">Top Up</span>
@@ -84,22 +99,11 @@
         </button>
         <button class="top-tab" data-tab="chat" type="button">
           <i data-lucide="message-circle-heart"></i>
-          <span>Chat</span>
+          <span data-i18n="nav.chat">Chat</span>
         </button>
-        <button class="top-tab" data-gallery-shortcut="playflux-video" type="button">
-          <i data-lucide="film"></i>
-          <span data-i18n="playflux.videoTab">Video</span>
-          <strong data-gallery-shortcut-count>0</strong>
-        </button>
-        <button class="top-tab" data-gallery-shortcut="playflux-anime" type="button">
-          <i data-lucide="sparkles"></i>
-          <span data-i18n="playflux.animeTab">Anime</span>
-          <strong data-gallery-shortcut-count>0</strong>
-        </button>
-        <button class="top-tab" data-gallery-shortcut="playflux-image" type="button">
-          <i data-lucide="image"></i>
-          <span data-i18n="playflux.imageTab">Image</span>
-          <strong data-gallery-shortcut-count>0</strong>
+        <button class="top-tab" data-tab="cases" data-same-style-entry type="button">
+          <i data-lucide="shapes"></i>
+          <span data-i18n="nav.sameStyle">Same style</span>
         </button>
         <button class="top-tab" data-tab="advanced" type="button">
           <i data-lucide="wand-sparkles"></i>
@@ -108,10 +112,6 @@
         <button class="top-tab" data-tab="custom" type="button">
           <i data-lucide="sliders-horizontal"></i>
           <span data-i18n="advanced.modeCustom">Generate</span>
-        </button>
-        <button class="top-tab" data-tab="cases" type="button">
-          <i data-lucide="layout-grid"></i>
-          <span data-i18n="nav.cases">Cases</span>
         </button>
         <button class="top-tab" data-tab="workflow" type="button" hidden>
           <i data-lucide="workflow"></i>
@@ -129,12 +129,7 @@
           <i data-lucide="history"></i>
           <span data-i18n="nav.history">History</span>
         </button>
-        <button class="top-tab top-tab-more" id="sideNavMoreBtn" type="button" aria-expanded="false">
-          <i data-lucide="ellipsis"></i>
-          <span data-i18n="nav.more">More</span>
-        </button>
       </nav>
-      <div class="side-nav-more-menu" id="sideNavMoreMenu" hidden></div>
       <nav class="side-utility-nav" aria-label="Community and support">
         <a class="side-utility-link" href="https://t.me/VipeakAILab" target="_blank" rel="noopener noreferrer" data-direct-url="https://t.me/VipeakAILab" data-analytics-event="telegram_channel_click" data-analytics-location="side_nav">
           <i data-lucide="send"></i>
@@ -146,7 +141,7 @@
         </a>
         <button class="side-utility-link is-support" id="supportNavBtn" type="button" aria-label="Support" data-analytics-event="support_open" data-analytics-location="side_nav">
           <i data-lucide="messages-square"></i>
-          <span>Support</span>
+          <span data-i18n="common.support">Support</span>
         </button>
       </nav>
       <div class="mobile-drawer-account">
@@ -175,10 +170,6 @@
     </aside>
 
     <header class="site-head">
-      <button id="doubleTopupBanner" class="double-topup-banner" type="button" hidden>
-        <span class="double-topup-banner-copy">活动期间，指定充值，多赠送50%，仅限一次！</span>
-        <span id="doubleTopupCountdown" class="double-topup-countdown">3天 00:00:00</span>
-      </button>
         <div class="head-actions account-menu-wrap tenant-menu-only" id="accountMenuWrap">
         <details class="history-expiry-info history-expiry-info-desktop" data-history-expiry-info hidden>
           <summary aria-label="Video links may expire after 24 hours. Download and save successful results in time." data-i18n-aria="history.expiryNotice">!</summary>
@@ -187,6 +178,17 @@
         <button class="topup-trigger tool-download-trigger" id="toolDownloadBtn" type="button" hidden>
           <i data-lucide="download"></i>
           <span data-i18n="install.download">Download</span>
+        </button>
+        <button class="eleven-eleven-entry eleven-eleven-entry-desktop" type="button" aria-label="11.11 限时活动" hidden>
+          <span class="eleven-eleven-badge">11.11</span>
+          <span class="eleven-eleven-message" aria-hidden="true">
+            <span class="eleven-eleven-roll">
+              <span><b>$29.9</b> 开通 $99 终身会员</span>
+              <span><b>$66</b> 到账 9,000 积分</span>
+            </span>
+          </span>
+          <span class="eleven-eleven-time"><span data-eleven-time-label>距结束</span><strong id="elevenElevenCountdown">--:--:--</strong></span>
+          <span class="eleven-eleven-go">立即抢</span>
         </button>
         <button class="topup-trigger topup-head-trigger" id="topupHeadBtn" type="button" hidden>
           <i data-lucide="coins"></i>
@@ -214,6 +216,7 @@
             <strong id="menuBalanceValue">0</strong>
           </div>
           <button class="menu-item" data-tab="pricing" data-i18n="nav.pricing" type="button">Price list</button>
+          <button class="menu-item" id="menuEmailBindBtn" data-i18n="account.bindEmail" type="button" hidden>Bind email</button>
           <button class="menu-item" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
           <button class="menu-item" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
           <button class="menu-item" id="menuLoginBtn" data-i18n="nav.login" type="button">Login / Sign up</button>
@@ -259,6 +262,70 @@
           <small>重复下单不会再次赠送，多出的订单按原来的充值比例到账。</small>
         </form>
       </dialog>
+      <dialog id="elevenElevenDialog" class="eleven-eleven-dialog">
+        <div id="elevenElevenMain" class="eleven-eleven-view">
+          <header class="eleven-eleven-head">
+            <div>
+              <span class="eleven-eleven-kicker">11.11 限时 48 小时</span>
+              <h2>限时特惠，不限量供应</h2>
+              <p><span data-eleven-time-label>距结束</span> <strong class="eleven-eleven-modal-time">--:--:--</strong></p>
+            </div>
+            <button class="eleven-eleven-close" id="elevenElevenCloseBtn" type="button" aria-label="关闭">×</button>
+          </header>
+          <div class="eleven-eleven-cards">
+            <article class="eleven-eleven-card" data-eleven-sku="member" tabindex="0" role="button" aria-label="选择创作者终身权益">
+              <span class="eleven-eleven-card-tag">🔥 限时特惠 · 不限量</span>
+              <div class="eleven-eleven-rib" hidden>已购买</div>
+              <h3>创作者终身权益</h3>
+              <div class="eleven-eleven-price"><s>$99</s><strong>$29.9</strong></div>
+              <p class="eleven-eleven-desc">一次购买，<b>终身有效</b>。包含案例库与 Explore 全部权益。</p>
+              <ul class="eleven-eleven-list">
+                <li>Explore 视频免费看、免费下载</li>
+                <li>案例库提示词与素材全解锁</li>
+                <li>付费邀请奖励 100 积分/人</li>
+              </ul>
+              <div class="eleven-eleven-bonus">
+                <div><span>⚡ 开通后充值加赠</span><strong>最高 20%</strong><em>核心权益</em></div>
+                <p>日常 $100 档　<b>10,000 → 12,000 积分</b>　<span>多拿 2,000</span></p>
+                <small>活动档位不参与，活动结束后自动生效</small>
+              </div>
+              <div class="eleven-eleven-stock"><span data-eleven-sold>已售 0</span><em>不限量</em></div>
+            </article>
+            <article class="eleven-eleven-card eleven-eleven-card-credits" data-eleven-sku="credits" tabindex="0" role="button" aria-label="选择 11.11 积分档">
+              <span class="eleven-eleven-card-tag">🔥 限时特惠 · 不限量</span>
+              <div class="eleven-eleven-rib" hidden>已购买</div>
+              <h3>$66 充值档</h3>
+              <div class="eleven-eleven-price"><strong>$66</strong><s>$90</s></div>
+              <div class="eleven-eleven-credits"><strong>9,000</strong><span>积分到账</span><em>多拿 80%</em></div>
+              <p class="eleven-eleven-desc">面值 $90　·　比 $50 档多 4,000 积分</p>
+              <ul class="eleven-eleven-list">
+                <li>9,000 积分即时到账</li>
+                <li>积分永不过期</li>
+              </ul>
+              <div class="eleven-eleven-stock"><span data-eleven-sold>已售 0</span><em>不限量</em></div>
+            </article>
+          </div>
+          <div class="eleven-eleven-foot">
+            <div class="eleven-eleven-pay-info"><span>支持支付方式</span><b>微信支付</b><b>支付宝</b><b>银行卡</b></div>
+            <button id="elevenElevenBuyBtn" class="eleven-eleven-buy" type="button" disabled>选择一档立即购买</button>
+            <p id="elevenElevenError" class="eleven-eleven-error" role="alert" hidden></p>
+            <small class="eleven-eleven-fine">活动档为限时特价，不与会员充值奖励及其它优惠叠加</small>
+          </div>
+        </div>
+        <div id="elevenElevenDone" class="eleven-eleven-view eleven-eleven-done" hidden>
+          <span class="eleven-eleven-tick">✓</span>
+          <h2 id="elevenElevenDoneTitle">支付成功</h2>
+          <p id="elevenElevenDoneBody">9,000 积分已到账</p>
+          <div id="elevenElevenDoneBalance" class="eleven-eleven-balance">当前积分余额　<b>0</b></div>
+          <button id="elevenElevenDoneBtn" class="eleven-eleven-buy" type="button">完成</button>
+        </div>
+        <div id="elevenElevenEnded" class="eleven-eleven-view eleven-eleven-ended" hidden>
+          <span class="eleven-eleven-ended-icon">11.11</span>
+          <h2>本次活动已结束</h2>
+          <p>下一场活动见。</p>
+          <button id="elevenElevenEndedBtn" class="eleven-eleven-buy" type="button">关闭</button>
+        </div>
+      </dialog>
       <section class="home-panel" data-panel="home" hidden>
         <div class="w-bg" aria-hidden="true">
           <span class="w-page-glow"></span>
@@ -286,10 +353,6 @@
             <button type="button" class="w-nav-link" data-w-tab="access" data-i18n="nav.access">API Access</button>
           </nav>
           <div class="w-nav-actions">
-            <button class="double-topup-banner double-topup-banner-home" type="button" hidden>
-              <span class="double-topup-banner-copy">活动期间，指定充值，多赠送50%，仅限一次！</span>
-              <span class="double-topup-countdown">3天 00:00:00</span>
-            </button>
             <button class="w-btn ghost sm" type="button" data-home-action="login" data-i18n="home.login">登录</button>
             <button class="w-btn primary sm" type="button" data-home-action="signup" data-i18n="home.signup">注册</button>
             <button class="w-btn primary sm" type="button" data-home-action="create" data-i18n="home.create" hidden>创建</button>
@@ -437,9 +500,12 @@
         </footer>
       </section>
 
+      <section class="same-style-panel" id="sameStylePanel" hidden>
+        <div class="gallery-mode-tabs gallery-top-tabs" id="galleryModeTabs" role="tablist" aria-label="Same-style modes"></div>
+      </section>
+
       <section class="workspace" data-panel="gallery">
         <section class="gallery-panel">
-          <div class="gallery-mode-tabs" id="galleryModeTabs"></div>
           <div class="template-grid" id="templateGrid"></div>
         </section>
       </section>
@@ -504,7 +570,13 @@
             <div class="advanced-preset-builder" id="advancedPresetBuilder" aria-label="Generation presets"></div>
             <label class="field advanced-prompt-field">
               <span data-i18n="field.prompt">Prompt</span>
-              <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..." data-i18n-placeholder="advanced.promptPlaceholder"></textarea>
+              <div class="advanced-prompt-input-shell">
+                <div class="advanced-prompt-highlight" id="advancedPromptHighlight" aria-hidden="true"></div>
+                <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..." data-i18n-placeholder="advanced.promptPlaceholder"></textarea>
+                <div class="advanced-prompt-editor-mount" id="advancedPromptEditorMount" hidden></div>
+                <span class="advanced-prompt-resize" id="advancedPromptResizeHandle" role="separator" tabindex="0" aria-label="Resize prompt editor" aria-orientation="horizontal"></span>
+                <button class="prompt-optimizer-trigger advanced-prompt-optimize-btn" id="advancedPromptOptimizeBtn" type="button" hidden><i data-lucide="sparkles"></i><span>AI 优化</span></button>
+              </div>
               <div class="advanced-prompt-mentions" id="advancedPromptMentions" role="listbox" aria-label="Prompt references" hidden></div>
             </label>
             <details class="advanced-video-settings" id="advancedVideoSettings">
@@ -601,7 +673,7 @@
                 </label>
               </div>
             </div>
-            <div class="advanced-fields">
+            <div class="advanced-fields advanced-native-fields" aria-hidden="true">
               <label class="field advanced-provider-field"><span data-i18n="field.model">Engine</span><select id="advancedProvider">
                 <optgroup label="Video">
                   <option value="seedance-nsfw" selected>Seedance 2.5</option>
@@ -610,6 +682,11 @@
                   <option value="wan27">Wan 2.7</option>
                   <option value="happyhorse">HappyHorse</option>
                   <option value="seedance">Seedance 2.0</option>
+                  <option value="seedance-fast">Seedance 2.0 Fast</option>
+                  <option value="seedance20-vega">seedance2.0（vega）</option>
+                  <option value="seedance25-vega">seedance2.5vega</option>
+                  <option value="h3-vega">wan（vega）</option>
+                  <option value="vega10-lite">h3（vega）</option>
                 </optgroup>
                 <optgroup label="Image">
                   <option value="z-image-spicy-pro">Z-Image Spicy Pro</option>
@@ -651,10 +728,27 @@
                   <span>On</span>
                 </div>
               </label>
+              <label class="field advanced-vega-option" hidden><span>Vega task</span><select id="advancedVegaTaskType"><option value="auto" selected>Auto</option><option value="reference">Reference</option><option value="edit">Edit</option><option value="extend">Extend</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Generate mode</span><select id="advancedVegaGenerateMode"><option value="Standard" selected>Standard</option><option value="Fast">Fast</option><option value="StandardMovie">StandardMovie</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Quality mode</span><select id="advancedVegaQualityMode"><option value="Standard" selected>Standard</option><option value="Fast">Fast</option><option value="SuperFast">SuperFast</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Output format</span><select id="advancedVegaOutputFormat"><option value="mp4" selected>MP4</option><option value="mov">MOV</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Prompt enhance</span><select id="advancedVegaEnhancePromptMode"><option value="auto" selected>Auto</option><option value="enable">Enable</option><option value="disable">Disable</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Moderation</span><select id="advancedVegaModerationMode"><option value="Moderation_L1" selected>L1</option><option value="Moderation_L2">L2</option></select></label>
+              <label class="field advanced-vega-option" hidden><span>Return last frame</span><div class="advanced-checkbox-control"><input id="advancedVegaReturnLastFrame" type="checkbox" /><span>On</span></div></label>
+              <label class="field advanced-vega-option" hidden><span>Return usage</span><div class="advanced-checkbox-control"><input id="advancedVegaReturnUsage" type="checkbox" /><span>On</span></div></label>
+              <label class="field advanced-vega-option" hidden><span>Draft</span><div class="advanced-checkbox-control"><input id="advancedVegaDraft" type="checkbox" /><span>480P draft</span></div></label>
+              <label class="field advanced-vega-option advanced-vega-draft-task-field" hidden><span>Draft task ID</span><input id="advancedVegaDraftTaskId" type="text" autocomplete="off" placeholder="Upstream draft task ID" /></label>
+              <label class="field advanced-vega-option" hidden><span>Asset group ID</span><input id="advancedVegaAssetGroupId" type="text" autocomplete="off" placeholder="Optional" /></label>
               <label class="field advanced-wan-option advanced-seed-field" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="1" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
             </div>
-            <button class="generate-btn" id="advancedSubmitBtn" type="button"><i data-lucide="sparkles"></i>Generate</button>
-            <p class="job-note" id="advancedNote"></p>
+            <div class="advanced-generator-toolbar">
+              <div class="advanced-parameter-shell" id="advancedParameterShell">
+                <div class="advanced-parameter-chips" id="advancedParameterChips" role="group" aria-label="Generation parameters"></div>
+                <div class="advanced-parameter-panel" id="advancedParameterPanel" role="dialog" aria-label="Generation parameter options" hidden></div>
+              </div>
+              <button class="generate-btn" id="advancedSubmitBtn" type="button" aria-busy="false"><i data-lucide="sparkles"></i>Generate</button>
+            </div>
+            <p class="job-note" id="advancedNote" role="status" aria-live="polite"></p>
           </section>
           <section class="advanced-case-panel advanced-side-panel">
             <div class="advanced-side-tabs" id="advancedSideTabs" role="tablist" aria-label="Create side panel">
@@ -708,6 +802,7 @@
               <div class="advanced-result-list" id="advancedResultList">
                 <div class="advanced-result-empty"><strong>No generation yet</strong><p>Click Generate to track progress here.</p></div>
               </div>
+              <div class="ledger-pager advanced-result-pager" id="advancedResultPager"></div>
             </div>
           </section>
         </div>
@@ -734,20 +829,7 @@
       </section>
 
       <section class="access-panel" data-panel="access" hidden>
-        <section class="entitlement-card api-docs-entitlement" id="apiDocsPurchaseCard">
-          <div class="entitlement-icon"><i data-lucide="book-key"></i></div>
-          <div class="entitlement-copy">
-            <span>API Documentation Access</span>
-            <strong>Unlock the complete integration guide</strong>
-            <p>One-time purchase. Includes 20,000 test credits after payment.</p>
-          </div>
-          <div class="entitlement-action">
-            <strong>$1,000</strong>
-            <button class="copy-btn" id="buyApiDocsBtn" type="button"><i data-lucide="lock-keyhole-open"></i>Unlock docs</button>
-          </div>
-          <p class="job-note entitlement-status" id="apiDocsPurchaseStatus"></p>
-        </section>
-        <div id="apiDocsUnlockedContent" hidden>
+        <div id="apiDocsUnlockedContent">
         <div class="token-card" id="accessTokenCard">
           <div>
             <span data-i18n="access.currentToken">Current API token</span>
@@ -827,44 +909,90 @@
 
       <section class="referral-panel" data-panel="referral" hidden>
         <section class="membership-card" id="membershipCard">
-          <div class="membership-card-head">
+          <header class="membership-card-head">
             <div class="membership-card-icon"><i data-lucide="crown"></i></div>
-            <div>
+            <div class="membership-card-title">
               <span data-i18n="membership.eyebrow">Creator Membership</span>
-              <strong data-i18n="membership.lifetime">$99 lifetime benefits</strong>
+              <strong><b>$99</b> <span data-i18n="membership.lifetime">lifetime benefits</span></strong>
+              <p data-i18n="membership.heroDescription">No credits included. You get lifetime Explore access and up to 20% extra on every future top-up.</p>
             </div>
             <span class="membership-state" id="membershipState" data-i18n="membership.notActive">Not active</span>
+          </header>
+          <div class="membership-intro">
+            <span data-i18n="membership.onceOnly">One-time purchase. Lifetime access.</span>
+            <strong data-i18n="membership.noCredits">No credits included</strong>
+            <p data-i18n="membership.noCreditsHint">Membership unlocks site benefits only. Your credits balance is not changed by this purchase.</p>
           </div>
+          <div class="membership-section-label"><span data-i18n="membership.whatYouGet">What you unlock</span></div>
           <div class="membership-benefits">
-            <span class="membership-benefit">
-              <em class="membership-benefit-badge" data-i18n="membership.badgeExplore">Free</em>
-              <i data-lucide="play"></i>
+            <span class="membership-benefit membership-benefit-primary">
+              <span class="membership-benefit-icon"><i data-lucide="play"></i></span>
+              <strong data-i18n="membership.benefitExploreTitle">Explore, unlocked</strong>
               <span class="membership-benefit-copy" data-i18n="membership.benefitExplore">Watch and download Explore videos</span>
+              <span class="membership-benefit-compare"><span data-i18n="membership.withoutLabel">Without</span><span data-i18n="membership.exploreWithout">Preview only, no downloads</span><span data-i18n="membership.withLabel">With membership</span><span data-i18n="membership.exploreWith">Watch and download everything, no credits used</span></span>
+              <em class="membership-benefit-badge" data-i18n="membership.badgeExplore">Permanent</em>
             </span>
-            <span class="membership-benefit">
-              <em class="membership-benefit-badge" data-i18n="membership.badgeCases">All cases</em>
-              <i data-lucide="layout-grid"></i>
-              <span class="membership-benefit-copy" data-i18n="membership.benefitCases">Unlock every prompt and asset in the Case Library</span>
-            </span>
-            <span class="membership-benefit">
-              <em class="membership-benefit-badge" data-i18n="membership.badgeReferral">100 credits each</em>
-              <i data-lucide="users-round"></i>
-              <span class="membership-benefit-copy" data-i18n="membership.benefitReferral">Earn paid-referral rewards</span>
-            </span>
-            <span class="membership-benefit">
-              <em class="membership-benefit-badge" data-i18n="membership.badgeTopup">Up to 20%</em>
-              <i data-lucide="gift"></i>
+            <span class="membership-benefit membership-benefit-primary is-hot">
+              <span class="membership-benefit-icon"><i data-lucide="gift"></i></span>
+              <strong data-i18n="membership.benefitTopupTitle">Permanent top-up bonus</strong>
               <span class="membership-benefit-copy" data-i18n="membership.benefitTopup">Receive top-up package bonuses</span>
+              <span class="membership-bonus-table">
+                <span><span data-i18n="membership.bonusTopup100">Top up $100</span><strong>12,000 <small data-i18n="common.credits">credits</small> <em>+2,000</em></strong></span>
+                <span><span data-i18n="membership.bonusTopup200">Top up $200</span><strong>24,000 <small data-i18n="common.credits">credits</small> <em>+4,000</em></strong></span>
+                <span><span data-i18n="membership.bonusTopup500">Top up $500</span><strong>60,000 <small data-i18n="common.credits">credits</small> <em>+10,000</em></strong></span>
+              </span>
+              <em class="membership-benefit-badge" data-i18n="membership.badgeTopup">Up to 20%</em>
             </span>
+            <span class="membership-benefit membership-benefit-row">
+              <span class="membership-benefit-icon"><i data-lucide="users-round"></i></span>
+              <span class="membership-benefit-text"><strong data-i18n="membership.benefitReferralTitle">Referral rewards</strong><span class="membership-benefit-copy" data-i18n="membership.benefitReferral">Earn paid-referral rewards</span></span>
+              <em class="membership-benefit-badge" data-i18n="membership.badgeReferral">100 credits each</em>
+            </span>
+            <span class="membership-benefit membership-benefit-row">
+              <span class="membership-benefit-icon"><i data-lucide="layout-grid"></i></span>
+              <span class="membership-benefit-text"><strong data-i18n="membership.benefitCasesTitle">Case library</strong><span class="membership-benefit-copy" data-i18n="membership.benefitCases">Unlock every prompt and asset in the Case Library</span></span>
+              <em class="membership-benefit-badge" data-i18n="membership.badgeCases">All cases</em>
+            </span>
+          </div>
+          <section class="membership-calculator" aria-labelledby="membershipCalculatorTitle">
+            <div class="membership-calculator-head">
+              <div><b id="membershipCalculatorTitle" data-i18n="membership.calculatorTitle">When does it pay for itself?</b><span data-i18n="membership.calculatorHint">Drag to estimate your future top-ups</span></div>
+              <strong id="membershipCalculatorAmount">$1000</strong>
+            </div>
+            <label class="membership-calculator-slider">
+              <span class="sr-only" data-i18n="membership.calculatorQuestion">How much do you expect to top up?</span>
+              <input id="membershipCalculatorRange" type="range" min="50" max="5000" step="50" value="1000" />
+            </label>
+            <div class="membership-calculator-results">
+              <div><span data-i18n="membership.calculatorExtra">Extra credits</span><strong id="membershipCalculatorExtra">20,000</strong></div>
+              <div><span data-i18n="membership.calculatorEffective">Effective price</span><strong id="membershipCalculatorDiscount">83%</strong></div>
+              <div><span data-i18n="membership.calculatorNet">Net value</span><strong id="membershipCalculatorNet">+$101</strong></div>
+            </div>
+            <div class="membership-calculator-progress"><span><span data-i18n="membership.calculatorPayback">Payback progress</span><b id="membershipCalculatorProgressText">202%</b></span><i><b id="membershipCalculatorProgressFill"></b></i></div>
+            <div class="membership-calculator-chart"><svg id="membershipCalculatorCurve" viewBox="0 0 640 130" role="img" aria-label="Membership value curve"></svg><div><span>$0</span><span data-i18n="membership.calculatorAxis">Cumulative top-ups</span><span>$5,000</span></div></div>
+            <p class="membership-calculator-verdict" id="membershipCalculatorVerdict"></p>
+          </section>
+          <div class="membership-section-label"><span data-i18n="membership.compareLabel">Pay as you go vs. lifetime membership</span></div>
+          <div class="membership-compare-wrap">
+            <table class="membership-compare">
+              <thead><tr><th data-i18n="membership.compareSameSpend">Same $99</th><th data-i18n="membership.compareRegular">Regular top-up</th><th data-i18n="membership.compareMember">Lifetime membership</th></tr></thead>
+              <tbody>
+                <tr><td data-i18n="membership.compareNow">What you get now</td><td data-i18n="membership.compareNowRegular">9,900 credits, gone when used</td><td data-i18n="membership.compareNowMember">Explore unlocked + permanent top-up bonus</td></tr>
+                <tr><td data-i18n="membership.compare500">Later top up $500</td><td>50,000</td><td data-i18n="membership.compare500Member">60,000 credits (+10,000)</td></tr>
+                <tr><td data-i18n="membership.compare1000">Later top up 1,000 USD</td><td>100,000</td><td data-i18n="membership.compare1000Member">120,000 credits (+20,000)</td></tr>
+                <tr><td data-i18n="membership.compareYear">After one year</td><td data-i18n="membership.compareYearRegular">Credits run out</td><td data-i18n="membership.compareYearMember">Still saving on every top-up, permanently</td></tr>
+              </tbody>
+            </table>
           </div>
           <div class="membership-actions">
-            <button class="copy-btn" id="buyMembershipBtn" type="button"><i data-lucide="crown"></i><span data-i18n="membership.buy">Unlock benefits</span></button>
+            <button class="copy-btn" id="buyMembershipBtn" type="button"><i data-lucide="crown"></i><span data-i18n="membership.buy">Get lifetime benefits · $99</span></button>
             <form class="membership-code-form" id="membershipCodeForm">
               <input id="membershipCodeInput" type="text" placeholder="Activation code" data-i18n-placeholder="membership.activationCode" autocomplete="off" />
               <button class="ghost-button" id="redeemMembershipCodeBtn" type="submit" data-i18n="membership.redeem">Redeem</button>
             </form>
           </div>
           <p class="job-note" id="membershipNote"></p>
+          <p class="membership-fine"><span data-i18n="membership.fine1">Membership does not include credits.</span><span data-i18n="membership.fine2">Top-up bonus varies by package, up to 20%.</span><span data-i18n="membership.fine3">Benefits are lifetime.</span></p>
         </section>
         <div class="referral-card" id="referralCard">
           <div class="referral-copy">
@@ -880,10 +1008,9 @@
           </div>
           <div class="referral-offer-cards">
             <section class="referral-offer-card referral-commission-card">
-              <div class="referral-offer-heading"><span data-i18n="referral.commissionCardEyebrow">Cash commission</span><h3 data-i18n="referral.commissionCardTitle">Earn withdrawable commission</h3><p data-i18n="referral.commissionCardSubtitle">Earn 20% when an invited user buys membership or API documentation access.</p></div>
+              <div class="referral-offer-heading"><span data-i18n="referral.commissionCardEyebrow">Cash commission</span><h3 data-i18n="referral.commissionCardTitle">Earn withdrawable commission</h3><p data-i18n="referral.commissionCardSubtitle">Earn 20% when an invited user buys membership.</p></div>
               <div class="referral-commission-earnings">
                 <div class="referral-commission-earning"><span data-i18n="referral.membershipCommissionLabel">$99 membership</span><strong data-i18n="referral.membershipCommissionValue">Earn $19.80 (20%)</strong></div>
-                <div class="referral-commission-earning"><span data-i18n="referral.apiDocsCommissionLabel">$1000 API docs</span><strong data-i18n="referral.apiDocsCommissionValue">Earn $200.00 (20%)</strong></div>
               </div>
               <div class="referral-finance" id="referralFinance">
                 <div class="referral-finance-stats">
@@ -968,7 +1095,7 @@
 
     <button class="support-fab" id="supportFab" type="button" aria-label="Support">
       <i data-lucide="messages-square"></i>
-      <span>Support</span>
+      <span data-i18n="common.support">Support</span>
     </button>
 
     <div class="video-tool-fabs" id="videoToolFabs" hidden>
@@ -1023,18 +1150,31 @@
             <span data-i18n="auth.telegramLogin">Continue with Telegram</span>
           </button>
           <div class="google-login-mount" id="googleLoginBtn" aria-live="polite" hidden></div>
-          <div class="auth-divider"><span data-i18n="auth.orUsername">or use username</span></div>
-          <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
-          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" data-i18n-placeholder="auth.password" />
-          <div class="auth-email-row"><input id="loginEmail" type="email" autocomplete="email" placeholder="Email login" /><button class="ghost-button" id="requestEmailLoginCodeBtn" type="button">Send code</button></div>
-          <div class="auth-email-row"><input id="loginEmailCode" inputmode="numeric" autocomplete="one-time-code" placeholder="Email verification code" maxlength="6" /><button class="ghost-button" id="verifyEmailLoginBtn" type="button">Email login</button></div>
-          <button class="ghost-button" id="forgotPasswordBtn" type="button">Forgot password?</button>
-          <p class="auth-register-hint">
-            <i data-lucide="info"></i>
-            <span data-i18n="auth.autoRegisterHint">No separate sign-up is needed. Logging in with a new username creates the account automatically.</span>
-          </p>
-          <div class="auth-actions">
-            <button class="generate-btn" id="loginSubmit" type="submit" value="continue">Login / Sign up</button>
+          <div class="auth-method-tabs" role="tablist" aria-label="Login method" data-i18n-aria="auth.loginMethod">
+            <button class="auth-method-tab is-active" id="emailLoginTab" type="button" role="tab" aria-selected="true" data-i18n="auth.emailCodeTab">Email code</button>
+            <button class="auth-method-tab" id="passwordLoginTab" type="button" role="tab" aria-selected="false" data-i18n="auth.passwordTab">Password</button>
+          </div>
+          <div class="auth-method-panel" id="emailLoginPanel" role="tabpanel">
+            <div class="auth-divider"><span data-i18n="auth.orEmail">Use email verification code</span></div>
+            <div class="auth-email-row"><input id="loginEmail" type="email" autocomplete="email" placeholder="Email address" data-i18n-placeholder="common.emailAddress" /><button class="ghost-button" id="requestEmailLoginCodeBtn" type="button" data-i18n="common.sendCode">Send code</button></div>
+            <div class="auth-email-row"><input id="loginEmailCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit verification code" maxlength="6" data-i18n-placeholder="common.verificationCode6" /><button class="generate-btn" id="verifyEmailLoginBtn" type="button" data-i18n="auth.login">Login</button></div>
+            <p class="auth-register-hint">
+              <i data-lucide="info"></i>
+              <span data-i18n="auth.emailAutoRegisterHint">New email addresses are registered automatically on first login.</span>
+            </p>
+          </div>
+          <div class="auth-method-panel" id="passwordLoginPanel" role="tabpanel" hidden>
+            <div class="auth-divider"><span data-i18n="auth.orUsername">Use username and password</span></div>
+            <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password" data-i18n-placeholder="auth.password" />
+            <p class="auth-register-hint">
+              <i data-lucide="info"></i>
+              <span data-i18n="auth.autoRegisterHint">Password sign-in is for existing accounts only. New accounts must use email or Google.</span>
+            </p>
+            <div class="auth-actions">
+              <button class="generate-btn" id="loginSubmit" type="submit" value="continue" data-i18n="auth.login">Login</button>
+            </div>
+            <button class="ghost-button" id="forgotPasswordBtn" type="button" data-i18n="auth.forgotPassword">Forgot password?</button>
           </div>
           <p class="job-note" id="telegramLoginStatus" hidden></p>
           <p class="job-note" id="googleLoginStatus" hidden></p>
@@ -1071,15 +1211,47 @@
               <button class="copy-btn" id="copyAccountTokenBtn" data-i18n="common.copyToken" type="button"><i data-lucide="copy"></i>Copy token</button>
             </div>
           </div>
-          <div class="account-security-box">
-            <strong>Account security</strong>
-            <p class="adm-muted">Bind an email to sign in with a code or reset your password.</p>
-            <div class="auth-email-row"><input id="accountEmail" type="email" autocomplete="email" placeholder="Login email" /><button class="ghost-button" id="requestAccountEmailCodeBtn" type="button">Send code</button></div>
-            <div class="auth-email-row"><input id="accountEmailCode" inputmode="numeric" maxlength="6" placeholder="Verification code" /><button class="ghost-button" id="verifyAccountEmailBtn" type="button">Bind email</button></div>
-            <input id="accountCurrentPassword" type="password" autocomplete="current-password" placeholder="Current password" />
-            <p class="job-note" id="accountSecurityMessage"></p>
-          </div>
           <button class="ghost-button danger-link" id="logoutAccountBtn" data-i18n="account.logout" type="button"><i data-lucide="log-out"></i>Log out</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="emailBindingDialog" class="modal email-binding-dialog" aria-labelledby="emailBindingTitle">
+      <form method="dialog">
+        <header>
+          <div>
+            <span data-i18n="account.emailBindingKicker">Account security</span>
+            <strong id="emailBindingTitle" data-i18n="account.emailBindingTitle">Bind email</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body email-binding-body">
+          <p class="adm-muted" id="accountEmailStatus" data-i18n="account.emailBindingDesc">Bind an email to sign in with a code or reset your password.</p>
+          <p class="adm-muted" id="accountEmailBoundNote" data-i18n="account.emailBoundNote" hidden>This email can be used for verification-code login and password reset.</p>
+          <div class="auth-email-row"><input id="accountEmail" type="email" autocomplete="email" placeholder="Email address" data-i18n-placeholder="common.emailAddress" /><button class="ghost-button" id="requestAccountEmailCodeBtn" type="button" data-i18n="common.sendCode">Send code</button></div>
+          <div class="auth-email-row"><input id="accountEmailCode" inputmode="numeric" maxlength="6" placeholder="Verification code" data-i18n-placeholder="common.verificationCode" /><button class="generate-btn" id="verifyAccountEmailBtn" type="button" data-i18n="account.bindEmail">Bind email</button></div>
+          <p class="job-note" id="accountSecurityMessage"></p>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="accountSecurityNoticeDialog" class="modal account-security-notice" aria-labelledby="accountSecurityNoticeTitle">
+      <form method="dialog">
+        <header>
+          <div>
+            <span data-i18n="account.securityKicker">Account protection</span>
+            <strong id="accountSecurityNoticeTitle" data-i18n="account.securityNoticeTitle">Protect your account</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body security-notice-body">
+          <div class="security-notice-icon"><i data-lucide="shield-alert"></i></div>
+          <p data-i18n="account.securityNoticeBody">Add a verified email so you can recover your account and receive security alerts. Your current session and credits will not be affected.</p>
+          <div class="security-notice-actions">
+            <button class="generate-btn" id="securityNoticeBindBtn" type="button"><i data-lucide="mail"></i><span data-i18n="account.bindEmailNow">Bind email now</span></button>
+            <button class="ghost-button" id="securityNoticeSupportBtn" type="button" data-i18n="account.contactSupport">Contact support</button>
+            <button class="ghost-button security-notice-later" id="securityNoticeLaterBtn" value="cancel" type="submit" data-i18n="account.securityNoticeLater">Not now</button>
+          </div>
         </div>
       </form>
     </dialog>
@@ -1112,7 +1284,7 @@
                 <span data-i18n="topup.title">Top Up</span>
                 <strong id="topupCredits">0 credits</strong>
                 <small id="topupRate">Login to create a payment order.</small>
-                <small class="topup-expiry-note">积分永不过期 · Credits never expire.</small>
+                <small class="topup-expiry-note" id="topupExpiryNote">积分永不过期 · Credits never expire.</small>
               </div>
             </div>
             <div class="topup-stage topup-package-stage" id="topupPackageStage">
@@ -1131,8 +1303,20 @@
               <div class="topup-package-grid" id="topupPackageGrid"></div>
             </div>
             <div class="topup-stage topup-payment-stage" id="topupPaymentStage" hidden>
+              <section class="topup-membership-checkout" id="topupMembershipCheckout" hidden>
+                <div class="topup-membership-checkout-head">
+                  <span><i data-lucide="crown"></i><b data-i18n="membership.checkoutEyebrow">Lifetime creator benefits</b></span>
+                  <em data-i18n="membership.checkoutLifetime">Lifetime</em>
+                </div>
+                <div class="topup-membership-checkout-grid">
+                  <div><i data-lucide="play"></i><span><strong data-i18n="membership.checkoutExplore">Explore unlocked</strong><small data-i18n="membership.checkoutExploreHint">No credits used</small></span></div>
+                  <div><i data-lucide="gift"></i><span><strong data-i18n="membership.checkoutTopup">Up to +20% on top-ups</strong><small data-i18n="membership.checkoutTopupHint">Applied to future purchases</small></span></div>
+                  <div><i data-lucide="users-round"></i><span><strong data-i18n="membership.checkoutReferral">100 credits per paid invite</strong><small data-i18n="membership.checkoutReferralHint">While benefits are active</small></span></div>
+                </div>
+                <p><i data-lucide="info"></i><span data-i18n="membership.checkoutNoCredits">This purchase includes no credits. It unlocks lifetime membership benefits.</span></p>
+              </section>
               <div class="topup-selected-package">
-                <span data-i18n="topup.selectedPackage">Selected package</span>
+                <span id="topupSelectedLabel" data-i18n="topup.selectedPackage">Selected package</span>
                 <div class="topup-selected-amount">
                   <strong id="topupSelectedPackage">0 credits</strong>
                   <p class="stripe-payment-method-note pay-channel-marks" role="note" aria-label="Payment methods">
@@ -1316,8 +1500,8 @@
     <dialog id="supportDialog" class="modal">
       <form method="dialog">
         <header>
-          <strong>Support</strong>
-          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+          <strong data-i18n="common.support">Support</strong>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
           <label class="field">
@@ -1332,6 +1516,7 @@
             <span>Message</span>
             <textarea id="supportMessage" rows="6" placeholder="Describe your issue..."></textarea>
           </label>
+          <p class="job-note">No sign-in is required to send a support message. Include the email where we can reach you.</p>
           <a class="copy-btn" href="https://t.me/VipeakSupportBot" target="_blank" rel="noopener noreferrer" data-direct-url="https://t.me/VipeakSupportBot" data-analytics-event="telegram_support_click">
             <i data-lucide="send"></i>Open Telegram support
           </a>
@@ -1422,6 +1607,9 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=chat-inline-20261026-2"></script>
+    <script>
+      window.VIPEAK_PROMPT_EDITOR_MODE = "rich";
+    </script>
+    <script src="./platform.js?v=chrome-video-paste-20261109-3"></script>
   </body>
 </html>

@@ -312,6 +312,31 @@ function missingKeyError() {
   return error;
 }
 
+function upstreamBalanceFailure(payload = {}, message = "") {
+  const text = String(message || "").trim();
+  const code = String(payload?.error_code || payload?.code || payload?.error?.code || "").trim().toLowerCase();
+  const balanceMessage = /(?:available|insufficient|not enough)\s+(?:balance|credits?)/i.test(text)
+    || /(?:balance|credits?)\s+(?:is\s+)?(?:insufficient|not enough|below zero)/i.test(text)
+    || /余额不足|额度不足|账户余额/.test(text);
+  return balanceMessage || ["insufficient_balance", "insufficient_credits", "balance_not_enough", "not_enough_credits"].includes(code);
+}
+
+function mulerouterBalanceError(payload = {}, message = "") {
+  const detail = String(message || "").trim();
+  const available = detail.match(/available\s+balance\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1] || "";
+  const required = detail.match(/minimum\s+required\s*:\s*(-?\d+(?:\.\d+)?)/i)?.[1] || "";
+  const error = new Error(
+    `上游 MuleRouter 账户余额不足${available ? `（当前 ${available} credits${required ? `，最低需要 ${required} credits` : ""}）` : ""}，本次生成未执行。平台预扣积分会自动退回；这不是你的平台账户余额。请充值 MuleRouter 后重试。`,
+  );
+  error.statusCode = 503;
+  error.code = "MULEROUTER_UPSTREAM_BALANCE_UNAVAILABLE";
+  error.provider = "mulerouter";
+  error.upstreamPayload = payload;
+  if (available) error.availableBalance = Number(available);
+  if (required) error.minimumRequired = Number(required);
+  return error;
+}
+
 async function request(pathname, { method = "GET", body = null, timeoutMs = 180000 } = {}) {
   const apiKey = String(process.env.MULEROUTER_API_KEY || "").trim();
   if (!apiKey) throw missingKeyError();
@@ -333,7 +358,9 @@ async function request(pathname, { method = "GET", body = null, timeoutMs = 1800
     payload = { text };
   }
   if (!response.ok) {
-    const error = new Error(payload.detail || payload.title || payload.message || payload.error?.detail || payload.error?.message || `Mulerouter request failed: ${response.status}`);
+    const upstreamMessage = payload.detail || payload.title || payload.message || payload.error?.detail || payload.error?.message || `Mulerouter request failed: ${response.status}`;
+    if (upstreamBalanceFailure(payload, upstreamMessage)) throw mulerouterBalanceError(payload, upstreamMessage);
+    const error = new Error(upstreamMessage);
     error.statusCode = response.status || 502;
     error.payload = payload;
     error.code = payload.error_code || payload.code || payload.error?.code || "MULEROUTER_REQUEST_FAILED";
@@ -445,6 +472,7 @@ module.exports = {
   encodeRef,
   hasKey,
   missingKeyError,
+  mulerouterBalanceError,
   mulerouterOnlyCapability,
   parseRef,
   publicStatus,
