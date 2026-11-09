@@ -2084,13 +2084,22 @@ function recordImageAssetsHtml(record = {}) {
         </figure>
       `).join("")}
       ${videos.map((asset) => `
+        ${(() => {
+          const previewUrl = recordMediaAssetHref(asset, true);
+          return `
         <figure data-reference-item>
-          <button type="button" class="adm-record-reference-preview" data-reference-preview="${escapeHtml(String(asset.referenceIndex ?? ""))}" title="放大预览">
-            <video src="${escapeHtml(recordMediaAssetHref(asset, true))}" muted playsinline preload="metadata"></video>
-          </button>
+          ${adminMediaPreviewTrigger({
+            url: previewUrl,
+            kind: "video",
+            label: asset.label || "参考视频",
+            poster: asset.posterUrl || asset.imageUrl || asset.thumbnailUrl || "",
+            className: "adm-record-reference-preview",
+            preloadVideo: false,
+          })}
           <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
           <figcaption>${escapeHtml(asset.label || "")}</figcaption>
-        </figure>
+        </figure>`;
+        })()}
       `).join("")}
       ${audios.map((asset) => `
         <figure class="adm-record-reference-audio" data-reference-item>
@@ -2133,8 +2142,17 @@ function recordPreviewHtml(record) {
     || recordImageResultUrl(record),
   );
   const poster = adminPreviewMediaUrl(recordResultPosterUrl(record));
-  const posterAttr = poster ? ` poster="${escapeHtml(poster)}"` : "";
-  if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="metadata" playsinline${posterAttr} style="${escapeHtml(recordRatioStyle(record))}"></video>`;
+  if (localVideo) {
+    return adminMediaPreviewTrigger({
+      url: localVideo,
+      kind: "video",
+      label: "生成结果",
+      poster,
+      className: "adm-record-detail-media-preview",
+      style: recordRatioStyle(record),
+      preloadVideo: false,
+    });
+  }
   if (imageResult) return `<img src="${escapeHtml(imageResult)}" alt="" />`;
   if (remoteVideo) {
     return `
@@ -2889,8 +2907,6 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
       }
     });
   });
-  const previewVideo = bodyEl.querySelector(".adm-record-preview video");
-  if (previewVideo) previewVideo.load();
   refreshIcons();
 }
 

@@ -1,3 +1,22 @@
+## 2026-11-09 admin generation detail preview performance
+
+- Admin generation-record list had always used `adminMediaPreviewTrigger({ preloadVideo: false })`, so it did not request video files until the user clicked play.
+- Generation detail and its reference-video tiles preloaded `video` metadata, and detail binding explicitly called `previewVideo.load()`, forcing the proxied admin media endpoint on dialog open.
+- Changed `admin.js` so result and reference videos use the same deferred preview trigger as the list; removed the explicit load and added a detail preview style in `admin.css`.
+- Added regression coverage in `test/admin-media-preview.test.js`. Targeted suites pass 14/14 with `node --require ./test/source-compat.js --test test/admin-media-preview.test.js test/admin-generation-records-list.test.js`.
+- Not deployed in this step.
+
+## 2026-11-09 attack-source inspection (SSH/Web)
+
+- Scope: read-only inspection of Old production `123vips.com` / `47.84.76.131`; no service restart, session purge, firewall mutation, or deployment.
+- SSH hardening verified live: `PasswordAuthentication no`, `PermitRootLogin prohibit-password`, `MaxAuthTries 3`, empty passwords disabled, UFW exposes only 22/80/443. fail2ban sshd has 56 currently banned IPs; policy is 4 retries / 15 minutes / 24-hour ban.
+- SSH attack volume: 618 distinct source IPs failed authentication in 7 days. Highest counts: `27.118.23.21` 3,483 root attempts (VN/Hanel), `185.237.15.70` 3,020 root (DE/Kamatera), `148.66.128.231` 2,849 root (SG/GoDaddy), `66.116.224.187` 2,610 root (IN/PDR), `192.252.215.125` 2,290 wordpress (US/Performive), `148.72.211.221` 2,221 root (SG/GoDaddy). Large coordinated clusters include `109.160.32.0/24` and `45.148.10.0/24`.
+- SSH successful-auth review since 2026-11-02 found only operator addresses `223.204.231.152` / `223.204.226.184`; post-hardening success is public-key only from `223.204.231.152`. No evidence of a successful internet SSH brute-force login.
+- Web scanner farms identified today: Microsoft/Google cloud addresses repeatedly probing WordPress/PHP paths, including `20.217.186.29` (480 requests), `20.46.43.126` (420), `34.15.128.228` / `34.131.36.85` / `34.130.68.64` (274 each), `52.179.208.167` (198), plus Azure/Google ranges. Secret discovery is concentrated from `45.148.10.5` / `45.148.10.21` (`.env`, `.git`, `.aws`) and LLM endpoint probing from `103.219.170.149`.
+- One-minute mass scan from `34.95.235.21` made 236 requests at 01:34 with rotating/spoofed crawler UAs and attempted `//.env`; the historical `200` response was 550 bytes and current `//.env` plus encoded/path-traversal variants return 404. No successful `.env`/`.git`/`.aws` secret-file response or credential markers were found. `216.244.66.236` DotBot generated 25,298 random-path requests (mostly 308), which is crawler load rather than exploit success.
+- Credential-stuffing/takeover signal: `50.7.21.105` (SG/FDCservers, `curl/7.55.1`) successfully logged into existing `test04`/`test03` accounts at 01:05-01:07, bound an email and reset `test03` password, then created one API generation. Those historic sessions still exist. This is a targeted compromise/credential reuse event, not ordinary web scanning, and should be contained by revoking only the affected sessions/tokens after user confirmation.
+- Current application auth risk controls are active: 24h DB shows only 2 login-failure subjects, 43 `auth_rate_limited` events, and 1 `auth_login_locked`; no broad application password brute force was observed.
+
 ## 2026-11-09 production private-media hardening (deployment wave)
 
 - Production safety gate checked at 2026-11-09 06:00 +08: app active, no Node restarts, 879 sessions. No generation work in the prior 2 hours; only three historical stale rows remain (`mychar-img-20261106152856-a086bc4` submitting from 2026-11-06; `cgt-20260619181126-95cc3c` and `cgt-20260619181025-801a09` running from 2026-06-19). They are not live work and do not block the planned restart.

@@ -82,6 +82,27 @@ test("all live chat material editors render a preview trigger", () => {
   assert.match(admin, /chatLiveUndressPreview[\s\S]*?adminMediaPreviewTrigger\(\{ url: current\.undressImageUrl/);
 });
 
+test("generation record detail defers video loading until the preview is clicked", () => {
+  const start = admin.indexOf("function recordPreviewHtml(");
+  const end = admin.indexOf("function recordBillingText(", start);
+  assert.ok(start >= 0 && end > start);
+  const source = admin.slice(start, end);
+  assert.match(source, /adminMediaPreviewTrigger\(\{/);
+  assert.match(source, /className: "adm-record-detail-media-preview"/);
+  assert.match(source, /preloadVideo: false/);
+  assert.doesNotMatch(source, /<video src=/);
+  assert.doesNotMatch(admin, /previewVideo\.load\(\)/);
+  assert.match(css, /\.adm-record-detail-media-preview\s*\{[\s\S]*?aspect-ratio:\s*var\(--video-ratio/);
+
+  const referenceStart = admin.indexOf("function recordImageAssetsHtml(");
+  const referenceEnd = admin.indexOf("function toAbsoluteHttpUrl(", referenceStart);
+  assert.ok(referenceStart >= 0 && referenceEnd > referenceStart);
+  const referenceSource = admin.slice(referenceStart, referenceEnd);
+  assert.match(referenceSource, /videos\.map\([\s\S]*?adminMediaPreviewTrigger\(/);
+  assert.match(referenceSource, /preloadVideo: false/);
+  assert.doesNotMatch(referenceSource, /<video src=/);
+});
+
 test("admin cards, records, templates, avatars, and geo samples render preview triggers", () => {
   assert.match(admin, /function videoOrPoster[\s\S]*?adminMediaPreviewTrigger/);
   assert.match(admin, /function generationRecordRowHtml[\s\S]*?className: "adm-record-thumb adm-record-thumb-preview"[\s\S]*?preloadVideo: false/);
