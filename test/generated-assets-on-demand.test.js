@@ -126,6 +126,13 @@ test("bounded media persistence recovery only targets succeeded records with pro
   assert.match(server, /setTimeout\(\(\) => scanGenerationRecordMissingMediaPersistence\("startup"\), 35000\)/);
 });
 
+test("background video downloads cool down and stop retrying expired media", () => {
+  assert.match(server, /function generationRecordVideoDownloadCoolingDown/);
+  assert.match(server, /attempts >= GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS/);
+  assert.match(server, /cdnRetryCount: attempts/);
+  assert.match(server, /cdnError: String\(error\.message \|\| error \|\| "Generated video download failed\."\)\.slice\(0, 500\)/);
+});
+
 test("background media transfer uses a global bounded worker pool", () => {
   assert.match(server, /const MEDIA_INGEST_CONCURRENCY = Math\.max\(1, Math\.min\(8/);
   assert.match(server, /const mediaIngestRunning = new Set\(\)/);

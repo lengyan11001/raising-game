@@ -373,6 +373,13 @@ const generatedMediaMaintenanceQueued = new Set();
 let generatedMediaMaintenanceRunning = false;
 const generatedVideoDownloadQueued = new Set();
 
+function generationRecordVideoDownloadCoolingDown(record = {}) {
+  const attempts = Math.max(0, Number(record.cdnRetryCount || 0));
+  if (attempts >= GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS) return true;
+  const retryAt = Date.parse(record.cdnRetryAt || "");
+  return Boolean(retryAt && retryAt > Date.now());
+}
+
 function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "background-download", { repairPoster = false } = {}) {
   const cleanTaskId = String(taskId || "").trim();
   const remote = String(remoteVideoUrl || "").trim();
@@ -384,6 +391,8 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
   setImmediate(() => Promise.resolve().then(async () => {
     const current = await getGenerationRecord(cleanTaskId);
     if (!current) return;
+    if (generationRecordVideoDownloadCoolingDown(current)) return;
+    if ((current.cdnVideoUrl || current.videoUrl) && (!repairPoster || (current.cdnPosterUrl && current.posterStorageKey))) return;
     const downloaded = await downloadGeneratedVideo(cleanTaskId, remote, { forceLocal: true, posterOnly: repairPoster });
     if (!downloaded.cdnVideoUrl || !downloaded.storageKey) {
       throw new Error(downloaded.cdnError || "Generated video was not persisted to object storage.");
@@ -420,13 +429,21 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
     }, reason);
   }).catch(async (error) => {
     console.warn("[generated-video-background-download-failed]", cleanTaskId, error.message || error);
-    if (!repairPoster) return;
     const current = await getGenerationRecord(cleanTaskId).catch(() => null);
     if (!current) return;
+    const attempts = Math.max(0, Number(current.cdnRetryCount || 0)) + 1;
+    const terminal = attempts >= GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS;
     await upsertGenerationRecord({
       taskId: cleanTaskId,
-      ...posterMaintenanceFailureUpdates(current.posterMaintenanceAttempts, error),
-      posterMaintenanceLastDurationMs: 0,
+      cdnRetryCount: attempts,
+      cdnRetryAt: terminal
+        ? new Date().toISOString()
+        : new Date(Date.now() + GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS * attempts).toISOString(),
+      cdnError: String(error.message || error || "Generated video download failed.").slice(0, 500),
+      ...(repairPoster ? {
+        ...posterMaintenanceFailureUpdates(current.posterMaintenanceAttempts, error),
+        posterMaintenanceLastDurationMs: 0,
+      } : {}),
     }).catch(() => {});
   }).finally(() => {
     generatedVideoDownloadQueued.delete(cleanTaskId);
