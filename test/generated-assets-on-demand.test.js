@@ -46,6 +46,21 @@ test("advanced download preparation forces a local transient copy and R2 upload"
   assert.match(prepare, /force: true,/);
   assert.match(prepare, /updateGenerationRecordAdvancedDownloadInDb\(existing\.taskId, \{/);
   assert.doesNotMatch(prepare, /return upsertGenerationRecord\(\{\s*taskId: existing\.taskId/);
+  const localPersist = prepare.indexOf("const localMedia =");
+  const storageUpload = prepare.indexOf("const cdn = await uploadGeneratedMediaToObjectStorage");
+  assert.ok(localPersist >= 0 && localPersist < storageUpload, "local media fields must be persisted before object-storage upload");
+  assert.match(prepare.slice(localPersist, storageUpload), /localPosterUrl: poster\.localPosterUrl/);
+});
+
+test("video publication persists local video and poster before mirroring to object storage", () => {
+  const video = server.slice(server.indexOf("async function downloadGeneratedVideo"), server.indexOf("function imageFileName"));
+  const persist = video.indexOf("// Persist the usable local copy before object-storage publication finishes.");
+  const resultUrl = video.indexOf("const result = {", video.indexOf("const poster = await createGeneratedVideoPoster"));
+  assert.ok(persist > resultUrl, "publication must persist after the local result is assembled");
+  assert.match(video.slice(persist), /localVideoUrl: result\.localVideoUrl/);
+  assert.match(video.slice(persist), /localPosterUrl: result\.localPosterUrl/);
+  assert.match(video.slice(persist), /posterUrl: result\.localPosterUrl/);
+  assert.doesNotMatch(video.slice(persist), /if \(taskId && \(result\.storageKey/);
 });
 
 test("successful generation immediately queues background transfer without waiting for download2", () => {

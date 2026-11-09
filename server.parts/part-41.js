@@ -1033,6 +1033,20 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
     const poster = localVideo.localVideoPath
       ? await createGeneratedVideoPoster(existing.taskId, localVideo.localVideoPath)
       : { localPosterPath: "", localPosterUrl: "" };
+    // Persist the playable local result and poster before attempting the OSS/R2
+    // mirror. Advanced download is an optimization; mirror failures must not
+    // leave a succeeded generation without a thumbnail.
+    const localMedia = {
+      localVideoUrl: localVideo.localVideoUrl || existing.localVideoUrl || "",
+      localVideoPath: localVideo.localVideoPath || existing.localVideoPath || "",
+      localPosterUrl: poster.localPosterUrl || existing.localPosterUrl || "",
+      localPosterPath: poster.localPosterPath || existing.localPosterPath || "",
+      playbackOptimizedAt: localVideo.playbackOptimizedAt || existing.playbackOptimizedAt || new Date().toISOString(),
+    };
+    await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
+      ...localMedia,
+      advancedDownloadStatus: "preparing",
+    });
     const cdn = await uploadGeneratedMediaToObjectStorage({
       taskId: existing.taskId,
       localVideoPath: localVideo.localVideoPath,
@@ -1042,15 +1056,18 @@ async function prepareGenerationRecordAdvancedDownload(record = {}) {
     if (!cdn.cdnVideoUrl) {
       const error = new Error(cdn.cdnError || "Object storage upload failed.");
       error.statusCode = 502;
+      error.retryable = true;
       error.code = "OBJECT_STORAGE_UPLOAD_FAILED";
+      await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
+        ...localMedia,
+        cdnError: cdn.cdnError || error.message,
+        advancedDownloadStatus: "preparing",
+        advancedDownloadError: error.message,
+      }).catch(() => {});
       throw error;
     }
     const updated = await updateGenerationRecordAdvancedDownloadInDb(existing.taskId, {
-      localVideoUrl: localVideo.localVideoUrl,
-      localVideoPath: localVideo.localVideoPath,
-      localPosterUrl: poster.localPosterUrl,
-      localPosterPath: poster.localPosterPath,
-      playbackOptimizedAt: localVideo.playbackOptimizedAt || new Date().toISOString(),
+      ...localMedia,
       cdnVideoUrl: cdn.cdnVideoUrl,
       cdnPosterUrl: cdn.cdnPosterUrl,
       storageProvider: cdn.storageProvider || objectStorageProvider(),

@@ -553,12 +553,18 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl, { forceLocal = fal
     ...poster,
     ...cdn,
   };
-  // Persist storage metadata at the point of publication. Callers historically
-  // copied only the CDN URLs and discarded the keys, which made private OSS
-  // media impossible to sign correctly on later requests.
-  if (taskId && (result.storageKey || result.posterStorageKey || result.cdnVideoUrl || result.cdnPosterUrl)) {
+  // Persist the usable local copy before object-storage publication finishes.
+  // OSS/R2 is only the accelerated mirror; a mirror outage must never erase a
+  // successfully generated result's video or poster from history/result views.
+  if (taskId) {
     await upsertGenerationRecord({
       taskId,
+      localVideoPath: result.localVideoPath || "",
+      localVideoUrl: result.localVideoUrl || "",
+      localPosterPath: result.localPosterPath || "",
+      localPosterUrl: result.localPosterUrl || "",
+      posterUrl: result.localPosterUrl || "",
+      playbackOptimizedAt: result.playbackOptimizedAt || "",
       cdnVideoUrl: result.cdnVideoUrl || "",
       cdnPosterUrl: result.cdnPosterUrl || "",
       storageProvider: result.storageProvider || objectStorageProvider(),
