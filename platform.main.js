@@ -808,7 +808,7 @@ els.advancedPrompt?.addEventListener("blur", () => window.setTimeout(closeAdvanc
 els.advancedPromptMentions?.addEventListener("pointerdown", handleAdvancedPromptMentionPointer);
 bindAdvancedPromptResizeHandle();
 els.advancedPrompt?.addEventListener("paste", (event) => {
-  handleAdvancedPromptPaste(event).catch((error) => {
+  Promise.resolve(handleAdvancedPromptPaste(event)).catch((error) => {
     if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
   });
 });

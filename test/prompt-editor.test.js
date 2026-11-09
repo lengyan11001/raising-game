@@ -139,6 +139,12 @@ test("rich prompt auto-size resets height before measuring so deletion can shrin
   assert.doesNotMatch(part04, /richEditor \? Math\.max\(minimumHeight, promptElement\.scrollHeight \+ 2\)/);
 });
 
+test("rich editor captures paste at document level before ProseMirror consumes Safari clipboard media", () => {
+  assert.match(adapterSource, /event\?\.target\?\.closest\?\.\("#advancedPromptEditorMount"\)/);
+  assert.match(adapterSource, /document\.addEventListener\("paste", handleDocumentPaste, true\)/);
+  assert.match(adapterSource, /try \{\s*const pending = window\.handleAdvancedPromptPaste\(event\);\s*Promise\.resolve\(pending\)/);
+});
+
 test("rich editor leaves media paste to the platform handler and keeps plain text paste", () => {
   assert.match(editorSource, /const hasMedia = Array\.from\(clipboard\?\.items \|\| \[\]\)/);
   assert.match(editorSource, /if \(hasMedia\) return true;/);

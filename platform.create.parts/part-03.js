@@ -1,3 +1,5 @@
+const advancedPromptPasteEvents = new WeakSet();
+
 async function submitAdvancedGenerate() {
   if (!state.user) return openLogin();
   if (els.advancedSubmitBtn?.getAttribute("aria-busy") === "true") return;
@@ -1178,6 +1180,281 @@ function pastedImageFilesFromEvent(event) {
   return pastedMediaFilesFromEvent(event).filter((file) => String(file.type || uploadedFileMime(file) || "").toLowerCase().startsWith("image/"));
 }
 
+function clipboardEventLooksLikeMedia(event) {
+  const clipboard = event?.clipboardData;
+  const types = Array.from(clipboard?.types || []).map((type) => String(type || "").toLowerCase());
+  if (types.includes("files")) return true;
+  const html = String(clipboard?.getData?.("text/html") || "");
+  if (/<(?:img|video|audio|source)\b/i.test(html) || /url\(\s*["']?(?:https?:|data:|blob:)/i.test(html)) return true;
+  const plain = String(clipboard?.getData?.("text/plain") || "");
+  return /^(?:data|blob):(?:image|video|audio)\//i.test(plain.trim());
+}
+
+async function pastedMediaFilesFromNavigatorClipboard() {
+  const clipboard = globalThis.navigator?.clipboard;
+  if (!clipboard?.read) return [];
+  const files = [];
+  const seen = new Set();
+  for (const item of await clipboard.read()) {
+    for (const type of Array.from(item.types || [])) {
+      const mime = String(type || "").toLowerCase();
+      if (!/^(?:image|video|audio)\//.test(mime)) continue;
+      const blob = await item.getType(type);
+      if (!blob) continue;
+      const extension = mime.split("/")[1]?.replace("jpeg", "jpg").replace("quicktime", "mov") || "bin";
+      const file = new File([blob], `clipboard-pasted-${Date.now()}-${files.length + 1}.${extension}`, { type: mime });
+      const key = `${file.type}:${file.size}:${file.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      files.push(file);
+    }
+  }
+  return files;
+}
+
+function mediaUrlKind(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const dataKind = raw.match(/^data:((?:image|video|audio)\/)/i)?.[1]?.toLowerCase() || "";
+  if (dataKind) return dataKind.startsWith("image/") ? "image" : dataKind.startsWith("video/") ? "video" : "audio";
+  let pathname = "";
+  try { pathname = new URL(raw).pathname.toLowerCase(); } catch (_error) { return ""; }
+  if (/\.(?:png|jpe?g|webp|gif|bmp|avif)$/.test(pathname)) return "image";
+  if (/\.(?:mp4|webm|mov|m4v)$/.test(pathname)) return "video";
+  if (/\.(?:mp3|wav|m4a|aac|ogg)$/.test(pathname)) return "audio";
+  return "";
+}
+
+function mediaUrlKindFromHtmlTag(tag = "") {
+  const name = String(tag || "").match(/^<\s*([a-z0-9]+)/i)?.[1]?.toLowerCase() || "";
+  if (name === "img") return "image";
+  if (name === "video") return "video";
+  if (name === "audio") return "audio";
+  return "";
+}
+
+function decodePastedHtmlUrl(value = "") {
+  return String(value || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .trim();
+}
+
+function pastedHtmlAttribute(tag = "", name = "") {
+  const escaped = String(name || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(tag || "").match(new RegExp(`\\b${escaped}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
+  return decodePastedHtmlUrl(match?.[1] ?? match?.[2] ?? match?.[3] ?? "");
+}
+
+function pastedHtmlMediaKind(tag = "") {
+  const tagKind = mediaUrlKindFromHtmlTag(tag);
+  if (tagKind) return tagKind;
+  const mime = pastedHtmlAttribute(tag, "type").toLowerCase();
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+  return "";
+}
+
+function pastedMediaUrlCandidatesFromEvent(event) {
+  const clipboard = event?.clipboardData;
+  const candidates = [];
+  const seen = new Set();
+  const add = (value = "", { kind = "", onlyMedia = false } = {}) => {
+    const raw = String(value || "").trim();
+    if (!raw) return;
+    const urls = [];
+    for (const line of raw.split(/\r?\n/)) {
+      const direct = line.trim();
+      if (/^(?:(?:https?:)?\/\/|data:|blob:)/i.test(direct)) urls.push({ value: direct, kind });
+    }
+    for (const tag of raw.match(/<(?:img|video|audio|source|a|link)\b[^>]*>/gi) || []) {
+      const tagKind = pastedHtmlMediaKind(tag);
+      const src = pastedHtmlAttribute(tag, "src") || pastedHtmlAttribute(tag, "data-src") || pastedHtmlAttribute(tag, "data-original") || pastedHtmlAttribute(tag, "href");
+      const poster = pastedHtmlAttribute(tag, "poster");
+      const srcset = pastedHtmlAttribute(tag, "srcset").split(",")[0]?.trim().split(/\s+/)[0] || "";
+      if (poster) urls.push({ value: poster, kind: "image" });
+      if (src) urls.push({ value: src, kind: tagKind || mediaUrlKind(src) });
+      if (srcset && !src) urls.push({ value: srcset, kind: tagKind || mediaUrlKind(srcset) });
+    }
+    for (const cssUrl of raw.match(/url\(\s*["']?([^"')]+)["']?\s*\)/gi) || []) {
+      const value = cssUrl.replace(/^url\(\s*["']?|["']?\s*\)$/gi, "");
+      urls.push({ value: decodePastedHtmlUrl(value), kind: mediaUrlKind(value) });
+    }
+    for (const candidate of urls) {
+      const rawUrl = String(candidate.value || "").trim();
+      const inlineMedia = /^(?:data|blob):/i.test(rawUrl) && Boolean(candidate.kind || mediaUrlKind(rawUrl));
+      const url = inlineMedia ? rawUrl : absoluteHttpUrl(rawUrl);
+      const resolvedKind = candidate.kind || mediaUrlKind(url);
+      if (!url || seen.has(url) || (onlyMedia && !resolvedKind)) continue;
+      seen.add(url);
+      candidates.push({ url, kind: resolvedKind });
+    }
+  };
+  const read = (type) => {
+    try { return clipboard?.getData?.(type) || ""; } catch (_error) { return ""; }
+  };
+  add(read("text/uri-list"), { onlyMedia: true });
+  add(read("text/html"));
+  add(read("text/plain"), { onlyMedia: true });
+  return candidates;
+}
+
+function mediaUrlCandidateName(value = "", kind = "image") {
+  if (/^(?:data|blob):/i.test(String(value || ""))) {
+    return kind === "video" ? "pasted-video.mp4" : kind === "audio" ? "pasted-audio.mp3" : "pasted-image.png";
+  }
+  try { return decodeURIComponent(new URL(value).pathname.split("/").pop() || ""); }
+  catch (_error) { return kind === "video" ? "pasted-video.mp4" : kind === "audio" ? "pasted-audio.mp3" : "pasted-image.png"; }
+}
+
+function advancedPastedMediaRef(asset = {}, kind = "image", fallbackUrl = "") {
+  const sourceUrl = asset.publicUrl || asset.cdnUrl || asset.previewUrl || asset.localUrl || fallbackUrl || "";
+  return {
+    ...asset,
+    id: asset.id || "",
+    assetId: asset.id || asset.assetId || "",
+    kind,
+    mime: asset.mime || "",
+    name: asset.name || asset.fileName || mediaUrlCandidateName(sourceUrl, kind),
+    fileName: asset.fileName || asset.name || mediaUrlCandidateName(sourceUrl, kind),
+    publicUrl: asset.publicUrl || sourceUrl,
+    cdnUrl: asset.cdnUrl || "",
+    url: sourceUrl,
+    previewUrl: asset.previewUrl || sourceUrl,
+    durationSeconds: Number(asset.durationSeconds || asset.duration || 0) || 0,
+  };
+}
+
+async function uploadAdvancedMediaReferenceUrl(url = "", kind = "image", { provider = currentAdvancedProvider(), name = "", durationSeconds = 0 } = {}) {
+  if (!state.user) {
+    openLogin();
+    return null;
+  }
+  let sourceUrl = String(url || "").trim();
+  if (/^blob:/i.test(sourceUrl)) {
+    try {
+      const blob = await (await fetch(sourceUrl)).blob();
+      sourceUrl = await readFileAsDataUrl(blob);
+    } catch (_error) {
+      sourceUrl = "";
+    }
+  }
+  if (!/^data:/i.test(sourceUrl)) sourceUrl = absoluteHttpUrl(sourceUrl);
+  if (!sourceUrl || (!/^data:/i.test(sourceUrl) && !vegaPublicHttpUrl(sourceUrl))) {
+    if (els.advancedNote) els.advancedNote.textContent = t("assets.uploadFailed", { message: "Media URL must be public HTTP(S)." });
+    return null;
+  }
+  const fileName = String(name || mediaUrlCandidateName(sourceUrl, kind));
+  const usesMediaLibrary = vegaProviderUsesMediaLibrary(provider);
+  const inlineDataUrl = /^data:/i.test(sourceUrl);
+  const payload = await requestJson(usesMediaLibrary ? "/api/user-assets" : "/api/advanced/transient-media", {
+    method: "POST",
+    body: usesMediaLibrary
+      ? { ...(inlineDataUrl ? { dataUrl: sourceUrl } : { url: sourceUrl }), name: fileName, fileName, durationSeconds, provider }
+      : { ...(inlineDataUrl ? { dataUrl: sourceUrl } : { url: sourceUrl }), name: fileName, fileName, kind, provider, durationSeconds },
+  });
+  if (usesMediaLibrary) {
+    const asset = payload.asset || null;
+    if (!asset?.id) throw new Error(t("assets.uploadFailed", { message: "Invalid media asset" }));
+    state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+    state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+    renderAdvancedAssets();
+    return advancedPastedMediaRef(asset, kind, sourceUrl);
+  }
+  const media = payload.media || null;
+  const publicUrl = vegaPublicHttpUrl(media?.publicUrl || media?.url || "");
+  if (!media || !publicUrl) throw new Error(t("assets.uploadFailed", { message: "Object storage public URL unavailable" }));
+  return advancedPastedMediaRef({
+    ...media,
+    id: "",
+    publicUrl,
+    url: publicUrl,
+    previewUrl: publicUrl,
+  }, kind, publicUrl);
+}
+
+async function addAdvancedVegaPromptPasteUrlImages(candidates = [], rule = {}, provider = currentAdvancedProvider()) {
+  if (!rule.allowed || !candidates.length) return 0;
+  const targets = rule.target === "frames"
+    ? advancedAssetTargetItems().filter((target) => (
+      ["primary", "lastFrame"].includes(target.id) && !advancedTargetHasSelection(target.id)
+    ))
+    : [{ id: "referenceImages", label: t("advanced.assetTargetReferenceImages") }];
+  if (!targets.length) return 0;
+
+  const previousPromptRefs = advancedPromptMentionSnapshot();
+  const existing = rule.replaceExisting ? [] : (Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []);
+  const occupiedFrameSlots = rule.target === "frames"
+    ? Number(Boolean(state.advancedSeedanceFirstFrameDataUrl || state.advancedSeedanceFirstFrameAssetId))
+      + Number(Boolean(state.advancedSeedanceLastFrameDataUrl || state.advancedSeedanceLastFrameAssetId))
+    : 0;
+  const roomLeft = Math.max(0, rule.limit - (rule.target === "frames" ? occupiedFrameSlots : existing.length));
+  const maxCandidates = rule.target === "frames" ? Math.min(roomLeft, targets.length) : roomLeft;
+  const selected = candidates.slice(0, maxCandidates);
+  const resolved = [];
+  for (const candidate of selected) {
+    const target = rule.target === "frames" ? targets[resolved.length] : targets[0];
+    if (!target) break;
+    const ref = await uploadAdvancedMediaReferenceUrl(candidate.url, "image", { provider });
+    if (!ref) return 0;
+    const selection = vegaProviderUsesMediaLibrary(provider)
+      ? await resolveAdvancedVegaAsset(ref, target.id)
+      : advancedVegaSelection(ref, target.id);
+    if (!selection.ok) throw new Error(selection.message || "This image cannot be used for the selected Vega input.");
+    resolved.push({ selection, target });
+  }
+  if (!resolved.length) return 0;
+
+  state.activeAdvancedCaseId = "";
+  if (rule.target === "frames") {
+    state.advancedReferenceImages = [];
+  } else {
+    state.advancedFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameDataUrl = "";
+    state.advancedSourceImageAssetId = "";
+  }
+  state.advancedWanClipAssetId = "";
+  resolved.forEach(({ selection, target }) => applyAdvancedVegaSelection(selection, target));
+  if (els.advancedImage) els.advancedImage.value = "";
+  syncAdvancedPromptMentionLabels(previousPromptRefs);
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  return resolved.length;
+}
+
+async function addAdvancedVegaPromptPasteUrlVideos(candidates = [], provider = currentAdvancedProvider()) {
+  const supportsVideoReferences = vegaModeUsesReferences(advancedVegaMediaMode()) && advancedVideoReferenceLimit(provider) > 0;
+  if (!supportsVideoReferences) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceVideoUnsupported");
+    return false;
+  }
+  const availableVideoSlots = Math.max(0, advancedVideoReferenceLimit(provider) - advancedSeedanceVideoReferences().length);
+  const selected = candidates.slice(0, availableVideoSlots);
+  if (!selected.length) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceMediaTooMany");
+    return false;
+  }
+  for (const candidate of selected) {
+    const ref = await uploadAdvancedMediaReferenceUrl(candidate.url, "video", { provider });
+    if (!ref) return false;
+    const added = addAdvancedSeedanceMediaReference(ref, "video", {
+      sourceUrl: ref.publicUrl || ref.url || ref.previewUrl || "",
+      ref,
+    });
+    if (!added.ok) {
+      if (els.advancedNote) els.advancedNote.textContent = advancedMediaReferenceAddError(added, "video");
+      return false;
+    }
+  }
+  if (els.advancedNote) els.advancedNote.textContent = "";
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  return true;
+}
+
 function advancedPromptPasteImageRule() {
   if (state.advancedCreateKind !== "custom") return { allowed: false, limit: 0, target: "references" };
   const provider = currentAdvancedProvider();
@@ -1282,12 +1559,73 @@ async function addAdvancedVegaPromptPasteImages(files = [], rule = {}, provider 
   return true;
 }
 
-async function handleAdvancedPromptPaste(event) {
+function handleAdvancedPromptPaste(event) {
+  // The rich editor can receive the same paste through its document capture
+  // listener and ProseMirror's handlePaste. De-duplicate only that same event:
+  // a boolean guard would drop a second paste made while the first upload is
+  // still in flight. Return true synchronously when the platform owns this
+  // paste so ProseMirror cannot insert a duplicate while uploads are pending.
+  if (!event || typeof event !== "object" || advancedPromptPasteEvents.has(event)) {
+    return Boolean(event?.defaultPrevented);
+  }
+  advancedPromptPasteEvents.add(event);
+  const ownsMediaPaste = advancedPromptPasteEventOwnsMedia(event);
+  if (ownsMediaPaste) event.preventDefault();
+  Promise.resolve()
+    .then(() => handleAdvancedPromptPasteEvent(event, { ownsMediaPaste }))
+    .catch((error) => {
+      const note = els.advancedNote;
+      if (note) note.textContent = error?.message || String(error);
+    });
+  setTimeout(() => advancedPromptPasteEvents.delete(event), 0);
+  return ownsMediaPaste;
+}
+
+function advancedPromptPasteEventOwnsMedia(event) {
+  if (pastedMediaFilesFromEvent(event).length) return true;
+  if (pastedMediaUrlCandidatesFromEvent(event).length) return true;
+  return clipboardEventLooksLikeMedia(event);
+}
+
+async function handleAdvancedPromptPasteEvent(event, { ownsMediaPaste = false } = {}) {
   const provider = currentAdvancedProvider();
-  const mediaFiles = pastedMediaFilesFromEvent(event);
+  let mediaFiles = pastedMediaFilesFromEvent(event);
+  const rule = advancedPromptPasteImageRule();
+  let pastedUrls = isVegaAdvancedProvider(provider) && !mediaFiles.length ? pastedMediaUrlCandidatesFromEvent(event) : [];
+  const suspiciousClipboardMedia = !mediaFiles.length && !pastedUrls.length && clipboardEventLooksLikeMedia(event);
+  // Safari sometimes hides the actual image/video behind the async Clipboard
+  // API even though the synchronous paste event exposes only an empty
+  // Files/HTML type. The synchronous decision above already prevented the
+  // editor from inserting the placeholder, then resolve the real files here.
+  if (suspiciousClipboardMedia) {
+    if (!ownsMediaPaste) event.preventDefault();
+    try {
+      mediaFiles = await pastedMediaFilesFromNavigatorClipboard();
+    } catch (_error) {
+      mediaFiles = [];
+    }
+    if (mediaFiles.length) pastedUrls = [];
+  }
   const imageFiles = mediaFiles.filter((file) => String(file.type || uploadedFileMime(file) || "").toLowerCase().startsWith("image/"));
   const videoFiles = mediaFiles.filter((file) => String(file.type || uploadedFileMime(file) || "").toLowerCase().startsWith("video/"));
-  const rule = advancedPromptPasteImageRule();
+  const pastedImageUrls = pastedUrls.filter((candidate) => candidate.kind === "image");
+  const pastedVideoUrls = pastedUrls.filter((candidate) => candidate.kind === "video");
+  const hasPastedMedia = Boolean(mediaFiles.length || pastedImageUrls.length || pastedVideoUrls.length);
+
+  // Clipboard media must be consumed before the rich editor inserts it or
+  // turns its URL into plain text. This runs synchronously before the first await.
+  if (hasPastedMedia) event.preventDefault();
+
+  if (isVegaAdvancedProvider(provider) && pastedVideoUrls.length) {
+    await addAdvancedVegaPromptPasteUrlVideos(pastedVideoUrls, provider);
+  }
+
+  if (isVegaAdvancedProvider(provider) && pastedImageUrls.length) {
+    const addedCount = await addAdvancedVegaPromptPasteUrlImages(pastedImageUrls, rule, provider);
+    if (els.advancedNote && addedCount < pastedImageUrls.length && addedCount >= rule.limit) {
+      els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: rule.limit });
+    }
+  }
 
   if (isVegaAdvancedProvider(provider) && videoFiles.length) {
     const supportsVideoReferences = vegaModeUsesReferences(advancedVegaMediaMode()) && advancedVideoReferenceLimit(provider) > 0;
@@ -1556,3 +1894,5 @@ function vegaPublicHttpUrl(value = "") {
   return raw;
 }
 
+
+window.handleAdvancedPromptPaste = handleAdvancedPromptPaste;

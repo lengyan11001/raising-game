@@ -97,12 +97,28 @@
     emitChange();
   }
 
+  // Safari can dispatch paste from a descendant of the Tiptap host after
+  // ProseMirror has already started handling it. Capture at document level so
+  // the platform uploader sees the original clipboard payload first. Keep the
+  // scope to the rich mount; the legacy textarea has its own handler in
+  // platform.main.js and must not upload the same paste twice.
+  function handleDocumentPaste(event) {
+    if (!event?.target?.closest?.("#advancedPromptEditorMount")) return;
+    handleEditorPaste(event);
+  }
+
   function handleEditorPaste(event) {
     if (typeof window.handleAdvancedPromptPaste === "function") {
-      Promise.resolve(window.handleAdvancedPromptPaste(event)).catch((error) => {
+      try {
+        const pending = window.handleAdvancedPromptPaste(event);
+        Promise.resolve(pending).catch((error) => {
+          const note = document.querySelector("#advancedNote");
+          if (note) note.textContent = error?.message || String(error);
+        });
+      } catch (error) {
         const note = document.querySelector("#advancedNote");
         if (note) note.textContent = error?.message || String(error);
-      });
+      }
     }
   }
 
@@ -159,7 +175,8 @@
       },
     });
     syncTextarea(editor.getValue());
-    editor.getElement?.().addEventListener("input", handleNativeInput);
+    const editorElement = editor.getElement?.();
+    editorElement?.addEventListener("input", handleNativeInput);
     document.dispatchEvent(new CustomEvent("platform-prompt-editor-ready"));
     return true;
   }
@@ -279,6 +296,8 @@
   window.coordsAtAdvancedPromptSelection = coordsAtAdvancedPromptSelection;
   window.setVipeakPromptEditorMode = setVipeakPromptEditorMode;
   window.initializeAdvancedPromptEditor = initialize;
+
+  document.addEventListener("paste", handleDocumentPaste, true);
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => initialize(), { once: true });

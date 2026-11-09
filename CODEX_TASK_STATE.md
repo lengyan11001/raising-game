@@ -1,3 +1,15 @@
+## 2026-11-09 Safari prompt image/video paste follow-up (pending deployment)
+- Follow-up to the user report that text paste works but image/video paste still fails in Safari.
+- `platform.prompt-editor.js` now captures `paste` at document level in the capture phase, scoped to `#advancedPromptEditorMount`, before ProseMirror handles the same event.
+- `handleAdvancedPromptPaste()` is intentionally synchronous for ownership detection. When the clipboard looks like media it synchronously calls `preventDefault()` and returns `true`, so ProseMirror/Safari cannot consume the event while async uploads are still starting.
+- Same-event de-duplication uses `advancedPromptPasteEvents = new WeakSet()` rather than a boolean lock; consecutive paste events are not dropped while an earlier upload is pending.
+- Paste extraction supports `clipboardData.items`, `clipboardData.files`, HTML `<img>/<video>/<audio>/<source>` plus `poster`/`srcset`, CSS `url(...)`, `text/uri-list`, and HTTP(S)/data/blob URLs in plain text. Safari's hidden media path falls back to `navigator.clipboard.read()` and `item.getType()`.
+- Model-aware routing is unchanged: Vega Pro models use `/api/user-assets` and `asset://...`; Vega Lite models use `/api/advanced/transient-media` and public HTTP(S) URLs, without creating user-asset rows.
+- `/api/advanced/transient-media` now also accepts a remote `url`, downloads into a bounded Buffer, validates MIME/kind/size, and uploads to object storage without creating a media-library record.
+- Legacy textarea paste remains routed through the same synchronous handler, with `Promise.resolve(...)` only for async error reporting.
+- Verification: `test/prompt-editor.test.js` + `test/tencent-vod-vega.test.js` passed 81/81; the two focused Safari clipboard tests passed 2/2; `node --check` passed for all changed JS files including `platform.main.js`; `git diff --check` passed.
+- Deployment status: not yet deployed at the time this note was written; only Old may be released. Live must remain untouched.
+
 ## 2026-11-09 Prompt image/video paste fix (current deployment)
 - Deployed to Old only: source `old-site` `47574a4`; release snapshot `platform-release` / `origin/platform-release` = `c827a8a`. Live is untouched at `origin/live-release` = `bf1e01a`; do not push or deploy Live without a separate request.
 - Post-deploy health: `/api/health` returned `200 {"ok":true}`, `raising-game-demo` is active, and no warning/error journal entries appeared after deployment. Live HTTP hashes match local for `platform.create.parts/part-03.js` and `vendor/vipeak-prompt-editor.js`.

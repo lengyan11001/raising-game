@@ -1174,7 +1174,7 @@ test("Vega submit payload includes every required field", () => {
 });
 
 test("Vega prompt-pasted images upload and resolve before entering generation state", () => {
-  const paste = sourceBetween(create, "async function addAdvancedVegaPromptPasteImages(", "async function handleAdvancedPromptPaste(");
+  const paste = sourceBetween(create, "async function addAdvancedVegaPromptPasteImages(", "function handleAdvancedPromptPaste(");
   assert.match(paste, /const usesMediaLibrary = vegaProviderUsesMediaLibrary\(provider\)/);
   assert.match(paste, /const ref = usesMediaLibrary\s*\? await uploadAdvancedImageReference\(file, \{ provider \}\)\s*: await uploadAdvancedTransientMediaReference\(file, "image", \{ provider \}\)/);
   assert.match(paste, /const selection = usesMediaLibrary\s*\? await resolveAdvancedVegaAsset\(asset, target\.id\)\s*: advancedVegaSelection\(asset, target\.id\)/);
@@ -1187,8 +1187,54 @@ test("Vega prompt-pasted images upload and resolve before entering generation st
   assert.match(paste, /id: "referenceImages"/);
 });
 
+test("Vega prompt paste imports clipboard HTML and URL media through the model-aware bridge", () => {
+  const extractor = sourceBetween(create, "function pastedMediaUrlCandidatesFromEvent(", "function mediaUrlCandidateName(");
+  assert.match(extractor, /read\("text\/uri-list"\)/);
+  assert.match(extractor, /read\("text\/html"\)/);
+  assert.match(extractor, /read\("text\/plain"\)/);
+  assert.match(extractor, /poster/);
+  assert.match(extractor, /srcset/);
+  assert.match(extractor, /\.match\(\/url\\\(/);
+  assert.match(extractor, /data:\|blob:/);
+
+  const clipboardFallback = sourceBetween(create, "async function pastedMediaFilesFromNavigatorClipboard(", "function mediaUrlKind(");
+  assert.match(clipboardFallback, /navigator\?\.clipboard/);
+  assert.match(clipboardFallback, /clipboard\.read\(\)/);
+  assert.match(clipboardFallback, /item\.getType\(type\)/);
+  assert.match(clipboardFallback, /new File\(\[blob\]/);
+
+  const uploader = sourceBetween(create, "async function uploadAdvancedMediaReferenceUrl(", "async function addAdvancedVegaPromptPasteUrlImages(");
+  assert.match(uploader, /vegaProviderUsesMediaLibrary\(provider\)/);
+  assert.match(uploader, /"\/api\/user-assets" : "\/api\/advanced\/transient-media"/);
+  assert.match(uploader, /inlineDataUrl \? \{ dataUrl: sourceUrl \} : \{ url: sourceUrl \}/);
+  assert.match(uploader, /\^blob:/);
+
+  const handler = sourceBetween(create, "function handleAdvancedPromptPaste(", "function readVideoDuration(");
+  assert.match(create, /const advancedPromptPasteEvents = new WeakSet\(\)/);
+  assert.match(handler, /advancedPromptPasteEvents\.has\(event\)/);
+  assert.match(handler, /advancedPromptPasteEventOwnsMedia\(event\)/);
+  assert.match(handler, /if \(ownsMediaPaste\) event\.preventDefault\(\)/);
+  assert.match(handler, /return ownsMediaPaste/);
+  assert.match(handler, /clipboardEventLooksLikeMedia\(event\)/);
+  assert.match(handler, /pastedMediaFilesFromNavigatorClipboard\(\)/);
+  assert.match(handler, /const hasPastedMedia = Boolean\(mediaFiles\.length \|\| pastedImageUrls\.length \|\| pastedVideoUrls\.length\)/);
+  assert.match(handler, /if \(hasPastedMedia\) event\.preventDefault\(\)/);
+  assert.match(handler, /addAdvancedVegaPromptPasteUrlVideos\(pastedVideoUrls, provider\)/);
+  assert.match(handler, /addAdvancedVegaPromptPasteUrlImages\(pastedImageUrls, rule, provider\)/);
+  assert.match(create, /window\.handleAdvancedPromptPaste = handleAdvancedPromptPaste/);
+});
+
+test("Vega Lite transient media imports a public URL without creating a media-library asset", () => {
+  const transient = sourceBetween(server, "async function handleUploadAdvancedTransientMedia(", "async function handleUploadVideoToolAsset(");
+  assert.match(transient, /const sourceUrl = String\(body\.url \|\| ""\)\.trim\(\)/);
+  assert.match(transient, /downloadRemoteFileToBuffer\(downloadUrl/);
+  assert.match(transient, /uploadStaticAssetToObjectStorage\(\{ key, bytes, mime \}\)/);
+  assert.doesNotMatch(transient, /createUserMediaAssetFromPublicUrl|createUserMediaAssetFromBytes|userAssets/);
+  assert.match(transient, /transient: true/);
+});
+
 test("Vega prompt paste routes video through the model-aware upload bridge", () => {
-  const handler = sourceBetween(create, "async function handleAdvancedPromptPaste(", "function readVideoDuration(");
+  const handler = sourceBetween(create, "function handleAdvancedPromptPaste(", "function readVideoDuration(");
   const videoBranch = handler.slice(handler.indexOf("if (isVegaAdvancedProvider(provider) && videoFiles.length)"), handler.indexOf("const files = imageFiles;"));
   assert.match(videoBranch, /const usesMediaLibrary = vegaProviderUsesMediaLibrary\(provider\)/);
   assert.match(videoBranch, /usesMediaLibrary\s*\? await uploadAdvancedMediaReference\(file, "video", \{ provider, skipReference: true \}\)\s*: await uploadAdvancedTransientMediaReference\(file, "video", \{ provider \}\)/);
@@ -1201,7 +1247,7 @@ test("Vega prompt paste routes video through the model-aware upload bridge", () 
 });
 
 test("Vega prompt paste branches before legacy data-URL paste handling", () => {
-  const handler = sourceBetween(create, "async function handleAdvancedPromptPaste(", "function readVideoDuration(");
+  const handler = sourceBetween(create, "function handleAdvancedPromptPaste(", "function readVideoDuration(");
   const vegaBranch = handler.slice(handler.indexOf("if (isVegaAdvancedProvider(provider))"), handler.indexOf("} else {"));
   assert.match(handler, /if \(isVegaAdvancedProvider\(provider\)\) \{\s*const added = await addAdvancedVegaPromptPasteImages\(selectedFiles, rule, provider\)/);
   assert.match(handler, /\} else \{[\s\S]*?const addedImages = \[\][\s\S]*?dataUrl: await readFileAsDataUrl\(file\)/);
@@ -1217,7 +1263,7 @@ test("Vega Pro and Lite choose the correct upload source at every generation-pag
   assert.match(upload, /const selection = usesMediaLibrary\s*\? await resolveAdvancedVegaAsset\(asset, targetId\)\s*: advancedVegaSelection\(asset, targetId\)/);
   assert.doesNotMatch(upload, /uploadUserAssets|uploadAdvancedAssets/);
 
-  const paste = sourceBetween(create, "async function addAdvancedVegaPromptPasteImages(", "async function handleAdvancedPromptPaste(");
+  const paste = sourceBetween(create, "async function addAdvancedVegaPromptPasteImages(", "function handleAdvancedPromptPaste(");
   assert.match(paste, /usesMediaLibrary\s*\? await uploadAdvancedImageReference\(file, \{ provider \}\)\s*: await uploadAdvancedTransientMediaReference\(file, "image", \{ provider \}\)/);
   assert.match(paste, /usesMediaLibrary\s*\? await resolveAdvancedVegaAsset\(asset, target\.id\)\s*: advancedVegaSelection\(asset, target\.id\)/);
 
@@ -1235,7 +1281,7 @@ test("Non-Vega generation-page uploads retain their original handlers", () => {
   assert.match(mainUpload, /await uploadAdvancedMediaReference\(file, "video"\)/);
   assert.match(mainUpload, /await uploadAdvancedMediaReference\(file, "audio"\)/);
 
-  const paste = sourceBetween(create, "async function handleAdvancedPromptPaste(", "function readVideoDuration(");
+  const paste = sourceBetween(create, "function handleAdvancedPromptPaste(", "function readVideoDuration(");
   assert.match(paste, /if \(isVegaAdvancedProvider\(provider\)\) \{[\s\S]*addAdvancedVegaPromptPasteImages\(selectedFiles, rule, provider\)[\s\S]*\} else \{[\s\S]*dataUrl: await readFileAsDataUrl\(file\)/);
 
   const add = sourceBetween(create, "async function addAssetToAdvancedTarget(", "if (!assetMatchesTarget(asset, target))");

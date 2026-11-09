@@ -25,6 +25,8 @@ function extractFunction(source, name) {
     let escaped = false;
     let lineComment = false;
     let blockComment = false;
+    let regex = false;
+    let regexCharacterClass = false;
     for (let index = from; index < source.length; index += 1) {
       const char = source[index];
       const next = source[index + 1];
@@ -36,6 +38,22 @@ function extractFunction(source, name) {
         if (char === "*" && next === "/") {
           blockComment = false;
           index += 1;
+        }
+        continue;
+      }
+      if (regexCharacterClass) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === "]") regexCharacterClass = false;
+        continue;
+      }
+      if (regex) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === "[") regexCharacterClass = true;
+        else if (char === "/") {
+          regex = false;
+          while (/[a-z]/i.test(source[index + 1] || "")) index += 1;
         }
         continue;
       }
@@ -53,6 +71,11 @@ function extractFunction(source, name) {
       if (char === "/" && next === "*") {
         blockComment = true;
         index += 1;
+        continue;
+      }
+      const previous = source.slice(Math.max(0, index - 24), index).trimEnd();
+      if (char === "/" && /(?:^|[=(:,!&|?{};\[])$/.test(previous)) {
+        regex = true;
         continue;
       }
       if (char === "\"" || char === "'" || char === "`") {
@@ -417,6 +440,69 @@ return pastedMediaFilesFromEvent;`,
     },
   });
   assert.deepEqual(files, [image, video]);
+});
+
+test("prompt paste extracts Safari HTML media and async clipboard files", async () => {
+  const createPart03 = fs.readFileSync(path.join(root, "platform.create.parts/part-03.js"), "utf8");
+  const htmlExtractor = new Function(
+    "URL",
+    "window",
+    `${extractFunction(createPart03, "mediaUrlKind")}
+${extractFunction(createPart03, "mediaUrlKindFromHtmlTag")}
+${extractFunction(createPart03, "decodePastedHtmlUrl")}
+${extractFunction(createPart03, "pastedHtmlAttribute")}
+${extractFunction(createPart03, "pastedHtmlMediaKind")}
+${extractFunction(createPart03, "absoluteHttpUrl")}
+${extractFunction(createPart03, "pastedMediaUrlCandidatesFromEvent")}
+return pastedMediaUrlCandidatesFromEvent;`,
+  )(URL, { location: { origin: "https://example.test" } });
+  const candidates = htmlExtractor({
+    clipboardData: {
+      getData(type) {
+        if (type === "text/html") {
+          return '<img srcset="https://cdn.example.test/a.webp 2x"><video poster="https://cdn.example.test/p.jpg"><source src="https://cdn.example.test/v.mp4" type="video/mp4"></video>';
+        }
+        return "";
+      },
+    },
+  });
+  assert.deepEqual(candidates, [
+    { url: "https://cdn.example.test/a.webp", kind: "image" },
+    { url: "https://cdn.example.test/p.jpg", kind: "image" },
+    { url: "https://cdn.example.test/v.mp4", kind: "video" },
+  ]);
+
+  class TestFile {
+    constructor(parts, name, options = {}) {
+      this.name = name;
+      this.type = options.type || "";
+      this.size = parts.reduce((sum, part) => sum + Number(part.size || part.byteLength || 0), 0);
+    }
+  }
+  const navigatorGlobal = {
+    navigator: {
+      clipboard: {
+        async read() {
+          return [{
+            types: ["image/png", "text/plain"],
+            async getType(type) {
+              return type === "image/png" ? { size: 12 } : { size: 4 };
+            },
+          }];
+        },
+      },
+    },
+  };
+  const readClipboardMedia = new Function(
+    "globalThis",
+    "File",
+    `${extractFunction(createPart03, "pastedMediaFilesFromNavigatorClipboard")}
+return pastedMediaFilesFromNavigatorClipboard;`,
+  )(navigatorGlobal, TestFile);
+  const files = await readClipboardMedia();
+  assert.equal(files.length, 1);
+  assert.equal(files[0].type, "image/png");
+  assert.match(files[0].name, /\.png$/);
 });
 
 test("prompt image paste and @ mentions follow the shared upload control for every model", () => {

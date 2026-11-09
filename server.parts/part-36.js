@@ -204,13 +204,47 @@ async function handleUploadAdvancedTransientMedia(req, res) {
       message: "Transient media uploads are only available for Vega Lite models.",
     });
   }
-  const { mime, bytes } = decodeWanMediaDataUrl(body.dataUrl || "");
   const declaredKind = String(body.kind || "").toLowerCase();
+  if (declaredKind && !["image", "video", "audio"].includes(declaredKind)) {
+    return sendJson(res, 400, { ok: false, message: "Transient media kind must be image, video, or audio." });
+  }
+  const limits = userMediaUploadLimits(provider);
+  let mime = "";
+  let bytes = null;
+  const sourceUrl = String(body.url || "").trim();
+  if (sourceUrl) {
+    const downloadUrl = publicHttpUrlForUpstream(sourceUrl);
+    if (!downloadUrl || !isPublicHttpUrl(downloadUrl)) {
+      return sendJson(res, 400, {
+        ok: false,
+        code: "INVALID_REMOTE_MEDIA_URL",
+        message: "Transient media URL must be a public HTTP(S) URL.",
+      });
+    }
+    const downloaded = await downloadRemoteFileToBuffer(downloadUrl, {
+      label: "pasted transient media",
+      maxBytes: Math.max(limits.image, limits.video, limits.audio),
+      timeoutMs: 120000,
+      retryCount: 2,
+      retryDelayMs: 750,
+    });
+    bytes = downloaded.bytes;
+    const responseMime = String(downloaded.mime || "").replace("image/jpg", "image/jpeg");
+    const pathname = new URL(downloadUrl).pathname;
+    mime = responseMime.startsWith("image/")
+      ? responseMime
+      : responseMime.startsWith("video/")
+        ? responseMime.replace("video/x-m4v", "video/x-m4v")
+        : responseMime.startsWith("audio/")
+          ? responseMime.replace("audio/mp3", "audio/mpeg")
+          : imageMimeFromKnownPath(pathname) || videoMimeFromKnownPath(pathname) || audioMimeFromKnownPath(pathname);
+  } else {
+    ({ mime, bytes } = decodeWanMediaDataUrl(body.dataUrl || ""));
+  }
   const kind = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "";
   if (!kind || (declaredKind && declaredKind !== kind)) {
     return sendJson(res, 400, { ok: false, message: "Transient media kind does not match the uploaded file." });
   }
-  const limits = userMediaUploadLimits(provider);
   const maxBytes = limits[kind];
   if (bytes.byteLength > maxBytes) {
     return sendJson(res, 413, {
