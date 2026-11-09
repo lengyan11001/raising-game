@@ -1,3 +1,41 @@
+## 2026-11-09 Result thumbnail polling flash fixed and deployed
+
+## 2026-11-09 Email binding UI, translations, and compact buttons
+
+- Moved email binding out of the account dialog into a standalone `emailBindingDialog`; avatar menu and security notice now open that dialog directly, while the account dialog contains only account summary/token/logout.
+- Added translations for email binding/login flows, Support, Chat, same-style navigation, and related prompts across `en`, `vi`, `ja`, `ko`, `id`, and `zh`.
+- Tightened the security notice and email binding actions: removed conflicting grid/flex declarations, reduced desktop actions to 34px, mobile actions to 32px, and made “Not now” a smaller subdued action.
+- Updated cache version to `email-binding-i18n-20261109-2` and focused regression assertions to the new behavior.
+- Verification: syntax checks and `git diff --check` pass; `test/email-auth.test.js`, `test/mobile-tool-ux.test.js`, `test/auth-risk.test.js`, and `test/advanced-result-refresh.test.js` pass 51/51.
+- Deployment status: pending Old-only release.
+
+- User reported Result thumbnails appearing, disappearing, reloading, and the panel jumping every few seconds.
+- Root cause: the 10-second generation-completion poll called `renderAdvancedResultPanel()`, which always replaced the entire result grid `innerHTML`; every poll destroyed and recreated thumbnail/video nodes.
+- Fix: render the result grid HTML first, cache a render key (media kind, page, totals, language, HTML), and skip DOM replacement when the visible payload has not changed. Empty state clears the cache.
+- Added regression test `unchanged result payloads do not tear down and reload thumbnails`.
+- Verification: `node --check platform.create.js`; `test/advanced-result-refresh.test.js` 10/10 pass; staged diff check passed.
+- Integration commit `old-site` / `e1a0697`; platform release `e47780c` built from it with parent `bb6c666` and pushed. Deployed only to `123vips.com` with `scripts/deploy_local.sh --site old`.
+- Production verification: `/api/health` `200 {"ok":true}`, home/platform JS `200`, production `platform.create.parts/part-01.js` SHA-256 matches release (`214d20df...`), fix markers present, and no new runtime exceptions in the post-restart log scan. `live-release` remains `bf1e01a`; Live was not deployed.
+
+## 2026-11-09 logout confirmation and expired-session cleanup deployed
+
+- Added a second-confirmation dialog to all three logout entry points: desktop account menu, mobile drawer, and account dialog. Cancelling keeps the session, current page, and visible lists unchanged.
+- Expired or replaced sessions now clear the client token, account state, history, and advanced-result state before showing the login prompt; stale generation records are no longer left visible.
+- Added `state.logoutPending`, multilingual confirmation copy, and regression coverage. The buffered fetch response cannot trigger a second logout dialog.
+- Focused verification: `test/mobile-tool-ux.test.js`, `test/auth-risk.test.js`, `test/advanced-result-refresh.test.js`: 45/45 passed with the repository test bootstrap. `node --check` and `git diff --check` passed.
+- Integration commit `old-site` / `aee5f3f`; platform release `bb6c666` built from it with parent `f700be8` and pushed. Deployed only to `123vips.com` with `scripts/deploy_local.sh --site old`; `/api/health` returned `200 {"ok":true}`.
+- Production hashes match local for `platform.config.js`, `platform.copy.js`, `platform.create.parts/part-06.js`, `platform.ui.parts/part-01.js`, and `platform.ui.parts/part-04.js`; server-rendered asset version is `62fa241dca46`. `live-release` remains `bf1e01a`, and Live was not deployed.
+
+## 2026-11-09 security notice modal polish deployed
+
+- Polished the account security notice: desktop primary actions use two equal-width 46px buttons, “Not now” is centered on its own row; mobile actions stack into full-width single-column buttons with no horizontal overflow.
+- Fixed Telegram support webhook `crypto is not defined` by importing `node:crypto` in `lib-http.js`; production webhook smoke test returns HTTP 200 `{"ok":true}`.
+- Old-site release deployed only to `123vips.com`; `/api/health` returns `200 {"ok":true}`. Local and production `platform.css` SHA-256 match: `99680b5951a42dcfa39d6ee877014a9c38421074682a326139a3d068f1e74afd`. Live was not deployed.
+- Password registration returns `403 PASSWORD_REGISTRATION_DISABLED`; existing password login remains available. Existing sessions were preserved: 891 sessions / 658 session users / 881 active users.
+- Post-restart log scan found no `crypto is not defined`, `tenantid is not defined`, uncaught exceptions, API errors, or HTTP 4xx/5xx responses.
+- Focused suite: 58/60. The two failures are unrelated/stale: an exact logout regex blocked by dirty logout-confirmation work, and an old admin-reset count expecting 5 canonical login-session calls instead of 4.
+- Visual checks: `/tmp/vipeak-dialog-check/desktop.png`, `/tmp/vipeak-dialog-check/mobile-real.png`.
+
 ## 2026-11-09 account identity close-out and Old-only deployment
 
 - Goal: finish the Old-site security release without displacing existing logged-in users; Live must remain untouched.

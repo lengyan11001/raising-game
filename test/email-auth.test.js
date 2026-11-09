@@ -17,6 +17,7 @@ const create = [
   "part-06.js",
 ].map((file) => fs.readFileSync(path.join(__dirname, "..", "platform.create.parts", file), "utf8")).join("\n");
 const config = fs.readFileSync(path.join(__dirname, "..", "platform.config.js"), "utf8");
+const copy = fs.readFileSync(path.join(__dirname, "..", "platform.copy.js"), "utf8");
 const main = fs.readFileSync(path.join(__dirname, "..", "platform.main.js"), "utf8");
 const ui = [
   "part-01.js",
@@ -58,7 +59,7 @@ test("email verification is the default login method with password as an explici
 test("email login code requests show a 60-second resend countdown", () => {
   assert.match(create, /EMAIL_LOGIN_CODE_COOLDOWN_SECONDS = 60/);
   assert.match(create, /function startEmailLoginCodeCooldown/);
-  assert.match(create, /button\.textContent = `Resend in \$\{remainingSeconds\}s`/);
+  assert.match(create, /button\.textContent = t\("auth\.resendIn", \{ seconds: remainingSeconds \}/);
   assert.match(create, /startEmailLoginCodeCooldown\(\)/);
   assert.match(create, /if \(!requestSucceeded && els\.requestEmailLoginCodeBtn\) els\.requestEmailLoginCodeBtn\.disabled = false/);
 });
@@ -79,12 +80,61 @@ test("email verification challenges are persisted in PostgreSQL with expiry and 
   assert.match(database, /const crypto = require\("node:crypto"\)/);
 });
 
-test("avatar account menu shows bound email and allows password accounts to bind one", () => {
-  assert.match(html, /id="menuEmailBindBtn"[^>]*hidden[^>]*>绑定邮箱<\/button>/);
+test("avatar account menu opens email binding as a separate dialog", () => {
+  const accountDialog = html.match(/<dialog id="accountDialog"[\s\S]*?<\/dialog>/)?.[0] || "";
+  const bindingDialog = html.match(/<dialog id="emailBindingDialog"[\s\S]*?<\/dialog>/)?.[0] || "";
+  assert.ok(accountDialog);
+  assert.ok(bindingDialog);
+  assert.doesNotMatch(accountDialog, /id="accountEmail"/);
+  assert.match(bindingDialog, /id="accountEmail"/);
+  assert.match(bindingDialog, /data-i18n="account.emailBindingTitle"/);
+  assert.match(bindingDialog, /data-i18n-placeholder="common.emailAddress"/);
+  assert.match(html, /id="menuEmailBindBtn"[^>]*data-i18n="account.bindEmail"[^>]*hidden/);
   assert.match(config, /menuEmailBindBtn: document\.querySelector\("#menuEmailBindBtn"\)/);
+  assert.match(config, /emailBindingDialog: document\.querySelector\("#emailBindingDialog"\)/);
   assert.match(ui, /String\(state\.user\.email \|\| state\.user\.username \|\| ""\)\.trim\(\)/);
   assert.match(ui, /els\.menuEmailBindBtn\.hidden = !loggedIn \|\| !state\.config\?\.auth\?\.email\?\.enabled \|\| Boolean\(String\(state\.user\?\.email \|\| ""\)\.trim\(\)\)/);
-  assert.match(main, /openAccount\(\{ focusEmail: true \}\)/);
-  assert.match(create, /function openAccount\(\{ focusEmail = false \} = \{\}\)/);
-  assert.match(create, /if \(payload\.user\) \{\s*setUser\(payload\.user\);\s*openAccount\(\);\s*\}/);
+  assert.match(main, /openEmailBinding\(\{ focusEmail: true \}\)/);
+  assert.match(create, /function openEmailBinding\(\{ focusEmail = false \} = \{\}\)/);
+  assert.match(create, /els\.emailBindingDialog\?\.showModal\(\)/);
+  assert.match(create, /if \(payload\.user\) \{\s*setUser\(payload\.user\);\s*openEmailBinding\(\);\s*\}/);
+});
+
+test("email binding and same-style labels are translated in every supported language", () => {
+  assert.match(html, /<span data-i18n="nav\.sameStyle">Same style<\/span>/);
+  for (const locale of ["en", "vi", "ja", "ko", "id", "zh"]) {
+    const block = copy.match(new RegExp(`\\n  ${locale}: \\{([\\s\\S]*?)\\n  \\},`))?.[1] || "";
+    if (locale === "zh") {
+      assert.match(copy, /"nav\.sameStyle": "同款"/);
+    } else if (locale === "en") {
+      assert.match(copy, /"nav\.sameStyle": "Same style"/);
+    } else {
+      assert.ok(block, `${locale} locale must exist`);
+      assert.doesNotMatch(block, /"nav\.sameStyle": "Same style"/);
+    }
+  }
+  for (const key of [
+    "account.bindEmail",
+    "account.emailBindingKicker",
+    "account.emailBindingTitle",
+    "account.emailBindingDesc",
+    "account.emailBindingEnabled",
+    "account.emailBoundNote",
+    "account.verificationCodeSent",
+    "common.emailAddress",
+    "common.sendCode",
+    "common.verificationCode",
+    "common.verificationCode6",
+    "nav.chat",
+    "common.support",
+    "auth.loginMethod",
+    "auth.emailCodeTab",
+    "auth.passwordTab",
+    "auth.forgotPassword",
+    "auth.emailCodeSent",
+    "auth.resendIn",
+  ]) {
+    const escaped = key.replace(/\./g, "\\.");
+    assert.ok((copy.match(new RegExp(`"${escaped}"`, "g")) || []).length >= 6, `${key} must exist for all locales`);
+  }
 });

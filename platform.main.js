@@ -1443,7 +1443,7 @@ els.menuLoginBtn?.addEventListener("click", () => {
 });
 els.menuEmailBindBtn?.addEventListener("click", () => {
   closeAccountMenu();
-  openAccount({ focusEmail: true });
+  openEmailBinding({ focusEmail: true });
 });
 els.securityNoticeBindBtn?.addEventListener("click", openAccountEmailBindingFromNotice);
 els.securityNoticeSupportBtn?.addEventListener("click", openSupportFromSecurityNotice);

@@ -8,7 +8,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=logout-confirm-20261109-1" />
+    <link rel="stylesheet" href="./platform.css?v=email-binding-i18n-20261109-2" />
     <link rel="stylesheet" href="./platform.prompt-editor.css?v=prompt-editor-20261107-1" />
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
     <script>
@@ -99,11 +99,11 @@
         </button>
         <button class="top-tab" data-tab="chat" type="button">
           <i data-lucide="message-circle-heart"></i>
-          <span>Chat</span>
+          <span data-i18n="nav.chat">Chat</span>
         </button>
         <button class="top-tab" data-tab="cases" data-same-style-entry type="button">
           <i data-lucide="shapes"></i>
-          <span><span class="i18n-en">Same style</span><span class="i18n-zh">同款</span></span>
+          <span data-i18n="nav.sameStyle">Same style</span>
         </button>
         <button class="top-tab" data-tab="advanced" type="button">
           <i data-lucide="wand-sparkles"></i>
@@ -141,7 +141,7 @@
         </a>
         <button class="side-utility-link is-support" id="supportNavBtn" type="button" aria-label="Support" data-analytics-event="support_open" data-analytics-location="side_nav">
           <i data-lucide="messages-square"></i>
-          <span>Support</span>
+          <span data-i18n="common.support">Support</span>
         </button>
       </nav>
       <div class="mobile-drawer-account">
@@ -216,7 +216,7 @@
             <strong id="menuBalanceValue">0</strong>
           </div>
           <button class="menu-item" data-tab="pricing" data-i18n="nav.pricing" type="button">Price list</button>
-          <button class="menu-item" id="menuEmailBindBtn" type="button" hidden>绑定邮箱</button>
+          <button class="menu-item" id="menuEmailBindBtn" data-i18n="account.bindEmail" type="button" hidden>Bind email</button>
           <button class="menu-item" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
           <button class="menu-item" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
           <button class="menu-item" id="menuLoginBtn" data-i18n="nav.login" type="button">Login / Sign up</button>
@@ -1095,7 +1095,7 @@
 
     <button class="support-fab" id="supportFab" type="button" aria-label="Support">
       <i data-lucide="messages-square"></i>
-      <span>Support</span>
+      <span data-i18n="common.support">Support</span>
     </button>
 
     <div class="video-tool-fabs" id="videoToolFabs" hidden>
@@ -1150,14 +1150,14 @@
             <span data-i18n="auth.telegramLogin">Continue with Telegram</span>
           </button>
           <div class="google-login-mount" id="googleLoginBtn" aria-live="polite" hidden></div>
-          <div class="auth-method-tabs" role="tablist" aria-label="Login method">
-            <button class="auth-method-tab is-active" id="emailLoginTab" type="button" role="tab" aria-selected="true">Email code</button>
-            <button class="auth-method-tab" id="passwordLoginTab" type="button" role="tab" aria-selected="false">Password</button>
+          <div class="auth-method-tabs" role="tablist" aria-label="Login method" data-i18n-aria="auth.loginMethod">
+            <button class="auth-method-tab is-active" id="emailLoginTab" type="button" role="tab" aria-selected="true" data-i18n="auth.emailCodeTab">Email code</button>
+            <button class="auth-method-tab" id="passwordLoginTab" type="button" role="tab" aria-selected="false" data-i18n="auth.passwordTab">Password</button>
           </div>
           <div class="auth-method-panel" id="emailLoginPanel" role="tabpanel">
             <div class="auth-divider"><span data-i18n="auth.orEmail">Use email verification code</span></div>
-            <div class="auth-email-row"><input id="loginEmail" type="email" autocomplete="email" placeholder="Email address" /><button class="ghost-button" id="requestEmailLoginCodeBtn" type="button">Send code</button></div>
-            <div class="auth-email-row"><input id="loginEmailCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit verification code" maxlength="6" /><button class="generate-btn" id="verifyEmailLoginBtn" type="button">Login</button></div>
+            <div class="auth-email-row"><input id="loginEmail" type="email" autocomplete="email" placeholder="Email address" data-i18n-placeholder="common.emailAddress" /><button class="ghost-button" id="requestEmailLoginCodeBtn" type="button" data-i18n="common.sendCode">Send code</button></div>
+            <div class="auth-email-row"><input id="loginEmailCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit verification code" maxlength="6" data-i18n-placeholder="common.verificationCode6" /><button class="generate-btn" id="verifyEmailLoginBtn" type="button" data-i18n="auth.login">Login</button></div>
             <p class="auth-register-hint">
               <i data-lucide="info"></i>
               <span data-i18n="auth.emailAutoRegisterHint">New email addresses are registered automatically on first login.</span>
@@ -1172,9 +1172,9 @@
               <span data-i18n="auth.autoRegisterHint">Password sign-in is for existing accounts only. New accounts must use email or Google.</span>
             </p>
             <div class="auth-actions">
-              <button class="generate-btn" id="loginSubmit" type="submit" value="continue">Login</button>
+              <button class="generate-btn" id="loginSubmit" type="submit" value="continue" data-i18n="auth.login">Login</button>
             </div>
-            <button class="ghost-button" id="forgotPasswordBtn" type="button">Forgot password?</button>
+            <button class="ghost-button" id="forgotPasswordBtn" type="button" data-i18n="auth.forgotPassword">Forgot password?</button>
           </div>
           <p class="job-note" id="telegramLoginStatus" hidden></p>
           <p class="job-note" id="googleLoginStatus" hidden></p>
@@ -1211,15 +1211,26 @@
               <button class="copy-btn" id="copyAccountTokenBtn" data-i18n="common.copyToken" type="button"><i data-lucide="copy"></i>Copy token</button>
             </div>
           </div>
-          <div class="account-security-box">
-            <strong>Account security</strong>
-            <p class="adm-muted" id="accountEmailStatus">Bind an email to sign in with a code or reset your password.</p>
-            <p class="adm-muted" id="accountEmailBoundNote" hidden>This email can be used for verification-code login and password reset.</p>
-            <div class="auth-email-row"><input id="accountEmail" type="email" autocomplete="email" placeholder="Login email" /><button class="ghost-button" id="requestAccountEmailCodeBtn" type="button">Send code</button></div>
-            <div class="auth-email-row"><input id="accountEmailCode" inputmode="numeric" maxlength="6" placeholder="Verification code" /><button class="ghost-button" id="verifyAccountEmailBtn" type="button">Bind email</button></div>
-            <p class="job-note" id="accountSecurityMessage"></p>
-          </div>
           <button class="ghost-button danger-link" id="logoutAccountBtn" data-i18n="account.logout" type="button"><i data-lucide="log-out"></i>Log out</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="emailBindingDialog" class="modal email-binding-dialog" aria-labelledby="emailBindingTitle">
+      <form method="dialog">
+        <header>
+          <div>
+            <span data-i18n="account.emailBindingKicker">Account security</span>
+            <strong id="emailBindingTitle" data-i18n="account.emailBindingTitle">Bind email</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body email-binding-body">
+          <p class="adm-muted" id="accountEmailStatus" data-i18n="account.emailBindingDesc">Bind an email to sign in with a code or reset your password.</p>
+          <p class="adm-muted" id="accountEmailBoundNote" data-i18n="account.emailBoundNote" hidden>This email can be used for verification-code login and password reset.</p>
+          <div class="auth-email-row"><input id="accountEmail" type="email" autocomplete="email" placeholder="Email address" data-i18n-placeholder="common.emailAddress" /><button class="ghost-button" id="requestAccountEmailCodeBtn" type="button" data-i18n="common.sendCode">Send code</button></div>
+          <div class="auth-email-row"><input id="accountEmailCode" inputmode="numeric" maxlength="6" placeholder="Verification code" data-i18n-placeholder="common.verificationCode" /><button class="generate-btn" id="verifyAccountEmailBtn" type="button" data-i18n="account.bindEmail">Bind email</button></div>
+          <p class="job-note" id="accountSecurityMessage"></p>
         </div>
       </form>
     </dialog>
@@ -1489,8 +1500,8 @@
     <dialog id="supportDialog" class="modal">
       <form method="dialog">
         <header>
-          <strong>Support</strong>
-          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+          <strong data-i18n="common.support">Support</strong>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
           <label class="field">
@@ -1599,6 +1610,6 @@
     <script>
       window.VIPEAK_PROMPT_EDITOR_MODE = "rich";
     </script>
-    <script src="./platform.js?v=logout-confirm-20261109-1"></script>
+    <script src="./platform.js?v=email-binding-i18n-20261109-2"></script>
   </body>
 </html>

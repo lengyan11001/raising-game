@@ -675,8 +675,17 @@ function openLogin() {
   });
 }
 
-function openAccount({ focusEmail = false } = {}) {
+function openAccount() {
   if (!state.user) return openLogin();
+  prepareModalOpen();
+  renderTokenDisplays();
+  els.accountDialog?.showModal();
+  refreshIcons();
+}
+
+function openEmailBinding({ focusEmail = false } = {}) {
+  if (!state.user) return openLogin();
+  if (!state.config?.auth?.email?.enabled) return openAccount();
   prepareModalOpen();
   renderTokenDisplays();
   const boundEmail = String(state.user?.email || "").trim();
@@ -684,18 +693,16 @@ function openAccount({ focusEmail = false } = {}) {
   if (els.accountEmail) els.accountEmail.value = boundEmail;
   if (els.accountEmailStatus) {
     els.accountEmailStatus.textContent = boundEmail
-      ? "Email login is enabled for this account."
-      : "Bind an email to sign in with a code or reset your password.";
+      ? t("account.emailBindingEnabled", {}, "Email login is enabled for this account.")
+      : t("account.emailBindingDesc", {}, "Bind an email to sign in with a code or reset your password.");
   }
   if (els.accountEmailBoundNote) els.accountEmailBoundNote.hidden = !boundEmail;
   if (els.accountEmailCode) els.accountEmailCode.value = "";
   if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "";
-  const securityBox = els.accountEmail?.closest(".account-security-box");
-  if (securityBox) securityBox.hidden = !Boolean(state.config?.auth?.email?.enabled);
   const bindingForm = els.requestAccountEmailCodeBtn?.closest(".auth-email-row");
   if (bindingForm) bindingForm.hidden = Boolean(boundEmail);
   if (els.accountEmailCode?.parentElement) els.accountEmailCode.parentElement.hidden = Boolean(boundEmail);
-  els.accountDialog?.showModal();
+  els.emailBindingDialog?.showModal();
   refreshIcons();
   if (focusEmail && !boundEmail) window.requestAnimationFrame(() => els.accountEmail?.focus());
 }
@@ -848,7 +855,7 @@ function scheduleAccountSecurityNotice({ force = false } = {}) {
 function openAccountEmailBindingFromNotice() {
   dismissAccountSecurityNotice();
   els.accountSecurityNoticeDialog?.close("bind-email");
-  openAccount({ focusEmail: true });
+  openEmailBinding({ focusEmail: true });
 }
 
 function openSupportFromSecurityNotice() {
@@ -901,14 +908,14 @@ function renderEmailLoginCodeCooldown() {
   const remainingSeconds = Math.max(0, Math.ceil((emailLoginCodeCooldownEndsAt - Date.now()) / 1000));
   if (remainingSeconds > 0) {
     button.disabled = true;
-    button.textContent = `Resend in ${remainingSeconds}s`;
+    button.textContent = t("auth.resendIn", { seconds: remainingSeconds }, `Resend in ${remainingSeconds}s`);
     return;
   }
   if (emailLoginCodeCooldownTimer) clearInterval(emailLoginCodeCooldownTimer);
   emailLoginCodeCooldownTimer = null;
   emailLoginCodeCooldownEndsAt = 0;
   button.disabled = false;
-  button.textContent = "Send code";
+  button.textContent = t("common.sendCode", {}, "Send code");
 }
 
 function startEmailLoginCodeCooldown(seconds = EMAIL_LOGIN_CODE_COOLDOWN_SECONDS) {
@@ -926,7 +933,7 @@ async function requestEmailLoginCode() {
     await requestJson("/api/auth/email/request", { method: "POST", body: { email } });
     requestSucceeded = true;
     startEmailLoginCodeCooldown();
-    if (els.loginMessage) els.loginMessage.textContent = "Verification code sent. Check your inbox and spam folder.";
+    if (els.loginMessage) els.loginMessage.textContent = t("auth.emailCodeSent", {}, "Verification code sent. Check your inbox and spam folder.");
     els.loginEmailCode?.focus();
   } catch (error) {
     if (els.loginMessage) els.loginMessage.textContent = error.message;
@@ -961,14 +968,18 @@ async function verifyEmailLogin() {
 }
 
 async function forgotPassword() {
-  const email = window.prompt("Enter your bound login email"); if (!email) return;
-  try { await requestJson("/api/auth/password/reset/request", { method: "POST", body: { email } }); const code = window.prompt("Enter the verification code"); const password = window.prompt("Enter a new password (at least 10 characters)"); if (code && password) { await requestJson("/api/auth/password/reset", { method: "POST", body: { email, code, password } }); if (els.loginMessage) els.loginMessage.textContent = "Password updated. Please sign in."; } }
+  const email = window.prompt(t("auth.forgotEmailPrompt", {}, "Enter your bound login email")); if (!email) return;
+  try { await requestJson("/api/auth/password/reset/request", { method: "POST", body: { email } }); const code = window.prompt(t("auth.forgotCodePrompt", {}, "Enter the verification code")); const password = window.prompt(t("auth.forgotPasswordPrompt", {}, "Enter a new password (at least 10 characters)")); if (code && password) { await requestJson("/api/auth/password/reset", { method: "POST", body: { email, code, password } }); if (els.loginMessage) els.loginMessage.textContent = t("auth.passwordUpdated", {}, "Password updated. Please sign in."); } }
   catch (error) { if (els.loginMessage) els.loginMessage.textContent = error.message; }
 }
 
 async function requestAccountEmailCode() {
-  try { await requestJson("/api/account/email/request", { method: "POST", body: { email: els.accountEmail?.value.trim() || "" } }); if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "Verification code sent."; }
-  catch (error) { if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = error.message; }
+  try {
+    await requestJson("/api/account/email/request", { method: "POST", body: { email: els.accountEmail?.value.trim() || "" } });
+    if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = t("account.verificationCodeSent", {}, "Verification code sent.");
+  } catch (error) {
+    if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = error.message;
+  }
 }
 
 async function verifyAccountEmail() {
@@ -976,7 +987,7 @@ async function verifyAccountEmail() {
     const payload = await requestJson("/api/account/email/verify", { method: "POST", body: { email: els.accountEmail?.value.trim() || "", code: els.accountEmailCode?.value.trim() || "" } });
     if (payload.user) {
       setUser(payload.user);
-      openAccount();
+      openEmailBinding();
     }
   } catch (error) {
     if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = error.message;

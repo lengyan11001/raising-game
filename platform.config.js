@@ -1557,6 +1557,7 @@ const els = {
   menuCopyTokenBtn: document.querySelector("#menuCopyTokenBtn"),
   menuLogoutBtn: document.querySelector("#menuLogoutBtn"),
   accountDialog: document.querySelector("#accountDialog"),
+  emailBindingDialog: document.querySelector("#emailBindingDialog"),
   accountName: document.querySelector("#accountName"),
   accountCredits: document.querySelector("#accountCredits"),
   accountRole: document.querySelector("#accountRole"),

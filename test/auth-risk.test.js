@@ -263,7 +263,7 @@ test("security notice targets accounts without email or Google and opens email b
   assert.match(config, /accountSecurityNoticeDialog: document\.querySelector\("#accountSecurityNoticeDialog"\)/);
   assert.match(view, /googleLinked: Boolean\(user\.googleId\)/);
   assert.match(create, /return !String\(user\.email \|\| ""\)\.trim\(\) && user\.googleLinked !== true;/);
-  assert.match(create, /openAccount\(\{ focusEmail: true \}\)/);
+  assert.match(create, /openEmailBinding\(\{ focusEmail: true \}\)/);
   assert.match(read("platform.ui.parts/part-01.js"), /scheduleAccountSecurityNotice\(\{ force: userChanged && Boolean\(state\.user\) \}\)/);
   assert.match(main, /els\.securityNoticeBindBtn\?\.addEventListener\("click", openAccountEmailBindingFromNotice\)/);
 });
@@ -276,7 +276,7 @@ test("anonymous support and chat report preserve source attribution", () => {
   assert.match(support, /"security notice", "telegram", "chat report"/);
   assert.match(chat, /source: "chat report"/);
   assert.match(explore, /source: els\.supportDialog\?\.dataset\.source/);
-  assert.match(html, /logout-confirm-20261109-1/);
+  assert.match(html, /email-binding-i18n-20261109-2/);
 });
 
 test("logout requires confirmation and expired sessions clear stale account views", () => {

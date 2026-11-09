@@ -8653,6 +8653,24 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   border-radius: 8px;
 }
 .account-security-box p { margin: 0; }
+.email-binding-dialog {
+  width: min(480px, calc(100vw - 24px));
+}
+.email-binding-dialog .email-binding-body {
+  display: grid;
+  gap: 10px;
+}
+.email-binding-dialog .email-binding-body p {
+  margin: 0;
+}
+.email-binding-dialog .auth-email-row .ghost-button,
+.email-binding-dialog .auth-email-row .generate-btn {
+  min-height: 32px;
+  padding: 6px 11px;
+  border-radius: 7px;
+  font-size: .8rem;
+  line-height: 1.15;
+}
 .account-security-notice {
   width: min(440px, calc(100vw - 24px));
 }
@@ -8686,9 +8704,11 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   line-height: 1.7;
 }
 .security-notice-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   width: 100%;
   margin-top: 2px;
 }
@@ -8697,20 +8717,25 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 46px;
-  gap: 7px;
-  padding: 11px 14px;
+  min-height: 34px;
+  gap: 5px;
+  padding: 7px 12px;
+  border-radius: 7px;
+  font-size: .82rem;
   line-height: 1.2;
   white-space: nowrap;
 }
+.security-notice-actions .generate-btn svg {
+  width: 15px;
+  height: 15px;
+}
 .security-notice-actions .security-notice-later {
-  grid-column: 1 / -1;
-  justify-self: center;
-  min-height: 34px;
-  padding: 7px 16px;
+  min-height: 28px;
+  padding: 4px 10px;
   border-color: transparent;
   color: var(--muted);
-  font-size: .84rem;
+  font-size: .78rem;
+  font-weight: 700;
 }
 .security-notice-actions .security-notice-later:hover {
   color: var(--text);
@@ -8722,10 +8747,13 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
     gap: 16px;
   }
   .security-notice-actions {
-    grid-template-columns: 1fr;
+    gap: 6px;
   }
-  .security-notice-actions .security-notice-later {
-    grid-column: auto;
+  .security-notice-actions .generate-btn,
+  .security-notice-actions .ghost-button {
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: .79rem;
   }
 }
 .account-grid {
