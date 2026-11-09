@@ -1094,6 +1094,7 @@ function normalizeAdvancedPricing(pricing = {}) {
     const previousRoundedDefault = pricingNumber(previousDefault, previousDefault);
     const previousIntegerDefault = Math.round(previousDefault);
     const previousLegacyUiDefault = resolution === "720p" ? 40 : 20;
+    const previousSimplifiedUiDefault = resolution === "720p" ? 16 : 9;
     const previousPurchaseDefault = seedance25PurchaseSiteCreditsPerSecond(resolution);
     const previousPurchaseRoundedDefault = pricingNumber(previousPurchaseDefault, previousPurchaseDefault, 0, 4);
     const migratedValue = Number.isFinite(numeric) && [
@@ -1101,6 +1102,7 @@ function normalizeAdvancedPricing(pricing = {}) {
       previousRoundedDefault,
       previousIntegerDefault,
       previousLegacyUiDefault,
+      previousSimplifiedUiDefault,
       previousPurchaseDefault,
       previousPurchaseRoundedDefault,
     ].some((candidate) => Math.abs(numeric - candidate) < 0.0000001)

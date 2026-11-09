@@ -2289,3 +2289,10 @@ CODEX_TASK_STATE.md
 - Admin pricing now has a model filter (default all models). It hides table rows only, hides empty sections, and save still reads every row, so filtered-out prices are not dropped.
 - Verification: `node --check admin.js server.parts/part-01.js server.parts/part-02.js` passed; `node --require ./test/source-compat.js --test test/advanced-pricing.test.js` passed 26/26; `git diff --check` passed.
 - Deployment completed: `old-site` `a519959`; `platform-release` / `origin/platform-release` `f7c9a1d`; deployed Old only via `scripts/deploy_local.sh --site old`. `/api/health` returned 200 `{"ok":true}`; production `admin.js`/`admin.css` contain the model filter. Rollback release `f6a08d8`. Live was not deployed.
+
+## 2026-11-09 Admin refresh follow-up: legacy simplified Seedance 2.5 values
+
+- User reported the admin pricing page did not change after deployment.
+- Production `app_kv.app_config -> platform.advancedPricing.seedance25CreditsPerSecondByResolution` contained legacy simplified values `480p: 9`, `720p: 16`; these differed from the exact purchase-price legacy defaults and were therefore preserved as custom prices.
+- Added `previousSimplifiedUiDefault` (`9`/`16`) to the normalized legacy-default migration set and extended the regression test to cover both stored forms. Custom values outside these known legacy defaults remain preserved.
+- Deployment status: pending commit, platform snapshot, push, Old-only deploy, and production API verification. Live must not be deployed.

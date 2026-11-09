@@ -133,15 +133,17 @@ test("Seedance 2.5 defaults to 1.1x and migrates the legacy 1.0x defaults", asyn
     assert.ok(Math.abs(row.saleCreditsPerSecond / row.purchaseCreditsPerSecond - 1.1) < 1e-5);
   }
 
-  const migrated = await application.adminAdvancedPricingView({
-    platform: {
-      advancedPricing: {
-        seedance25CreditsPerSecondByResolution: { "480p": 8.995502, "720p": 14.992504 },
+  for (const legacyStored of [{ "480p": 8.995502, "720p": 14.992504 }, { "480p": 9, "720p": 16 }]) {
+    const migrated = await application.adminAdvancedPricingView({
+      platform: {
+        advancedPricing: {
+          seedance25CreditsPerSecondByResolution: legacyStored,
+        },
       },
-    },
-  });
-  assert.equal(migrated.rows.find((row) => row.key === "seedance25-480p").saleCreditsPerSecond, 9.8951);
-  assert.equal(migrated.rows.find((row) => row.key === "seedance25-720p").saleCreditsPerSecond, 16.4918);
+    });
+    assert.equal(migrated.rows.find((row) => row.key === "seedance25-480p").saleCreditsPerSecond, 9.8951);
+    assert.equal(migrated.rows.find((row) => row.key === "seedance25-720p").saleCreditsPerSecond, 16.4918);
+  }
 
   const custom = await application.adminAdvancedPricingView({
     platform: {
