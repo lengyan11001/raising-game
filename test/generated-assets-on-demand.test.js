@@ -137,11 +137,23 @@ test("bounded media persistence recovery only targets succeeded records with pro
   assert.match(server, /setTimeout\(\(\) => scanGenerationRecordMissingMediaPersistence\("startup"\), 35000\)/);
 });
 
+test("poster-only maintenance does not fail on a concurrently missing video record", () => {
+  const queue = server.slice(
+    server.indexOf("function queueGeneratedVideoDownload"),
+    server.indexOf("function adminRecordMediaAssetUrl"),
+  );
+  assert.match(queue, /if \(repairPoster\) \{/);
+  assert.match(queue, /downloaded\.posterStorageKey/);
+  assert.match(queue, /cdnVideoUrl: downloaded\.cdnVideoUrl \|\| current\.cdnVideoUrl \|\| ""/);
+  assert.match(queue, /\.\.\.\(!repairPoster \? \{/);
+});
+
 test("background video downloads cool down and stop retrying expired media", () => {
   assert.match(server, /function generationRecordVideoDownloadCoolingDown/);
   assert.match(server, /attempts >= GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS/);
   assert.match(server, /cdnRetryCount: attempts/);
-  assert.match(server, /cdnError: String\(error\.message \|\| error \|\| "Generated video download failed\."\)\.slice\(0, 500\)/);
+  assert.match(server, /const detail = String\(error\.message \|\| error \|\| "Generated video download failed\."\)\.slice\(0, 500\)/);
+  assert.match(server, /cdnError: detail,/);
   assert.match(server, /if \(String\(record\.cdnPosterUrl \|\| record\.posterUrl \|\| ''\)\.trim\(\)\) return false;/);
 });
 

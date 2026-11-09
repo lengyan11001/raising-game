@@ -394,11 +394,12 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
     if (generationRecordVideoDownloadCoolingDown(current)) return;
     if ((current.cdnVideoUrl || current.videoUrl) && (!repairPoster || (current.cdnPosterUrl && current.posterStorageKey))) return;
     const downloaded = await downloadGeneratedVideo(cleanTaskId, remote, { forceLocal: true, posterOnly: repairPoster });
-    if (!downloaded.cdnVideoUrl || !downloaded.storageKey) {
+    if (repairPoster) {
+      if (!String(downloaded.cdnPosterUrl || "").trim() || !String(downloaded.posterStorageKey || "").trim()) {
+        throw new Error(downloaded.cdnError || "Poster frame was not persisted to object storage.");
+      }
+    } else if (!downloaded.cdnVideoUrl || !downloaded.storageKey) {
       throw new Error(downloaded.cdnError || "Generated video was not persisted to object storage.");
-    }
-    if (repairPoster && !String(downloaded.cdnPosterUrl || "").trim()) {
-      throw new Error("Poster frame was not created.");
     }
     const posterMaintenanceUpdates = repairPoster ? {
       posterMaintenanceAttempts: Number(current.posterMaintenanceAttempts || 0),
@@ -415,9 +416,9 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
       localVideoPath: "",
       localPosterUrl: "",
       localPosterPath: "",
-      videoUrl: downloaded.cdnVideoUrl || current.videoUrl || "",
-      posterUrl: downloaded.cdnPosterUrl || current.posterUrl || "",
-      cdnVideoUrl: downloaded.cdnVideoUrl || "",
+      videoUrl: downloaded.cdnVideoUrl || current.cdnVideoUrl || current.videoUrl || "",
+      posterUrl: downloaded.cdnPosterUrl || current.cdnPosterUrl || current.posterUrl || "",
+      cdnVideoUrl: downloaded.cdnVideoUrl || current.cdnVideoUrl || "",
       cdnPosterUrl: downloaded.cdnPosterUrl || "",
       storageProvider: downloaded.storageProvider || current.storageProvider || "",
       storageKey: downloaded.storageKey || current.storageKey || "",
@@ -436,11 +437,13 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
     const detail = String(error.message || error || "Generated video download failed.").slice(0, 500);
     await upsertGenerationRecord({
       taskId: cleanTaskId,
-      cdnRetryCount: attempts,
-      cdnRetryAt: terminal
-        ? new Date().toISOString()
-        : new Date(Date.now() + GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS * attempts).toISOString(),
-      cdnError: detail,
+      ...(!repairPoster ? {
+        cdnRetryCount: attempts,
+        cdnRetryAt: terminal
+          ? new Date().toISOString()
+          : new Date(Date.now() + GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS * attempts).toISOString(),
+        cdnError: detail,
+      } : {}),
       ...(repairPoster ? {
         ...posterMaintenanceFailureUpdates(current.posterMaintenanceAttempts, error),
         posterMaintenanceLastDurationMs: 0,
