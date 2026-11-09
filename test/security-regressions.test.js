@@ -320,3 +320,12 @@ test("Google login uses the request tenant descriptor instead of an undefined te
   assert.match(handler[0], /getUserByGoogleIdInDb\([^;]+tenant\.tenantId\)/);
   assert.doesNotMatch(handler[0], /getUserByGoogleIdInDb\([^;]+,\s*tenantId\)/);
 });
+
+test("auth support module has a single crypto import available in the combined server", () => {
+  const part01 = read("server.parts/part-01.js");
+  const auth = read("server.parts/part-32.js");
+  assert.match(part01, /^const crypto = require\("node:crypto"\);/m);
+  assert.doesNotMatch(auth, /^const crypto = require\("node:crypto"\);/m);
+  assert.match(auth, /crypto\.randomInt\(/);
+  assert.match(auth, /crypto\.randomBytes\(/);
+});

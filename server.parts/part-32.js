@@ -504,111 +504,23 @@ function attachRegistrationLanding(user, landing = {}, referrer = null, now = ""
   return user;
 }
 
-async function registerWithBody(req, res, body = {}) {
-  const tenantId = requestTenantId(req);
-  const username = String(body.username || "").trim().toLowerCase();
-  const password = String(body.password || "");
-  const landingPreview = landingFieldsFromBody(body);
-  const referralCode = landingPreview.referralCode || normalizeReferralCode(body.referralCode || body.referral || body.ref || "");
-  const attributionValue = (value, maxLength = 120) => String(value || "")
-    .normalize("NFKC")
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLength);
-  const rawAttribution = body.attribution && typeof body.attribution === "object" && !Array.isArray(body.attribution)
-    ? body.attribution
-    : {};
-  const registrationChannel = attributionValue(body.channel || rawAttribution.channel || "direct", 80) || "direct";
-  if (!/^[a-z0-9_]{3,24}$/.test(username)) {
-    return sendJson(res, 400, { ok: false, message: "Username must be 3-24 chars: letters, digits or underscores." });
-  }
-  if (password.length < 10) {
-    return sendJson(res, 400, { ok: false, message: "Password must be at least 10 characters." });
-  }
-  const registrationRisk = await enforceRegistrationRisk(req, { username, body });
-  if (!registrationRisk.ok) return authRateLimitedResponse(res, registrationRisk);
-  const riskReasons = registrationHeuristicReasons(req, body, registrationRisk);
-  const riskStatus = riskReasons.length ? "quarantined" : "clear";
-  await recordRegistrationRiskEvent(req, { username, automatic: registrationRisk.automated, riskReasons });
+function passwordRegistrationDisabledResponse(res) {
+  return sendJson(res, 403, {
+    ok: false,
+    code: "PASSWORD_REGISTRATION_DISABLED",
+    message: "Password registration is disabled. Use email-code or Google sign-in.",
+  });
+}
 
-  const db = await readDb();
-  const existingUser = await getUserByUsernameInDb(username, tenantId);
-  if (existingUser || db.users.some((user) => user.username === username && recordBelongsToTenant(user, tenantId))) {
-    return sendJson(res, 409, { ok: false, message: "Username already exists — please sign in." });
-  }
-
-  const now = new Date().toISOString();
-  const referrerId = userIdFromReferralCode(referralCode);
-  const referrer = referrerId ? (await getUserByIdInDb(referrerId) || db.users.find((item) => item.id === referrerId)) : null;
-  const user = {
-    id: randomId("user"),
-    tenantId,
-    username,
-    passwordHash: hashPassword(password),
-    role: db.users.length === 0 ? "admin" : "user",
-    credits: 0,
-    pricingMultiplier: 1,
-    apiPricingMultiplier: 1,
-    apiToken: makeUniqueApiToken(db),
-    registrationChannel,
-    registrationAttribution: {
-      channel: registrationChannel,
-      medium: attributionValue(rawAttribution.medium, 80),
-      campaign: attributionValue(rawAttribution.campaign, 120),
-      content: attributionValue(rawAttribution.content, 120),
-      landingPath: attributionValue(rawAttribution.landingPath, 500),
-      host: attributionValue(requestHostname(req), 160),
-      capturedAt: attributionValue(rawAttribution.capturedAt, 40),
-      registeredAt: now,
-      ipHash: authRiskKey(authClientIp(req)),
-      ipMasked: maskedAuthIp(authClientIp(req)),
-      userAgent: authUserAgent(req),
-      deviceId: authDeviceId(req, body),
-      fingerprintHash: authFingerprint(req, body),
-      automated: Boolean(registrationRisk.automated),
-      riskReasons,
-    },
-    riskStatus,
-    riskReasons,
-    riskReviewedAt: "",
-    profilePhotos: ["/assets/brand/default-avatar.jpg"],
-    createdAt: now,
-    updatedAt: now,
-  };
-  if (referrer?.id && referrer.id !== user.id && recordBelongsToTenant(referrer, tenantId)) {
-    user.referral = {
-      referredByUserId: referrer.id,
-      referredByUsername: referrer.username || "",
-      referralCode,
-      registeredAt: now,
-    };
-  }
-  attachRegistrationLanding(user, landingPreview, referrer, now, requestHostname(req));
-  db.users.push(user);
-  if (dbEnabled()) {
-    await updateUserInDb(user);
-  } else {
-    await writeDb(db);
-  }
-  await recordRegistrationRiskEvent(req, { username, automatic: registrationRisk.automated, created: true });
-  const session = await createSingleLoginSession(db, user, tenantId, body.deviceId || body.device_id || "");
-  if (referrer?.id) {
-    const wasMember = userHasCreatorMembership(referrer);
-    await ensureCreatorMembershipFromReferrals(db, referrer);
-    if (!wasMember && userHasCreatorMembership(referrer)) {
-      await grantPendingReferralRewardsForMember(db, referrer);
-      if (!dbEnabled()) await writeDb(db);
-    }
-  }
-  return sendJson(res, 200, { ok: true, token: session.token, user: userView(user) });
+async function registerWithBody(req, res) {
+  return passwordRegistrationDisabledResponse(res);
 }
 
 async function handleRegister(req, res) {
-  return registerWithBody(req, res, await readJson(req, AUTH_JSON_BODY_MAX_BYTES));
+  return passwordRegistrationDisabledResponse(res);
 }
 
-async function loginWithBody(req, res, body = {}, { registerIfMissing = false } = {}) {
+async function loginWithBody(req, res, body = {}) {
   const tenantId = requestTenantId(req);
   const username = String(body.username || "").trim().toLowerCase();
   const password = String(body.password || "");
@@ -619,9 +531,6 @@ async function loginWithBody(req, res, body = {}, { registerIfMissing = false } 
   const db = await readDb();
   const user = await getUserByUsernameInDb(username, tenantId)
     || db.users.find((item) => item.username === username && recordBelongsToTenant(item, tenantId));
-  if (!user && registerIfMissing) {
-    return registerWithBody(req, res, body);
-  }
   if (!user || !verifyPassword(password, user.passwordHash)) {
     const failure = await recordAuthLoginFailure(req, username);
     if (failure?.lockedUntil) return lockedAuthResponse(res, {
@@ -727,10 +636,20 @@ function emailUsernameCandidate(db, email, tenantId) {
   return candidate;
 }
 
+function verifiedEmailForUser(user = {}) {
+  return normalizeEmail(user.email) || normalizeEmail(user.googleEmail);
+}
+
+function findUserByVerifiedEmailInDb(db, email = "", tenantId = DEFAULT_TENANT_ID) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+  return (db?.users || []).find((item) => verifiedEmailForUser(item) === normalized && recordBelongsToTenant(item, tenantId)) || null;
+}
+
 async function createEmailSession(req, res, email, body = {}) {
   const tenantId = requestTenantId(req);
   const db = await readDb();
-  let user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, tenantId));
+  let user = findUserByVerifiedEmailInDb(db, email, tenantId);
   if (user?.riskStatus === "quarantined") {
     return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   }
@@ -747,8 +666,36 @@ async function createEmailSession(req, res, email, body = {}) {
     user.emailVerifiedAt = now;
     user.updatedAt = now;
   }
-  if (dbEnabled()) await updateUserInDb(user);
-  else await writeDb(db);
+  try {
+    if (dbEnabled()) await updateUserInDb(user);
+    else await writeDb(db);
+  } catch (error) {
+    if (String(error?.code || "") === "23505") {
+      // A concurrent email-code login may have created the canonical account
+      // between our lookup and insert. Re-read once and reuse that identity
+      // instead of turning a valid login into an error.
+      const latest = await readDb();
+      const canonical = findUserByVerifiedEmailInDb(latest, email, tenantId);
+      if (canonical && canonical.id !== user.id) {
+        if (canonical.riskStatus === "quarantined") {
+          return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
+        }
+        user = canonical;
+        user.email = email;
+        user.emailVerifiedAt = user.emailVerifiedAt || now;
+        user.updatedAt = now;
+        try {
+          if (dbEnabled()) await updateUserInDb(user); else await writeDb(latest);
+        } catch (retryError) {
+          if (String(retryError?.code || "") !== "23505") throw retryError;
+          return sendJson(res, 409, { ok: false, code: "EMAIL_IDENTITY_CONFLICT", message: "This email is already linked to another account. Please sign in with that method." });
+        }
+      } else {
+        return sendJson(res, 409, { ok: false, code: "EMAIL_IDENTITY_CONFLICT", message: "This email is already linked to another account. Please sign in with that method." });
+      }
+    }
+    else throw error;
+  }
   const session = await createSingleLoginSession(db, user, tenantId, body.deviceId || body.device_id || "");
   return sendJson(res, 200, { ok: true, token: session.token, user: userView(user) });
 }
@@ -795,38 +742,54 @@ async function handlePasswordReset(req, res) {
   return sendJson(res, 200, { ok: true });
 }
 
+async function requireSessionAuth(req, res) {
+  const auth = await requireUser(req, res); if (!auth) return null;
+  if (auth.tokenSource !== "session") {
+    sendJson(res, 403, {
+      ok: false,
+      code: "SESSION_REQUIRED",
+      message: "Please use an active browser session to manage account security.",
+    });
+    return null;
+  }
+  return auth;
+}
+
 async function handleAccountEmailRequest(req, res) {
-  const auth = await requireUser(req, res); if (!auth) return;
-  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES); const email = normalizeEmail(body.email); const password = String(body.password || "");
+  const auth = await requireSessionAuth(req, res); if (!auth) return;
+  const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES); const email = normalizeEmail(body.email);
   if (!email) return sendJson(res, 400, { ok: false, message: "Enter a valid email address." });
-  if (auth.user.passwordHash && !verifyPassword(password, auth.user.passwordHash)) return sendJson(res, 401, { ok: false, message: "Current password is incorrect." });
+  // Binding relies on an active browser session plus proof of email ownership.
+  // Do not require the legacy password: imported/Telegram accounts may not know it.
   const requestRisk = await enforceEmailRequestRisk(req, "bind", email);
   if (!requestRisk.ok) return authRateLimitedResponse(res, requestRisk);
   return issueEmailCode(req, res, { kind: "bind", email });
 }
 
 async function handleAccountEmailVerify(req, res) {
-  const auth = await requireUser(req, res); if (!auth) return;
+  const auth = await requireSessionAuth(req, res); if (!auth) return;
   const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES); const email = normalizeEmail(body.email);
   if (!email) return sendJson(res, 400, { ok: false, message: "Invalid or expired verification code." });
   const verifyRisk = await enforceEmailVerifyRisk(req, email);
   if (!verifyRisk.ok) return authRateLimitedResponse(res, verifyRisk);
-  const db = await readDb(); const duplicate = (db.users || []).find((item) => item.id !== auth.user.id && normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
+  const db = await readDb(); const duplicate = (db.users || []).find((item) => item.id !== auth.user.id && verifiedEmailForUser(item) === email && recordBelongsToTenant(item, requestTenantId(req)));
   if (duplicate) return sendJson(res, 409, { ok: false, message: "This email is already bound to another account." });
   if (!await consumeEmailCode("bind", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid or expired verification code." });
   auth.user.email = email; auth.user.emailVerifiedAt = new Date().toISOString(); auth.user.updatedAt = new Date().toISOString();
-  if (dbEnabled()) await updateUserInDb(auth.user); else { const index = db.users.findIndex((item) => item.id === auth.user.id); if (index >= 0) db.users[index] = auth.user; await writeDb(db); }
+  try {
+    if (dbEnabled()) await updateUserInDb(auth.user); else { const index = db.users.findIndex((item) => item.id === auth.user.id); if (index >= 0) db.users[index] = auth.user; await writeDb(db); }
+  } catch (error) {
+    if (String(error?.code || "") === "23505") {
+      return sendJson(res, 409, { ok: false, code: "EMAIL_IDENTITY_CONFLICT", message: "This email is already bound to another account." });
+    }
+    throw error;
+  }
   return sendJson(res, 200, { ok: true, user: userView(auth.user) });
 }
 
 async function handleLoginOrRegister(req, res) {
   const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES);
-  const automatic = isAutomatedAuthUserAgent(req);
-  if (automatic) {
-    const registrationRisk = await enforceRegistrationRisk(req, { username: body.username || "", automatic: true, body });
-    if (!registrationRisk.ok) return authRateLimitedResponse(res, registrationRisk);
-  }
-  return loginWithBody(req, res, body, { registerIfMissing: true, automatic });
+  return loginWithBody(req, res, body);
 }
 
 function googleUserFromDb(db, googleId = "", tenantId = DEFAULT_TENANT_ID) {
@@ -920,6 +883,16 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
   let created = false;
   let referrer = null;
   if (!user) {
+    const emailUser = findUserByVerifiedEmailInDb(db, claims.email, normalizedTenant);
+    if (emailUser?.googleId && String(emailUser.googleId) !== googleId) {
+      const error = new Error("This email is already linked to a different Google account.");
+      error.statusCode = 409;
+      error.code = "GOOGLE_IDENTITY_CONFLICT";
+      throw error;
+    }
+    user = emailUser;
+  }
+  if (!user) {
     const landingPreview = landingFieldsFromBody({ referralCode, attribution });
     const normalizedReferralCode = landingPreview.referralCode || normalizeReferralCode(referralCode);
     const referrerId = userIdFromReferralCode(normalizedReferralCode);
@@ -959,7 +932,11 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
   }
   user.tenantId = normalizedTenant;
   user.googleId = googleId;
-  user.googleEmail = String(claims.email || "").trim().toLowerCase().slice(0, 320);
+  user.googleEmail = normalizeEmail(claims.email) || String(claims.email || "").trim().toLowerCase().slice(0, 320);
+  if (!normalizeEmail(user.email) && user.googleEmail) {
+    user.email = user.googleEmail;
+    if (!user.emailVerifiedAt) user.emailVerifiedAt = now;
+  }
   user.googleName = String(claims.name || "").trim().slice(0, 120);
   user.googleAvatarUrl = String(claims.picture || "").trim().slice(0, 1000);
   if (created && (!Array.isArray(user.profilePhotos) || !user.profilePhotos.length)) {
@@ -968,8 +945,23 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
   user.googleUpdatedAt = now;
   user.updatedAt = now;
   ensureUserApiToken(user, db);
-  if (dbEnabled()) await updateUserInDb(user);
-  else await writeDb(db);
+  try {
+    if (dbEnabled()) await updateUserInDb(user);
+    else await writeDb(db);
+  } catch (error) {
+    if (String(error?.code || "") === "23505") {
+      const latest = await readDb();
+      const canonical = findUserByVerifiedEmailInDb(latest, claims.email, normalizedTenant);
+      if (canonical && canonical.id !== user.id && String(canonical.googleId || "") === googleId) {
+        return { db: latest, user: canonical };
+      }
+      const conflict = new Error("This email is already linked to another account. Please use email sign-in for that account.");
+      conflict.statusCode = 409;
+      conflict.code = "GOOGLE_IDENTITY_CONFLICT";
+      throw conflict;
+    }
+    throw error;
+  }
   if (created && referrer?.id) {
     const wasMember = userHasCreatorMembership(referrer);
     await ensureCreatorMembershipFromReferrals(db, referrer);

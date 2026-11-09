@@ -1392,14 +1392,18 @@ els.previewDialog?.addEventListener("close", () => {
   if (els.previewActions) els.previewActions.hidden = true;
   if (els.previewDownloadBtn) els.previewDownloadBtn.removeAttribute("href");
 });
-function openSupportDialog() {
-  if (!state.user) return openLogin();
+function openSupportDialog({ source = "", subject = "", message = "" } = {}) {
   prepareModalOpen();
-  if (els.supportEmail) els.supportEmail.value = "";
-  if (els.supportSubject) els.supportSubject.value = "";
-  if (els.supportMessage) els.supportMessage.value = "";
+  if (els.supportEmail) els.supportEmail.value = String(state.user?.email || "");
+  if (els.supportSubject) els.supportSubject.value = subject;
+  if (els.supportMessage) els.supportMessage.value = message;
   if (els.supportStatus) els.supportStatus.textContent = "";
+  if (els.supportDialog) els.supportDialog.dataset.source = source;
   els.supportDialog?.showModal();
+  window.requestAnimationFrame(() => {
+    if (state.user?.email) els.supportMessage?.focus();
+    else els.supportEmail?.focus();
+  });
 }
 
 document.querySelectorAll("[data-analytics-event]").forEach((element) => {
@@ -1441,6 +1445,9 @@ els.menuEmailBindBtn?.addEventListener("click", () => {
   closeAccountMenu();
   openAccount({ focusEmail: true });
 });
+els.securityNoticeBindBtn?.addEventListener("click", openAccountEmailBindingFromNotice);
+els.securityNoticeSupportBtn?.addEventListener("click", openSupportFromSecurityNotice);
+els.securityNoticeLaterBtn?.addEventListener("click", dismissAccountSecurityNotice);
 els.toggleAccountTokenBtn?.addEventListener("click", async () => {
   if (!state.showAccountToken && !state.user?.apiToken) {
     try { await ensurePrimaryApiToken(); } catch { return openLogin(); }

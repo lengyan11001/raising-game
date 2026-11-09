@@ -3682,10 +3682,6 @@ function previewImage({ title = "", imageUrl = "" } = {}) {
 }
 
 async function submitSupportMessage() {
-  if (!state.user) {
-    if (els.supportStatus) els.supportStatus.textContent = "Login is required to send a site message. Telegram support is available above.";
-    return;
-  }
   const email = String(els.supportEmail?.value || "").trim();
   const subject = String(els.supportSubject?.value || "").trim();
   const message = String(els.supportMessage?.value || "").trim();
@@ -3706,7 +3702,7 @@ async function submitSupportMessage() {
   try {
     await requestJson("/api/support-messages", {
       method: "POST",
-      body: { email, subject, message },
+      body: { email, subject, message, source: els.supportDialog?.dataset.source || "" },
     });
     if (els.supportStatus) els.supportStatus.textContent = "Sent. We will reply in admin.";
     if (els.supportSubject) els.supportSubject.value = "";

@@ -687,8 +687,6 @@ function openAccount({ focusEmail = false } = {}) {
   const bindingForm = els.requestAccountEmailCodeBtn?.closest(".auth-email-row");
   if (bindingForm) bindingForm.hidden = Boolean(boundEmail);
   if (els.accountEmailCode?.parentElement) els.accountEmailCode.parentElement.hidden = Boolean(boundEmail);
-  if (els.accountCurrentPassword) els.accountCurrentPassword.hidden = Boolean(boundEmail);
-  if (els.accountCurrentPassword) els.accountCurrentPassword.value = "";
   els.accountDialog?.showModal();
   refreshIcons();
   if (focusEmail && !boundEmail) window.requestAnimationFrame(() => els.accountEmail?.focus());
@@ -789,6 +787,69 @@ async function completeLogin(payload = {}) {
   await refreshAfterLogin();
 }
 
+const ACCOUNT_SECURITY_NOTICE_SNOOZE_KEY = "raisingGameAccountSecurityNoticeSnoozedUntil";
+const ACCOUNT_SECURITY_NOTICE_SNOOZE_MS = 12 * 60 * 60 * 1000;
+let accountSecurityNoticeTimer = 0;
+
+function accountSecurityNoticeNeeded(user = state.user) {
+  if (!user || !state.config?.auth?.email?.enabled) return false;
+  return !String(user.email || "").trim() && user.googleLinked !== true;
+}
+
+function accountSecurityNoticeSnoozed() {
+  try {
+    return Number(sessionStorage.getItem(ACCOUNT_SECURITY_NOTICE_SNOOZE_KEY) || 0) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function dismissAccountSecurityNotice() {
+  try {
+    sessionStorage.setItem(ACCOUNT_SECURITY_NOTICE_SNOOZE_KEY, String(Date.now() + ACCOUNT_SECURITY_NOTICE_SNOOZE_MS));
+  } catch {
+    // Session storage is optional; the dialog still remains dismissible.
+  }
+}
+
+function scheduleAccountSecurityNotice({ force = false } = {}) {
+  if (typeof window === "undefined" || !els.accountSecurityNoticeDialog) return;
+  window.clearTimeout(accountSecurityNoticeTimer);
+  if (!accountSecurityNoticeNeeded()) {
+    if (els.accountSecurityNoticeDialog.open) els.accountSecurityNoticeDialog.close("bound");
+    return;
+  }
+  if (!force && accountSecurityNoticeSnoozed()) return;
+  accountSecurityNoticeTimer = window.setTimeout(() => {
+    if (!accountSecurityNoticeNeeded()) return;
+    if (typeof document !== "undefined" && document.querySelector("dialog[open]")) {
+      accountSecurityNoticeTimer = window.setTimeout(() => scheduleAccountSecurityNotice(), 1200);
+      return;
+    }
+    prepareModalOpen();
+    els.accountSecurityNoticeDialog.showModal();
+    refreshIcons();
+  }, 500);
+}
+
+function openAccountEmailBindingFromNotice() {
+  dismissAccountSecurityNotice();
+  els.accountSecurityNoticeDialog?.close("bind-email");
+  openAccount({ focusEmail: true });
+}
+
+function openSupportFromSecurityNotice() {
+  dismissAccountSecurityNotice();
+  els.accountSecurityNoticeDialog?.close("support");
+  if (typeof openSupportDialog === "function") {
+    openSupportDialog({
+      source: "security notice",
+      subject: "Account security: email binding",
+      message: "I need help binding an email to my account.",
+    });
+  }
+}
+
 async function submitLogin() {
   const username = els.loginUsername.value.trim();
   const password = els.loginPassword.value;
@@ -799,24 +860,14 @@ async function submitLogin() {
     els.loginMessage.textContent = t("auth.invalid");
     return;
   }
-  const referralCode = localStorage.getItem(REFERRAL_CODE_KEY) || "";
-  let registrationAttribution = {};
-  try {
-    registrationAttribution = JSON.parse(localStorage.getItem(REGISTRATION_ATTRIBUTION_KEY) || "{}") || {};
-  } catch {
-    registrationAttribution = {};
-  }
   if (els.loginSubmit) els.loginSubmit.disabled = true;
   try {
-    const payload = await requestJson("/api/auth/login-or-register", {
+    const payload = await requestJson("/api/auth/login", {
       method: "POST",
       body: {
         username,
         password,
-        referralCode,
         deviceId: sessionDeviceId(),
-        channel: registrationAttribution.channel || "direct",
-        attribution: registrationAttribution,
       },
     });
     await completeLogin(payload);
@@ -903,7 +954,7 @@ async function forgotPassword() {
 }
 
 async function requestAccountEmailCode() {
-  try { await requestJson("/api/account/email/request", { method: "POST", body: { email: els.accountEmail?.value.trim() || "", password: els.accountCurrentPassword?.value || "" } }); if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "Verification code sent."; }
+  try { await requestJson("/api/account/email/request", { method: "POST", body: { email: els.accountEmail?.value.trim() || "" } }); if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = "Verification code sent."; }
   catch (error) { if (els.accountSecurityMessage) els.accountSecurityMessage.textContent = error.message; }
 }
 
@@ -1076,6 +1127,7 @@ function installBootstrapConfig(config) {
   }
   state.categories = platform.categories || [];
   state.advancedCases = platform.advanced?.cases || [];
+  if (typeof scheduleAccountSecurityNotice === "function") scheduleAccountSecurityNotice();
   const homeVideo = config.homeVideo || {};
   state.homeCharacters = homeVideo.items || [];
   state.homeCharactersPage = Number(homeVideo.page || 1) || 1;

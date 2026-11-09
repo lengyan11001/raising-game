@@ -8,7 +8,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=w3-prompt-optimizer-20261108-2" />
+    <link rel="stylesheet" href="./platform.css?v=security-auth-20261109-1" />
     <link rel="stylesheet" href="./platform.prompt-editor.css?v=prompt-editor-20261107-1" />
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
     <script>
@@ -1166,13 +1166,13 @@
           <div class="auth-method-panel" id="passwordLoginPanel" role="tabpanel" hidden>
             <div class="auth-divider"><span data-i18n="auth.orUsername">Use username and password</span></div>
             <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
-            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password (new accounts need 10+ characters)" data-i18n-placeholder="auth.password" />
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password" data-i18n-placeholder="auth.password" />
             <p class="auth-register-hint">
               <i data-lucide="info"></i>
-              <span data-i18n="auth.autoRegisterHint">No separate sign-up is needed. Logging in with a new username creates the account automatically.</span>
+              <span data-i18n="auth.autoRegisterHint">Password sign-in is for existing accounts only. New accounts must use email or Google.</span>
             </p>
             <div class="auth-actions">
-              <button class="generate-btn" id="loginSubmit" type="submit" value="continue">Login / Sign up</button>
+              <button class="generate-btn" id="loginSubmit" type="submit" value="continue">Login</button>
             </div>
             <button class="ghost-button" id="forgotPasswordBtn" type="button">Forgot password?</button>
           </div>
@@ -1217,10 +1217,30 @@
             <p class="adm-muted" id="accountEmailBoundNote" hidden>This email can be used for verification-code login and password reset.</p>
             <div class="auth-email-row"><input id="accountEmail" type="email" autocomplete="email" placeholder="Login email" /><button class="ghost-button" id="requestAccountEmailCodeBtn" type="button">Send code</button></div>
             <div class="auth-email-row"><input id="accountEmailCode" inputmode="numeric" maxlength="6" placeholder="Verification code" /><button class="ghost-button" id="verifyAccountEmailBtn" type="button">Bind email</button></div>
-            <input id="accountCurrentPassword" type="password" autocomplete="current-password" placeholder="Current password" />
             <p class="job-note" id="accountSecurityMessage"></p>
           </div>
           <button class="ghost-button danger-link" id="logoutAccountBtn" data-i18n="account.logout" type="button"><i data-lucide="log-out"></i>Log out</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="accountSecurityNoticeDialog" class="modal account-security-notice" aria-labelledby="accountSecurityNoticeTitle">
+      <form method="dialog">
+        <header>
+          <div>
+            <span data-i18n="account.securityKicker">Account protection</span>
+            <strong id="accountSecurityNoticeTitle" data-i18n="account.securityNoticeTitle">Protect your account</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body security-notice-body">
+          <div class="security-notice-icon"><i data-lucide="shield-alert"></i></div>
+          <p data-i18n="account.securityNoticeBody">Add a verified email so you can recover your account and receive security alerts. Your current session and credits will not be affected.</p>
+          <div class="security-notice-actions">
+            <button class="generate-btn" id="securityNoticeBindBtn" type="button"><i data-lucide="mail"></i><span data-i18n="account.bindEmailNow">Bind email now</span></button>
+            <button class="ghost-button" id="securityNoticeSupportBtn" type="button" data-i18n="account.contactSupport">Contact support</button>
+            <button class="ghost-button security-notice-later" id="securityNoticeLaterBtn" value="cancel" type="submit" data-i18n="account.securityNoticeLater">Not now</button>
+          </div>
         </div>
       </form>
     </dialog>
@@ -1485,6 +1505,7 @@
             <span>Message</span>
             <textarea id="supportMessage" rows="6" placeholder="Describe your issue..."></textarea>
           </label>
+          <p class="job-note">No sign-in is required to send a support message. Include the email where we can reach you.</p>
           <a class="copy-btn" href="https://t.me/VipeakSupportBot" target="_blank" rel="noopener noreferrer" data-direct-url="https://t.me/VipeakSupportBot" data-analytics-event="telegram_support_click">
             <i data-lucide="send"></i>Open Telegram support
           </a>
@@ -1578,6 +1599,6 @@
     <script>
       window.VIPEAK_PROMPT_EDITOR_MODE = "rich";
     </script>
-    <script src="./platform.js?v=w3-prompt-optimizer-20261108-2"></script>
+    <script src="./platform.js?v=security-auth-20261109-1"></script>
   </body>
 </html>

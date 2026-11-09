@@ -8653,6 +8653,56 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   border-radius: 8px;
 }
 .account-security-box p { margin: 0; }
+.account-security-notice {
+  width: min(520px, calc(100vw - 28px));
+}
+.security-notice-body {
+  justify-items: center;
+  text-align: center;
+}
+.security-notice-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border: 1px solid rgba(45,226,200,.3);
+  border-radius: 50%;
+  color: var(--cyan);
+  background: rgba(45,226,200,.1);
+}
+.security-notice-icon svg {
+  width: 28px;
+  height: 28px;
+}
+.security-notice-body p {
+  max-width: 42ch;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+.security-notice-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+.security-notice-actions .generate-btn,
+.security-notice-actions .ghost-button {
+  justify-content: center;
+}
+.security-notice-actions .security-notice-later {
+  grid-column: 1 / -1;
+  justify-self: center;
+  border-color: transparent;
+}
+@media (max-width: 560px) {
+  .security-notice-actions {
+    grid-template-columns: 1fr;
+  }
+  .security-notice-actions .security-notice-later {
+    grid-column: auto;
+  }
+}
 .account-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

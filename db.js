@@ -168,6 +168,10 @@ async function ensureSchemaInner() {
   await query(`CREATE INDEX IF NOT EXISTS app_users_created_idx ON app_users (created_at DESC);`);
   await query(`CREATE INDEX IF NOT EXISTS app_users_tenant_created_idx ON app_users (tenant_id, created_at DESC);`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_google_uidx ON app_users (tenant_id, (payload->>'googleId')) WHERE deleted_at IS NULL AND COALESCE(payload->>'googleId', '') <> '';`);
+  // Application-level lookup prevents duplicates in the normal path. This
+  // expression index closes the concurrent-login race between Google and
+  // email-code identities. Existing duplicates must be merged first.
+  await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_verified_email_uidx ON app_users (tenant_id, (LOWER(COALESCE(NULLIF(payload->>'email', ''), NULLIF(payload->>'googleEmail', ''))))) WHERE deleted_at IS NULL AND COALESCE(NULLIF(payload->>'email', ''), NULLIF(payload->>'googleEmail', '')) <> '';`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_username_uidx ON app_users (tenant_id, username) WHERE deleted_at IS NULL;`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_api_token_uidx ON app_users (api_token) WHERE api_token IS NOT NULL AND api_token <> '';`);
   await query(`

@@ -593,9 +593,11 @@ function readChatMessage(message = {}) {
 
 function reportChatMessage(message = {}) {
   if (typeof openSupportDialog !== "function") return;
-  openSupportDialog();
-  if (els.supportSubject) els.supportSubject.value = "Character chat message report";
-  if (els.supportMessage) els.supportMessage.value = `Conversation: ${message.conversationId || ""}\nMessage: ${message.id || ""}\n\nPlease describe the issue:`;
+  openSupportDialog({
+    source: "chat report",
+    subject: "Character chat message report",
+    message: `Conversation: ${message.conversationId || ""}\nMessage: ${message.id || ""}\n\nPlease describe the issue:`,
+  });
 }
 
 function scheduleChatTrackerRefresh(conversationId = "") {

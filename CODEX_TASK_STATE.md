@@ -1,3 +1,20 @@
+## 2026-11-09 account identity close-out and Old-only deployment
+
+- Goal: finish the Old-site security release without displacing existing logged-in users; Live must remain untouched.
+- Password registration is disabled for new accounts; existing password login and the existing failed-password lockout remain.
+- Email-code and Google sign-in resolve through one verified-email identity. `verifiedEmailForUser()` prefers the bound email and falls back to `googleEmail`; `findUserByVerifiedEmailInDb()` is tenant-scoped.
+- Added `app_users_tenant_verified_email_uidx` on normalized verified email for active users. Email login, Google login, and email binding handle concurrent `23505` conflicts and re-read the canonical account where safe.
+- Production duplicate groups were audited and merged transactionally:
+  - `bonku1005@gmail.com`: canonical Google `user-1794111631896-a0f42fa6`; duplicate email `user-1794133138611-7d95b2ed`; moved 1 session, 1 chat conversation, and 1 chat message, then soft-deleted the duplicate.
+  - `mittylhz94@gmail.com`: canonical Google `user-1790238237512-d652fc3e`; duplicate email `user-1794192239171-7498b074`; moved 1 session, then soft-deleted the duplicate.
+  - Both groups snapshotted into `app_risk_events` as `account_identity_merge`; `payload.mergedIntoUserId` records the target. No global session purge or credential rotation.
+- Post-merge production checks: 0 duplicate verified-email groups, unique index present, 2 risk events, canonical accounts active, `mittylhz94` retained 2993.23 credits / 26 generation refs / 52 asset refs / 1 wallet order, and migrated chat data present.
+- Legacy users without a bound email or Google identity receive the security notice; CTA opens email binding, support CTA opens the anonymous support dialog, and the 60-second email-code resend countdown remains.
+- Anonymous support is available without sign-in and source attribution supports `security notice` and `chat report`; support limits are 3/hour/IP and 2/hour/address for anonymous users, 5/hour/user for authenticated users. Existing sessions remain valid.
+- Added regression coverage for the unique verified-email index, identity-conflict codes, anonymous support/chat source attribution, cache version, password registration rejection, and auth module crypto import.
+- Verification: focused auth/mobile/email/security suite 54/54; JavaScript syntax checks passed for changed server/frontend files; `git diff --check` passed.
+- Pending in this step: selective commit, release snapshot, `platform-release` push, Old-only deployment, and post-deploy live verification. Live was not deployed.
+
 ## 2026-11-09 admin generation detail inline playback
 
 - Result videos in the admin generation-record detail now use an inline deferred player: the detail dialog initially shows only a play trigger, and clicking it replaces that preview area with a playable `<video>` in the same dialog.

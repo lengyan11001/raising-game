@@ -687,25 +687,44 @@ async function handleAdminUpdateMembershipActivationCode(req, res, codeId) {
 }
 
 async function handleCreateSupportMessage(req, res) {
-  const auth = await requireUser(req, res);
-  if (!auth) return;
-  if (!await enforceBusinessRateLimit(req, res, auth, { action: "support_message_create", limit: 5, windowMs: 60 * 60_000 })) return;
-  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "问题反馈需要数据库服务。" });
+  const auth = await getAuth(req, { loadDb: false });
   const body = await readJson(req);
-  const email = String(body.email || auth.user.email || "").trim();
+  const email = String(body.email || auth.user?.email || "").trim().slice(0, 254);
   const message = String(body.message || "").trim().slice(0, 5000);
   const subject = String(body.subject || "").trim().slice(0, 120);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return sendJson(res, 400, { ok: false, message: "请填写有效邮箱。" });
+  }
   if (!message) {
     return sendJson(res, 400, { ok: false, message: "请填写问题描述。" });
   }
-  const source = ["live feedback", "site form", "telegram"].includes(String(body.source || "").trim().toLowerCase())
-    ? String(body.source || "").trim().toLowerCase()
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "问题反馈需要数据库服务。" });
+  if (auth.user?.id) {
+    if (!await enforceBusinessRateLimit(req, res, auth, { action: "support_message_create", limit: 5, windowMs: 60 * 60_000 })) return;
+  } else {
+    const ipRate = await authRateLimit(req, {
+      action: "public_support_message_hour",
+      limit: 3,
+      windowMs: 60 * 60_000,
+    });
+    if (!ipRate.ok) return authRateLimitedResponse(res, ipRate);
+    const addressRate = await authRateLimit(req, {
+      action: "public_support_message_address",
+      limit: 2,
+      windowMs: 60 * 60_000,
+      includeAccount: email,
+    });
+    if (!addressRate.ok) return authRateLimitedResponse(res, addressRate);
+  }
+  const sourceInput = String(body.source || "").trim().toLowerCase();
+  const source = ["live feedback", "site form", "security notice", "telegram", "chat report"].includes(sourceInput)
+    ? sourceInput
     : "live feedback";
   const now = new Date().toISOString();
   const record = {
     id: randomId("support"),
-    userId: auth.user.id,
-    username: auth.user.username || "",
+    userId: auth.user?.id || "",
+    username: auth.user?.username || "",
     email,
     subject,
     message,

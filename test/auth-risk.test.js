@@ -86,7 +86,8 @@ test("password login path enforces lockout, failures, and successful reset", () 
 test("registration and every auth entry use small JSON body limits and rate controls", () => {
   const auth = read("server.parts/part-32.js");
   assert.match(auth, /const AUTH_JSON_BODY_MAX_BYTES = 32 \* 1024/);
-  assert.match(auth, /enforceRegistrationRisk\(req, \{ username, body \}\)/);
+  assert.match(read("server.parts/part-46.js"), /function enforceRegistrationRisk\(req,/);
+  assert.match(auth, /PASSWORD_REGISTRATION_DISABLED/);
   assert.match(auth, /enforceEmailRequestRisk\(req, "login", body\.email\)/);
   assert.match(auth, /enforceEmailRequestRisk\(req, "reset", email\)/);
   assert.match(auth, /enforceEmailVerifyRisk\(req, email\)/);
@@ -210,6 +211,72 @@ test("existing users with legacy short passwords can still submit the login form
   assert.match(login[0], /if \(!username \|\| !password\)/);
   assert.doesNotMatch(login[0], /password\.length\s*<\s*(?:6|10)/);
   assert.match(createUi, /new password \(at least 10 characters\)/i);
+});
+
+test("password registration is disabled without breaking existing password login", () => {
+  const auth = read("server.parts/part-32.js");
+  const login = auth.match(/async function loginWithBody[\s\S]*?\n}\r?\n\r?\nasync function handleLogin/);
+  assert.ok(login, "password login handler should exist");
+  assert.match(login[0], /verifyPassword\(password, user\.passwordHash\)/);
+  assert.match(login[0], /createSingleLoginSession/);
+  assert.doesNotMatch(login[0], /registerWithBody|registerIfMissing/);
+  assert.match(auth, /function passwordRegistrationDisabledResponse\(res\)/);
+  assert.match(auth, /code: "PASSWORD_REGISTRATION_DISABLED"/);
+  assert.match(auth, /async function registerWithBody\(req, res\) \{\s*return passwordRegistrationDisabledResponse\(res\);/);
+  assert.match(auth, /async function handleRegister\(req, res\) \{\s*return passwordRegistrationDisabledResponse\(res\);/);
+  assert.match(auth, /async function handleLoginOrRegister\(req, res\) \{[\s\S]*?return loginWithBody\(req, res, body\);/);
+});
+
+test("email and Google account creation paths remain independent from password registration", () => {
+  const auth = read("server.parts/part-32.js");
+  assert.match(auth, /registrationChannel: "email"/);
+  assert.match(auth, /registrationChannel: "google"/);
+  assert.match(auth, /handleEmailLoginVerify/);
+  assert.match(auth, /handleGoogleLogin/);
+});
+
+test("email-code and Google sign-in share one account by verified email", () => {
+  const auth = read("server.parts/part-32.js");
+  const db = read("db.js");
+  assert.match(auth, /function verifiedEmailForUser\(user = \{\}\)/);
+  assert.match(auth, /normalizeEmail\(user\.email\) \|\| normalizeEmail\(user\.googleEmail\)/);
+  assert.match(auth, /function findUserByVerifiedEmailInDb/);
+  assert.match(auth, /let user = findUserByVerifiedEmailInDb\(db, email, tenantId\)/);
+  assert.match(auth, /const emailUser = findUserByVerifiedEmailInDb\(db, claims\.email, normalizedTenant\)/);
+  assert.match(auth, /error\.code = "GOOGLE_IDENTITY_CONFLICT"/);
+  assert.match(auth, /user\.email = user\.googleEmail/);
+  assert.doesNotMatch(auth, /if \(!user\) \{\s*user = \{\s*id: randomId\("user"\)[^}]*googleId/);
+  assert.match(auth, /verifiedEmailForUser\(item\) === email/);
+  assert.match(auth, /code: "EMAIL_IDENTITY_CONFLICT"/);
+  assert.match(auth, /const latest = await readDb\(\)/);
+  assert.match(db, /CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_verified_email_uidx/);
+});
+
+test("security notice targets accounts without email or Google and opens email binding", () => {
+  const html = read("platform.html");
+  const config = read("platform.config.js");
+  const create = read("platform.create.parts/part-06.js");
+  const main = read("platform.main.js");
+  const view = read("server.parts/part-10.js");
+  assert.match(html, /id="accountSecurityNoticeDialog"/);
+  assert.match(html, /id="securityNoticeBindBtn"/);
+  assert.match(config, /accountSecurityNoticeDialog: document\.querySelector\("#accountSecurityNoticeDialog"\)/);
+  assert.match(view, /googleLinked: Boolean\(user\.googleId\)/);
+  assert.match(create, /return !String\(user\.email \|\| ""\)\.trim\(\) && user\.googleLinked !== true;/);
+  assert.match(create, /openAccount\(\{ focusEmail: true \}\)/);
+  assert.match(read("platform.ui.parts/part-01.js"), /scheduleAccountSecurityNotice\(\{ force: userChanged && Boolean\(state\.user\) \}\)/);
+  assert.match(main, /els\.securityNoticeBindBtn\?\.addEventListener\("click", openAccountEmailBindingFromNotice\)/);
+});
+
+test("anonymous support and chat report preserve source attribution", () => {
+  const support = read("server.parts/part-33.js");
+  const chat = read("platform.chat.js");
+  const explore = read("platform.explore.js");
+  const html = read("platform.html");
+  assert.match(support, /"security notice", "telegram", "chat report"/);
+  assert.match(chat, /source: "chat report"/);
+  assert.match(explore, /source: els\.supportDialog\?\.dataset\.source/);
+  assert.match(html, /security-auth-20261109-1/);
 });
 
 

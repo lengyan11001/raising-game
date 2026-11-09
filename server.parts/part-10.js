@@ -923,6 +923,7 @@ function userView(user) {
     tenantId: recordTenantId(user),
     username: user.username,
     email: String(user.email || ""),
+    googleLinked: Boolean(user.googleId),
     profilePhotos: Array.isArray(user.profilePhotos) ? user.profilePhotos.slice(0, 6).map(String) : [],
     gender: ["male", "female", "other"].includes(String(user.gender || "")) ? String(user.gender) : "",
     birthday: String(user.birthday || ""),
