@@ -2098,3 +2098,16 @@ CODEX_TASK_STATE.md
 - Local retention cleanup now only removes stale disposable OS-temp workspaces under `raising-game-media/` and `raising-game-poster-*`; it never deletes `assets/generated`, user uploads, locked previews, or PostgreSQL-owned business media.
 - Verification: focused generated-assets/result-refresh/media/OSS/video-tool/authorization/undress suite passed 131/131; syntax checks and `git diff --check` passed.
 - Not yet committed, built, or deployed. Existing sessions/tokens must remain untouched. Old only; Live untouched.
+
+## 2026-11-09 poster maintenance media race closeout (current deployment)
+
+- Scope: Old production `123vips.com` only. Live remains untouched at `origin/live-release=bf1e01a`; no session purge, token rotation, password reset, or forced re-login.
+- Source `old-site=3d56609`; release `platform-release=920cdd3`; installed server HEAD `920cdd3daf72f1348c67ab31d99bec2f1c9666b4`; `raising-game-demo` active with `NRestarts=0`.
+- Root cause: concurrent completion media work ran poster-only maintenance while another path uploaded the video. Poster maintenance was incorrectly required to return video URL + storage key and could overwrite freshly written video metadata with empty values.
+- Fix: poster-only maintenance validates only `cdnPosterUrl + posterStorageKey`; full-video maintenance still strictly validates `cdnVideoUrl + storageKey`; write-back preserves current video metadata when a poster-only task has none. Poster failures write only `posterMaintenance*`, not generic `cdnRetryCount/cdnError`.
+- Verification: `test/generated-assets-on-demand.test.js` 26/26 passed; `node --check server.parts/part-21.js`, `part-22.js`, and scoped `git diff --check` passed.
+- Production: 913 sessions preserved; `app_users=893`, `app_generation_records=30006` at last count. `/api/health` returned 200.
+- Post-deploy completion `cgt-20261109180626-995900` has video/poster URLs and both storage keys, `cdnRetryCount=0`, no poster maintenance error; signed CDN HEAD checks returned 200 `video/mp4` and 200 `image/jpeg`. A broader recent sample of 8 completed video tasks also returned signed video/poster 200 with non-zero sizes.
+- Auth smoke: anonymous `/api/generation-records`, `/api/user-assets`, `/api/admin/users`, `/api/admin/generation-records` all returned 401; email-code request with empty body returned 400; Google login with empty body returned 401 `GOOGLE_LOGIN_INVALID`; no `tenantid is not defined` or post-deploy auth exception observed.
+- Media queue: new `advanced_download` jobs observed processing/ready; the 403/404 failures in the 17:55–18:07 window are historical 2026-11-04/06 records retried by the recovery scan, not post-deploy user tasks. No new generation had `posterMaintenanceError` after deployment at verification time.
+- Concurrent publishing guard: remote refs checked before and after; `platform-release` remained `920cdd3`, `old-site=3d56609`, and `live-release=bf1e01a`. No release push was made in this closeout.
