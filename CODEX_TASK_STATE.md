@@ -2145,4 +2145,7 @@ CODEX_TASK_STATE.md
 - Code fix: completed records require both `cdnVideoUrl` and `storageKey`; media scanner refreshes missing/expired provider media before advanced-download persistence; cooldown/terminal markers prevent loops.
 - Changed files: `server.parts/part-21.js`, `server.parts/part-23.js`, `test/generation-record-list-refresh.test.js`; integration commit `0a1d435`.
 - Verification: targeted regression suite 46/46 passed; syntax and diff checks passed.
-- Deployment status: pending release build/push Old-only/deploy. Existing sessions must remain untouched. Live must not be pushed or deployed.
+- Deployment: release `5586d19` deployed to Old only; production HEAD `5586d197368fc6b3e6c6878753d0ff5d2ce7c653`; service active, health 200, `NRestarts=0`; existing session count remained 915. Live was not pushed or deployed.
+- Authenticated API verification: owner session returned the task with `ok=true`, `status=succeeded`; signed `posterUrl`/`cdnPosterUrl` returned 200 `image/jpeg`, signed `videoUrl`/`cdnVideoUrl` returned 200 `video/mp4`.
+- Real browser verification: headless Chrome using the owner session opened Result, mounted the target card, loaded the poster (`naturalWidth=1280`, `naturalHeight=720`) from signed `assets-cdn.123vips.com`, and playback created a 1280x720 video at `readyState=4` with signed CDN bytes (`206`, `video/mp4`).
+- Final status: completed and verified; no sessions were cleared, revoked, or logged out.
