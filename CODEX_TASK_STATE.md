@@ -1,4 +1,4 @@
-## 2026-11-11 P1 backup recovery drill and resilience plan (verified, not yet deployed)
+## 2026-11-11 P1 backup recovery drill and resilience plan (deployed Old)
 
 - Scope: Old only (`123vips.com` / `47.84.76.131`). Live untouched. No production service restart, schema change, or source-database mutation.
 - Root decision: an isolated restore drill and external watchdog improve recoverability/process detection. A larger host is only a capacity change; multiple same-host `server.js` processes are unsafe before scheduler ownership is fixed.
@@ -9,8 +9,10 @@
 - Transitional off-host copy: `/Users/x042/raising-game-backups/2026-11-11/db-20261111-013315.dump`, remote SHA verified; not a substitute for a monitored independent backup service.
 - Watchdog verification: three consecutive `/api/livez` failures required; success resets counter; inactive service skips restart. Dynamic test produced exactly one restart after three failures. Timer/unit files are not installed on production.
 - Cleanup: previous failed drill databases were removed; only `raising_game` remains. Retained two useful verify snapshots (01:33 and 01:52) pending off-host policy; removed four failed-attempt snapshots.
-- 2026-11-11 local verification: resilience tests 4/4, shell syntax, Python compile, `git diff --check` pass. Preserve unrelated WIP.
-- Next deployment gate: commit only resilience assets, build `platform-release` from committed `old-site` via `scripts/build_release_snapshot.py`, deploy Old through `scripts/deploy_local.sh --site old`, verify health/livez/readyz and `NRestarts=0`. Do not install watchdog timer until post-deploy dry-run observation. Do not touch Live.
+- 2026-11-11 verification: resilience operations 4/4 and combined readiness/deploy/resilience 27/27; shell syntax, Python compile, and `git diff --check` pass. Preserve unrelated WIP.
+- Commit: `9404029` on `old-site`. Platform release `2d400ed` from that commit; remote advanced `4671621..2d400ed`. Live release was not pushed or deployed.
+- Deployed Old through `scripts/deploy_local.sh --site old`. Post-deploy: release `2d400ed`; `/api/health` 200 `{"ok":true}`, `/api/livez` 200 ready, `/api/readyz` 200 ready/DB OK; service active/running with `NRestarts=0`. Ops assets are present at `/opt/raising-game-demo/ops`; watchdog timer is inactive and its unit is not installed.
+- Next gate: install watchdog only after a controlled repeat-failure/staging observation; do not enable multi-process schedulers until ownership locks or worker split is verified. Establish dedicated encrypted off-host backups and monitoring before claiming 15-minute RPO.
 
 ## 2026-11-11 P0 readiness and deployment safety (deployed Old)
 
