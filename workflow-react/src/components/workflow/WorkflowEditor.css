@@ -36,6 +36,7 @@
 
 .CanvasEditor-back-button {
   padding: 7px 14px;
+  white-space: nowrap;
   color: #d9d3dc;
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -97,6 +98,7 @@
   border-radius: 999px;
   font: inherit;
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -146,4 +148,48 @@
   .CanvasEditor-title-input { width: 32vw; min-width: 120px; }
   .CanvasEditor-save-button,
   .CanvasEditor-new-button { padding: 0 10px; }
+}
+
+@media (max-width: 420px) {
+  .CanvasEditor-toolbar {
+    min-height: 56px;
+    padding: 0 6px;
+    gap: 4px;
+  }
+  .CanvasEditor-toolbar-left {
+    flex: 1 1 auto;
+    gap: 4px;
+    overflow: hidden;
+  }
+  .CanvasEditor-toolbar-right {
+    flex: 0 0 auto;
+    gap: 4px;
+  }
+  .CanvasEditor-title-wrapper {
+    flex: 1 1 auto;
+    gap: 2px;
+    overflow: hidden;
+  }
+  .CanvasEditor-back-button,
+  .CanvasEditor-save-button,
+  .CanvasEditor-new-button {
+    min-height: 44px;
+    padding: 0 10px;
+  }
+  .CanvasEditor-back-button { flex: 0 0 auto; }
+  .CanvasEditor-title {
+    max-width: 100%;
+    font-size: 15px;
+  }
+  .CanvasEditor-title-input {
+    width: 100%;
+    min-width: 0;
+    padding: 9px 7px;
+  }
+  .CanvasEditor-edit-button {
+    flex: 0 0 auto;
+    min-width: 28px;
+    min-height: 44px;
+  }
+  .CanvasEditor-saving { display: none; }
 }

@@ -1,3 +1,29 @@
+/* Main-site viewport compatibility. Keep visualViewport height authoritative on
+   mobile so address-bar and keyboard changes do not rely on stale 100vh. */
+let platformViewportFrame = 0;
+function syncPlatformViewportMetrics() {
+  platformViewportFrame = 0;
+  const root = document.documentElement;
+  const viewport = window.visualViewport;
+  const height = Math.max(1, Math.round(viewport?.height || window.innerHeight || root.clientHeight || 0));
+  const width = Math.max(1, Math.round(viewport?.width || window.innerWidth || root.clientWidth || 0));
+  const keyboardInset = Math.max(0, Math.round((window.innerHeight || height) - height));
+  root.style.setProperty("--app-height", `${height}px`);
+  root.style.setProperty("--app-width", `${width}px`);
+  root.style.setProperty("--app-keyboard-inset", `${keyboardInset}px`);
+  document.body?.classList.toggle("app-keyboard-open", keyboardInset >= 120);
+}
+function schedulePlatformViewportSync() {
+  if (platformViewportFrame) return;
+  platformViewportFrame = window.requestAnimationFrame(syncPlatformViewportMetrics);
+}
+window.PlatformViewport = { sync: syncPlatformViewportMetrics };
+syncPlatformViewportMetrics();
+window.addEventListener("resize", schedulePlatformViewportSync, { passive: true });
+window.addEventListener("orientationchange", schedulePlatformViewportSync, { passive: true });
+window.visualViewport?.addEventListener("resize", schedulePlatformViewportSync, { passive: true });
+window.visualViewport?.addEventListener("scroll", schedulePlatformViewportSync, { passive: true });
+
 /* holiday-referral-nav */
 async function startPlatform() {
   const allowed = await ensureAgeGate();

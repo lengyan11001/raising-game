@@ -1333,7 +1333,7 @@ main {
   padding: 6px 38px 32px;
 }
 .seo-discovery {
-  width: min(1440px, calc(100vw - 44px));
+  width: min(1440px, 100%);
   margin: 18px auto 0;
   padding-top: 16px;
   border-top: 1px solid var(--line);
@@ -1362,7 +1362,7 @@ main {
 .seo-discovery a:hover { color: var(--text); }
 .site-foot {
   display: none;
-  width: min(1440px, calc(100vw - 44px));
+  width: min(1440px, 100%);
   margin: 34px auto 22px;
   align-items: center;
   justify-content: space-between;
@@ -12208,7 +12208,7 @@ select:focus,
 :root {}
 
 /* Final cascade for the reference-style Chat onboarding. */
-.chat-onboarding-panel { display: grid !important; grid-template-columns: 150px minmax(0,1fr) !important; width: min(1100px, calc(100vw - 48px)) !important; height: min(730px, calc(100vh - 48px)) !important; max-height: none !important; padding: 0 !important; overflow: hidden !important; border: 0 !important; border-radius: 12px !important; background: rgba(247,247,248,.97) !important; color: #0e0e11 !important; }
+.chat-onboarding-panel { display: grid !important; grid-template-columns: 150px minmax(0,1fr) !important; width: min(1100px, calc(100vw - 48px)) !important; height: min(730px, calc(var(--app-height, 100vh) - 48px)) !important; max-height: none !important; padding: 0 !important; overflow: hidden !important; border: 0 !important; border-radius: 12px !important; background: rgba(247,247,248,.97) !important; color: #0e0e11 !important; }
 .chat-onboarding-backdrop { background-color: #24242a !important; background-position: center !important; background-size: cover !important; filter: blur(5px) !important; transform: scale(1.04) !important; opacity: .46 !important; }
 .chat-onboarding-rail { display: flex !important; flex-direction: column !important; gap: 10px !important; padding: 0 !important; background: rgba(229,229,231,.92) !important; }
 .chat-onboarding-rail-item { position: relative !important; display: grid !important; grid-template-columns: 1fr 28px !important; align-items: center !important; min-height: 70px !important; padding: 0 17px 0 24px !important; border: 0 !important; border-radius: 0 38px 38px 0 !important; color: #111 !important; background: rgba(255,255,255,.95) !important; font-weight: 800 !important; }
@@ -12238,7 +12238,7 @@ select:focus,
 .chat-onboarding-role-copy small { display: none !important; }
 .chat-onboarding-role-cta { padding: 0 12px !important; }
 @media (max-width: 700px) {
-  .chat-onboarding-panel { grid-template-columns: 82px minmax(0,1fr) !important; width: calc(100vw - 20px) !important; height: calc(100vh - 20px) !important; }
+  .chat-onboarding-panel { grid-template-columns: 82px minmax(0,1fr) !important; width: calc(100vw - 20px) !important; height: calc(var(--app-height, 100vh) - 20px) !important; }
   .chat-onboarding-rail-item { min-height: 64px !important; padding: 0 9px !important; grid-template-columns: 1fr !important; justify-items: center !important; }
   .chat-onboarding-rail-item i, .chat-onboarding-rail-item img { justify-self: center !important; }
   .chat-onboarding-image-options { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
@@ -15145,4 +15145,76 @@ body.wan30-launch-visible .site-head { top: 0; }
   .notification-panel-from-nav { position: fixed; top: 65px; right: 10px; bottom: auto; left: 10px !important; width: auto; max-height: calc(100dvh - 82px) !important; transform: none; }
   .notification-panel-from-nav:not([hidden]) { animation: notification-panel-in .18s ease-out; }
   .notification-detail-shell footer { align-items: flex-end; }
+}
+
+
+/* Main-site compatibility baseline: one visual-viewport height and safe-area
+   contract shared by the shell, chat, workflow, dialogs, and media surfaces. */
+:root {
+  --app-height: 100dvh;
+  --app-width: 100vw;
+  --app-keyboard-inset: 0px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+@supports not (height: 100dvh) {
+  :root { --app-height: 100vh; }
+}
+html { min-height: 100%; }
+body {
+  min-height: 100vh;
+  min-height: var(--app-height, 100vh);
+}
+main {
+  min-height: calc(100vh - 64px);
+  min-height: calc(var(--app-height, 100vh) - 64px);
+}
+.chat-panel {
+  min-height: calc(100vh - 82px);
+  min-height: calc(var(--app-height, 100vh) - 82px);
+}
+.chat-shell {
+  height: calc(100vh - 100px);
+  height: calc(var(--app-height, 100vh) - 100px);
+}
+.chat-onboarding-panel {
+  height: min(730px, calc(100vh - 48px));
+  height: min(730px, calc(var(--app-height, 100vh) - 48px));
+  max-height: calc(var(--app-height, 100vh) - 48px);
+}
+.workflow-panel {
+  height: calc(100dvh - 70px);
+  height: calc(var(--app-height, 100vh) - 70px);
+}
+.modal {
+  max-height: calc(var(--app-height, 100vh) - 16px);
+}
+:where(button, [role="button"], a[href], input, select, textarea, summary) {
+  touch-action: manipulation;
+}
+body.app-keyboard-open {
+  overscroll-behavior-y: contain;
+}
+@media (max-width: 720px) {
+  main {
+    padding-bottom: calc(26px + var(--safe-bottom));
+  }
+  .chat-panel {
+    min-height: calc(100vh - 54px);
+    min-height: calc(var(--app-height, 100vh) - 54px);
+  }
+  .chat-shell {
+    height: calc(100vh - 54px);
+    height: calc(var(--app-height, 100vh) - 54px);
+  }
+  .chat-onboarding-panel {
+    height: calc(100vh - 20px);
+    height: calc(var(--app-height, 100vh) - 20px);
+    max-height: calc(var(--app-height, 100vh) - 20px);
+  }
+  .workflow-panel {
+    min-height: 0;
+  }
 }
