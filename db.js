@@ -4333,6 +4333,50 @@ async function upsertChatLiveCharacterInDb(character = {}) {
   return payload;
 }
 
+async function listChatLiveCharactersByOwnerInDb(ownerMerchantUserId = "", { includeDisabled = true } = {}) {
+  if (!dbEnabled()) return [];
+  const owner = String(ownerMerchantUserId || "").trim();
+  if (!owner) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload, looks FROM app_chat_live_characters
+    WHERE deleted_at IS NULL AND COALESCE(payload->>'ownerMerchantUserId', payload->>'embedMerchantId') = $1
+    ${includeDisabled ? "" : "AND enabled = TRUE"}
+    ORDER BY sort_order ASC, created_at ASC
+  `, [owner]);
+  return rows.map((row) => ({ ...(row.payload || {}), looks: row.looks || [] }));
+}
+
+async function getChatLiveCharacterByOwnerInDb(ownerMerchantUserId = "", id = "") {
+  if (!dbEnabled()) return null;
+  const owner = String(ownerMerchantUserId || "").trim();
+  const characterId = String(id || "").trim();
+  if (!owner || !characterId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload, looks FROM app_chat_live_characters
+    WHERE id = $1 AND deleted_at IS NULL
+      AND COALESCE(payload->>'ownerMerchantUserId', payload->>'embedMerchantId') = $2
+  `, [characterId, owner]);
+  return rows[0] ? { ...(rows[0].payload || {}), looks: rows[0].looks || [] } : null;
+}
+
+async function listActiveChatLiveSessionsByCharacterIdInDb(characterId = "") {
+  if (!dbEnabled()) return [];
+  const id = String(characterId || "").trim();
+  if (!id) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload FROM app_chat_live_sessions
+    WHERE character_id = $1
+      AND COALESCE(payload->>'settled', 'false') NOT IN ('true', '1')
+      AND COALESCE(payload->>'status', 'pending') NOT IN ('ended', 'failed', 'cancelled', 'expired')
+    ORDER BY created_at DESC
+    LIMIT 50
+  `, [id]);
+  return rows.map((row) => row.payload || {});
+}
+
 async function softDeleteChatLiveCharacterInDb(id = "", deletedAt = new Date().toISOString()) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -8998,9 +9042,12 @@ module.exports = {
   deleteChatMessageInDb,
   deleteChatMessagesAfterInDb,
   listChatLiveCharactersInDb,
+  listChatLiveCharactersByOwnerInDb,
   getChatLiveCharacterInDb,
+  getChatLiveCharacterByOwnerInDb,
   upsertChatLiveCharacterInDb,
   softDeleteChatLiveCharacterInDb,
+  listActiveChatLiveSessionsByCharacterIdInDb,
   createChatLiveSessionInDb,
   getChatLiveSessionInDb,
   getChatLiveSessionByLiveIdInDb,

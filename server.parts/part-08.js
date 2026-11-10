@@ -45,7 +45,17 @@ async function handleCreateChatLiveSession(req, res) {
   const liveMember = liveMembershipActive(liveSubscription);
   const salePerMinute = liveMemberSaleCredits(wantsSharedRoom ? chatLiveSharedRoomSaleCredits(live) : Number(live.saleCreditsPerMinute || 0), liveMember);
   if (!(salePerMinute > 0)) return sendJson(res, 503, { ok: false, code: "CHAT_LIVE_PRICING_MISSING", message: "在线聊天价格未配置。" });
-  const conversationMode = wantsSharedRoom ? "component" : (String(character.mode || live.defaultMode || "realtime") === "component" ? "component" : "realtime");
+  const requestedMode = String(body.mode || auth.embed?.mode || character.mode || live.defaultMode || "realtime");
+  const conversationMode = wantsSharedRoom
+    ? "component"
+    : (["component", "compute-relay"].includes(requestedMode) ? requestedMode : "realtime");
+  if (conversationMode === "compute-relay") {
+    return sendJson(res, 409, {
+      ok: false,
+      code: "VIDU_LIVE_USE_PROGRAMMATIC_API",
+      message: "算力中转会话必须通过 POST /api/embed/live/sessions 创建，并使用返回的 relay WebSocket。",
+    });
+  }
   if (conversationMode === "component" && (!ARTC_APP_ID || !ARTC_APP_KEY)) {
     return sendJson(res, 503, {
       ok: false,
@@ -1296,5 +1306,6 @@ async function closeChatLiveForInsufficientCredits(session = {}) {
   const socket = chatLiveSockets.get(String(session.id || ''));
   if (socket) { try { socket.destroy(); } catch {} }
   if (session.mode === 'component' && session.liveId && session.sharedRoomViewer !== true) { try { chatLiveComponent.stopComponentSession(session.liveId); } catch {} }
+  if (session.mode === 'compute-relay') viduLiveRelay.closeSession(session.id, true, "insufficient_credits");
 }
 

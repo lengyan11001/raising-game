@@ -706,12 +706,15 @@ function normalizeChatLiveConfig(raw = {}) {
     saleCreditsPerMinute: integer(source.saleCreditsPerMinute, 0, 0, 1000000),
     /* 0 = 跟单人卖价相同 */
     sharedRoomSaleCreditsPerMinute: integer(source.sharedRoomSaleCreditsPerMinute, 0, 0, 1000000),
+    /* 商家自带 LLM/ASR/TTS，只中转 Vidu 算力；独立定价，缺失时失败关闭 */
+    computeRelayCostCreditsPerMinute: integer(source.computeRelayCostCreditsPerMinute, CHAT_LIVE_DEFAULT_COST_CREDITS_PER_MINUTE, 0, 1000000),
+    computeRelaySaleCreditsPerMinute: integer(source.computeRelaySaleCreditsPerMinute, 0, 0, 1000000),
     freeSeconds: integer(source.freeSeconds, 0, 0, 3600),
     maxMinutes: integer(source.maxMinutes, 10, 1, 120),
     model: String(source.model || VIDU_LIVE_MODEL).trim() || VIDU_LIVE_MODEL,
     callMode: source.callMode === "audio" ? "audio" : "video",
     /* 对话模式：realtime = Vidu 内置 LLM（一体化）；component = 外接我们自己的 ASR/LLM/TTS */
-    defaultMode: source.defaultMode === "component" ? "component" : "realtime",
+    defaultMode: ["component", "compute-relay"].includes(source.defaultMode) ? source.defaultMode : "realtime",
     languageModel: ["papaya", "papaya-1.0", "carrothub-papaya-1.0"].includes(String(source.languageModel || "").trim().toLowerCase()) ? "papaya" : "byteplus",
     videoChatEnabled: source.videoChatEnabled !== false,
     region: String(source.region || "").trim().toLowerCase() === "cn"

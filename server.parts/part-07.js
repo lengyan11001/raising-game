@@ -84,11 +84,13 @@ function livePricingView(live = {}) {
     costCreditsPerMinute: Number(live.costCreditsPerMinute || 0),
     saleCreditsPerMinute: Number(live.saleCreditsPerMinute || 0),
     sharedRoomSaleCreditsPerMinute: chatLiveSharedRoomSaleCredits(live),
+    computeRelayCostCreditsPerMinute: Number(live.computeRelayCostCreditsPerMinute || 0),
+    computeRelaySaleCreditsPerMinute: Number(live.computeRelaySaleCreditsPerMinute || 0),
     textMessageCredits: CHAT_MESSAGE_CREDITS,
     freeSeconds: Number(live.freeSeconds || 0),
     maxMinutes: Number(live.maxMinutes || 10),
     callMode: live.callMode || "video",
-    defaultMode: live.defaultMode === "component" ? "component" : "realtime",
+    defaultMode: ["component", "compute-relay"].includes(live.defaultMode) ? live.defaultMode : "realtime",
     languageModel: live.languageModel === "papaya" ? "papaya" : "byteplus",
     model: live.model || VIDU_LIVE_MODEL,
     videoChatEnabled: live.videoChatEnabled !== false,
@@ -1136,6 +1138,7 @@ async function releaseChatLiveForReconnect(session = {}) {
   if (String(session.mode || "") === "component" && session.liveId) {
     try { chatLiveComponent.stopComponentSession?.(session.liveId); } catch {}
   }
+  if (String(session.mode || "") === "compute-relay") viduLiveRelay.closeSession(session.id, true, "replaced_by_reconnect");
   const endedAt = new Date().toISOString();
   await withChatLiveSessionSettlementLockInDb(session.id, async (lockedSession) => {
     const current = lockedSession || session;

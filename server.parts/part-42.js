@@ -562,16 +562,17 @@ async function handleRequest(req, res) {
       if (req.method === "GET") return await handleListChatLiveRoomMessages(req, res, roomKey);
       return await handleChatLiveRoomMessage(req, res, roomKey);
     }
-    if (req.method === "GET" && url.pathname === "/api/embed/live/voices") {
-      return handleEmbedLiveVoices(req, res, url);
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/embed/live/tickets") {
-      return handleEmbedLiveTicket(req, res);
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/embed/live/bootstrap") {
-      return handleEmbedLiveBootstrap(req, res);
+    if (
+      url.pathname === "/api/embed/live/voices"
+      || url.pathname === "/api/embed/live/tickets"
+      || url.pathname === "/api/embed/live/bootstrap"
+      || url.pathname === "/api/embed/live/characters"
+      || url.pathname.startsWith("/api/embed/live/characters/")
+      || url.pathname === "/api/embed/live/sessions"
+      || url.pathname.startsWith("/api/embed/live/sessions/")
+      || url.pathname === "/docs/vidu-live-integration.md"
+    ) {
+      return await handleViduLiveRoutes(req, res, url);
     }
 
     if (req.method === "GET" && url.pathname === "/api/chat-live/contacts") {

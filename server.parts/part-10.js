@@ -556,7 +556,18 @@ function normalizeEmbedLiveLooks(raw) {
 }
 
 async function upsertEmbedLiveCharacter(merchantId, input = {}) {
-  const imageUrl = String(input.imageUrl || input.avatarUrl || "").trim();
+  const stableId = String(input.characterId || input.character_id || input.id || "").trim();
+  const existing = stableId ? await getChatLiveCharacterByOwnerInDb(merchantId, stableId) : null;
+  if (stableId && !existing) {
+    const occupied = await getChatLiveCharacterInDb(stableId);
+    if (occupied) {
+      const error = new Error("角色 ID 已被占用。");
+      error.statusCode = 409;
+      error.code = "EMBED_CHARACTER_ID_CONFLICT";
+      throw error;
+    }
+  }
+  const imageUrl = String(input.imageUrl || input.avatarUrl || existing?.avatarUrl || "").trim();
   if (!/^https:\/\/\S+$/i.test(imageUrl)) {
     const error = new Error("角色形象图必须是可公网访问的 https 地址。");
     error.statusCode = 422;
@@ -578,9 +589,8 @@ async function upsertEmbedLiveCharacter(merchantId, input = {}) {
   const voiceType = voice.voiceType;
   const voiceProvider = voice.provider;
   const embedLooks = normalizeEmbedLiveLooks(input.looks);
-  const id = `embedchar-${crypto.createHash("sha256").update([merchantId, name, imageUrl, voiceType, voiceProvider, persona, JSON.stringify(embedLooks)].join("\n")).digest("hex").slice(0, 24)}`;
+  const id = existing?.id || stableId || `embedchar-${crypto.randomBytes(12).toString("hex")}`;
   const now = new Date().toISOString();
-  const existing = await getChatLiveCharacterInDb(id);
   return upsertChatLiveCharacterInDb({
     ...(existing || {}),
     id,
@@ -597,8 +607,11 @@ async function upsertEmbedLiveCharacter(merchantId, input = {}) {
     voiceProvider,
     language: String(input.language || existing?.language || "zh").trim().slice(0, 16) || "zh",
     enabled: false,
+    ownerMerchantUserId: String(merchantId),
     embedMerchantId: String(merchantId),
-    sortOrder: 100000,
+    createdByUserId: existing?.createdByUserId || String(merchantId),
+    updatedByUserId: String(merchantId),
+    sortOrder: Number(existing?.sortOrder ?? 100000) || 100000,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   });
@@ -644,9 +657,17 @@ async function handleEmbedLiveTicket(req, res) {
   const user = body.user && typeof body.user === "object" ? body.user : {};
   const origin = body.origin ? embedLiveOrigin(body.origin) : "";
   if (body.origin && !origin) return sendJson(res, 422, { ok: false, code: "EMBED_ORIGIN", message: "origin 必须是 http(s) 来源。" });
+  const requestedMode = String(body.mode || "").trim();
+  const mode = requestedMode === "compute-relay" ? "compute-relay" : (requestedMode === "component" ? "component" : "realtime");
   let character;
   try {
-    character = await upsertEmbedLiveCharacter(auth.user.id, body.character || {});
+    const characterId = String(body.characterId || body.character_id || "").trim();
+    if (characterId) {
+      character = await getChatLiveCharacterByOwnerInDb(auth.user.id, characterId);
+      if (!character) return sendJson(res, 404, { ok: false, code: "EMBED_CHARACTER_NOT_FOUND", message: "角色不存在或不属于当前商家。" });
+    } else {
+      character = await upsertEmbedLiveCharacter(auth.user.id, body.character || {});
+    }
   } catch (error) {
     return sendJson(res, error.statusCode || 422, { ok: false, code: error.code || "EMBED_CHARACTER", message: error.message || "角色资料不正确。" });
   }
@@ -660,6 +681,7 @@ async function handleEmbedLiveTicket(req, res) {
     displayName: String(user.name || externalUserId).trim().slice(0, 80),
     avatarUrl: String(user.avatarUrl || "").trim().slice(0, 500),
     characterId: character.id,
+    mode,
     origin,
     exp,
   });
@@ -668,6 +690,7 @@ async function handleEmbedLiveTicket(req, res) {
     ticket,
     expiresAt: new Date(exp).toISOString(),
     embedUrl: `https://live.123vipeak.com/embed?ticket=${encodeURIComponent(ticket)}`,
+    mode,
     character: { id: character.id, name: character.name },
   });
 }
@@ -695,6 +718,7 @@ async function handleEmbedLiveBootstrap(req, res) {
     displayName: ticket.displayName,
     avatarUrl: ticket.avatarUrl || "",
     characterId: ticket.characterId,
+    mode: ticket.mode === "compute-relay" ? "compute-relay" : (ticket.mode === "component" ? "component" : "realtime"),
     exp,
   });
   return sendJson(res, 200, {

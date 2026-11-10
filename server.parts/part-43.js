@@ -15,14 +15,21 @@ const server = http.createServer((req, res) => {
   });
 });
 
-/* WebSocket upgrade: Vidu control channel proxy for chat live sessions. */
+/* WebSocket upgrade: managed chat-live and merchant compute-relay channels. */
 server.on("upgrade", (req, socket, head) => {
-  if (!String(req.url || "").startsWith("/api/chat-live/ws")) {
+  Promise.resolve().then(async () => {
+    const requestUrl = String(req.url || "");
+    if (requestUrl.startsWith("/api/embed/live/sessions/")) {
+      const handled = await viduLiveRelay.handleUpgrade(req, socket, head);
+      if (handled) return;
+    }
+    if (requestUrl.startsWith("/api/chat-live/ws")) {
+      await handleChatLiveUpgrade(req, socket, head);
+      return;
+    }
     socket.destroy();
-    return;
-  }
-  handleChatLiveUpgrade(req, socket, head).catch((error) => {
-    console.warn("[chat-live-ws] upgrade failed", error.message || error);
+  }).catch((error) => {
+    console.warn("[ws-upgrade-failed]", error.message || error);
     try { socket.destroy(); } catch {}
   });
 });
@@ -756,4 +763,8 @@ module.exports = {
   parseChatLiveCharacterAutoProfile,
   filterChatLiveComponentVoiceCatalog,
   CHAT_LIVE_COMPONENT_VOICE_ALLOWLIST,
+  viduLiveMerchantAuth,
+  viduLiveExternalUserId,
+  viduLiveRelayWebSocketUrl,
+  viduLivePublicCharacter,
 };

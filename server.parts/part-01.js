@@ -9,6 +9,7 @@ const path = require("node:path");
 const tls = require("node:tls");
 const dns = require("node:dns");
 const chatLiveComponent = require("./chat-live-component");
+const viduLiveRelay = require("./vidu-live-relay");
 const { execFile } = require("node:child_process");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
@@ -285,9 +286,12 @@ const {
   deleteChatMessageInDb,
   deleteChatMessagesAfterInDb,
   listChatLiveCharactersInDb,
+  listChatLiveCharactersByOwnerInDb,
   getChatLiveCharacterInDb,
+  getChatLiveCharacterByOwnerInDb,
   upsertChatLiveCharacterInDb,
   softDeleteChatLiveCharacterInDb,
+  listActiveChatLiveSessionsByCharacterIdInDb,
   createChatLiveSessionInDb,
   getChatLiveSessionInDb,
   getChatLiveSessionByLiveIdInDb,

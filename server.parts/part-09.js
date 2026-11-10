@@ -268,6 +268,7 @@ async function handleEndChatLiveSession(req, res, sessionId = "") {
   if (session.mode === "component" && session.liveId && session.sharedRoomViewer !== true) {
     try { chatLiveComponent.stopComponentSession(session.liveId); } catch {}
   }
+  if (session.mode === "compute-relay") viduLiveRelay.closeSession(session.id, true, clientReason || "merchant_end");
   if (session.status === "ended" && session.settled === true) {
     /*
      * A late end request may race a settlement or another client write. Merge
@@ -853,7 +854,7 @@ function publicAdminChatLiveSession(session = {}, extras = {}) {
     characterName: extras.characterName || session.characterName || "",
     status: session.status || "",
     settled: session.settled === true,
-    mode: session.mode === "component" ? "component" : "realtime",
+    mode: ["component", "compute-relay"].includes(session.mode) ? session.mode : "realtime",
     viduRegion: session.viduRegion === "cn" ? "cn" : "overseas",
     sourceHost: session.sourceHost || hostnameFromOrigin(session.sourceOrigin || ""),
     billedSeconds,

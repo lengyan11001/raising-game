@@ -2663,3 +2663,13 @@ CODEX_TASK_STATE.md
 - Publish scope: `db.js`, `platform.js`, `platform-sw.js`, `platform.explore.js`, `server.parts/part-01.js`, `server.parts/part-33.js`, `test/generation-db-scope.test.js`, `test/platform-refresh-performance.test.js`, this state entry. Unrelated model-picker/canvas WIP must not be staged.
 - Deployment: committed `ec270ae`, built platform release `0c836ed`, pushed `old-site` and `platform-release`, deployed Old only with `scripts/deploy_local.sh --site old`. Live release remains `bf1e01a`.
 - Production verification: homepage TTFB 0.37s cold / 0.14–0.43s repeated; admin TTFB 0.22s cold / 0.14–0.16s repeated; `/api/health` 0.08–0.21s. Server HEAD is `0c836ed`, service active, zero restart-timeout/error matches, and no `timeout exceeded when trying to connect` entries since restart. Production `platform-sw.js` no longer contains precache shell logic, and `platform.js` exposes deferred modules without loading them on page load.
+
+## Vidu Live full integration (2026-11-10)
+
+- Goal: complete Vidu Live integration, not a simplified demo. Scope includes merchant-isolated Character CRUD, compute-relay mode, programmatic sessions, relay WebSocket, independent fail-closed billing, admin pricing, public docs, and developer access on `123vipeak.com`.
+- Hard constraints: PostgreSQL only; no JSON/file fallback. Use only `scripts/deploy_local.sh --site old|live`; build releases from committed `old-site`; never mix `platform-release` and `live-release`.
+- Existing embed routes live in `server.parts/part-10.js` and `server.parts/part-42.js`. The route table is near its line limit; add a `part-47.js` dispatcher and keep `part-42.js` small.
+- Existing component flow starts `chatLiveComponent.startComponentSession()`. Compute relay must call Vidu `/live/s_avatar/component`, return ARTC viewer info, and connect directly to Vidu control WS without platform ASR/LLM/TTS/persona/nudge.
+- Character IDs are currently content hashes and therefore unstable. Replace with stable random IDs while preserving merchant isolation and inline ticket compatibility.
+- Compute-relay must use separate `computeRelayCostCreditsPerMinute` and `computeRelaySaleCreditsPerMinute`, fail closed when absent, reserve before upstream creation, roll back on failure, settle from Vidu billed seconds, and include `externalUserId` in ledger metadata.
+- Planning references: `chat-live-component.js` for the dependency-free WS client and Vidu signal protocol; `db.js` for character/session persistence; `admin.js` for pricing UI.
