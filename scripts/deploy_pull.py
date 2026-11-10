@@ -495,7 +495,8 @@ fi
 
     pre_restart_check = "\n".join(args.pre_restart_command) or "true"
     post_restart_check = "\n".join(args.post_restart_command) or "true"
-    stop_timeout_q = shlex.quote(f"{args.stop_timeout_seconds}s")
+    stop_timeout_q = shlex.quote(str(args.stop_timeout_seconds))
+    service_q = shlex.quote(args.service)
 
     if args.commit:
         expected_q = shlex.quote(args.commit)
@@ -532,7 +533,11 @@ release_target=$(git rev-parse "origin/{args.branch}")
 git checkout --detach "$release_target"
 {pre_restart_check}
 if [ {shlex.quote('' if args.no_restart else '1')} = 1 ]; then
-  systemctl set-property {shlex.quote(args.service)} TimeoutStopUSec={stop_timeout_q}
+  service_name={service_q}
+  dropin_dir="/etc/systemd/system/${{service_name}}.service.d"
+  install -d -m 0755 "$dropin_dir"
+  printf '[Service]\nTimeoutStopSec=%s\n' {stop_timeout_q} > "$dropin_dir/90-generation-submit-drain.conf"
+  systemctl daemon-reload
 fi
 {"true" if args.no_restart else f"systemctl restart {args.service}"}
 sleep 2
@@ -555,6 +560,16 @@ echo
 if [ "$health_code" != "200" ]; then
   echo "Health check returned HTTP $health_code: {args.health_url}" >&2
   exit 27
+fi
+if [ {shlex.quote('' if args.no_restart else '1')} = 1 ] && [ -f "$dropin_dir/90-generation-submit-drain.conf" ]; then
+  # Keep an operator-installed value if one appeared while the service was
+  # restarting. Otherwise remove only the temporary deploy fence after the
+  # listener is healthy and the in-flight submissions have had their window.
+  if ! grep -Rqs '^[[:space:]]*TimeoutStopSec=' "$dropin_dir" --exclude=90-generation-submit-drain.conf; then
+    rm -f "$dropin_dir/90-generation-submit-drain.conf"
+    rmdir "$dropin_dir" 2>/dev/null || true
+    systemctl daemon-reload
+  fi
 fi
 # Mutating post-restart actions are deliberately health-gated. A failed app
 # start must not be compounded by changing the live Nginx edge.
