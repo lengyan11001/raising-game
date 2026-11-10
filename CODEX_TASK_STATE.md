@@ -1,3 +1,29 @@
+## 2026-11-10 unified messages entry + notification/admin loading performance (ready to deploy)
+
+- Goal: remove duplicate top bell, bottom-right support FAB and old bottom-left support entry; keep one bottom-left **消息通知** entry that opens the existing notification panel; improve slow user notification and admin support-ticket loading.
+- User UI: `platform.html`, `platform.config.js`, `platform.explore.js`, `platform.main.js`, `platform.css`. Top bell is retained hidden for compatibility; mobile bell and support FAB removed. Bottom-left entry opens `toggleNotificationPanel("nav")`, tracks `notification_open`, shares the same panel support card into ticket chat, and shows combined system/support unread dot.
+- Loading UX: notification panel gets a skeleton and duplicate-request protection; panel opens immediately while data refreshes.
+- Notification API: `/api/system-notifications` now calls `countUserSupportUnreadFromDb()` in parallel instead of loading up to 100 support tickets merely to sum unread counts.
+- Support ticket SQL: replaced repeated correlated subqueries with one count lateral and one last-message lateral; removed `ARRAY_AGG` of all message bodies. Added message indexes for ticket/sender/time and sender/ticket/time.
+- Ticket detail loading: read marker and message fetch run in parallel; mark-read returns the updated ticket directly. Admin switch detects `#ticketThread` so existing conversation stays visible and no full-screen loader flashes on each switch.
+- Asset cache keys bumped to `notification-inbox-20261110-1`; cache-key assertions in `test/auth-risk.test.js` and `test/advanced-custom-ui.test.js` updated.
+- Verification: support-notifications 7/7, telegram-bot 10/10, mobile-tool-ux 11/11, auth-risk + security-regressions 42/42; syntax checks and `git diff --check` pass. `advanced-custom-ui.test.js` has pre-existing unrelated failures when run alone (10 failed, affected by unrelated generated-source/advanced-model WIP); no notification assertion failed.
+- Files for selective staging: `admin.js`, `db.js`, `platform.config.js`, `platform.css` (notification hunks only), `platform.explore.js`, `platform.html`, `platform.main.js`, `server.parts/part-01.js`, `server.parts/part-33.js`, `test/support-notifications.test.js`, `test/auth-risk.test.js`, `test/advanced-custom-ui.test.js`, this state entry.
+- Unrelated WIP to exclude: `platform.create.parts/part-02.js`, `platform.ui.parts/part-02.js`, `test/platform-site-profile.test.js`, `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, `workflow-react/node_modules`.
+- Status: not committed or deployed yet. Next: selective commit on `old-site`, build/push `platform-release`, deploy Old only, verify health and production UI/API, ensure `live-release` unchanged.
+
+## 2026-11-10 admin pricing deployment + model display config (deployed Old)
+
+- User requested deploying the admin pricing work first, then configuring model display data before publishing the generate-page picker.
+- Deployed only Old via `scripts/deploy_local.sh --site old`; source HEAD `085ed74`, release `platform-release` `8e362a2` (already equal to `origin/platform-release`). Admin pricing commit `ed0e3a7` is included.
+- Production health `https://123vips.com/api/health` returned `200 {"ok":true}`; `raising-game-demo` active; served `admin.js` SHA-256 `2d6ddf8ed6f46b1de821a85515949d4364298f1680bcc647a786fad9889d87e4` matches release.
+- Configured PostgreSQL `app_kv.app_config -> platform.advancedPricing.modelSettings` for display names/subtitles/discounts. Discounts remain `1`; purchase/base sale prices were not changed.
+- Configured: `vega10-lite`=`h3（vega）`; `h3-vega`=`wan（vega）`; `seedance20-vega`=`seedance2.0（vega）`; `seedance25-vega`=`seedance2.5vega`; also disambiguated `seedance25` as `Seedance 2.5（官转）` and `seedance-nsfw` as `Seedance 2.5（NSFW）`.
+- Config backup on Old: `/opt/raising-game-demo/.app_config.backup.1794291078295.json` (mode 0600).
+- Verification: readback shows `updated_at=2026-11-10T06:11:18.272Z` and all six settings; no warning/error journal entries in the 5-minute post-write window.
+- Rollback: previous Old release `origin/platform-release` before this deploy was `1e982d6`; if configuration-only rollback is needed restore the backup through PostgreSQL, not a file fallback. Live release remains untouched at `origin/live-release` `bf1e01a`.
+- Unrelated platform picker/test/canvas WIP remains unstaged and unpublished.
+
 ## 2026-11-10 failed-refund ledger consistency hardening (ready to deploy)
 
 - Root cause: several failure handlers marked `billingStatus=refunded` before the refund ledger write completed; a write error could leave a failed record showing refunded with no positive ledger entry.

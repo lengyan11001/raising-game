@@ -135,12 +135,12 @@ const STALLED_GENERATION_REFUND_PROVIDERS = new Set([
 ]);
 
 const FAILED_REFUND_AUDIT_LEDGER_TYPES = new Map([
-  ["seedream5-image", { charge: "advanced_seedream5_image", refund: "advanced_seedream5_image_refund" }],
-  ["qwen-image3", { charge: "advanced_qwen_image3", refund: "advanced_qwen_image3_refund" }],
-  ["qwen37-flash", { charge: "advanced_qwen37_flash", refund: "advanced_qwen37_flash_refund" }],
-  ["papaya", { charge: "advanced_qwen37_flash", refund: "advanced_qwen37_flash_refund" }],
-  ["byteplus-language", { charge: "advanced_qwen37_flash", refund: "advanced_qwen37_flash_refund" }],
-  ["z-image-spicy-pro", { charge: "advanced_z_image_spicy_pro", refund: "advanced_z_image_spicy_pro_refund" }],
+  ["seedream5-image", { charge: "advanced_seedream5_image", refunds: ["advanced_seedream5_image_refund", "generation_refund"] }],
+  ["qwen-image3", { charge: "advanced_qwen_image3", refunds: ["advanced_qwen_image3_refund", "generation_refund"] }],
+  ["qwen37-flash", { charge: "advanced_qwen37_flash", refunds: ["advanced_qwen37_flash_refund", "generation_refund"] }],
+  ["papaya", { charge: "advanced_qwen37_flash", refunds: ["advanced_qwen37_flash_refund", "generation_refund"] }],
+  ["byteplus-language", { charge: "advanced_qwen37_flash", refunds: ["advanced_qwen37_flash_refund", "generation_refund"] }],
+  ["z-image-spicy-pro", { charge: "advanced_z_image_spicy_pro", refunds: ["advanced_z_image_spicy_pro_refund", "generation_refund"] }],
 ]);
 
 const stalledGenerationRepairLocks = new Set();
@@ -255,6 +255,11 @@ function signedCreditsAmount(value, fallback = 0) {
   return Math.round(next * 10000) / 10000;
 }
 
+function failedRefundAuditRefundTypes(ledgerTypes = {}) {
+  if (Array.isArray(ledgerTypes.refunds)) return ledgerTypes.refunds.filter(Boolean);
+  return ledgerTypes.refund ? [ledgerTypes.refund] : [];
+}
+
 async function generationTaskLedgerSummary(record = {}, ledgerTypes = null) {
   const types = ledgerTypes || failedRefundAuditLedgerTypes(record);
   if (!record.taskId || !types) return [];
@@ -265,7 +270,7 @@ async function generationTaskLedgerSummary(record = {}, ledgerTypes = null) {
     WHERE meta->>'taskId' = $1
       AND type = ANY($2::text[])
     GROUP BY type
-  `, [String(record.taskId || ""), [types.charge, types.refund]]);
+  `, [String(record.taskId || ""), [types.charge, ...failedRefundAuditRefundTypes(types)]]);
   return rows.map((row) => ({
     type: String(row.type || ""),
     total: signedCreditsAmount(row.total || 0),
@@ -284,7 +289,8 @@ function falseRefundedGenerationAudit(record = {}, ledgerSummary = []) {
     return { eligible: false, reason: "not-a-false-refunded-record", preDeducted };
   }
   const charge = ledgerSummary.find((entry) => entry.type === ledgerTypes.charge);
-  const refund = ledgerSummary.find((entry) => entry.type === ledgerTypes.refund);
+  const refundTypes = failedRefundAuditRefundTypes(ledgerTypes);
+  const refund = ledgerSummary.find((entry) => refundTypes.includes(entry.type));
   const chargedCredits = charge ? Math.abs(Math.min(0, charge.total)) : 0;
   if (!charge || charge.count !== 1 || charge.total >= 0) return { eligible: false, reason: "charge-ledger-missing-or-invalid", preDeducted, chargedCredits };
   if (refund?.count > 0 || refund?.total > 0) return { eligible: false, reason: "refund-already-recorded", preDeducted, chargedCredits };
@@ -338,7 +344,7 @@ async function repairFailedRefundedGenerationRecords({ apply = false, taskIds = 
     const ledgerSummary = await generationTaskLedgerSummary(record);
     const audit = falseRefundedGenerationAudit(record, ledgerSummary);
     const auditLedgerTypes = failedRefundAuditLedgerTypes(record);
-    base.refundAlreadyRecorded = Boolean(auditLedgerTypes && ledgerSummary.some((entry) => entry.type === auditLedgerTypes.refund && entry.count > 0));
+    base.refundAlreadyRecorded = Boolean(auditLedgerTypes && ledgerSummary.some((entry) => failedRefundAuditRefundTypes(auditLedgerTypes).includes(entry.type) && entry.count > 0));
     if (!audit.eligible) {
       results.push({ ...base, action: "skipped", reason: audit.reason });
       continue;
@@ -353,7 +359,8 @@ async function repairFailedRefundedGenerationRecords({ apply = false, taskIds = 
         const currentSummary = await generationTaskLedgerSummary(current || {});
         const currentAudit = falseRefundedGenerationAudit(current || {}, currentSummary);
         if (!currentAudit.eligible) return { record: current, audit: currentAudit, summary: currentSummary, inserted: false };
-        const { charge, refund } = currentAudit.ledgerTypes;
+        const { charge } = currentAudit.ledgerTypes;
+        const [refund] = failedRefundAuditRefundTypes(currentAudit.ledgerTypes);
         const refundCredits = currentAudit.refundCredits;
         const meta = {
           taskId: record.taskId,
