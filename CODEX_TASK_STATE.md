@@ -1,3 +1,12 @@
+## 2026-11-10 refresh stall: service worker cache-first + non-blocking config (ready for Old deployment)
+
+- User report: every refresh shows two slow requests, the `platform.html` document and `/api/config/public`; both appear stuck for a long time.
+- Diagnosis: production Node handles `/api/health` in 1-3ms, `/api/config/public` warm in ~4ms, and `/platform.html` in ~40ms. Public-origin TCP/TLS probes intermittently take seconds (up to ~28s total for HTML), while loopback TLS is ~5ms. The service worker forced network-first navigation and assets, and the browser awaited public config even when a five-minute sessionStorage snapshot was already rendered.
+- Fix: cache the last navigation shell and exact versioned platform assets as stale-while-revalidate in `platform-sw.js`; background revalidation keeps deployment updates arriving on the next navigation. In `platform.create.parts/part-06.js`, a cached config renders without awaiting config; returning signed-in visitors fetch only the authenticated config after `/api/auth/me` instead of issuing anonymous then authenticated requests.
+- Verification: `test/platform-refresh-performance.test.js` and `test/playflux-template-bootstrap.test.js` pass 12/12; syntax checks and `git diff --check` pass.
+- Publish scope: `platform-sw.js`, `platform.create.parts/part-06.js`, `test/platform-refresh-performance.test.js`, and this state entry only. Exclude unrelated WIP.
+- Deployment: source `old-site` `03c30a8`; platform release `abeadc8`; deployed Old only via `scripts/deploy_local.sh --site old`. Remote checkout is `abeadc8`, service active, local `/api/health` returns 200. The wrapper returned 27 because its public URL verification timed out during TCP/TLS/TTFB jitter; subsequent public probes returned 200 with TTFB 1.0-7.6s, confirming the client-side cache-first mitigation is needed. Live untouched.
+
 ## 2026-11-10 hide user-facing Advanced generation entry (ready for Old deployment)
 
 - User request: remove Advanced generation from the user-facing product first.

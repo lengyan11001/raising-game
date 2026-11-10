@@ -1256,50 +1256,65 @@ async function bootstrap() {
     renderBootstrapShell(cachedConfig);
   }
 
-  // Public config is anonymous/cacheable and is needed for the first paint.
-  // Start it immediately while the existing session is restored in parallel.
-  // Never send a stored token here: this response is reused for the anonymous
-  // first render and cached in sessionStorage.
-  const publicConfigPromise = requestJson("/api/config/public", { auth: false });
+  const hadStoredSession = Boolean(state.token);
+  // For a returning signed-in visitor, skip the useless anonymous request and
+  // fetch the authenticated config once after /api/auth/me. Guests still start
+  // the anonymous config immediately so first paint is not serialized behind
+  // session recovery.
+  const publicConfigPromise = hadStoredSession ? null : requestJson("/api/config/public", { auth: false });
   const sessionPromise = (async () => {
     await loadTelegramMiniAppAuth().catch((error) => {
       console.warn("Telegram Mini App authentication failed", error.message || error);
     });
     await loadMe();
-  })().catch((error) => console.warn("session restore failed", error.message || error));
+    if (!state.token) return publicConfigPromise || requestJson("/api/config/public", { auth: false });
+    return requestJson("/api/config/public");
+  })().catch(async (error) => {
+    console.warn("session config refresh failed", error.message || error);
+    return publicConfigPromise || requestJson("/api/config/public", { auth: false });
+  });
 
-  const payload = await publicConfigPromise;
-  const platform = payload.config?.platform || {};
-  initGoogleAnalytics(platform.analytics?.googleMeasurementId || platform.googleMeasurementId || "");
-  installBootstrapConfig(payload.config);
-  cacheBootstrapConfigSnapshot(payload.config);
-  configureGoogleLogin();
-  ensureSelectedWalletOption();
-  applyRouteCharacterDetail({ allowTabSwitch: true });
-  renderBootstrapShell(payload.config);
-  hydrateRouteCharacterInBackground();
-  sessionPromise.then(async () => {
-    applyTelegramMiniAppRoute();
+  const applyPublicConfig = (payload) => {
+    if (!payload?.config) return;
+    const platform = payload.config?.platform || {};
+    initGoogleAnalytics(platform.analytics?.googleMeasurementId || platform.googleMeasurementId || "");
+    installBootstrapConfig(payload.config);
+    if (!hadStoredSession) cacheBootstrapConfigSnapshot(payload.config);
+    configureGoogleLogin();
+    ensureSelectedWalletOption();
+    applyRouteCharacterDetail({ allowTabSwitch: true });
     renderBootstrapShell(payload.config);
-    // The first response above is deliberately anonymous. Once the stored
-    // session is restored, refresh the config for entitlement-aware fields
-    // without making guests or the initial paint wait for it.
-    if (state.token) {
-      try {
-        const authenticated = await requestJson("/api/config/public");
-        if (authenticated?.config) {
-          installBootstrapConfig(authenticated.config);
-          renderBootstrapShell(authenticated.config);
-        }
-      } catch (error) {
-        console.warn("authenticated config refresh failed", error.message || error);
-      }
-    }
+  };
+
+  if (cachedConfig) {
+    // The cached shell is already interactive. Refresh config in the
+    // background so a public-origin TCP/TLS stall cannot freeze the refresh.
+    eventSafeBackgroundTask(sessionPromise.then((payload) => {
+      applyPublicConfig(payload);
+      applyTelegramMiniAppRoute();
+      hydrateRouteCharacterInBackground();
+    }));
+  } else {
+    const payload = await sessionPromise;
+    applyPublicConfig(payload);
+    applyTelegramMiniAppRoute();
+    hydrateRouteCharacterInBackground();
+  }
+
+  sessionPromise.then(() => {
     if (state.user && (tenantFeature("subscriptions", false) || membershipProgramEnabled())) {
       loadBillingSummary().catch((error) => console.warn("billing summary failed", error.message || error));
     }
   });
   if (!isTenantTool("undress")) loadPlatformEstimates();
+}
+
+function eventSafeBackgroundTask(promise) {
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(() => promise, { timeout: 1200 });
+    return;
+  }
+  window.setTimeout(() => promise, 300);
 }
 
 function scheduleAdvancedPresetsLoad() {

@@ -22,16 +22,12 @@ test("primary loaders never block the HTML parser", () => {
   }
 });
 
-test("public config is fetched anonymously before parallel session restore", () => {
+test("cached refresh paints before anonymous or authenticated config", () => {
   const create = read("platform.create.parts/part-06.js");
   const requestJson = read("platform.ui.parts/part-04.js");
-  assert.match(create, /const publicConfigPromise = requestJson\("\/api\/config\/public", \{ auth: false \}\);/);
-  assert.match(create, /const sessionPromise = \(async \(\) => \{[\s\S]*?loadTelegramMiniAppAuth\(\)[\s\S]*?loadMe\(\);/);
-  assert.ok(
-    create.indexOf('const publicConfigPromise = requestJson("/api/config/public", { auth: false });')
-      < create.indexOf("const sessionPromise ="),
-    "anonymous public config should start before session restoration",
-  );
+  assert.match(create, /const publicConfigPromise = hadStoredSession \? null : requestJson\("\/api\/config\/public", \{ auth: false \}\);/);
+  assert.match(create, /if \(cachedConfig\) \{[\s\S]*?eventSafeBackgroundTask\(sessionPromise\.then/);
+  assert.match(create, /const payload = await sessionPromise;/, "only a cold cache may await config");
   assert.match(requestJson, /if \(state\.token && options\.auth !== false\) headers\.authorization = `Bearer \$\{state\.token\}`;/);
   assert.doesNotMatch(create, /cacheBootstrapConfigSnapshot\(authenticated\.config\)/);
 });
@@ -43,8 +39,8 @@ test("first paint does not await advanced presets or billing", () => {
   assert.match(renderShell, /scheduleAdvancedPresetsLoad\(\)/);
   assert.doesNotMatch(renderShell, /await loadAdvancedPresets\(\)/);
   assert.match(create, /if \(!isTenantTool\("undress"\)\) loadPlatformEstimates\(\);/);
-  assert.match(create, /sessionPromise\.then\(async \(\) => \{/);
-  assert.match(create, /if \(state\.token\) \{[\s\S]*?requestJson\("\/api\/config\/public"\)/);
+  assert.match(create, /sessionPromise\.then\(\(\) => \{/);
+  assert.match(create, /if \(!state\.token\) return publicConfigPromise \|\| requestJson\("\/api\/config\/public", \{ auth: false \}\);/);
 });
 
 test("HTML and public config are CDN-cacheable for repeat refreshes", () => {
@@ -118,15 +114,14 @@ test("service worker never intercepts API or non-GET requests", () => {
   assert.match(sw, /caches\.delete\(key\)/);
 });
 
-test("service worker revalidates navigation and platform chunks before using cache", () => {
+test("service worker serves cached navigation immediately and revalidates", () => {
   const sw = read("platform-sw.js");
   const navigate = sw.match(/if \(request\.mode === "navigate"\) \{([\s\S]*?)\n    \}/)?.[1] || "";
-  assert.match(navigate, /const response = await fetch\(request, \{ cache: "no-cache" \}\);/);
-  assert.match(navigate, /catch \(error\)[\s\S]*?cache\.match/);
-  assert.doesNotMatch(navigate, /const cached = await cache\.match[\s\S]*?return cached;\n        \}/);
+  assert.match(navigate, /const cached = await cache\.match\(key, \{ ignoreSearch: true \}\);/);
+  assert.match(navigate, /if \(cached\) \{[\s\S]*?event\.waitUntil\(refresh\(cache, request, key\)\);[\s\S]*?return cached;/);
   const asset = sw.match(/if \(isPlatformAsset\(url\.pathname\)\) \{([\s\S]*?)\n      \}/)?.[1] || "";
-  assert.match(asset, /const response = await fetch\(request, \{ cache: "no-cache" \}\);/);
-  assert.match(asset, /catch \(error\)[\s\S]*?cache\.match/);
+  assert.match(asset, /const cached = await cache\.match\(request\);/);
+  assert.match(asset, /if \(cached\) \{[\s\S]*?event\.waitUntil\(refresh\(cache, request\)\);[\s\S]*?return cached;/);
 });
 
 test("service worker script remains registrable", () => {
