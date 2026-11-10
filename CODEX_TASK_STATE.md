@@ -2683,3 +2683,10 @@ CODEX_TASK_STATE.md
 - Verification passed: `node --require ./test/source-compat.js --test test/vidu-live-relay.test.js test/vidu-live-api.test.js test/live-companion-prototype.test.js` = 40/40; `node --require ./test/source-compat.js --test test/eleven-eleven-promo.test.js` = 8/8; syntax checks and `git diff --check` pass.
 - Documentation: `docs/vidu-live-integration.md` includes auth, assets, voices, Character API, iframe/ticket flow, compute-relay sessions, Relay commands/events, PCM contract, independent pricing, error codes, security rules, and a full Node.js example.
 - Deployment remains pending at the time of this entry. Build both release snapshots from committed `old-site`, deploy platform first, then Live, and verify both domains.
+
+## Vidu Live production deployment verification (2026-11-10)
+
+- Pushed integration source `old-site` at `a500fa1` and generated release snapshots `platform-release` `5671746` / `live-release` `f40e7a3`.
+- Deployed with repository entrypoints in required order: `scripts/deploy_local.sh --site old`, then `scripts/deploy_local.sh --site live`. Both release-boundary audits passed.
+- Production checks passed: `https://123vips.com/api/health` and `https://live.123vipeak.com/api/health` return `{"ok":true}`; `https://123vipeak.com/` exposes `开发者接入`, Character API, Programmatic Session, Relay WebSocket, and `/docs/vidu-live-integration.md`; the public docs return HTTP 200 with compute-relay, Relay WebSocket, `pcm_s16le`, and 24,000 Hz sections.
+- Isolation checks passed: `123vips.com` still serves the Vipeak AI platform homepage, while `live.html`, `live.css`, and `site-landing.html` remain HTTP 404 on that domain.
