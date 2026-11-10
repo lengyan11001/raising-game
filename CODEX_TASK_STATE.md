@@ -1,3 +1,13 @@
+## 2026-11-10 React canvas uploaded media refresh (ready for Old deployment)
+
+- User report: `test01 炫酷方案_1777` uploaded image disappears after reopening; publishing may have deleted it.
+- Verified production data: asset `asset-1794298392578-61c29479` and durable OSS object remain; persisted signed URL expired after one hour.
+- Root cause: React `openProject()` used `activateWorkflowCanvasProject()`, which activated stale persisted URLs but never called `migrateWorkflowEmbeddedMedia()` or `refreshWorkflowUploadedMediaUrls()`; the previous `fac0ab7` fix only covered the legacy `openWorkflowCanvas()` path.
+- Fix: activation is async and runs migration + upload URL refresh before returning; React open/create paths await activation before mounting the editor. Refreshed canvas is saved quietly once.
+- Regression coverage: execution-level VM test verifies ordered `activate -> migrate -> refresh -> save` and fresh URL assignment; source test verifies both React entry calls await activation.
+- Verification: `node --check` for manager, React source, and `part-05`; workflow canvas suite 36/36; `git diff --check`; production webpack build passed (size warnings only).
+- Commit: `b8b5e5e` on `old-site`. Unrelated WIP remains unstaged.
+
 ## 2026-11-10 canvas generate button hotfix (deployed Old)
 
 - User report: after the previous canvas edge fix, the generate button stopped working.
