@@ -1,3 +1,13 @@
+## 2026-11-10 canvas connected references preserved on generation (ready for Old deployment)
+
+- User report: when generating from a canvas node connected to reference images, the generated result does not carry the connected references.
+- Root cause: `workflowGenerationRunNode()` created a result node and copied only `node.data.referenceImages/referenceVideos/referenceAudios`; incoming edge media from `workflowNodeCanvasReferences(node)` was omitted. The new result node was then executed and sent an empty reference payload.
+- Fix: snapshot the merged incoming + explicit media set (`workflowNodeCanvasReferences(node)`) into the generated result node before running it.
+- Regression coverage: execution-level test asserts a video node connected to a reference image produces a result node with that image in `referenceImages`; source assertions updated.
+- Verification: `node --check platform.ui.parts/part-06.js`; workflow canvas suite 36/36; `git diff --check`.
+- Commit: `13334f8` on `old-site`. Unrelated WIP remains unstaged.
+- Next: build/push `platform-release`, deploy Old only, verify production part-06 contains source reference snapshot.
+
 ## 2026-11-10 React canvas uploaded media refresh (ready for Old deployment)
 
 - User report: `test01 炫酷方案_1777` uploaded image disappears after reopening; publishing may have deleted it.
