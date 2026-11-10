@@ -1,3 +1,14 @@
+## 2026-11-10 authentication DB pool optimization (ready to deploy)
+
+- Goal: reduce PostgreSQL pool pressure across anonymous auth and credential login without invalidating existing sessions.
+- Anonymous `getAuth()` now returns `lightweightAuthDb()` without loading ten tables; token-backed session validation is unchanged.
+- Password login uses `getUserByUsernameInDb()` only. Existing-email login uses `getUserByVerifiedEmailInDb()`; full `readDb()` remains only for first-time email account creation and username uniqueness checks.
+- Added `getSessionByUserDeviceInDb()` and `app_sessions_user_device_idx`; `createSingleLoginSession()` can recover/reuse a same-device session from DB without deleting other devices or forcing logout.
+- Targeted files: `db.js`, `server.parts/part-01.js`, `server.parts/part-02.js`, `server.parts/part-12.js`, `server.parts/part-32.js`, `test/admin-password-reset.test.js`, `test/auth-risk.test.js`.
+- Verification passed: syntax checks, `git diff --check`, and 49/49 focused tests (`admin-password-reset`, `auth-risk`, `security-regressions`, `generation-db-scope`, `db-import-scope`).
+- Unrelated platform/test WIP remains unstaged and must not enter this release.
+- Next: commit on `old-site`, build/push `platform-release` with lease protection, deploy Old only, and verify health/auth/generation/session/logs.
+
 ## 2026-11-10 Old deployment of current platform release (completed)
 
 - Deployed `platform-release` `1ef6e48` (built from `old-site` `5616095`) to Old only with `scripts/deploy_local.sh --site old`.

@@ -22,7 +22,7 @@ test("user login keeps independent persistent sessions per device", () => {
   const block = part.match(/async function createSingleLoginSession[\s\S]*?\n}\r?\n\r?\nfunction loginAccountKey/);
   assert.ok(block, "login session creator should be present");
   assert.match(block[0], /deviceId = ""/);
-  assert.match(block[0], /const existing = normalizedDeviceId/);
+  assert.match(block[0], /let existing = normalizedDeviceId/);
   assert.match(block[0], /String\(item\.deviceId \|\| ""\) === normalizedDeviceId/);
   assert.match(block[0], /if \(existing\?\.token\) \{[\s\S]*?return existing;/);
   assert.match(block[0], /db\.sessions\.push\(session\)/);

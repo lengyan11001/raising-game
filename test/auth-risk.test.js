@@ -241,7 +241,7 @@ test("email-code and Google sign-in share one account by verified email", () => 
   assert.match(auth, /function verifiedEmailForUser\(user = \{\}\)/);
   assert.match(auth, /normalizeEmail\(user\.email\) \|\| normalizeEmail\(user\.googleEmail\)/);
   assert.match(auth, /function findUserByVerifiedEmailInDb/);
-  assert.match(auth, /let user = findUserByVerifiedEmailInDb\(db, email, tenantId\)/);
+  assert.match(auth, /let user = dbEnabled\(\) \? await getUserByVerifiedEmailInDb\(email, tenantId\) : null/);
   assert.match(auth, /const emailUser = findUserByVerifiedEmailInDb\(db, claims\.email, normalizedTenant\)/);
   assert.match(auth, /error\.code = "GOOGLE_IDENTITY_CONFLICT"/);
   assert.match(auth, /user\.email = user\.googleEmail/);
@@ -369,4 +369,29 @@ test("HTTP timing-safe comparisons execute without relying on an outer module sc
   const { timingSafeEqualString } = require("../lib-http");
   assert.equal(timingSafeEqualString("webhook-secret", "webhook-secret"), true);
   assert.equal(timingSafeEqualString("webhook-secret", "wrong-secret"), false);
+});
+
+test("anonymous auth and existing-user credential login avoid full application snapshots", () => {
+  const auth = read("server.parts/part-12.js");
+  const getAuth = auth.match(/async function getAuth\(req, options = \{\}\) \{[\s\S]*?\n}\r?\n\r?\nasync function requireUser/);
+  assert.ok(getAuth, "getAuth should exist");
+  assert.match(getAuth[0], /if \(!token\) return \{ db: lightweightAuthDb\(\)/);
+  assert.doesNotMatch(getAuth[0], /if \(!token\) return \{ db: loadDb \? await readDb/);
+
+  const part32 = read("server.parts/part-32.js");
+  const login = part32.match(/async function loginWithBody[\s\S]*?\n}\r?\n\r?\nasync function handleLogin/);
+  assert.ok(login, "password login should exist");
+  assert.doesNotMatch(login[0], /readDb\s*\(/);
+  assert.match(login[0], /getUserByUsernameInDb\(username, tenantId\)/);
+
+  const emailSession = part32.match(/async function createEmailSession[\s\S]*?\n}\r?\n\r?\nasync function handleEmailLoginRequest/);
+  assert.ok(emailSession, "email session should exist");
+  assert.match(emailSession[0], /getUserByVerifiedEmailInDb\(email, tenantId\)/);
+  assert.match(emailSession[0], /if \(!user\) \{[\s\S]*?db = await readDb\(\)/);
+
+  const db = read("db.js");
+  assert.match(db, /async function getSessionByUserDeviceInDb/);
+  assert.match(db, /payload->>'deviceId' = \$3/);
+  assert.match(db, /async function getUserByVerifiedEmailInDb/);
+  assert.match(db, /CREATE INDEX IF NOT EXISTS app_sessions_user_device_idx/);
 });

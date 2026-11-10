@@ -798,13 +798,20 @@ async function createSingleLoginSession(db, user, tenantId = DEFAULT_TENANT_ID, 
   // Every device keeps an independent persistent session. Re-login on the
   // same browser reuses its token; a new browser gets a new token. Never
   // delete another device's session as a side effect of login.
-  const existing = normalizedDeviceId
+  let existing = normalizedDeviceId
     ? (db.sessions || []).find((item) => (
       String(item.userId || "") === userId
       && normalizeTenantId(item.tenantId || item.tenant_id || DEFAULT_TENANT_ID) === normalizedTenantId
       && String(item.deviceId || "") === normalizedDeviceId
     ))
     : null;
+  if (!existing && normalizedDeviceId && dbEnabled()) {
+    existing = await getSessionByUserDeviceInDb(userId, normalizedTenantId, normalizedDeviceId);
+    if (existing) {
+      db.sessions = Array.isArray(db.sessions) ? db.sessions : [];
+      if (!db.sessions.some((item) => item.token === existing.token)) db.sessions.push(existing);
+    }
+  }
   if (existing?.token) {
     existing.updatedAt = now;
     // Legacy sessions remain valid indefinitely. Do not backfill expiresAt on

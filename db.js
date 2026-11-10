@@ -199,6 +199,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await query(`CREATE INDEX IF NOT EXISTS app_sessions_user_device_idx ON app_sessions (user_id, tenant_id, (payload->>'deviceId'));`);
   await query(`
     ALTER TABLE app_sessions
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
@@ -2443,6 +2444,37 @@ async function getSessionByTokenInDb(token = "") {
     [cleanToken],
   );
   return rows[0] ? sessionFromRow(rows[0]) : null;
+}
+
+async function getSessionByUserDeviceInDb(userId = "", tenantId = DEFAULT_TENANT_ID, deviceId = "") {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanDeviceId = String(deviceId || "").trim().slice(0, 128);
+  if (!cleanUserId || !cleanDeviceId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_sessions
+     WHERE user_id = $1 AND tenant_id = $2 AND payload->>'deviceId' = $3
+       AND (expires_at IS NULL OR expires_at > NOW())
+     ORDER BY created_at ASC LIMIT 1`,
+    [cleanUserId, normalizeTenantId(tenantId), cleanDeviceId],
+  );
+  return rows[0] ? sessionFromRow(rows[0]) : null;
+}
+
+async function getUserByVerifiedEmailInDb(email = "", tenantId = DEFAULT_TENANT_ID) {
+  if (!dbEnabled()) return null;
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!normalized) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_users
+     WHERE tenant_id = $1 AND deleted_at IS NULL
+       AND LOWER(COALESCE(NULLIF(payload->>'email', ''), NULLIF(payload->>'googleEmail', ''))) = $2
+     ORDER BY created_at ASC LIMIT 1`,
+    [normalizeTenantId(tenantId), normalized],
+  );
+  return rows[0] ? userFromRow(rows[0]) : null;
 }
 
 async function getWalletOrderByIdInDb(orderId = "") {
@@ -8542,6 +8574,8 @@ module.exports = {
   getUsersByIdsInDb,
   createSessionInDb,
   getSessionByTokenInDb,
+  getSessionByUserDeviceInDb,
+  getUserByVerifiedEmailInDb,
   getWalletOrderByIdInDb,
   getPromotionPurchaseStateInDb,
   reservePromotionPurchaseInDb,

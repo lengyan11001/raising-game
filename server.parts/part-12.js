@@ -343,7 +343,10 @@ async function getAuth(req, options = {}) {
     const embedAuth = await embedLiveAuthFromToken(token, tenantId, loadDb);
     if (embedAuth) return embedAuth;
   }
-  if (!token) return { db: loadDb ? await readDb() : lightweightAuthDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
+  // Anonymous requests never need the application snapshot. Loading every
+  // table here made health checks, login pages, and bot traffic compete with
+  // generation jobs for PostgreSQL pool connections.
+  if (!token) return { db: lightweightAuthDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
   if (dbEnabled()) {
     const db = loadDb ? await readDb() : lightweightAuthDb();
     const session = await getSessionByTokenInDb(token);

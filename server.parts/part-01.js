@@ -179,6 +179,8 @@ const {
   getUsersByIdsInDb,
   createSessionInDb,
   getSessionByTokenInDb,
+  getSessionByUserDeviceInDb,
+  getUserByVerifiedEmailInDb,
   getWalletOrderByIdInDb,
   getPromotionPurchaseStateInDb,
   reservePromotionPurchaseInDb,

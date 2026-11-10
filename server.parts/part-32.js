@@ -528,9 +528,7 @@ async function loginWithBody(req, res, body = {}) {
   if (!requestRisk.ok) return authRateLimitedResponse(res, requestRisk);
   const lock = await loginLockState(req, username);
   if (lock?.lockedUntil) return lockedAuthResponse(res, lock);
-  const db = await readDb();
-  const user = await getUserByUsernameInDb(username, tenantId)
-    || db.users.find((item) => item.username === username && recordBelongsToTenant(item, tenantId));
+  const user = await getUserByUsernameInDb(username, tenantId);
   if (!user || !verifyPassword(password, user.passwordHash)) {
     const failure = await recordAuthLoginFailure(req, username);
     if (failure?.lockedUntil) return lockedAuthResponse(res, {
@@ -544,13 +542,11 @@ async function loginWithBody(req, res, body = {}) {
   }
   await clearAuthLoginFailures(req, username);
 
-  ensureUserApiToken(user, db);
+  ensureUserApiToken(user, null);
   if (dbEnabled()) {
     await updateUserInDb(user);
-  } else {
-    await writeDb(db);
   }
-  const session = await createSingleLoginSession(db, user, tenantId, body.deviceId || body.device_id || "");
+  const session = await createSingleLoginSession({ ...lightweightAuthDb(), users: [user] }, user, tenantId, body.deviceId || body.device_id || "");
   return sendJson(res, 200, { ok: true, token: session.token, user: userView(user) });
 }
 
@@ -648,8 +644,14 @@ function findUserByVerifiedEmailInDb(db, email = "", tenantId = DEFAULT_TENANT_I
 
 async function createEmailSession(req, res, email, body = {}) {
   const tenantId = requestTenantId(req);
-  const db = await readDb();
-  let user = findUserByVerifiedEmailInDb(db, email, tenantId);
+  let user = dbEnabled() ? await getUserByVerifiedEmailInDb(email, tenantId) : null;
+  let db = lightweightAuthDb();
+  if (!user) {
+    db = await readDb();
+    user = findUserByVerifiedEmailInDb(db, email, tenantId);
+  } else {
+    db.users = [user];
+  }
   if (user?.riskStatus === "quarantined") {
     return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   }
