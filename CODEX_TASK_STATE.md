@@ -5,6 +5,7 @@
 - Fix: classify image records by kind/source/task/provider and require duration only for video; image details still require taskId, prompt/input payload, ratio and resolution. Result-card regeneration failures now show the existing `advancedNote` error styling and a visible failure notice instead of an unhandled rejection.
 - Verification: `test/vega-regeneration-media.test.js`, `test/advanced-workspace-routing.test.js`, and `test/advanced-result-refresh.test.js` pass 47/47; targeted syntax checks and `git diff --check` pass.
 - Publish scope: `platform.create.parts/part-01.js`, `platform.create.parts/part-04.js`, `test/vega-regeneration-media.test.js`, this state entry. Exclude unrelated untracked WIP.
+- Deployment: source `old-site` `15e63b7`; `platform-release` / `origin/platform-release` `24f4857`; prior remote release / rollback target `21a71ee`. Deployed Old only via `scripts/deploy_local.sh --site old`; `/api/health` returns `{"ok":true}`, and production `part-04.js` contains `advancedRegenerationRecordIsImage` plus the image-duration condition. Live untouched.
 
 ## 2026-11-10 canvas generated result duplicate preview fix (deploying Old)
 
