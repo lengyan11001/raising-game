@@ -5,7 +5,7 @@
 - Fix: result image/video URL normalization now deduplicates by URL pathname, so signed query variants and absolute/relative copies of one asset render once while distinct result files still render separately.
 - Verification: focused workflow canvas suite passes 38/38; `node --check platform.ui.parts/part-05.js` and `git diff --check` pass.
 - Publish scope: `platform.ui.parts/part-05.js`, `test/workflow-canvases.test.js`, and this state entry only. Exclude unrelated `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, and `workflow-react/node_modules`.
-- Deployment: pending Old-only release deployment.
+- Deployment: source `da36f67`, platform release `21a71ee`; deployed Old only via `scripts/deploy_local.sh --site old`. `/api/health` returns `{"ok":true}` and production `part-05.js` contains `workflowUniqueMediaUrls`. Live unchanged.
 
 ## 2026-11-10 canvas @ mention submission preservation (ready for Old deployment)
 
