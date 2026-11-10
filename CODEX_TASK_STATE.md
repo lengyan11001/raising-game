@@ -7,6 +7,7 @@
 - Removed the persistent `history.regenerateSubmitted` note in both `applyRecordToAdvancedCreate` branches; successful restoration now clears stale advanced notes.
 - Added regression assertions to `test/vega-regeneration-media.test.js` that these handlers never mutate `innerHTML` or use regenerating/regenerateSubmitted copy.
 - Verification: targeted JS syntax checks, `git diff --check`, and `test/vega-regeneration-media.test.js` (28/28) pass.
+- Old deployment completed from source `9e290cd` / platform release `8ac1281`; service restarted successfully, health check returned 200. Live remains untouched.
 
 - Incident `cgt-20261110235542-9d3bb0`: the process restarted 10 seconds after submission began, before the upstream task ID was persisted. The old process did not actually time out upstream; the new process classified the record as `timer-stale-submit` and refunded it. User `123456789gina` (`user-1782141809681-e5964a4b`) received one refund of `89.8128` credits. Ledger charge `ledger-a5c08fc93812cd9a2916d285`, refund `ledger-2e28a4bc3f0c9aa06c290bce`; current balance after refund `11357.8912`. Only this one generation was inside the restart window.
 - Added in-flight generation-submission tracking and a bounded graceful drain. SIGTERM/SIGINT stop accepting new submits with HTTP 503 `GENERATION_SUBMIT_SHUTTING_DOWN`, close the listener, drain existing submission work, then exit. Default drain is 180 seconds, hard capped at 300 seconds, with a forced-exit fallback.
