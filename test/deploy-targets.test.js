@@ -59,6 +59,10 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deployPull, /403\|404/);
   assert.match(deployPull, /Private media bypass detected/);
   assert.match(deployPull, /for attempt in 1 2 3 4 5 6 7 8 9 10/);
+  assert.match(deployPull, /--stop-timeout-seconds/);
+  assert.match(deployPull, /systemctl set-property[\s\S]*TimeoutStopUSec/);
+  assert.match(deployPull, /max\(360, args\.stop_timeout_seconds \+ 120\)/);
+  assert.match(deploySite, /target\.get\("stop_timeout_seconds", 240\)/);
   assert.match(deploySite, /git", "rev-parse", f"refs\/remotes\/origin\/\{target\['branch'\]\}"/);
   assert.doesNotMatch(deployPull, /AutoAddPolicy/);
   assert.match(deployPull, /class PinnedHostKeyPolicy/);

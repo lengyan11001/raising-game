@@ -8,6 +8,7 @@ const test = require("node:test");
 const root = path.resolve(__dirname, "..");
 const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
 const explore = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
+const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 
 function extractFunction(source, name) {
   let start = source.indexOf(`function ${name}(`);
@@ -203,6 +204,36 @@ test("media object identity ignores signatures and status changes", () => {
       ],
     }),
     "multi-image field order and origin aliases must keep the same media key",
+  );
+});
+
+test("result image outputs dedupe signed aliases by media path without merging distinct images", () => {
+  const names = [
+    "isGenerationImageOutputUrl",
+    "generationImageResultUrl",
+    "generationImageResultObjectKey",
+    "generationImageResultUrls",
+  ];
+  const helpers = names.map((name) => extractFunction(ui, name)).join("\n");
+  const vm = require("node:vm");
+  const context = { URL };
+  vm.runInNewContext(`${helpers}\nthis.urls = generationImageResultUrls;`, context);
+  assert.deepEqual(
+    Array.from(context.urls({
+      cdnImageUrls: [
+        "https://assets-cdn.123vips.com/assets/generated/a.png?Expires=1&OSSAccessKeyId=k&Signature=one",
+        "https://media.123vips.com/assets/generated/b.png?Expires=1&Signature=two",
+      ],
+      imageResultUrls: [
+        "https://vipeak-media-sg.oss-ap-southeast-1.aliyuncs.com/assets/generated/a.png?Expires=2&Signature=three",
+      ],
+      localImageUrls: ["/assets/generated/b.png?Expires=2&Signature=four"],
+      imageResultUrl: "https://assets-cdn.123vips.com/assets/generated/a.png?Expires=3&Signature=five",
+    })),
+    [
+      "https://assets-cdn.123vips.com/assets/generated/a.png?Expires=1&OSSAccessKeyId=k&Signature=one",
+      "https://media.123vips.com/assets/generated/b.png?Expires=1&Signature=two",
+    ],
   );
 });
 

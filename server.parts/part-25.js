@@ -314,11 +314,9 @@ function platformRecordKind(template = {}) {
 }
 
 function startPlatformGenerationJob(job) {
-  setImmediate(() => {
-    runPlatformGenerationJob(job).catch((error) => {
-      console.error("[platform-generation-job-failed]", job.taskId, error.message || error);
-    });
-  });
+  setImmediate(() => runPlatformGenerationJob(job).catch((error) => {
+    console.error("[platform-generation-job-failed]", job.taskId, error.message || error);
+  }));
 }
 
 async function runPlatformGenerationJob(job = {}) {
@@ -336,6 +334,7 @@ async function runPlatformGenerationJob(job = {}) {
     preDeductedCredits,
   } = job;
 
+  const submission = beginGenerationSubmission("platform-generation", taskId);
   try {
     await updateGenerationRecord(taskId, {
       status: "submitting",
@@ -413,6 +412,7 @@ async function runPlatformGenerationJob(job = {}) {
       error: "",
       submittedAt: new Date().toISOString(),
     });
+    finishGenerationSubmission(submission);
     if (USE_GATEWAY_UPSTREAM) {
       if (isSucceededStatus(record.status) || isFailedStatus(record.status)) {
         await settleApizGenerationRecord(record, {
@@ -425,6 +425,7 @@ async function runPlatformGenerationJob(job = {}) {
       await settleApizGenerationRecord(record, task, "create");
     }
   } catch (error) {
+    finishGenerationSubmission(submission);
     console.warn("[platform-generation-job-error]", taskId, error.message || error);
     try {
       const failedRecord = await updateGenerationRecord(taskId, {
@@ -898,6 +899,7 @@ async function runSeedance25GenerationJob(job = {}) {
   } = job;
   let upstreamInput = initialUpstreamInput;
   let mediaAssets = initialMediaAssets;
+  const submission = beginGenerationSubmission("seedance25-generation", taskId);
   const direct = normalizeAdvancedProvider(provider) === SEEDANCE25_DIRECT_PROVIDER;
   const providerLabel = direct ? SEEDANCE25_DIRECT_LABEL : "Seedance 2.5";
   const recordSource = direct ? "advanced-seedance-nsfw" : "advanced-seedance25";
@@ -1022,7 +1024,9 @@ async function runSeedance25GenerationJob(job = {}) {
       billingStatus: cost > 0 ? (direct ? "pre_deducted" : "settled") : "free",
       billingSettledAt: cost > 0 && !direct ? new Date().toISOString() : "",
     }, direct ? "seedance-nsfw-submit" : "seedance25-submit");
+    finishGenerationSubmission(submission);
   } catch (error) {
+    finishGenerationSubmission(submission);
     console.warn(direct ? "[seedance-nsfw-generation-job-error]" : "[seedance25-generation-job-error]", taskId, error.message || error);
     await updateGenerationRecord(taskId, {
       status: "failed",

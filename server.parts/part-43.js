@@ -40,6 +40,8 @@ server.requestTimeout = Number(process.env.HTTP_REQUEST_TIMEOUT_MS || 180000);
 server.maxRequestsPerSocket = Number(process.env.HTTP_MAX_REQUESTS_PER_SOCKET || 1000);
 server.maxConnections = Number(process.env.HTTP_MAX_CONNECTIONS || 2000);
 
+const GENERATION_SUBMIT_DRAIN_TIMEOUT_MS = Math.max(10000, Math.min(300000, Number(process.env.GENERATION_SUBMIT_DRAIN_TIMEOUT_MS || 180000) || 180000));
+
 let staleSubmitScanRunning = false;
 
 function rejectAfterTimeout(promise, timeoutMs, label) {
@@ -663,6 +665,40 @@ async function bootstrap() {
   });
 }
 
+let gracefulShutdownStarted = false;
+
+async function shutdownGracefully(signal = "SIGTERM") {
+  if (gracefulShutdownStarted) return;
+  gracefulShutdownStarted = true;
+  const startedAt = Date.now();
+  const pendingSubmissions = beginGenerationSubmissionDrain();
+  console.log("[graceful-shutdown-start]", { signal, pendingSubmissions });
+  const forceExitTimer = setTimeout(() => {
+    console.error("[graceful-shutdown-force-exit]", { signal, elapsedMs: Date.now() - startedAt });
+    process.exit(1);
+  }, GENERATION_SUBMIT_DRAIN_TIMEOUT_MS + 10000);
+  try {
+    const serverClosed = new Promise((resolve) => server.close(resolve));
+    server.closeIdleConnections?.();
+    const drain = await waitForGenerationSubmissionsToDrain(GENERATION_SUBMIT_DRAIN_TIMEOUT_MS);
+    if (!drain.drained) {
+      console.error("[graceful-shutdown-submit-drain-timeout]", drain);
+      process.exit(1);
+    }
+    await serverClosed;
+    clearTimeout(forceExitTimer);
+    console.log("[graceful-shutdown-complete]", { signal, elapsedMs: Date.now() - startedAt, pendingSubmissions });
+    process.exit(0);
+  } catch (error) {
+    clearTimeout(forceExitTimer);
+    console.error("[graceful-shutdown-failed]", error.stack || error.message || error);
+    process.exit(1);
+  }
+}
+
+process.once("SIGTERM", () => shutdownGracefully("SIGTERM"));
+process.once("SIGINT", () => shutdownGracefully("SIGINT"));
+
 if (require.main === module) {
   bootstrap().catch((error) => {
     console.error("[bootstrap] failed", error);
@@ -699,6 +735,11 @@ module.exports = {
   readResponseBodyWithLimit,
   objectStorageKeyFromPublicUrl,
   handleAdvancedVegaGenerate,
+  beginGenerationSubmission,
+  finishGenerationSubmission,
+  beginGenerationSubmissionDrain,
+  waitForGenerationSubmissionsToDrain,
+  shutdownGracefully,
   repairStalledGenerationRecords,
   repairFailedRefundedGenerationRecords,
   listFailedRefundedGenerationRecordsForAudit,

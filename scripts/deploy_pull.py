@@ -210,6 +210,12 @@ def main() -> None:
         help="Clone this Git URL into --remote-root when the release checkout does not exist yet.",
     )
     parser.add_argument("--service", default=SERVICE)
+    parser.add_argument(
+        "--stop-timeout-seconds",
+        type=int,
+        default=240,
+        help="Configure systemd TimeoutStopSec before restart so in-flight generation submissions can drain.",
+    )
     parser.add_argument("--health-url", default=HEALTH_URL)
     parser.add_argument("--env-file", default=ENV_FILE, help="Required systemd EnvironmentFile path for this production service.")
     parser.add_argument("--port", type=int, default=PORT)
@@ -299,6 +305,8 @@ def main() -> None:
         raise SystemExit("--branch is required. Use platform-release for 123vips.com, live-release for live.123vipeak.com, or cloudtoken for cloudtoken.ai.")
     if args.branch in {"main", "old-site"} and os.environ.get("DEPLOY_ALLOW_INTEGRATION_BRANCH") != "1":
         raise SystemExit("Refusing to deploy an integration branch. Use platform-release or live-release.")
+    if args.stop_timeout_seconds < 30:
+        raise SystemExit("--stop-timeout-seconds must be at least 30.")
     if not args.host_key_sha256:
         raise SystemExit("--host-key-sha256 is required; SSH host keys must be pinned before deployment.")
     normalized_forbidden_paths = [path_text.strip("/") for path_text in args.forbid_changed_path if path_text.strip()]
@@ -487,6 +495,7 @@ fi
 
     pre_restart_check = "\n".join(args.pre_restart_command) or "true"
     post_restart_check = "\n".join(args.post_restart_command) or "true"
+    stop_timeout_q = shlex.quote(f"{args.stop_timeout_seconds}s")
 
     if args.commit:
         expected_q = shlex.quote(args.commit)
@@ -522,6 +531,9 @@ git fetch origin {args.branch}{(" " + shlex.quote(args.audit_base)) if args.audi
 release_target=$(git rev-parse "origin/{args.branch}")
 git checkout --detach "$release_target"
 {pre_restart_check}
+if [ {shlex.quote('' if args.no_restart else '1')} = 1 ]; then
+  systemctl set-property {shlex.quote(args.service)} TimeoutStopUSec={stop_timeout_q}
+fi
 {"true" if args.no_restart else f"systemctl restart {args.service}"}
 sleep 2
 git status --short
@@ -571,7 +583,7 @@ fi
             )
         else:
             client.connect(HOST, port=args.port, username=USER, password=PASSWORD, timeout=20)
-        rc, out, err = remote_run(client, command, timeout=240)
+        rc, out, err = remote_run(client, command, timeout=max(360, args.stop_timeout_seconds + 120))
     except paramiko.SSHException as exc:
         client.close()
         message = str(exc)

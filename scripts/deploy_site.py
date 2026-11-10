@@ -430,6 +430,8 @@ def main() -> None:
         target["remote_root"],
         "--service",
         target["service"],
+        "--stop-timeout-seconds",
+        str(target.get("stop_timeout_seconds", 240)),
         "--health-url",
         target["health_url"],
         "--commit",

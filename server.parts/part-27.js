@@ -1006,6 +1006,7 @@ async function runSeedream5ImageGenerationJob(job = {}) {
   if (!taskId || !userId) return;
 
   let upstreamPayload = null;
+  const submission = beginGenerationSubmission("seedream5-image-generation", taskId);
   try {
     const db = await readGenerationJobDb(userId);
     const user = (db.users || []).find((entry) => entry.id === userId);
@@ -1094,6 +1095,7 @@ async function runSeedream5ImageGenerationJob(job = {}) {
         createResponse: submitted.raw || submitted,
         error: "",
       });
+      finishGenerationSubmission(submission);
       return;
     }
 
@@ -1109,6 +1111,7 @@ async function runSeedream5ImageGenerationJob(job = {}) {
       remoteImageUrl: imageUrl,
       error: imageUrl ? "" : "Seedream 5.0 Image returned no image.",
     });
+    finishGenerationSubmission(submission);
     if (!imageUrl) {
       const error = new Error("Seedream 5.0 Image returned no image.");
       error.statusCode = 502;
@@ -1136,6 +1139,7 @@ async function runSeedream5ImageGenerationJob(job = {}) {
       error: "",
     });
   } catch (error) {
+    finishGenerationSubmission(submission);
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[seedream5-image-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
     const currentRecord = await getGenerationRecord(taskId).catch(() => null);

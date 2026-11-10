@@ -522,7 +522,9 @@ async function runAdvancedGenerationJob(job = {}) {
     referenceAudioAssetIds = [],
     referenceImageAssetUris = [],
   } = job;
+  const submission = beginGenerationSubmission("advanced-generation", taskId);
   if (isVegaProvider(provider)) {
+    finishGenerationSubmission(submission);
     throw new Error("Vega generation must use handleAdvancedVegaGenerate.");
   }
   let referenceVideoAssetUris = Array.isArray(initialReferenceVideoAssetUris) ? [...initialReferenceVideoAssetUris] : [];
@@ -1271,7 +1273,9 @@ async function runAdvancedGenerationJob(job = {}) {
       pricingEstimate: pricing ? { ...pricing, model: submittedModel } : pricing,
       ...fixedBilling,
     }, "advanced-submit");
+    finishGenerationSubmission(submission);
   } catch (error) {
+    finishGenerationSubmission(submission);
     console.warn("[advanced-generation-job-error]", taskId, error.stack || error.message || error);
     try {
       await updateGenerationRecord(taskId, {

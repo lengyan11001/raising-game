@@ -188,6 +188,7 @@ async function runQwen37FlashGenerationJob(job = {}) {
   } = job;
   if (!taskId || !userId) return;
   let upstreamPayload = null;
+  const submission = beginGenerationSubmission("qwen37-flash-generation", taskId);
   try {
     await upsertGenerationRecord({ taskId, status: "running", awaitingUpstreamTask: true, error: "" });
     const imageUrls = Array.isArray(job.images) ? job.images.filter((item) => String(item || "").startsWith("data:image/")).slice(0, 4) : [];
@@ -256,7 +257,9 @@ async function runQwen37FlashGenerationJob(job = {}) {
       billingSettledAt: new Date().toISOString(),
       error: "",
     });
+    finishGenerationSubmission(submission);
   } catch (error) {
+    finishGenerationSubmission(submission);
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[language-model-error]", taskId, errorInfo.message || error.message || error);
     const currentRecord = await getGenerationRecord(taskId).catch(() => null);
@@ -424,6 +427,7 @@ async function runQwenImage3GenerationJob(job = {}) {
   const { taskId = "", userId = "", body = {}, bodyParams = {}, initialParams = {}, prompt = "", tier = "pro", model = "", resolution = "2K", ratio = "1:1", size = "", outputImageCount = 1, negativePrompt = "", promptExtend = true, promptExtendMode = "direct", watermark = false, seed = null, pricing = {}, cost = 0 } = job;
   if (!taskId || !userId) return;
   let upstreamPayload = null;
+  const submission = beginGenerationSubmission("qwen-image3-generation", taskId);
   try {
     const db = await readDb();
     const user = (db.users || []).find((entry) => entry.id === userId);
@@ -488,6 +492,7 @@ async function runQwenImage3GenerationJob(job = {}) {
         createResponse: submitted.raw || submitted,
         error: "",
       });
+      finishGenerationSubmission(submission);
       return;
     }
     const raw = await queueQwenImage3Submit(() => aliyunDashscopeRequest(
@@ -531,7 +536,9 @@ async function runQwenImage3GenerationJob(job = {}) {
       billingSettledAt: new Date().toISOString(),
       error: "",
     });
+    finishGenerationSubmission(submission);
   } catch (error) {
+    finishGenerationSubmission(submission);
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[qwen-image3-error]", taskId, errorInfo.message || error.message || error);
     const currentRecord = await getGenerationRecord(taskId).catch(() => null);

@@ -840,6 +840,65 @@ const GENERATION_POSTER_BACKFILL_INTERVAL_MS = Math.max(15000, Number(process.en
 const GENERATION_POSTER_BACKFILL_BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.GENERATION_POSTER_BACKFILL_BATCH_SIZE || 2) || 2));
 const GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS = Math.max(1, Math.min(10, Number(process.env.GENERATION_POSTER_BACKFILL_MAX_ATTEMPTS || 3) || 3));
 const GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS = Math.max(5 * 60 * 1000, Number(process.env.GENERATION_POSTER_BACKFILL_RETRY_DELAY_MS || 30 * 60 * 1000) || 30 * 60 * 1000);
+
+const inFlightGenerationSubmissions = new Map();
+const generationSubmissionDrainWaiters = new Set();
+let generationSubmissionDraining = false;
+
+function generationSubmissionShutdownError() {
+  const error = new Error("Generation submission is unavailable while the server is shutting down.");
+  error.statusCode = 503;
+  error.code = "GENERATION_SUBMIT_SHUTTING_DOWN";
+  error.retryable = true;
+  return error;
+}
+
+function beginGenerationSubmission(label, taskId) {
+  if (generationSubmissionDraining) throw generationSubmissionShutdownError();
+  const token = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}` };
+  inFlightGenerationSubmissions.set(token, {
+    label: String(label || "generation-submit"),
+    taskId: String(taskId || ""),
+    startedAt: Date.now(),
+  });
+  return token;
+}
+
+function finishGenerationSubmission(token) {
+  if (!token || !inFlightGenerationSubmissions.delete(token)) return;
+  if (!inFlightGenerationSubmissions.size) {
+    for (const resolve of generationSubmissionDrainWaiters) resolve();
+    generationSubmissionDrainWaiters.clear();
+  }
+}
+
+function beginGenerationSubmissionDrain() {
+  generationSubmissionDraining = true;
+  return inFlightGenerationSubmissions.size;
+}
+
+async function waitForGenerationSubmissionsToDrain(timeoutMs = GENERATION_SUBMIT_DRAIN_TIMEOUT_MS) {
+  const startedAt = Date.now();
+  if (!inFlightGenerationSubmissions.size) return { drained: true, pending: 0, elapsedMs: 0 };
+  let timer;
+  let resolveDrained;
+  const drainedPromise = new Promise((resolve) => {
+    resolveDrained = resolve;
+    generationSubmissionDrainWaiters.add(resolve);
+  });
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), Math.max(0, Number(timeoutMs) || 0));
+    timer.unref?.();
+  });
+  const drained = await Promise.race([drainedPromise.then(() => true), timeout]);
+  clearTimeout(timer);
+  generationSubmissionDrainWaiters.delete(resolveDrained);
+  return {
+    drained,
+    pending: inFlightGenerationSubmissions.size,
+    elapsedMs: Date.now() - startedAt,
+  };
+}
 const GENERATION_MEDIA_PERSISTENCE_INTERVAL_MS = Math.max(60 * 1000, Number(process.env.GENERATION_MEDIA_PERSISTENCE_INTERVAL_MS || 2 * 60 * 1000) || 2 * 60 * 1000);
 const GENERATION_MEDIA_PERSISTENCE_BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.GENERATION_MEDIA_PERSISTENCE_BATCH_SIZE || 2) || 2));
 const GENERATION_MEDIA_PERSISTENCE_MAX_ATTEMPTS = Math.max(1, Math.min(10, Number(process.env.GENERATION_MEDIA_PERSISTENCE_MAX_ATTEMPTS || 3) || 3));

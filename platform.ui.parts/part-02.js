@@ -427,14 +427,34 @@ function generationImageResultUrl(record) {
   ].map((item) => String(item || "").trim()).find(isGenerationImageOutputUrl) || "";
 }
 
+function generationImageResultObjectKey(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text, "https://result.local");
+    // Result media can be served through the app origin, R2, OSS, or a signed
+    // CDN alias. Those URLs may rotate query parameters while pointing at the
+    // same object, so the pathname is the stable display identity.
+    return url.pathname || url.hostname || text.split(/[?#]/, 1)[0];
+  } catch {
+    return text.split(/[?#]/, 1)[0];
+  }
+}
+
 function generationImageResultUrls(record = {}) {
-  return [...new Set([
+  const seen = new Set();
+  return [
     ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
     ...(Array.isArray(record.imageResultUrls) ? record.imageResultUrls : []),
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
     ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
     generationImageResultUrl(record),
-  ].map((item) => String(item || "").trim()).filter(isGenerationImageOutputUrl))];
+  ].map((item) => String(item || "").trim()).filter(isGenerationImageOutputUrl).filter((url) => {
+    const key = generationImageResultObjectKey(url);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function generationPosterUrl(record) {
