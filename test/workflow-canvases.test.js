@@ -893,6 +893,28 @@ this.workflowGenerationRunNode = workflowGenerationRunNode;`, context);
   assert.deepEqual(selected, ["video-result"]);
 });
 
+test("result nodes render each generated media file once across mirrored URL fields", () => {
+  const source = read("platform.ui.parts/part-05.js");
+  const runtime = new Function(`
+    const generationImageResultUrl = () => "";
+    ${extractFunction(source, "workflowUniqueMediaUrls")}
+    return { workflowUniqueMediaUrls };
+  `)();
+  assert.deepEqual(
+    Array.from(runtime.workflowUniqueMediaUrls([
+      "https://media.example.com/generated/result.png?Signature=one",
+      "https://media.example.com/generated/result.png?Signature=two",
+      "/generated/result.png",
+      "https://media.example.com/generated/result.png",
+      "https://media.example.com/generated/second.png",
+    ])),
+    [
+      "https://media.example.com/generated/result.png?Signature=one",
+      "https://media.example.com/generated/second.png",
+    ],
+  );
+});
+
 test("inline workflow dialogs use an explicit async confirm handler", () => {
   const ui = read("platform.ui.js");
   const manager = read("platform.workflow-canvases.js");

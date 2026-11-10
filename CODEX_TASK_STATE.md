@@ -1,3 +1,12 @@
+## 2026-11-10 canvas generated result duplicate preview fix (deploying Old)
+
+- User report: one generated canvas result showed two preview windows in a result node.
+- Root cause: result media was assembled from mirrored fields and signed URL variants; exact-string dedupe treated the same CDN object as different media.
+- Fix: result image/video URL normalization now deduplicates by URL pathname, so signed query variants and absolute/relative copies of one asset render once while distinct result files still render separately.
+- Verification: focused workflow canvas suite passes 38/38; `node --check platform.ui.parts/part-05.js` and `git diff --check` pass.
+- Publish scope: `platform.ui.parts/part-05.js`, `test/workflow-canvases.test.js`, and this state entry only. Exclude unrelated `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, and `workflow-react/node_modules`.
+- Deployment: pending Old-only release deployment.
+
 ## 2026-11-10 canvas @ mention submission preservation (ready for Old deployment)
 
 - Goal: verify canvas prompt references such as `@image1`, `@image2`, and `@video1` are not stripped when a generation task is submitted, and keep the upload guidance unambiguous.

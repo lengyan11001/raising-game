@@ -101,9 +101,7 @@ function workflowNodeOwnResultVideos(node = {}) {
       typeof generationVideoUrl === "function" ? generationVideoUrl(record) : "",
     ] : []),
   ];
-  return [...new Set([...direct, ...taskVideos, ...(!uploadSource ? recordVideos : []), ...single]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean))];
+  return workflowUniqueMediaUrls([...direct, ...taskVideos, ...(!uploadSource ? recordVideos : []), ...single]);
 }
 
 function workflowNodeResultVideos(node = {}) {
@@ -118,6 +116,22 @@ function workflowNodeResultVideo(node = {}) {
   return workflowNodeResultVideos(node)[0] || "";
 }
 
+function workflowUniqueMediaUrls(values = []) {
+  const seen = new Set();
+  return values.map((value) => String(value || "").trim()).filter((value) => {
+    if (!value) return false;
+    let key = value;
+    try {
+      key = new URL(value, "https://canvas.local").pathname;
+    } catch {
+      key = value;
+    }
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function workflowNodeOwnResultImages(node = {}) {
   const data = node?.data || {};
   const uploadSource = data.source === "upload";
@@ -128,9 +142,7 @@ function workflowNodeOwnResultImages(node = {}) {
     ...(!uploadSource ? [typeof generationImageResultUrl === "function" ? generationImageResultUrl(data.record || {}) : ""] : []),
   ];
   if (node?.type === "imageResult") single.unshift(data.imageUrl);
-  return [...new Set([...direct, ...(!uploadSource ? record : []), ...single]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean))];
+  return workflowUniqueMediaUrls([...direct, ...(!uploadSource ? record : []), ...single]);
 }
 
 function workflowNodeResultImages(node = {}) {
