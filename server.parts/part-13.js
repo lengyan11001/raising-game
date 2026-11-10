@@ -197,16 +197,14 @@ async function scanTelegramPaymentNotifications() {
   if (telegramPaymentNotificationScanRunning || !telegramPaymentNotifierEnabled()) return;
   telegramPaymentNotificationScanRunning = true;
   try {
-    const db = await readDb();
-    const orders = (db.walletOrders || [])
-      .filter((order) => order.status === "paid" && order.telegramPaymentNotificationPendingAt && order.telegramPaymentNotificationStatus !== "sent")
-      .slice(0, 50);
+    const db = await getTelegramPaymentNotificationScanDataFromDb({ limit: 50 });
+    if (!db) throw new Error("Telegram payment notifications require DATABASE_URL.");
+    const orders = db.walletOrders || [];
     const userMap = new Map((db.users || []).map((user) => [user.id, user]));
     for (const order of orders) {
       await notifyTelegramPaymentOrder(order, userMap.get(order.userId) || {});
-      if (dbEnabled()) await updateWalletOrderInDb(order);
+      await updateWalletOrderInDb(order);
     }
-    if (orders.length && !dbEnabled()) await writeDb(db);
   } catch (error) {
     console.warn("[telegram-payment-notify-failed]", error.message || error);
   } finally {
@@ -395,11 +393,13 @@ async function handleDoubleTopupPromoStatus(req, res) {
   if (!doubleTopupHostAllowed(req) || !doubleTopupCampaignOpen()) {
     return sendJson(res, 200, { ok: true, promo: { id: DOUBLE_TOPUP_PROMO.id, visible: false } });
   }
-  const cacheKey = `${String(req.headers.cookie || "").slice(0, 180)}|${String(req.url || "")}`;
+  const auth = await getAuth(req, { loadDb: false });
+  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
+  const cacheKey = auth.user
+    ? `user:${auth.user.id}|${String(req.url || "")}`
+    : `anon:${new URL(req.url || "/", "http://localhost").searchParams.get("windowStartedAt") || ""}`;
   const cached = doubleTopupStatusCache.get(cacheKey);
   if (cached && Date.now() - cached.at < 20000) return sendJson(res, 200, cached.body);
-  const auth = await getAuth(req);
-  if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   if (!auth.user) {
     const hinted = String(new URL(req.url, "http://localhost").searchParams.get("windowStartedAt") || "");
     const hintMs = Date.parse(hinted);

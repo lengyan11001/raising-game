@@ -750,6 +750,11 @@ function walletTransactionKey(chain = "", hash = "") {
 
 function usedWalletTransactionKeys(db = {}) {
   const keys = new Set();
+  (Array.isArray(db.usedTransactions) ? db.usedTransactions : []).forEach((entry) => {
+    const chain = Array.isArray(entry) ? entry[0] : entry?.chain;
+    const hash = Array.isArray(entry) ? entry[1] : entry?.hash;
+    if (hash) keys.add(walletTransactionKey(chain, hash));
+  });
   (db.walletOrders || []).forEach((order) => {
     const hash = order.transactionHash || order.txHash || order.hash || "";
     if (hash) keys.add(walletTransactionKey(order.chain || order.network, hash));
@@ -1224,7 +1229,9 @@ async function scanAndSettleWalletOrders({ limit = 100, force = false } = {}) {
   if (!WALLET_CHAIN_SCAN_ENABLED && !force) {
     return { ok: true, enabled: false, scanned: 0, matched: 0, errors: [], startedAt, finishedAt: new Date().toISOString() };
   }
-  const db = await readDb();
+  const minCreatedAt = new Date(Date.now() - WALLET_CHAIN_SCAN_ORDER_TTL_HOURS * 60 * 60 * 1000).toISOString();
+  const db = await getWalletChainScanDataFromDb({ minCreatedAt, status: "pending", limit });
+  if (!db) throw new Error("Wallet chain scanning requires DATABASE_URL.");
   const config = await readAppConfig();
   const pending = pendingWalletOrdersForScan(db).slice(0, limit);
   const usedKeys = usedWalletTransactionKeys(db);

@@ -1085,7 +1085,7 @@ async function handleGetOnboarding(req, res, url) {
 }
 
 async function handleUpdateOnboarding(req, res, guideKey, action) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const cleanKey = String(guideKey || "").trim().slice(0, 80);
   if (!cleanKey) return sendJson(res, 400, { ok: false, message: "guideKey is required." });

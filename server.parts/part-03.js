@@ -577,7 +577,7 @@ function sendWorkflowCanvasValidationError(res, error) {
 
 async function handleListWorkflowCanvases(req, res) {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const canvases = await ensureUserWorkflowCanvases(auth.user.id);
   if (canvases === null) return sendJson(res, 503, { ok: false, message: "Workflow storage is unavailable." });
@@ -586,7 +586,7 @@ async function handleListWorkflowCanvases(req, res) {
 
 async function handleCreateWorkflowCanvas(req, res) {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const existing = await listWorkflowCanvasesFromDb(auth.user.id);
   if (existing === null) return sendJson(res, 503, { ok: false, message: "Workflow storage is unavailable." });
@@ -610,7 +610,7 @@ async function handleCreateWorkflowCanvas(req, res) {
 
 async function handleGetWorkflowCanvas(req, res, canvasId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const canvas = await getWorkflowCanvasFromDb({ id: canvasId, userId: auth.user.id });
   if (!canvas) return sendJson(res, 404, { ok: false, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "Workflow not found." });
@@ -619,7 +619,7 @@ async function handleGetWorkflowCanvas(req, res, canvasId = "") {
 
 async function handleUpdateWorkflowCanvas(req, res, canvasId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const updateKey = `${auth.user.id}:${canvasId}`;
   if (workflowCanvasUpdatesInFlight.has(updateKey)) {
@@ -651,7 +651,7 @@ async function handleUpdateWorkflowCanvas(req, res, canvasId = "") {
 
 async function handleDeleteWorkflowCanvas(req, res, canvasId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const deleted = await deleteWorkflowCanvasInDb({ id: canvasId, userId: auth.user.id });
   if (deleted === null && !dbEnabled()) return sendJson(res, 503, { ok: false, message: "Workflow storage is unavailable." });

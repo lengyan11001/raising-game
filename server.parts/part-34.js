@@ -124,7 +124,7 @@ async function activatePaidSubscription(db, order, plan) {
 }
 
 async function handleBillingSummary(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const billing = await billingViewForRequest(req, auth);
   if (!billing.enabled) return sendJson(res, 404, { ok: false, code: "SUBSCRIPTIONS_DISABLED", message: "Subscriptions are not enabled for this site." });

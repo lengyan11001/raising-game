@@ -13,6 +13,14 @@
 - Admin JS source and production `/admin.js` hash are identical. Deployed server pricing source hashes also match local. All six configured model discounts are currently `1`, so “实际售价” equals “折扣前售价” by design, not purchase price. Labels may be the source of confusion.
 - Tests previously passed for advanced pricing, Vega labels, and Seedance fast pricing (42/42); syntax and `git diff --check` clean. No source edits are needed for a pricing-calculation defect; get the exact model/resolution and visible values before changing calculation logic.
 
+## 2026-11-10 wallet scanner one-hour window and scoped DB scans (ready for Old deployment)
+
+- Wallet chain scanner now defaults to a one-hour order window (`WALLET_CHAIN_SCAN_ORDER_TTL_HOURS=1`, clamp 0.5-24h) and queries only recent pending manual wallet orders plus matching paid transaction keys from the same window. It no longer reads `app_user_assets`, generation records, characters, or the full application snapshot.
+- Telegram payment notification polling queries only paid orders explicitly pending notification and their users; no full snapshot fallback.
+- Migrated bounded security/workflow/onboarding/billing handlers to `requireUser(..., { loadDb: false })`; fixed double-top-up status cache key isolation between users/anonymous requests while retaining authenticated status.
+- Targeted DB/security regression suite passed 62/62; wallet and payment notification focused tests passed 5/5; syntax and `git diff --check` passed. `workflow-canvases` combined test still has 11 pre-existing failures because it reads the wrapper `platform.ui.js` instead of `platform.ui.parts/*`; unrelated frontend WIP was not included.
+- Deployment scope: `db.js`, `server.parts/part-01.js`, `server.parts/part-03.js`, `server.parts/part-10.js`, `server.parts/part-12.js`, `server.parts/part-13.js`, `server.parts/part-32.js`, `server.parts/part-34.js`, `test/payment-telegram-notifications.test.js`, `test/wallet-scan.test.js`, and this state entry. Live untouched.
+
 ## 2026-11-10 PostgreSQL maintenance/recovery index follow-up (deployed Old baseline)
 
 - Source/release: Old currently runs source `f39b8db` / release `31cda6a52ed14521838b0cf5bccca2d07e443a34`; Live untouched.

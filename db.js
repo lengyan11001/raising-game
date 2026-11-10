@@ -2566,6 +2566,103 @@ async function getUserByVerifiedEmailInDb(email = "", tenantId = DEFAULT_TENANT_
   return rows[0] ? userFromRow(rows[0]) : null;
 }
 
+async function getWalletChainScanDataFromDb({ minCreatedAt = null, status = "pending", limit = 500 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanStatus = String(status || "pending").trim().toLowerCase();
+  const safeLimit = Math.max(1, Math.min(1000, Math.trunc(Number(limit || 500) || 500)));
+  const params = [cleanStatus, safeLimit];
+  let timeClause = "";
+  let timeClauseForPaid = "";
+  const minMs = Date.parse(minCreatedAt || "");
+  if (Number.isFinite(minMs)) {
+    params.push(new Date(minMs).toISOString());
+    timeClause = `AND o.created_at >= $${params.length}::timestamptz`;
+    timeClauseForPaid = `AND p.created_at >= $${params.length}::timestamptz`;
+  }
+  const { rows } = await query(`
+    WITH used_transactions AS MATERIALIZED (
+      SELECT COALESCE(NULLIF(p.transaction_hash, ''), NULLIF(p.payload->>'transactionHash', ''), NULLIF(p.payload->>'txHash', '')) AS hash,
+             COALESCE(NULLIF(p.chain, ''), NULLIF(p.payload->>'chain', ''), NULLIF(p.payload->>'network', '')) AS chain
+      FROM app_wallet_orders p
+      WHERE p.status = 'paid'
+        ${timeClauseForPaid}
+      UNION ALL
+      SELECT NULLIF(tx->>'hash', ''),
+             COALESCE(NULLIF(tx->>'chain', ''), NULLIF(p.chain, ''), NULLIF(p.payload->>'chain', ''), NULLIF(p.payload->>'network', ''))
+      FROM app_wallet_orders p
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(p.payload->'matchedTransactions') = 'array'
+             THEN p.payload->'matchedTransactions'
+             ELSE '[]'::jsonb END
+      ) AS tx
+      WHERE p.status = 'paid'
+        ${timeClauseForPaid}
+    ), used_json AS MATERIALIZED (
+      SELECT COALESCE(jsonb_agg(DISTINCT jsonb_build_array(chain, hash)), '[]'::jsonb) AS value
+      FROM used_transactions
+      WHERE COALESCE(hash, '') <> ''
+    )
+    SELECT
+      o.*,
+      used_json.value AS used_transactions
+    FROM app_wallet_orders o
+    CROSS JOIN used_json
+    WHERE o.status = $1
+      AND (
+        COALESCE(o.payload->>'paymentProvider', '') = ''
+        OR COALESCE(o.payload->>'paymentProvider', '') = 'manual'
+      )
+      AND COALESCE(o.payload->>'address', '') <> ''
+      AND COALESCE(o.payload->>'payableAmountText', '') <> ''
+      ${timeClause}
+    ORDER BY o.created_at DESC
+    LIMIT $2
+  `, params);
+  const userIds = [...new Set(rows.map((row) => String(row.user_id || "")).filter(Boolean))];
+  const userMap = new Map();
+  if (userIds.length) {
+    const users = await query(
+      `SELECT * FROM app_users WHERE id = ANY($1::text[]) AND deleted_at IS NULL`,
+      [userIds],
+    );
+    users.rows.map(userFromRow).forEach((user) => userMap.set(user.id, user));
+  }
+  return {
+    users: [...userMap.values()],
+    walletOrders: rows.map(walletOrderFromRow),
+    usedTransactions: rows.flatMap((row) => Array.isArray(row.used_transactions) ? row.used_transactions : []),
+  };
+}
+
+async function getTelegramPaymentNotificationScanDataFromDb({ limit = 50 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit || 50) || 50)));
+  const { rows } = await query(`
+    SELECT o.*
+    FROM app_wallet_orders o
+    WHERE o.status = 'paid'
+      AND COALESCE(o.payload->>'telegramPaymentNotificationPendingAt', '') <> ''
+      AND COALESCE(o.payload->>'telegramPaymentNotificationStatus', '') <> 'sent'
+    ORDER BY o.created_at DESC
+    LIMIT $1
+  `, [safeLimit]);
+  const userIds = [...new Set(rows.map((row) => String(row.user_id || "")).filter(Boolean))];
+  const userMap = new Map();
+  if (userIds.length) {
+    const users = await query(
+      `SELECT * FROM app_users WHERE id = ANY($1::text[]) AND deleted_at IS NULL`,
+      [userIds],
+    );
+    users.rows.map(userFromRow).forEach((user) => userMap.set(user.id, user));
+  }
+  return {
+    users: [...userMap.values()],
+    walletOrders: rows.map(walletOrderFromRow),
+  };
+}
+
 async function getWalletOrderByIdInDb(orderId = "") {
   if (!dbEnabled()) return null;
   const id = String(orderId || "").trim();
@@ -8797,6 +8894,8 @@ module.exports = {
   getSessionByTokenInDb,
   getSessionByUserDeviceInDb,
   getUserByVerifiedEmailInDb,
+  getWalletChainScanDataFromDb,
+  getTelegramPaymentNotificationScanDataFromDb,
   getWalletOrderByIdInDb,
   getPromotionPurchaseStateInDb,
   reservePromotionPurchaseInDb,

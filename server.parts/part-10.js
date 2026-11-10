@@ -1014,7 +1014,7 @@ async function handleAccountProfile(req, res) {
 }
 
 async function handleAccountSecurityNoticeSeen(req, res) {
-  const auth = await requireUser(req, res); if (!auth) return;
+  const auth = await requireUser(req, res, { loadDb: false }); if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "账号状态保存需要数据库服务。" });
   if (!String(auth.user.securityNoticeSeenAt || "").trim()) {
     auth.user.securityNoticeSeenAt = new Date().toISOString();
@@ -1025,7 +1025,7 @@ async function handleAccountSecurityNoticeSeen(req, res) {
 }
 
 async function handleAccountProfileMedia(req, res) {
-  const auth = await requireUser(req, res); if (!auth) return;
+  const auth = await requireUser(req, res, { loadDb: false }); if (!auth) return;
   if (!await enforceBusinessRateLimit(req, res, auth, { action: "account_profile_media", limit: 20, windowMs: 60 * 60_000 })) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "照片上传需要数据库服务。" });
   const body = await readJson(req, JSON_MEDIA_BODY_MAX_BYTES);

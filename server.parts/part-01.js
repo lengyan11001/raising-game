@@ -182,6 +182,8 @@ const {
   getSessionByTokenInDb,
   getSessionByUserDeviceInDb,
   getUserByVerifiedEmailInDb,
+  getWalletChainScanDataFromDb,
+  getTelegramPaymentNotificationScanDataFromDb,
   getWalletOrderByIdInDb,
   getPromotionPurchaseStateInDb,
   reservePromotionPurchaseInDb,
@@ -905,7 +907,7 @@ let airwallexTokenCache = { token: "", expiresAt: 0 };
 
 const WALLET_CHAIN_SCAN_ENABLED = !/^(0|false|no|off)$/i.test(String(process.env.WALLET_CHAIN_SCAN_ENABLED || "1"));
 const WALLET_CHAIN_SCAN_INTERVAL_MS = Math.max(15000, Number(process.env.WALLET_CHAIN_SCAN_INTERVAL_MS || 60000) || 60000);
-const WALLET_CHAIN_SCAN_ORDER_TTL_HOURS = Math.max(1, Number(process.env.WALLET_CHAIN_SCAN_ORDER_TTL_HOURS || 72) || 72);
+const WALLET_CHAIN_SCAN_ORDER_TTL_HOURS = Math.max(0.5, Math.min(24, Number(process.env.WALLET_CHAIN_SCAN_ORDER_TTL_HOURS || 1) || 1));
 const WALLET_CHAIN_SCAN_LOOKBACK_LIMIT = Math.max(20, Math.min(500, Number(process.env.WALLET_CHAIN_SCAN_LOOKBACK_LIMIT || 120) || 120));
 const WALLET_EVM_SCAN_BLOCK_LOOKBACK = Math.max(1000, Number(process.env.WALLET_EVM_SCAN_BLOCK_LOOKBACK || 140000) || 140000);
 const WALLET_EVM_SCAN_CHUNK_SIZE = Math.max(50, Math.min(5000, Number(process.env.WALLET_EVM_SCAN_CHUNK_SIZE || 1000) || 1000));
