@@ -389,6 +389,9 @@ test("transient database failures preserve login state on user and admin surface
   assert.match(summary[0], /FROM app_wallet_orders o/);
   assert.match(summary[0], /FROM app_user_characters c/);
   assert.match(summary[0], /FROM app_credit_ledger l/);
+  assert.match(summary[0], /AS gifts_received/);
+  assert.match(summary[0], /creditLedger: \[\]/);
+  assert.doesNotMatch(summary[0], /jsonb_agg\(to_jsonb\(l\)/);
   assert.doesNotMatch(summary[0].split("\n", 4).join("\n"), /readAppDbFromTables|readDb\(/);
 
   const admin = read("admin.js");

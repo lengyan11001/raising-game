@@ -970,11 +970,14 @@ function publicProfileStats(db = {}, user = {}) {
     .filter((entry) => String(entry.userId || "") === userId && !isSoftDeleted(entry))
     .map((entry) => String(entry.id || entry.characterId || ""))
     .filter(Boolean));
-  const giftsReceived = (db.creditLedger || []).filter((entry) => {
-    if (!/gift/i.test(String(entry.type || "")) || Number(entry.delta || 0) >= 0) return false;
-    const meta = entry.meta && typeof entry.meta === "object" ? entry.meta : {};
-    return ownCharacters.has(String(meta.characterId || meta.creatorCharacterId || ""));
-  }).length;
+  const hasAggregateGiftCount = db.giftsReceived !== undefined && db.giftsReceived !== null;
+  const giftsReceived = hasAggregateGiftCount
+    ? Math.max(0, Number(db.giftsReceived) || 0)
+    : (db.creditLedger || []).filter((entry) => {
+      if (!/gift/i.test(String(entry.type || "")) || Number(entry.delta || 0) >= 0) return false;
+      const meta = entry.meta && typeof entry.meta === "object" ? entry.meta : {};
+      return ownCharacters.has(String(meta.characterId || meta.creatorCharacterId || ""));
+    }).length;
   return {
     // There is no follow/creator-income model yet. Do not derive these from
     // per-character intimacy rows or gift senders because that changes meaning.

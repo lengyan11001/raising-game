@@ -604,6 +604,7 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_credit_ledger_user_created_idx ON app_credit_ledger (user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_credit_ledger_gift_user_created_idx ON app_credit_ledger (user_id, created_at DESC) WHERE delta < 0 AND LOWER(type) LIKE '%gift%';`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_credit_ledger_order_event_uidx
       ON app_credit_ledger (type, (meta->>'orderId'))
@@ -3615,36 +3616,48 @@ async function getUserAssetsForUserFromDb(userId = "") {
 }
 
 async function getUserAuthSummaryFromDb(userId = "") {
-  if (!dbEnabled()) return { walletOrders: [], userCharacters: [], creditLedger: [] };
+  if (!dbEnabled()) return { walletOrders: [], userCharacters: [], creditLedger: [], giftsReceived: 0 };
   const cleanUserId = String(userId || "").trim();
-  if (!cleanUserId) return { walletOrders: [], userCharacters: [], creditLedger: [] };
+  if (!cleanUserId) return { walletOrders: [], userCharacters: [], creditLedger: [], giftsReceived: 0 };
   await ensureSchema();
-  // /api/auth/me is polled by every signed-in client. Build only the current
-  // user's account summary in one round trip instead of loading every table in
-  // readDb(). The returned shapes intentionally match the domain helpers.
+  // /api/auth/me is polled by every signed-in client. Return only the current
+  // account summary and an aggregate gift count. Historical ledger rows are
+  // intentionally not serialized on this hot path.
   const { rows } = await query(`
+    WITH owned_characters AS (
+      SELECT id
+      FROM app_user_characters
+      WHERE user_id = $1 AND deleted_at IS NULL
+    )
     SELECT
       COALESCE((
         SELECT jsonb_agg(to_jsonb(o) ORDER BY o.created_at DESC)
         FROM app_wallet_orders o
-        WHERE o.user_id = $1 AND o.status = 'paid'
+        WHERE o.user_id = $1
+          AND o.status = 'paid'
+          AND UPPER(COALESCE(o.payload->>'currency', 'USD')) = 'USD'
+          AND COALESCE(o.payload->>'orderKind', 'topup') = 'topup'
       ), '[]'::jsonb) AS wallet_orders,
       COALESCE((
         SELECT jsonb_agg(to_jsonb(c) ORDER BY c.created_at DESC)
         FROM app_user_characters c
         WHERE c.user_id = $1 AND c.deleted_at IS NULL
       ), '[]'::jsonb) AS user_characters,
-      COALESCE((
-        SELECT jsonb_agg(to_jsonb(l) ORDER BY l.created_at DESC)
+      (
+        SELECT COUNT(*)::int
         FROM app_credit_ledger l
-        WHERE l.user_id = $1 AND l.delta < 0 AND l.type ILIKE '%gift%'
-      ), '[]'::jsonb) AS credit_ledger
+        WHERE l.user_id = $1
+          AND l.delta < 0
+          AND LOWER(l.type) LIKE '%gift%'
+          AND COALESCE(NULLIF(l.meta->>'characterId', ''), NULLIF(l.meta->>'creatorCharacterId', '')) IN (SELECT id FROM owned_characters)
+      ) AS gifts_received
   `, [cleanUserId]);
   const row = rows[0] || {};
   return {
     walletOrders: (Array.isArray(row.wallet_orders) ? row.wallet_orders : []).map(walletOrderFromRow),
     userCharacters: (Array.isArray(row.user_characters) ? row.user_characters : []).map(recordFromPayloadRow),
-    creditLedger: (Array.isArray(row.credit_ledger) ? row.credit_ledger : []).map(ledgerFromRow),
+    creditLedger: [],
+    giftsReceived: Math.max(0, Number(row.gifts_received || 0)),
   };
 }
 
