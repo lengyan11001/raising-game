@@ -26,8 +26,8 @@ LIMIT_CONF="/etc/nginx/conf.d/raising-game-private-media-limits.conf"
 mkdir -p /etc/nginx/conf.d
 cat > "$LIMIT_CONF" <<'NGINX'
 # managed by raising-game private-media hardening
-limit_conn_zone $binary_remote_addr zone=raising_private_media_per_ip:10m;
-limit_req_zone $binary_remote_addr zone=raising_private_media_per_ip:10m rate=20r/s;
+limit_conn_zone $binary_remote_addr zone=raising_private_media_conns_per_ip:10m;
+limit_req_zone $binary_remote_addr zone=raising_private_media_rate_per_ip:10m rate=20r/s;
 NGINX
 for file in "${FILES[@]}"; do
   [[ -f "$file" ]] && cp -p "$file" "$BACKUP_DIR/$(echo "$file" | sed 's|^/||; s|/|__|g').private-media.${STAMP}"

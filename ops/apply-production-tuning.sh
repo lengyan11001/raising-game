@@ -73,8 +73,8 @@ write_private_media_limits() {
 # Bound authenticated private-media bursts per client IP. Keep this generous
 # enough for normal galleries while preventing one client from exhausting the
 # origin with repeated full-resolution downloads.
-limit_conn_zone $binary_remote_addr zone=raising_private_media_per_ip:10m;
-limit_req_zone $binary_remote_addr zone=raising_private_media_per_ip:10m rate=20r/s;
+limit_conn_zone $binary_remote_addr zone=raising_private_media_conns_per_ip:10m;
+limit_req_zone $binary_remote_addr zone=raising_private_media_rate_per_ip:10m rate=20r/s;
 NGINX
 }
 
@@ -283,8 +283,8 @@ server {
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
-        limit_conn raising_private_media_per_ip 8;
-        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
+        limit_conn raising_private_media_conns_per_ip 8;
+        limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;
     }
 
     location ^~ /assets/admin/home/ {
@@ -321,8 +321,8 @@ server {
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
-        limit_conn raising_private_media_per_ip 8;
-        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
+        limit_conn raising_private_media_conns_per_ip 8;
+        limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;
     }
 
     # Generated character/panorama media may contain private user content.
@@ -338,8 +338,8 @@ server {
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
-        limit_conn raising_private_media_per_ip 8;
-        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
+        limit_conn raising_private_media_conns_per_ip 8;
+        limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;
     }
 
     location ^~ /assets/generated/panoramas/ {
@@ -352,8 +352,8 @@ server {
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
-        limit_conn raising_private_media_per_ip 8;
-        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
+        limit_conn raising_private_media_conns_per_ip 8;
+        limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;
     }
 
     location ^~ /__protected_assets__/ {

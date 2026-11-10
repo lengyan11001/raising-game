@@ -65,18 +65,18 @@ test("Old Nginx hardening proxies private media and keeps only public admin dirs
       .split(/\n    location \^~ \/assets\//)
       .find((part) => part.startsWith(`${prefix}/`));
     assert.ok(block, prefix);
-    assert.match(block, /limit_conn raising_private_media_per_ip 8;/);
-    assert.match(block, /limit_req zone=raising_private_media_per_ip burst=40 nodelay;/);
+    assert.match(block, /limit_conn raising_private_media_conns_per_ip 8;/);
+    assert.match(block, /limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;/);
   }
-  assert.equal((out.match(/limit_conn raising_private_media_per_ip 8;/g) || []).length, 5);
-  assert.equal((out.match(/limit_req zone=raising_private_media_per_ip burst=40 nodelay;/g) || []).length, 5);
+  assert.equal((out.match(/limit_conn raising_private_media_conns_per_ip 8;/g) || []).length, 5);
+  assert.equal((out.match(/limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;/g) || []).length, 5);
 });
 
 test("Old private-media hardening installs Nginx limit zones and validates before reload", () => {
   const wrapper = fs.readFileSync(path.join(root, "ops", "harden-old-nginx-private-media.sh"), "utf8");
   const tuning = fs.readFileSync(path.join(root, "ops", "apply-production-tuning.sh"), "utf8");
-  const zone = /limit_conn_zone \$binary_remote_addr zone=raising_private_media_per_ip:10m;/;
-  const rate = /limit_req_zone \$binary_remote_addr zone=raising_private_media_per_ip:10m rate=20r\/s;/;
+  const zone = /limit_conn_zone \$binary_remote_addr zone=raising_private_media_conns_per_ip:10m;/;
+  const rate = /limit_req_zone \$binary_remote_addr zone=raising_private_media_rate_per_ip:10m rate=20r\/s;/;
   assert.match(wrapper, zone);
   assert.match(wrapper, rate);
   assert.match(tuning, zone);
