@@ -1,3 +1,11 @@
+## 2026-11-10 auth path database hotspot cleanup (ready for Old deployment)
+
+- Goal: remove full-database snapshots from normal email, Google, and Telegram authentication while preserving all existing sessions and password login for legacy users.
+- Code: `server.parts/part-32.js` no longer calls `readDb()` for DB-backed existing-user auth. Email, password reset, email binding, Google, and Telegram paths use indexed single-user lookups; registration allocates usernames via indexed uniqueness checks.
+- Safety: Google first-user admin detection now uses `hasAnyActiveUserInDb()` (`SELECT EXISTS`) instead of a loaded user count, preventing a lightweight auth object from incorrectly granting admin.
+- Verification: focused refund/generation/auth suite passes 40/40; targeted syntax checks pass.
+- Publish scope: `db.js`, `server.parts/part-01.js`, `server.parts/part-32.js`, `test/auth-risk.test.js`, this state entry. Exclude all unrelated WIP.
+
 ## 2026-11-10 repeated user/admin logout diagnosis and recovery (ready for Old deployment)
 
 - Goal: determine why ordinary and admin accounts appeared to be logged out repeatedly, preserve valid sessions, and remove the database pressure amplifying the issue. Old only; do not deploy Live or bulk-expire/delete sessions.

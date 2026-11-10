@@ -632,6 +632,21 @@ function emailUsernameCandidate(db, email, tenantId) {
   return candidate;
 }
 
+async function allocateUsername(base, tenantId, db = null) {
+  const normalizedBase = String(base || "user").slice(0, 24) || "user";
+  for (let suffix = 1; suffix <= 100; suffix += 1) {
+    const suffixText = suffix === 1 ? "" : `_${suffix}`;
+    const candidate = `${normalizedBase.slice(0, 24 - suffixText.length)}${suffixText}`;
+    if (!dbEnabled()) {
+      if (!(db?.users || []).some((user) => user.username === candidate && recordBelongsToTenant(user, tenantId))) return candidate;
+      continue;
+    }
+    if (!await getUserByUsernameInDb(candidate, tenantId)) return candidate;
+  }
+  const suffixText = `_${crypto.randomBytes(4).toString("hex")}`;
+  return `${normalizedBase.slice(0, 24 - suffixText.length)}${suffixText}`;
+}
+
 function verifiedEmailForUser(user = {}) {
   return normalizeEmail(user.email) || normalizeEmail(user.googleEmail);
 }
@@ -644,14 +659,9 @@ function findUserByVerifiedEmailInDb(db, email = "", tenantId = DEFAULT_TENANT_I
 
 async function createEmailSession(req, res, email, body = {}) {
   const tenantId = requestTenantId(req);
-  let user = dbEnabled() ? await getUserByVerifiedEmailInDb(email, tenantId) : null;
   let db = lightweightAuthDb();
-  if (!user) {
-    db = await readDb();
-    user = findUserByVerifiedEmailInDb(db, email, tenantId);
-  } else {
-    db.users = [user];
-  }
+  let user = dbEnabled() ? await getUserByVerifiedEmailInDb(email, tenantId) : (db = await readDb(), findUserByVerifiedEmailInDb(db, email, tenantId));
+  if (user) db.users = [user];
   if (user?.riskStatus === "quarantined") {
     return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   }
@@ -660,7 +670,7 @@ async function createEmailSession(req, res, email, body = {}) {
     const landingPreview = landingFieldsFromBody(body);
     const referrerId = userIdFromReferralCode(landingPreview.referralCode);
     const referrer = referrerId ? (await getUserByIdInDb(referrerId) || (db.users || []).find((item) => item.id === referrerId)) : null;
-    user = { id: randomId("user"), tenantId, username: emailUsernameCandidate(db, email, tenantId), passwordHash: hashPassword(crypto.randomBytes(24).toString("hex")), role: "user", credits: 0, pricingMultiplier: 1, apiPricingMultiplier: 1, apiToken: makeUniqueApiToken(db), email, emailVerifiedAt: now, registrationChannel: "email", createdAt: now, updatedAt: now };
+    user = { id: randomId("user"), tenantId, username: await allocateUsername(emailUsernameCandidate(db, email, tenantId), tenantId, db), passwordHash: hashPassword(crypto.randomBytes(24).toString("hex")), role: "user", credits: 0, pricingMultiplier: 1, apiPricingMultiplier: 1, apiToken: makeUniqueApiToken(db), email, emailVerifiedAt: now, registrationChannel: "email", createdAt: now, updatedAt: now };
     attachRegistrationLanding(user, landingPreview, referrer && recordBelongsToTenant(referrer, tenantId) ? referrer : null, now, requestHostname(req));
     db.users.push(user);
   } else {
@@ -676,8 +686,9 @@ async function createEmailSession(req, res, email, body = {}) {
       // A concurrent email-code login may have created the canonical account
       // between our lookup and insert. Re-read once and reuse that identity
       // instead of turning a valid login into an error.
-      const latest = await readDb();
-      const canonical = findUserByVerifiedEmailInDb(latest, email, tenantId);
+      const canonical = dbEnabled()
+        ? await getUserByVerifiedEmailInDb(email, tenantId)
+        : findUserByVerifiedEmailInDb(await readDb(), email, tenantId);
       if (canonical && canonical.id !== user.id) {
         if (canonical.riskStatus === "quarantined") {
           return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
@@ -687,7 +698,7 @@ async function createEmailSession(req, res, email, body = {}) {
         user.emailVerifiedAt = user.emailVerifiedAt || now;
         user.updatedAt = now;
         try {
-          if (dbEnabled()) await updateUserInDb(user); else await writeDb(latest);
+          if (dbEnabled()) await updateUserInDb(user);
         } catch (retryError) {
           if (String(retryError?.code || "") !== "23505") throw retryError;
           return sendJson(res, 409, { ok: false, code: "EMAIL_IDENTITY_CONFLICT", message: "This email is already linked to another account. Please sign in with that method." });
@@ -722,8 +733,9 @@ async function handlePasswordResetRequest(req, res) {
   if (!email) return sendJson(res, 400, { ok: false, message: "Enter a valid email address." });
   const requestRisk = await enforceEmailRequestRisk(req, "reset", email);
   if (!requestRisk.ok) return authRateLimitedResponse(res, requestRisk);
-  const db = await readDb();
-  const user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
+  const user = dbEnabled()
+    ? await getUserByVerifiedEmailInDb(email, requestTenantId(req))
+    : findUserByVerifiedEmailInDb(await readDb(), email, requestTenantId(req));
   if (!user) return sendJson(res, 200, { ok: true, expiresIn: 600 });
   return issueEmailCode(req, res, { kind: "reset", email });
 }
@@ -733,7 +745,10 @@ async function handlePasswordReset(req, res) {
   const verifyRisk = await enforceEmailVerifyRisk(req, email);
   if (!verifyRisk.ok) return authRateLimitedResponse(res, verifyRisk);
   if (!email || password.length < 10 || !await consumeEmailCode("reset", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid code or password. Password must be at least 10 characters." });
-  const db = await readDb(); const user = (db.users || []).find((item) => normalizeEmail(item.email) === email && recordBelongsToTenant(item, requestTenantId(req)));
+  const db = dbEnabled() ? lightweightAuthDb() : await readDb();
+  const user = dbEnabled()
+    ? await getUserByVerifiedEmailInDb(email, requestTenantId(req))
+    : findUserByVerifiedEmailInDb(db, email, requestTenantId(req));
   if (!user) return sendJson(res, 400, { ok: false, message: "Invalid code or password." });
   user.passwordHash = hashPassword(password);
   // A reset revokes copied API tokens, but existing browser sessions are
@@ -774,8 +789,11 @@ async function handleAccountEmailVerify(req, res) {
   if (!email) return sendJson(res, 400, { ok: false, message: "Invalid or expired verification code." });
   const verifyRisk = await enforceEmailVerifyRisk(req, email);
   if (!verifyRisk.ok) return authRateLimitedResponse(res, verifyRisk);
-  const db = await readDb(); const duplicate = (db.users || []).find((item) => item.id !== auth.user.id && verifiedEmailForUser(item) === email && recordBelongsToTenant(item, requestTenantId(req)));
-  if (duplicate) return sendJson(res, 409, { ok: false, message: "This email is already bound to another account." });
+  const db = dbEnabled() ? lightweightAuthDb() : await readDb();
+  const duplicate = dbEnabled()
+    ? await getUserByVerifiedEmailInDb(email, requestTenantId(req))
+    : findUserByVerifiedEmailInDb(db, email, requestTenantId(req));
+  if (duplicate && duplicate.id !== auth.user.id) return sendJson(res, 409, { ok: false, message: "This email is already bound to another account." });
   if (!await consumeEmailCode("bind", email, requestTenantId(req), body.code)) return sendJson(res, 400, { ok: false, message: "Invalid or expired verification code." });
   auth.user.email = email; auth.user.emailVerifiedAt = new Date().toISOString(); auth.user.updatedAt = new Date().toISOString();
   try {
@@ -880,12 +898,15 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
     throw error;
   }
   const now = new Date().toISOString();
-  const db = await readDb();
-  let user = await getUserByGoogleIdInDb(googleId, normalizedTenant) || googleUserFromDb(db, googleId, normalizedTenant);
+  const db = lightweightAuthDb();
+  let user = await getUserByGoogleIdInDb(googleId, normalizedTenant)
+    || await getUserByVerifiedEmailInDb(claims.email, normalizedTenant)
+    || googleUserFromDb(db, googleId, normalizedTenant);
   let created = false;
   let referrer = null;
+  if (user) db.users = [user];
   if (!user) {
-    const emailUser = findUserByVerifiedEmailInDb(db, claims.email, normalizedTenant);
+    const emailUser = await getUserByVerifiedEmailInDb(claims.email, normalizedTenant);
     if (emailUser?.googleId && String(emailUser.googleId) !== googleId) {
       const error = new Error("This email is already linked to a different Google account.");
       error.statusCode = 409;
@@ -902,9 +923,9 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
     user = {
       id: randomId("user"),
       tenantId: normalizedTenant,
-      username: uniqueGoogleUsername(db, claims, normalizedTenant),
+      username: await allocateUsername(googleUsernameCandidate(claims), normalizedTenant, db),
       passwordHash: hashPassword(crypto.randomBytes(32).toString("hex")),
-      role: db.users.length === 0 ? "admin" : "user",
+      role: await hasAnyActiveUserInDb() ? "user" : "admin",
       credits: 0,
       pricingMultiplier: 1,
       apiPricingMultiplier: 1,
@@ -952,10 +973,10 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
     else await writeDb(db);
   } catch (error) {
     if (String(error?.code || "") === "23505") {
-      const latest = await readDb();
-      const canonical = findUserByVerifiedEmailInDb(latest, claims.email, normalizedTenant);
+      const canonical = await getUserByGoogleIdInDb(googleId, normalizedTenant)
+        || await getUserByVerifiedEmailInDb(claims.email, normalizedTenant);
       if (canonical && canonical.id !== user.id && String(canonical.googleId || "") === googleId) {
-        return { db: latest, user: canonical };
+        return { db: { ...db, users: [canonical] }, user: canonical };
       }
       const conflict = new Error("This email is already linked to another account. Please use email sign-in for that account.");
       conflict.statusCode = 409;
@@ -1177,9 +1198,10 @@ async function ensureTelegramUserAccount(telegramUser = {}, {
     throw error;
   }
   const now = new Date().toISOString();
-  const db = await readDb();
+  const db = lightweightAuthDb();
   let user = await getUserByTelegramIdInDb(telegramUserId, normalizedTenant)
     || telegramUserFromDb(db, telegramUserId, normalizedTenant);
+  if (user) db.users = [user];
   let created = false;
   let referrer = null;
   if (!user) {
@@ -1190,7 +1212,7 @@ async function ensureTelegramUserAccount(telegramUser = {}, {
     user = {
       id: randomId("user"),
       tenantId: normalizedTenant,
-      username: uniqueTelegramUsername(db, telegramUser, normalizedTenant),
+      username: await allocateUsername(telegramUsernameCandidate(telegramUser), normalizedTenant, db),
       passwordHash: hashPassword(crypto.randomBytes(32).toString("hex")),
       role: "user",
       credits: 0,

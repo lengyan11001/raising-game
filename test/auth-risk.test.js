@@ -241,15 +241,22 @@ test("email-code and Google sign-in share one account by verified email", () => 
   assert.match(auth, /function verifiedEmailForUser\(user = \{\}\)/);
   assert.match(auth, /normalizeEmail\(user\.email\) \|\| normalizeEmail\(user\.googleEmail\)/);
   assert.match(auth, /function findUserByVerifiedEmailInDb/);
-  assert.match(auth, /let user = dbEnabled\(\) \? await getUserByVerifiedEmailInDb\(email, tenantId\) : null/);
-  assert.match(auth, /const emailUser = findUserByVerifiedEmailInDb\(db, claims\.email, normalizedTenant\)/);
+  assert.match(auth, /let user = dbEnabled\(\) \? await getUserByVerifiedEmailInDb\(email, tenantId\)/);
+  assert.match(auth, /const emailUser = await getUserByVerifiedEmailInDb\(claims\.email, normalizedTenant\)/);
   assert.match(auth, /error\.code = "GOOGLE_IDENTITY_CONFLICT"/);
   assert.match(auth, /user\.email = user\.googleEmail/);
   assert.doesNotMatch(auth, /if \(!user\) \{\s*user = \{\s*id: randomId\("user"\)[^}]*googleId/);
-  assert.match(auth, /verifiedEmailForUser\(item\) === email/);
+  assert.match(auth, /verifiedEmailForUser\(item\) === normalized/);
   assert.match(auth, /code: "EMAIL_IDENTITY_CONFLICT"/);
-  assert.match(auth, /const latest = await readDb\(\)/);
+  assert.match(auth, /getUserByVerifiedEmailInDb\(email, tenantId\)/);
+  const googleAccount = auth.match(/async function ensureGoogleUserAccount[\s\S]*?\n}\r?\n\r?\nasync function handleGoogleLogin/);
+  const telegramAccount = auth.match(/async function ensureTelegramUserAccount[\s\S]*?\n}\r?\n\r?\nasync function telegramUserSessionFromInitData/);
+  assert.ok(googleAccount, "Google account provisioning should exist");
+  assert.ok(telegramAccount, "Telegram account provisioning should exist");
+  assert.doesNotMatch(googleAccount[0], /readDb\s*\(/);
+  assert.doesNotMatch(telegramAccount[0], /readDb\s*\(/);
   assert.match(db, /CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_verified_email_uidx/);
+  assert.match(db, /async function hasAnyActiveUserInDb/);
 });
 
 test("security notice targets accounts without email or Google and opens email binding", () => {
@@ -423,7 +430,8 @@ test("anonymous auth and existing-user credential login avoid full application s
   const emailSession = part32.match(/async function createEmailSession[\s\S]*?\n}\r?\n\r?\nasync function handleEmailLoginRequest/);
   assert.ok(emailSession, "email session should exist");
   assert.match(emailSession[0], /getUserByVerifiedEmailInDb\(email, tenantId\)/);
-  assert.match(emailSession[0], /if \(!user\) \{[\s\S]*?db = await readDb\(\)/);
+  assert.match(emailSession[0], /let db = lightweightAuthDb\(\)/);
+  assert.doesNotMatch(emailSession[0], /if \(!user\) \{\s*db = await readDb\(\)/);
 
   const db = read("db.js");
   assert.match(db, /async function getSessionByUserDeviceInDb/);

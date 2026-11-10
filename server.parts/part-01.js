@@ -175,6 +175,7 @@ const {
   getUserByTelegramIdInDb,
   getUserByGoogleIdInDb,
   getUserByIdInDb,
+  hasAnyActiveUserInDb,
   getUserByApiTokenInDb,
   getUsersByIdsInDb,
   createSessionInDb,

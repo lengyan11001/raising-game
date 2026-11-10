@@ -2193,6 +2193,13 @@ async function getUserByIdInDb(userId = "") {
   return rows[0] ? userFromRow(rows[0]) : null;
 }
 
+async function hasAnyActiveUserInDb() {
+  if (!dbEnabled()) return false;
+  await ensureSchema();
+  const { rows } = await query(`SELECT EXISTS (SELECT 1 FROM app_users WHERE deleted_at IS NULL) AS present`);
+  return rows[0]?.present === true;
+}
+
 function riskHash(value = "") {
   const text = String(value || "").trim();
   return text ? crypto.createHash("sha256").update(text).digest("hex").slice(0, 40) : "";
@@ -8644,6 +8651,7 @@ module.exports = {
   getUserByTelegramIdInDb,
   getUserByGoogleIdInDb,
   getUserByIdInDb,
+  hasAnyActiveUserInDb,
   getUserByApiTokenInDb,
   getUsersByIdsInDb,
   createSessionInDb,
