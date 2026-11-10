@@ -15,6 +15,8 @@
 - Legacy React `UploadReference()` now delegates to `window.uploadWorkflowFilesToNode(files, node.id)`, so that path also creates a node first and shows progress.
 - Verification: `test/workflow-canvases.test.js` 32/32 pass; production webpack build succeeds with existing bundle-size warnings only; `node --check platform.ui.parts/part-05.js`, `platform.ui.parts/part-06.js`, `platform.workflow-react.js`, and `git diff --check` pass.
 - Publish scope: `platform.ui.parts/part-05.js`, `platform.ui.parts/part-06.js`, `platform.workflow-react.js`, `test/workflow-canvases.test.js`, `workflow-react/src/components/canvas/siteNodes/SiteNodeUpload.js`, `GenerationResultMedia.js`, `SiteImageGenerationNode.js`, `SiteVideoGenerationNode.js`, `workflow-react/src/site/site.css`, `workflow-react/dist/canvas.js`, and this state entry. Exclude unrelated WIP and `workflow-react/dist/canvas.js.map`.
+- Deployed to Old only: source `old-site` `5380e74`; release `platform-release` / `origin/platform-release` = `cee897f`. `/api/health` returned 200, service is active, and remote checks confirmed the uploaded-node progress, `@` hint, and near-source positioning code are present. `origin/live-release` remains `bf1e01a` and was not pushed or deployed.
+- Immediate rollback: previous platform release `5946dc7` (source `b9d45ab`).
 
 ## 2026-11-10 admin actual sale equals purchase report (investigated, no code change)
 
