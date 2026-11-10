@@ -416,17 +416,17 @@ async function submitAdvancedGenerateInternal() {
     const vegaReferenceImageMedia = vegaReferenceImageItems.map((item) => ({
       item,
       source: vegaMediaSource(item),
-      assetUri: String(item.assetUri || item.referenceAssetUri || "").trim(),
+      assetUri: String(item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || "").trim(),
     }));
     const vegaReferenceVideoMedia = vegaVideoItems.map((item) => ({
       item,
       source: vegaMediaSource(item),
-      assetUri: String(item.assetUri || item.referenceAssetUri || "").trim(),
+      assetUri: String(item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || "").trim(),
     }));
     const vegaReferenceAudioMedia = vegaAudioItems.map((item) => ({
       item,
       source: vegaMediaSource(item),
-      assetUri: String(item.assetUri || item.referenceAssetUri || "").trim(),
+      assetUri: String(item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || "").trim(),
     }));
     const vegaReferenceImages = vegaReferenceImageMedia.map((entry) => entry.source);
     const vegaReferenceVideos = vegaReferenceVideoMedia.map((entry) => entry.source);

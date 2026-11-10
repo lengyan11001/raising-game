@@ -35,7 +35,18 @@ function vegaProviderUsesTransientObjectStorage(provider = currentAdvancedProvid
 }
 
 function vegaMediaSource(item = {}, provider = currentAdvancedProvider()) {
-  const assetUri = String(item.assetUri || item.referenceAssetUri || "").trim();
+  const assetUri = String(
+    item.assetUri
+    || item.referenceAssetUri
+    || item.seedanceAssetUri
+    || item.url
+    || item.publicUrl
+    || item.cdnUrl
+    || item.dataUrl
+    || item.previewUrl
+    || item.sourceUrl
+    || "",
+  ).trim();
   if (vegaProviderUsesMediaLibrary(provider) && assetUri.startsWith("asset://")) return assetUri;
   const publicUrl = vegaPublicHttpUrl(item.publicUrl || item.cdnUrl || item.url || item.imageUrl || item.videoUrl || item.audioUrl || item.previewUrl || item.dataUrl || item.sourceUrl || "");
   if (publicUrl) return publicUrl;
@@ -45,6 +56,13 @@ function vegaMediaSource(item = {}, provider = currentAdvancedProvider()) {
 function applyResolvedVegaMediaSource(item = {}, resolved = {}) {
   const sourceUrl = vegaMediaSource(resolved, currentAdvancedProvider());
   if (!sourceUrl) return "";
+  if (sourceUrl.startsWith("asset://")) {
+    item.assetUri = item.assetUri || sourceUrl;
+    item.referenceAssetUri = item.referenceAssetUri || sourceUrl;
+    item.seedanceAssetUri = item.seedanceAssetUri || sourceUrl;
+    item.sourceUrl = sourceUrl;
+    return sourceUrl;
+  }
   item.publicUrl = sourceUrl;
   item.cdnUrl = sourceUrl;
   item.dataUrl = sourceUrl;

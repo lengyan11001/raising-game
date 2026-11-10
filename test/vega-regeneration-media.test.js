@@ -1248,3 +1248,38 @@ test("Vega regeneration media reads the submitted snapshot and preserves referen
   assert.equal(media.referenceVideos.length, 1);
   assert.equal(media.referenceVideos[0].assetId, "asset-video");
 });
+
+test("Vega Pro regeneration accepts a resolved seedanceAssetUri and keeps invalid local media blocked", () => {
+  const runtime = new Function(
+    "normalizeAdvancedProvider",
+    "currentAdvancedProvider",
+    "isVegaProviderId",
+    [
+      extractFunction(createSource, "vegaProviderUsesMediaLibrary"),
+      extractFunction(createSource, "vegaMediaSource"),
+      extractFunction(createSource, "applyResolvedVegaMediaSource"),
+      extractFunction(createUrlSource, "vegaPublicHttpUrl"),
+      "return { vegaMediaSource, applyResolvedVegaMediaSource };",
+    ].join("\n"),
+  )(
+    (value) => String(value || ""),
+    () => "seedance20-vega",
+    () => true,
+  );
+
+  const resolvedAsset = {
+    id: "asset-video",
+    seedanceAssetUri: "asset://asset-video",
+    publicUrl: "",
+    cdnUrl: "",
+  };
+  assert.equal(runtime.vegaMediaSource(resolvedAsset), "asset://asset-video");
+
+  const restoredReference = {};
+  assert.equal(runtime.applyResolvedVegaMediaSource(restoredReference, resolvedAsset), "asset://asset-video");
+  assert.equal(restoredReference.seedanceAssetUri, "asset://asset-video");
+  assert.equal(runtime.vegaMediaSource(restoredReference), "asset://asset-video");
+
+  assert.equal(runtime.vegaMediaSource({ url: "data:image/png;base64,AAAA" }), "");
+  assert.equal(runtime.vegaMediaSource({ url: "/assets/local-reference.png" }), "");
+});

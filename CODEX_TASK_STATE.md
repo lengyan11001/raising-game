@@ -1,3 +1,11 @@
+## 2026-11-11 Seedance 2.0 to Vega Pro regeneration media fix (ready for Old deployment)
+
+- User report: regenerating a Seedance 2.0 generation after switching the model to `seedance20-vega` failed client-side with `Vega Pro requires a public HTTP(S) URL or an existing asset:// URI.`
+- Root cause: the media-library resolve endpoint can return a valid Vega URI as `seedanceAssetUri`, but frontend source selection only read `assetUri` / `referenceAssetUri`; the resolved URI was therefore dropped before submit validation.
+- Fix: Vega Pro media source selection now accepts `seedanceAssetUri`; resolved `asset://` values are preserved back onto the form item; reference asset URI arrays preserve the same value. Public HTTP(S) media remains supported, and `data:` / relative local media remains blocked.
+- Verification: `node --check` for both changed modules, `git diff --check`, and focused suites `tencent-vod-vega`, `vega-regeneration-media`, and `advanced-workspace-routing` pass 102/102. Regression test also asserts invalid local media is still rejected.
+- Do not deploy Live. Preserve unrelated `useAssetInAdvanced` WIP in `platform.create.parts/part-04.js`; stage only the Vega media hunks, test, and this state entry.
+
 ## 2026-11-10 generation submission restart safety and result media dedupe (local commit, Old deployment in progress)
 
 ## 2026-11-10 regeneration fill-only button behavior
