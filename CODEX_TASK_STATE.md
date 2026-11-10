@@ -1,3 +1,13 @@
+## 2026-11-10 PostgreSQL stale-submit index predicate + media pending scan (deployed Old)
+
+- Commit/release: `725e299` / `e975126` initially deployed the stale-submit partial index. Follow-up commit makes the query predicate match the partial index exactly (`payload->>'awaitingUpstreamTask' = 'true'`), because `COALESCE(...)` prevented index use and still caused a 2.8-3.3s full table scan.
+- Added `app_generation_records_advanced_download_pending_idx` for `advancedDownloadStatus IN ('preparing','queued','processing')`; production `EXPLAIN ANALYZE` dropped failed-media sync from ~1.13s / 146k buffers to ~4ms / 366 buffers (index scan).
+- Production maintenance: `VACUUM (ANALYZE)` on generation, workflow canvas, and credit ledger; per-table autovacuum thresholds generation/ledger/canvas 0.05, wallet orders 0.10; `log_min_duration_statement=1000ms`, `log_lock_waits=on`.
+- Verification: focused auth/refund/generation/media/notification suite 112/112; health 200; service active, NRestarts=0; sessions 947 and expired 0 (no sessions/users evicted); DB ~724MB, 0 idle-in-transaction, 0 lock waiters.
+- Capacity: 4 vCPU / 7.1GiB RAM, load 0.56, swap 0, disk 57%; PostgreSQL 16.15, max_connections=100, shared_buffers=128MB, effective_cache_size=4GB. No server upgrade justified now.
+- Refund audit: today's 62 failed generations all have refund status; timeout groups predate the fixes; no new charged-but-not-refunded case. The previously reconciled `img-20261110122402-fcedf9` must not be touched again.
+- Deploy Old only via `scripts/deploy_local.sh --site old`; never deploy Live in this task.
+
 ## 2026-11-10 auth/me single-user summary cleanup (ready for Old deployment)
 
 - Goal: remove the remaining full-database snapshot from the frequently polled authenticated `/api/auth/me` and `/api/companion/level` paths while preserving companion level and profile statistics.

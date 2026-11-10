@@ -1135,6 +1135,11 @@ async function ensureSchemaInner() {
         AND COALESCE(payload->>'upstreamTaskId', '') = '';
   `);
   await query(`
+    CREATE INDEX IF NOT EXISTS app_generation_records_advanced_download_pending_idx
+      ON app_generation_records (task_id)
+      WHERE payload->>'advancedDownloadStatus' IN ('preparing', 'queued', 'processing');
+  `);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_media_ingest_jobs (
       task_id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -6769,7 +6774,7 @@ async function getStalePreSubmitGenerationRecordsFromDb({ olderThanMs = 0, limit
     FROM app_generation_records
     WHERE COALESCE(payload->>'deletedAt', '') = ''
       AND COALESCE(payload->>'userId', '') <> ''
-      AND COALESCE(payload->>'awaitingUpstreamTask', 'false') = 'true'
+      AND payload->>'awaitingUpstreamTask' = 'true'
       AND COALESCE(payload->>'upstreamTaskId', '') = ''
       AND LOWER(COALESCE(payload->>'provider', '')) = ANY($1::text[])
       AND LOWER(COALESCE(payload->>'status', '')) IN ('preparing', 'submitting', 'submitted', 'running', 'processing', 'queued', 'pending')

@@ -227,6 +227,18 @@ test("media ingest drains OSS transfers without starving retry-exhausted rows", 
   assert.match(db, /UPDATE app_generation_records records[\s\S]*advancedDownloadStatus[\s\S]*failed/);
   assert.match(db, /async function syncFailedMediaIngestRecordStatusesInDb/);
   assert.match(scan, /syncFailedMediaIngestRecordStatusesInDb\(200\)/);
+  assert.match(db, /app_generation_records_advanced_download_pending_idx[\s\S]*?WHERE payload->>'advancedDownloadStatus' IN \('preparing', 'queued', 'processing'\)/);
+});
+
+test("stale submission scan uses the partial index predicate verbatim", () => {
+  const db = read("db.js");
+  const start = db.indexOf("async function getStalePreSubmitGenerationRecordsFromDb");
+  const end = db.indexOf("async function getGenerationRecordsForScheduledMaintenanceFromDb", start);
+  const block = db.slice(start, end);
+  assert.ok(start > 0 && end > start);
+  assert.match(block, /AND payload->>'awaitingUpstreamTask' = 'true'/);
+  assert.match(block, /AND COALESCE\(payload->>'upstreamTaskId', ''\) = ''/);
+  assert.doesNotMatch(block, /COALESCE\(payload->>'awaitingUpstreamTask', 'false'\) = 'true'/);
 });
 
 test("automatic advanced download recovery never reopens terminal failures", () => {
