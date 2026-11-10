@@ -180,10 +180,16 @@ def first_line(block: str) -> str:
 
 
 def is_hardened_private_block(block: str) -> bool:
+    # Existing deployments already had proxying private blocks before the
+    # limits were introduced. Proxying alone is not sufficient: treat a block
+    # as hardened only when both connection and rate limits are present,
+    # otherwise the migration silently skips every live media location.
     return (
         "# managed private-media proxy" in block
         and "proxy_pass http://raising_game_app;" in block
         and "proxy_set_header X-Forwarded-Proto $scheme;" in block
+        and "limit_conn raising_private_media_conns_per_ip 8;" in block
+        and "limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;" in block
     )
 
 

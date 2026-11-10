@@ -72,6 +72,35 @@ test("Old Nginx hardening proxies private media and keeps only public admin dirs
   assert.equal((out.match(/limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;/g) || []).length, 5);
 });
 
+test("Old private-media hardening upgrades already-proxied blocks with limits", () => {
+  const { dir, input } = tempFixture();
+  // Production had already been converted to app proxying before rate limits
+  // were added. A proxy-only block must not be treated as fully hardened.
+  const legacy = `server {
+    server_name 123vips.com;
+    location ^~ /assets/user-uploads/ {
+        # managed private-media proxy
+        proxy_pass http://raising_game_app;
+        proxy_http_version 1.1;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location ^~ /assets/admin/voice-preview/ {
+        # managed private-media proxy
+        proxy_pass http://raising_game_app;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+`;
+  fs.writeFileSync(input, legacy);
+  const output = path.join(dir, "upgraded");
+  transform(input, output);
+  const out = fs.readFileSync(output, "utf8");
+  assert.equal((out.match(/location \^~ \/assets\/user-uploads\/ \{/g) || []).length, 1);
+  assert.equal((out.match(/limit_conn raising_private_media_conns_per_ip 8;/g) || []).length, 5);
+  assert.equal((out.match(/limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;/g) || []).length, 5);
+  assert.match(out, /location \^~ \/assets\/user-uploads\/ \{[\s\S]*?limit_conn raising_private_media_conns_per_ip 8;[\s\S]*?limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;/);
+});
+
 test("Old private-media hardening installs Nginx limit zones and validates before reload", () => {
   const wrapper = fs.readFileSync(path.join(root, "ops", "harden-old-nginx-private-media.sh"), "utf8");
   const tuning = fs.readFileSync(path.join(root, "ops", "apply-production-tuning.sh"), "utf8");

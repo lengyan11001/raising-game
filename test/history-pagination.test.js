@@ -7,6 +7,7 @@ const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
 const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
+const copy = fs.readFileSync(path.join(root, "platform.copy.js"), "utf8");
 const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 const explore = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 
@@ -20,6 +21,15 @@ test("history keeps the page the visitor is reading", () => {
   assert.doesNotMatch(create, /setTimeout\([\s\S]{0,200}loadHistory\(\{\s*silent: true,\s*refresh: true/s);
   // Deleting a record reloads the same page instead of jumping to the first one.
   assert.match(create, /await loadHistory\(\{ silent: true, page: currentHistoryPage\(\), preserveMobile: true \}\)/);
+});
+
+test("history short cache only absorbs rapid navigation bursts", () => {
+  assert.match(copy, /const HISTORY_SHORT_CACHE_MS = 3 \* 1000;/);
+  assert.match(copy, /const historyShortCache = new Map\(\);/);
+  assert.match(create, /const cached = refresh \|\| append \? null : historyShortCache\.get\(cacheKey\);/);
+  assert.match(create, /Date\.now\(\) - cached\.at <= HISTORY_SHORT_CACHE_MS/);
+  assert.match(create, /if \(!refresh && !append\) historyShortCache\.set\(cacheKey, \{ at: Date\.now\(\), payload \}\);/);
+  assert.doesNotMatch(create, /localStorage\.setItem\([^\n]*history/i);
 });
 
 test("generation completion polls on a visibility-aware dynamic schedule", () => {

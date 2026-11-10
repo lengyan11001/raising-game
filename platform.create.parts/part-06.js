@@ -21,10 +21,26 @@ async function loadHistory({
   const previousRecords = Array.isArray(state.historyRecords) ? state.historyRecords : [];
   const previousPage = Number(state.historyRecordsPage || 1);
   const requestedPage = Math.max(1, Number(page || 1) || 1);
+  const requestedLimit = Math.max(1, Number(state.historyRecordsLimit || 8) || 8);
+  // Account data is never persisted client-side. This tiny tab-memory cache
+  // only absorbs rapid navigation/click bursts; explicit refreshes and paging
+  // always go to the server, and the cache is scoped to this authenticated tab.
+  const cacheKey = `${state.user?.id || ""}:${requestedPage}:${requestedLimit}`;
+  const cached = refresh || append ? null : historyShortCache.get(cacheKey);
+  if (cached && Date.now() - cached.at <= HISTORY_SHORT_CACHE_MS) {
+    historyLoading = false;
+    historyRefreshInFlight = false;
+    if (!silent) {
+      renderHistory(cached.payload.records || []);
+      historyRecordsSignature = generationRecordsSignature(cached.payload.records || []);
+    }
+    return cached.payload;
+  }
   if (!silent && !append) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
   try {
-    const historyUrl = `/api/generation-records?page=${encodeURIComponent(requestedPage)}&limit=${encodeURIComponent(state.historyRecordsLimit || 8)}${refresh ? "&refresh=1" : ""}`;
+    const historyUrl = `/api/generation-records?page=${encodeURIComponent(requestedPage)}&limit=${encodeURIComponent(requestedLimit)}${refresh ? "&refresh=1" : ""}`;
     const payload = await requestJson(historyUrl);
+    if (!refresh && !append) historyShortCache.set(cacheKey, { at: Date.now(), payload });
     if (payload.user) setUser(payload.user);
     const incomingRecords = payload.records || [];
     const mobileLayout = isMobileHistoryLayout();
