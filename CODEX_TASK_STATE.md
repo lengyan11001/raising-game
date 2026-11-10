@@ -6,7 +6,8 @@
 - Regression coverage: execution-level test asserts a video node connected to a reference image produces a result node with that image in `referenceImages`; source assertions updated.
 - Verification: `node --check platform.ui.parts/part-06.js`; workflow canvas suite 36/36; `git diff --check`.
 - Commit: `13334f8` on `old-site`. Unrelated WIP remains unstaged.
-- Next: build/push `platform-release`, deploy Old only, verify production part-06 contains source reference snapshot.
+- Release: `platform-release` `4c39aff`; previous remote release `45bd44d`; deployed Old only, Live untouched.
+- Post-deploy verification: `/api/health` is `{"ok":true}`; production `part-06.js` contains `workflowNodeCanvasReferences(node)` snapshot and uses it for `referenceImages`/`referenceVideos`; release boundary passed.
 
 ## 2026-11-10 React canvas uploaded media refresh (ready for Old deployment)
 
