@@ -6564,7 +6564,7 @@ select option:checked {
   background: rgba(220,38,38,.9);
 }
 .advanced-upload-box.is-image-edit .advanced-upload-previews {
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(82px, 100px));
   justify-content: start;
 }
 .advanced-upload-box.is-image-edit .advanced-upload-previews figure {

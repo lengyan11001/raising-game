@@ -1,3 +1,12 @@
+## 2026-11-11 Regeneration tab alignment and image reference thumbnail sizing (ready for Old deployment)
+
+- User report: clicking Regenerate on a video record while the Generate page was on the image tab restored the video data but left the image tab/model filter active. Image-generation reference thumbnails were also much larger than video reference thumbnails.
+- Fix: custom regeneration now derives `advancedCustomMediaKind` from the restored record before rendering controls. Image, video, and conversation records select their matching tab; unknown records fall back to video. Preset-mode restoration remains unchanged.
+- Fix: image-edit reference previews now use the same compact `auto-fill` tracks as video previews (`82px` minimum, `100px` maximum) instead of `auto-fit ... 1fr`, which stretched thumbnails across the upload box.
+- Regression coverage: regeneration tab selection for all media kinds, plus a CSS assertion that image-edit thumbnails keep the bounded compact grid and never use `1fr`.
+- Verification: relevant regeneration/result/custom-tab suites pass 68/68; `git diff --check` passes.
+- Publish scope: `platform.create.parts/part-04.js`, `platform.css`, `test/vega-regeneration-media.test.js`, `test/custom-media-kind-tabs.test.js`, and this state entry. Live is not part of this change.
+
 ## 2026-11-11 Seedream 5 regeneration without aspect ratio (deployed Old)
 
 - User report: endpoint `ep-20260721175949-xw978` / production record `img-20261110224714-e648ed` showed “加载失败” when clicking regenerate.

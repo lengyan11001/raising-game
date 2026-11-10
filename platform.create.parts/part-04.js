@@ -1370,6 +1370,11 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   return true;
 }
 
+function advancedCustomMediaKindForRecord(record = {}) {
+  const kind = advancedResultKind(record);
+  return kind === "image" || kind === "conversation" ? kind : "video";
+}
+
 function applyRecordToAdvancedCreate(record = {}, button = null) {
   if (!record?.taskId && !record?.prompt && !record?.params) return;
   const params = recordParams(record);
@@ -1383,6 +1388,11 @@ function applyRecordToAdvancedCreate(record = {}, button = null) {
   const restoredMode = restoredKind && advancedCreateModesForKind(restoredKind).some((item) => item.id === params.createMode) ? params.createMode : "";
   setTab("advanced");
   state.advancedCreateKind = restoredPresetFlow && restoredKind ? restoredKind : "custom";
+  if (state.advancedCreateKind === "custom") {
+    // Regeneration can start from a different media tab. Keep the model
+    // selector and upload controls aligned with the record being restored.
+    state.advancedCustomMediaKind = advancedCustomMediaKindForRecord(record);
+  }
   state.advancedCreateMode = state.advancedCreateKind === "custom" ? ADVANCED_CUSTOM_MODE.id : (restoredMode || advancedCreateModesForKind(state.advancedCreateKind)[0]?.id || ADVANCED_CUSTOM_MODE.id);
   renderAdvancedCreateControls();
   clearAdvancedCreationInputs({ preserveRegenerationSnapshot: true });

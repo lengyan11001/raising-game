@@ -885,6 +885,22 @@ test("Hidden regeneration snapshot is scoped to the same Vega provider", () => {
   assert.equal(options.outputFormat, "mp4");
 });
 
+test("Regeneration switches the custom create tab to the restored record media kind", () => {
+  const helper = extractFunction(createSource, "advancedCustomMediaKindForRecord");
+  const resultKind = extractFunction(createOrderSource, "advancedResultKind");
+  const runtime = new Function(
+    "generationVideoUrl",
+    "generationImageResultUrl",
+    `${resultKind}\n${helper}\nreturn advancedCustomMediaKindForRecord;`,
+  )(() => "", () => "");
+
+  assert.equal(runtime({ taskId: "img-record", kind: "advanced-image" }), "image");
+  assert.equal(runtime({ taskId: "vid-record", kind: "advanced-video" }), "video");
+  assert.equal(runtime({ taskId: "txt-record", kind: "advanced-text" }), "conversation");
+  assert.equal(runtime({ taskId: "unknown-record" }), "video");
+  assert.match(createSource, /state\.advancedCustomMediaKind = advancedCustomMediaKindForRecord\(record\);/);
+});
+
 test("Regeneration restores submitted visible parameters while keeping Vega hidden controls hidden", () => {
   const restoreSource = extractFunction(createSource, "restoreRecordToAdvancedCreate");
   const applySource = extractFunction(createSource, "applyRecordToAdvancedCreate");
