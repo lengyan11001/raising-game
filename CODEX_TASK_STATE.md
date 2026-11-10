@@ -6,6 +6,8 @@
 - Regression coverage in `test/workflow-canvases.test.js` asserts the result edge targets the clicked node and stale errors are cleared at run start.
 - Verification: syntax and `git diff --check` pass; workflow canvas suite passes 33/33.
 - Publish scope: `platform.ui.parts/part-06.js`, `test/workflow-canvases.test.js`, this state entry only. Do not include unrelated WIP.
+- Deployed Old only: source `old-site` `3813fb3`; `platform-release` / `origin/platform-release` `8889329`; prior remote release `f97ccc8`. Live untouched at `origin/live-release` `bf1e01a`.
+- Post-deploy verification: `/api/health` returned `{"ok":true}`; production `part-06.js` contains the clicked-node result edge and retry state reset; release boundary checks passed.
 
 ## 2026-11-10 uploaded canvas media persisted signed URLs fixed (ready for Old deployment)
 
