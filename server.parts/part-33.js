@@ -884,11 +884,13 @@ async function handleGetSupportTicket(req, res, ticketId, url) {
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
   const ticket = await getSupportTicketForUserFromDb(auth.user.id, ticketId);
   if (!ticket) return sendJson(res, 404, { ok: false, code: "SUPPORT_TICKET_NOT_FOUND", message: "工单不存在。" });
-  if (url.searchParams.get("read") === "1") {
-    await markSupportTicketReadInDb({ ticketId, userId: auth.user.id, readerType: "user" });
-    Object.assign(ticket, await getSupportTicketForUserFromDb(auth.user.id, ticketId) || {});
-  }
-  return sendJson(res, 200, { ok: true, ticket: ticketView(ticket), messages: (await listSupportTicketMessagesFromDb(ticketId)).map(ticketMessageView) });
+  const shouldRead = url.searchParams.get("read") === "1";
+  const [, messages] = await Promise.all([
+    shouldRead ? markSupportTicketReadInDb({ ticketId, userId: auth.user.id, readerType: "user" }) : null,
+    listSupportTicketMessagesFromDb(ticketId),
+  ]);
+  if (shouldRead) Object.assign(ticket, { userUnreadCount: 0, userLastReadAt: new Date().toISOString() });
+  return sendJson(res, 200, { ok: true, ticket: ticketView(ticket), messages: messages.map(ticketMessageView) });
 }
 
 async function handleReplySupportTicket(req, res, ticketId) {
@@ -915,11 +917,10 @@ async function handleListSystemNotifications(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统通知需要数据库服务。" });
-  const [notifications, tickets] = await Promise.all([
+  const [notifications, ticketUnread] = await Promise.all([
     listSystemNotificationsForUserFromDb(auth.user.id, auth.user.tenantId || DEFAULT_TENANT_ID),
-    listUserSupportTicketsInDb(auth.user.id, 100),
+    countUserSupportUnreadFromDb(auth.user.id),
   ]);
-  const ticketUnread = tickets.reduce((sum, ticket) => sum + Number(ticket.userUnreadCount || 0), 0);
   return sendJson(res, 200, {
     ok: true,
     notifications,
@@ -966,11 +967,13 @@ async function handleAdminGetSupportTicket(req, res, ticketId, url) {
   if (!auth) return;
   const ticket = await getSupportTicketForAdminFromDb(ticketId);
   if (!ticket) return sendJson(res, 404, { ok: false, message: "工单不存在。" });
-  if (url.searchParams.get("read") === "1") {
-    await markSupportTicketReadInDb({ ticketId, readerType: "admin" });
-    Object.assign(ticket, await getSupportTicketForAdminFromDb(ticketId) || {});
-  }
-  return sendJson(res, 200, { ok: true, ticket: ticketView(ticket), messages: (await listSupportTicketMessagesFromDb(ticketId)).map(ticketMessageView) });
+  const shouldRead = url.searchParams.get("read") === "1";
+  const [, messages] = await Promise.all([
+    shouldRead ? markSupportTicketReadInDb({ ticketId, readerType: "admin" }) : null,
+    listSupportTicketMessagesFromDb(ticketId),
+  ]);
+  if (shouldRead) Object.assign(ticket, { adminUnreadCount: 0, adminLastReadAt: new Date().toISOString() });
+  return sendJson(res, 200, { ok: true, ticket: ticketView(ticket), messages: messages.map(ticketMessageView) });
 }
 
 async function handleAdminReplySupportTicket(req, res, ticketId) {

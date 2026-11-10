@@ -4243,7 +4243,8 @@ async function renderSupportTickets(pageArg = null, limitArg = null) {
     sessionStorage.setItem("admTicketsSelected", ticketId);
     renderList();
     const panel = detail();
-    if (panel) panel.innerHTML = '<div class="adm-ticket-welcome"><div class="adm-spinner"></div><strong>正在加载对话</strong><p>请稍候…</p></div>';
+    const previous = panel?.querySelector("#ticketThread");
+    if (!previous && panel) panel.innerHTML = '<div class="adm-ticket-welcome"><div class="adm-spinner"></div><strong>正在加载对话</strong><p>请稍候…</p></div>';
     const read = options.read !== false;
     const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticketId)}${read ? "?read=1" : ""}`);
     if (!isActiveRoute(routeId)) return;

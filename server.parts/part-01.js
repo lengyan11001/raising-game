@@ -212,6 +212,7 @@ const {
   getAdminSupportMessagesPageFromDb,
   createSupportTicketInDb,
   listUserSupportTicketsInDb,
+  countUserSupportUnreadFromDb,
   getSupportTicketForUserFromDb,
   getSupportTicketForAdminFromDb,
   listSupportTicketMessagesFromDb,
