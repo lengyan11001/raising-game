@@ -4,6 +4,7 @@
 - Root cause: `applyRecordToAdvancedCreate()` preferred `finalPrompt` over the original user `prompt`; upstream-normalized final prompts can omit the mention `@`.
 - Fix: added `advancedRegenerationPrompt()` to prefer a candidate that still contains `@Image/@图片/@Video/@视频/@Audio/@音频` syntax, then fall back to the original `record.prompt` before `finalPrompt`. The rich prompt editor itself already round-trips `@` correctly; added regression coverage for exact preservation.
 - Tests: `test/prompt-editor.test.js` + `test/vega-regeneration-media.test.js` 36/36 pass; syntax and diff checks pass. No unrelated WIP staged.
+- Deployed Old only: source `0dac833`, platform release `7d27707`; health `https://123vips.com/api/health` returns `{"ok":true}` and production `part-04.js` contains `advancedRegenerationPrompt`. Rollback snapshot is previous platform release `aa8ce10`. Live untouched.
 
 ## 2026-11-10 regeneration legacy-record compatibility correction (deploying Old)
 
