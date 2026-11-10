@@ -1083,6 +1083,30 @@ function advancedRegenerationPrompt(record = {}, params = {}) {
   return candidates.find(hasMediaMention) || candidates[0] || "";
 }
 
+function advancedRegenerationRecordIsImage(record = {}) {
+  const params = recordParams(record);
+  const kind = String(record.kind || "").toLowerCase();
+  const source = String(record.source || "").toLowerCase();
+  const taskId = String(record.taskId || "").toLowerCase();
+  const createKind = String(params.createKind || "").toLowerCase();
+  const provider = String(record.provider || params.provider || params.advancedProviderId || "").toLowerCase();
+  const model = String(record.model || params.model || "").toLowerCase();
+  if (
+    kind.includes("video")
+    || source.includes("video")
+    || createKind === "video"
+    || taskId.startsWith("vid-")
+    || taskId.startsWith("pending-video-")
+  ) return false;
+  const imageProvider = provider.includes("image") || model.includes("image") || provider === "z-image-spicy-pro";
+  return kind.includes("image")
+    || source.includes("image")
+    || createKind === "image"
+    || taskId.startsWith("img-")
+    || taskId.startsWith("pending-image-")
+    || imageProvider;
+}
+
 function advancedRegenerationRecordIsComplete(record = {}) {
   if (!record?.taskId) return false;
   const params = recordParams(record);
@@ -1108,7 +1132,10 @@ function advancedRegenerationRecordIsComplete(record = {}) {
   const ratioValue = value(submitted.ratio, submitted.aspect_ratio, record.ratio, params.ratio, params.aspect_ratio, params.aspectRatio);
   const resolutionValue = value(submitted.resolution, record.resolution, params.resolution, params.resolution_name, params.resolutionName);
   const durationValue = value(submitted.duration, record.duration, params.duration, params.durationSeconds, params.duration_seconds);
-  if (!hasValue(ratioValue) || !hasValue(resolutionValue) || !hasValue(durationValue)) return false;
+  // Image generation records have no duration. Require it only for video so a
+  // valid img-* detail is not treated as a partial poll snapshot.
+  if (!hasValue(ratioValue) || !hasValue(resolutionValue)) return false;
+  if (!advancedRegenerationRecordIsImage(record) && !hasValue(durationValue)) return false;
   // If media was submitted, every submitted media channel must still be
   // present. This catches truncated detail/list payloads before they clear the
   // current form or restore only a subset of references.

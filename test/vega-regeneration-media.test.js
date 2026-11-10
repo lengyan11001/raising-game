@@ -974,8 +974,66 @@ return { advancedRegenerationPrompt };`,
   );
 });
 
+test("Image regeneration accepts complete img records without a video duration", () => {
+  const names = ["advancedRegenerationRecordIsImage", "advancedRegenerationRecordIsComplete"];
+  const runtime = new Function(
+    `${extractFunction(createSource, "recordParams")}
+${names.map((name) => extractFunction(createSource, name)).join("\n")}
+return { advancedRegenerationRecordIsComplete };`,
+  )();
+  const imageRecord = {
+    taskId: "img-20261110222140-4eac3a",
+    kind: "asset-image",
+    source: "asset-image-modify",
+    provider: "aliyun-wan27-image",
+    model: "wan2.7-image-pro",
+    status: "completed",
+    prompt: "一只金毛在花园玩耍",
+    ratio: "9:16",
+    resolution: "2K",
+    params: {
+      advancedProviderId: "z-image-spicy-pro",
+      provider: "wan27-image",
+      createKind: "custom",
+      createMode: "custom",
+      ratio: "9:16",
+      resolution: "2K",
+      size: "1440*2560",
+      action: "text_to_image",
+    },
+  };
+  assert.equal(runtime.advancedRegenerationRecordIsComplete(imageRecord), true);
+  assert.equal(runtime.advancedRegenerationRecordIsComplete({
+    ...imageRecord,
+    resolution: "",
+    params: { ...imageRecord.params, resolution: "" },
+  }), false);
+  assert.equal(runtime.advancedRegenerationRecordIsComplete({
+    taskId: "vid-without-duration",
+    kind: "video",
+    provider: "seedance20-vega",
+    prompt: "video prompt",
+    ratio: "16:9",
+    resolution: "720P",
+    params: { provider: "seedance20-vega" },
+  }), false);
+});
+
+test("Result-card regeneration failure is visible instead of silently rejected", () => {
+  assert.match(
+    createOrderSource,
+    /data-advanced-result-regenerate[\s\S]*?catch \(error\)[\s\S]*?advancedNote\.textContent = detail[\s\S]*?advancedNote\.classList\.add\("is-error"\)/,
+  );
+  const handler = createOrderSource.match(
+    /card\.querySelectorAll\("\[data-advanced-result-regenerate\]"\).*?\n  \}\);/s,
+  )?.[0] || "";
+  assert.ok(handler, "result-card regeneration handler should exist");
+  assert.doesNotMatch(handler, /throw error;/);
+});
+
 test("Regeneration waits for complete detail instead of applying partial poll records", async () => {
   const createNames = [
+    "advancedRegenerationRecordIsImage",
     "advancedRegenerationRecordIsComplete",
     "refreshedRegenerationRecord",
     "restoreRecordToAdvancedCreate",

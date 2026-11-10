@@ -1121,7 +1121,18 @@ function bindAdvancedResultCardEvents(card) {
         button.disabled = false;
         button.innerHTML = `<i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}`;
         refreshIcons();
-        throw error;
+        const detail = String(error?.message || error || "").trim();
+        if (detail && els.advancedNote) {
+          els.advancedNote.textContent = detail;
+          els.advancedNote.classList.add("is-error");
+        }
+        if (detail && typeof showAdvancedSubmissionNotice === "function") {
+          showAdvancedSubmissionNotice(
+            state.lang === "zh" ? "重新生成失败" : "Regeneration failed",
+            detail,
+            true,
+          );
+        }
       } finally {
         state.advancedRegenerationRestoreInFlight = false;
       }

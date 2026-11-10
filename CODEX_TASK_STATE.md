@@ -1,3 +1,11 @@
+## 2026-11-10 image regeneration no-duration fix (ready for Old deployment)
+
+- User report: clicking regenerate on completed image results appeared to do nothing, e.g. `img-20261110222140-4eac3a`.
+- Root cause: regeneration detail completeness required `duration` for every media type. Completed image records legitimately omit duration, so the authoritative detail was rejected and the result-card handler silently rethrew the error.
+- Fix: classify image records by kind/source/task/provider and require duration only for video; image details still require taskId, prompt/input payload, ratio and resolution. Result-card regeneration failures now show the existing `advancedNote` error styling and a visible failure notice instead of an unhandled rejection.
+- Verification: `test/vega-regeneration-media.test.js`, `test/advanced-workspace-routing.test.js`, and `test/advanced-result-refresh.test.js` pass 47/47; targeted syntax checks and `git diff --check` pass.
+- Publish scope: `platform.create.parts/part-01.js`, `platform.create.parts/part-04.js`, `test/vega-regeneration-media.test.js`, this state entry. Exclude unrelated untracked WIP.
+
 ## 2026-11-10 canvas generated result duplicate preview fix (deploying Old)
 
 - User report: one generated canvas result showed two preview windows in a result node.
