@@ -260,20 +260,15 @@ async function runQwen37FlashGenerationJob(job = {}) {
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[language-model-error]", taskId, errorInfo.message || error.message || error);
     const currentRecord = await getGenerationRecord(taskId).catch(() => null);
-    if (cost > 0 && currentRecord?.billingStatus !== "refunded") {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, userId, cost, "advanced_qwen37_flash_refund", { taskId, error: error.message || `${providerLabel} failed.` });
-        await recordSubtokenAdjustment(currentRecord || { taskId, userId }, {
-          taskId,
-          type: "advanced_qwen37_flash_refund",
-          amount: -cost,
-          meta: { error: error.message || `${providerLabel} failed.` },
-        });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[qwen37-flash-refund-failed]", taskId, refundError.message || refundError);
-      }
+    let refunded = cost <= 0;
+    let refundError = null;
+    if (cost > 0) {
+      const result = await refundCreditsWithSubtoken(currentRecord || { taskId, userId }, userId, cost, "advanced_qwen37_flash_refund", {
+        taskId,
+        error: error.message || `${providerLabel} failed.`,
+      }, { logTag: "qwen37-flash" });
+      refunded = result.refunded;
+      refundError = result.error;
     }
     await upsertGenerationRecord({
       taskId,
@@ -286,8 +281,9 @@ async function runQwen37FlashGenerationJob(job = {}) {
       upstreamPayload,
       finalCredits: 0,
       originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
+      billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+      billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+      billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     });
   }
@@ -540,15 +536,15 @@ async function runQwenImage3GenerationJob(job = {}) {
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[qwen-image3-error]", taskId, errorInfo.message || error.message || error);
     const currentRecord = await getGenerationRecord(taskId).catch(() => null);
-    if (cost > 0 && currentRecord?.billingStatus !== "refunded") {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, userId, cost, "advanced_qwen_image3_refund", { taskId, error: error.message || "Qwen Image 3.0 failed." });
-        await recordSubtokenAdjustment(currentRecord || { taskId, userId }, { taskId, type: "advanced_qwen_image3_refund", amount: -cost, meta: { error: error.message || "Qwen Image 3.0 failed." } });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[qwen-image3-refund-failed]", taskId, refundError.message || refundError);
-      }
+    let refunded = cost <= 0;
+    let refundError = null;
+    if (cost > 0) {
+      const result = await refundCreditsWithSubtoken(currentRecord || { taskId, userId }, userId, cost, "advanced_qwen_image3_refund", {
+        taskId,
+        error: error.message || "Qwen Image 3.0 failed.",
+      }, { logTag: "qwen-image3" });
+      refunded = result.refunded;
+      refundError = result.error;
     }
     await upsertGenerationRecord({
       taskId,
@@ -561,8 +557,9 @@ async function runQwenImage3GenerationJob(job = {}) {
       upstreamPayload,
       finalCredits: 0,
       originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
+      billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+      billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+      billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     });
   }
@@ -895,20 +892,15 @@ async function handleAdvancedZImageSpicyProGenerate(req, res, context = {}) {
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[z-image-spicy-pro-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
     const currentRecord = await getGenerationRecord(taskId).catch(() => null);
-    if (cost > 0 && currentRecord?.billingStatus !== "refunded") {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, auth.user.id, cost, "advanced_z_image_spicy_pro_refund", { taskId, error: error.message || "Z-Image Spicy Pro failed." });
-        await recordSubtokenAdjustment(currentRecord || { taskId, userId: auth.user.id }, {
-          taskId,
-          type: "advanced_z_image_spicy_pro_refund",
-          amount: -cost,
-          meta: { error: error.message || "Z-Image Spicy Pro failed." },
-        });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[z-image-spicy-pro-refund-failed]", taskId, refundError.message || refundError);
-      }
+    let refunded = cost <= 0;
+    let refundError = null;
+    if (cost > 0) {
+      const result = await refundCreditsWithSubtoken(currentRecord || { taskId, userId: auth.user.id }, auth.user.id, cost, "advanced_z_image_spicy_pro_refund", {
+        taskId,
+        error: error.message || "Z-Image Spicy Pro failed.",
+      }, { logTag: "z-image-spicy-pro" });
+      refunded = result.refunded;
+      refundError = result.error;
     }
     await upsertGenerationRecord({
       taskId,
@@ -921,8 +913,9 @@ async function handleAdvancedZImageSpicyProGenerate(req, res, context = {}) {
       upstreamPayload,
       finalCredits: 0,
       originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
+      billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+      billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+      billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     });
     return sendJson(res, error.statusCode || 502, {

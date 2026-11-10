@@ -1,3 +1,14 @@
+## 2026-11-10 failed-refund ledger consistency hardening (ready to deploy)
+
+- Root cause: several failure handlers marked `billingStatus=refunded` before the refund ledger write completed; a write error could leave a failed record showing refunded with no positive ledger entry.
+- Added shared `refundCreditsWithSubtoken()` in `server.parts/part-12.js`; it returns `{ refunded, error }` and only reports success after the real credit ledger write succeeds.
+- Hardened failure paths: Seedream 5, Qwen/Papaya/BytePlus text, Qwen Image 3, Z-Image, character image create/edit, Wan2.7 image edit, asset image modify, Wan2.7/Gateway polling, Vega submit, Seedance submit, and video-tool failure. Failed refunds now remain `pre_deducted` with `billingError`; free failures remain `free`.
+- Added idempotent failed-refund audit/repair APIs in `server.parts/part-43.js` and `scripts/repair-stalled-generation-records.js --failed-refund-audit` (dry-run by default, targeted `--task-id`, allowlisted providers only).
+- Production read-only audit found 40 bad refund records this month, 4 today (all Seedream 5): `img-20261110005317-0ce117` 12, `img-20261110104026-d66602` 12, `img-20261110122038-dad671` 12, `img-20261110125641-a2c325` 13. No production refund has been applied yet.
+- Focused verification passed: 50/50 tests (`stalled-generation-repair`, auth risk, security regressions, generation DB scope, DB import scope); JS syntax and `git diff --check` passed. `test/tencent-vod-vega.test.js` now reads aggregate server source instead of the bootstrap shell.
+- Unrelated platform CSS/UI/test WIP remains unstaged and must not enter this release.
+- Next: selective commit on `old-site`, build/push `platform-release`, deploy Old only, then dry-run and apply the four targeted refunds, verify exactly one refund ledger each, and re-check health/auth/generation/session/logs.
+
 ## 2026-11-10 authentication DB pool optimization (ready to deploy)
 
 - Goal: reduce PostgreSQL pool pressure across anonymous auth and credential login without invalidating existing sessions.

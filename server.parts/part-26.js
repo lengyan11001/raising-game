@@ -410,20 +410,16 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
     });
   } catch (error) {
     const errorInfo = normalizeErrorPayload(error);
+    let refunded = !charged || cost <= 0;
+    let refundError = null;
     if (charged) {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, auth.user.id, cost, "advanced_vega_refund", { taskId, provider, error: errorInfo.message });
-        await recordSubtokenAdjustment({ taskId, userId: auth.user.id, provider }, {
-          taskId,
-          type: "advanced_vega_refund",
-          amount: -cost,
-          meta: { provider, error: errorInfo.message },
-        });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[vega-generation-refund-failed]", taskId, refundError.message || refundError);
-      }
+      const result = await refundCreditsWithSubtoken({ taskId, userId: auth.user.id, provider }, auth.user.id, cost, "advanced_vega_refund", {
+        taskId,
+        provider,
+        error: errorInfo.message,
+      }, { logTag: "vega-generation" });
+      refunded = result.refunded;
+      refundError = result.error;
     }
     await upsertGenerationRecord({
       taskId,
@@ -440,8 +436,9 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
       upstreamPayload: payload || null,
       finalCredits: 0,
       originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
+      billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+      billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+      billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     });
     const current = await getGenerationRecord(taskId).catch(() => null);

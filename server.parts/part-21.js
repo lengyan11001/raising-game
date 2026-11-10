@@ -1079,23 +1079,16 @@ async function refreshGenerationRecordStatus(record = {}) {
           }, "gateway-image-query");
         }
         if (failed && !imageUrl) {
-          if (Number(record.preDeductedCredits || 0) > 0 && record.billingStatus === "pre_deducted") {
-            try {
-              const db = await readDb();
-              await changeUserCredits(db, record.userId, Number(record.preDeductedCredits || 0), "asset_image_modify_refund", {
-                taskId: record.taskId,
-                error: task.error || "Gateway image generation failed.",
-              });
-              await recordSubtokenAdjustment(record, {
-                taskId: record.taskId,
-                type: "asset_image_modify_refund",
-                amount: -Number(record.preDeductedCredits || 0),
-                meta: { error: task.error || "Gateway image generation failed." },
-              });
-              if (!dbEnabled()) await writeDb(db);
-            } catch (refundError) {
-              console.error("[gateway-image-refresh-refund-failed]", record.taskId, refundError.message || refundError);
-            }
+          const preDeducted = Number(record.preDeductedCredits || 0);
+          let refunded = preDeducted <= 0;
+          let refundError = null;
+          if (preDeducted > 0 && record.billingStatus === "pre_deducted") {
+            const result = await refundCreditsWithSubtoken(record, record.userId, preDeducted, "asset_image_modify_refund", {
+              taskId: record.taskId,
+              error: task.error || "Gateway image generation failed.",
+            }, { logTag: "gateway-image-refresh" });
+            refunded = result.refunded;
+            refundError = result.error;
           }
           return await updateAssetImageModifyRecord(record.taskId, {
             upstreamTaskId: task.taskId || queryTaskId,
@@ -1105,8 +1098,9 @@ async function refreshGenerationRecordStatus(record = {}) {
             error: task.error || "Gateway image generation failed.",
             finalCredits: 0,
             originalFinalCredits: 0,
-            billingStatus: Number(record.preDeductedCredits || 0) > 0 ? "refunded" : "free",
-            billingSettledAt: new Date().toISOString(),
+            billingStatus: preDeducted <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+            billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+            billingSettledAt: refunded ? new Date().toISOString() : "",
             failedAt: new Date().toISOString(),
           }, "gateway-image-failed");
         }

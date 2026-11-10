@@ -83,6 +83,41 @@ async function chargeUserWithSubtoken(auth, { cost = 0, type = "spend", taskId =
   return auth.user;
 }
 
+async function refundCreditsWithSubtoken(authOrRecord, userId = "", amount = 0, type = "generation_refund", meta = {}, { logTag = "credit-refund" } = {}) {
+  const credits = creditsAmount(amount || 0);
+  if (credits <= 0) return { refunded: true, error: null };
+  try {
+    if (dbEnabled() && meta?.taskId) {
+      const { rows } = await dbQuery(`
+        SELECT 1
+        FROM app_credit_ledger
+        WHERE type = $1
+          AND meta->>'taskId' = $2
+          AND delta > 0
+        LIMIT 1
+      `, [type, String(meta.taskId)]);
+      if (rows.length) return { refunded: true, error: null };
+    }
+    const db = await readDb();
+    await changeUserCredits(db, userId, credits, type, meta);
+    if (!dbEnabled()) await writeDb(db);
+  } catch (error) {
+    console.error(`[${logTag}-refund-failed]`, meta?.taskId || "", error.message || error);
+    return { refunded: false, error };
+  }
+  try {
+    await recordSubtokenAdjustment(authOrRecord, {
+      taskId: meta?.taskId || "",
+      type,
+      amount: -credits,
+      meta,
+    });
+  } catch (error) {
+    console.error(`[${logTag}-subtoken-adjustment-failed]`, meta?.taskId || "", error.message || error);
+  }
+  return { refunded: true, error: null };
+}
+
 async function changeUserCredits(db, userId, delta, type, meta = {}) {
   const user = (db.users || []).find((entry) => entry.id === userId);
   if (!user) {

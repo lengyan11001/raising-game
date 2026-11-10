@@ -288,24 +288,16 @@ async function handleWan27ImageEdit(req, res) {
     runWan27ImageEditTask({ waitForResult: false, sendResponse: false }).catch(async (error) => {
       const errorInfo = normalizeErrorPayload(error);
       console.warn("[wan27-image-edit-background-error]", taskId, error.message || error);
+      let refunded = cost <= 0;
+      let refundError = null;
       if (cost > 0) {
-        try {
-          const db = await readDb();
-          await changeUserCredits(db, auth.user.id, cost, "asset_image_modify_refund", {
-            taskId,
-            assetIds: sourceAssets.map((asset) => asset.id),
-            error: error.message || "Wan2.7 image edit failed.",
-          });
-          await recordSubtokenAdjustment(auth, {
-            taskId,
-            type: "asset_image_modify_refund",
-            amount: -cost,
-            meta: { assetIds: sourceAssets.map((asset) => asset.id), error: error.message || "Wan2.7 image edit failed." },
-          });
-          if (!dbEnabled()) await writeDb(db);
-        } catch (refundError) {
-          console.error("[wan27-image-edit-background-refund-failed]", taskId, refundError.message || refundError);
-        }
+        const result = await refundCreditsWithSubtoken(auth, auth.user.id, cost, "asset_image_modify_refund", {
+          taskId,
+          assetIds: sourceAssets.map((asset) => asset.id),
+          error: error.message || "Wan2.7 image edit failed.",
+        }, { logTag: "wan27-image-edit-background" });
+        refunded = result.refunded;
+        refundError = result.error;
       }
       await updateAssetImageModifyRecord(taskId, {
         status: "failed",
@@ -316,8 +308,9 @@ async function handleWan27ImageEdit(req, res) {
         createResponse: errorInfo.payload || null,
         finalCredits: 0,
         originalFinalCredits: 0,
-        billingStatus: cost > 0 ? "refunded" : "free",
-        billingSettledAt: new Date().toISOString(),
+        billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+        billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+        billingSettledAt: refunded ? new Date().toISOString() : "",
         failedAt: new Date().toISOString(),
       }, "wan27-image-edit-background-failed");
     });
@@ -343,24 +336,16 @@ async function handleWan27ImageEdit(req, res) {
   } catch (error) {
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[wan27-image-edit-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
+    let refunded = cost <= 0;
+    let refundError = null;
     if (cost > 0) {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, auth.user.id, cost, "asset_image_modify_refund", {
-          taskId,
-          assetIds: sourceAssets.map((asset) => asset.id),
-          error: error.message || "Wan2.7 image edit failed.",
-        });
-        await recordSubtokenAdjustment(auth, {
-          taskId,
-          type: "asset_image_modify_refund",
-          amount: -cost,
-          meta: { assetIds: sourceAssets.map((asset) => asset.id), error: error.message || "Wan2.7 image edit failed." },
-        });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[wan27-image-edit-refund-failed]", refundError.message || refundError);
-      }
+      const result = await refundCreditsWithSubtoken(auth, auth.user.id, cost, "asset_image_modify_refund", {
+        taskId,
+        assetIds: sourceAssets.map((asset) => asset.id),
+        error: error.message || "Wan2.7 image edit failed.",
+      }, { logTag: "wan27-image-edit" });
+      refunded = result.refunded;
+      refundError = result.error;
     }
     await updateAssetImageModifyRecord(taskId, {
       status: "failed",
@@ -371,8 +356,9 @@ async function handleWan27ImageEdit(req, res) {
       createResponse: errorInfo.payload || null,
       finalCredits: 0,
       originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
+      billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+      billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+      billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     }, "wan27-image-edit-failed");
     return sendJson(res, error.statusCode || 502, {
@@ -575,24 +561,16 @@ async function handleModifyUserAssetImage(req, res, assetId) {
   } catch (error) {
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[asset-image-modify-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
+    let refunded = cost <= 0;
+    let refundError = null;
     if (cost > 0) {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, auth.user.id, cost, "asset_image_modify_refund", {
-          taskId,
-          assetId,
-          error: error.message || "Wan2.7 image modify failed.",
-        });
-        await recordSubtokenAdjustment(auth, {
-          taskId,
-          type: "asset_image_modify_refund",
-          amount: -cost,
-          meta: { assetId, error: error.message || "Wan2.7 image modify failed." },
-        });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[asset-image-modify-refund-failed]", refundError.message || refundError);
-      }
+      const result = await refundCreditsWithSubtoken(auth, auth.user.id, cost, "asset_image_modify_refund", {
+        taskId,
+        assetId,
+        error: error.message || "Wan2.7 image edit failed.",
+      }, { logTag: "asset-image-modify" });
+      refunded = result.refunded;
+      refundError = result.error;
     }
     await updateAssetImageModifyRecord(taskId, {
       status: "failed",
@@ -603,8 +581,9 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       createResponse: errorInfo.payload || null,
       finalCredits: 0,
       originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
+      billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+      billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+      billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     }, "asset-image-modify-failed");
     return sendJson(res, error.statusCode || 502, {

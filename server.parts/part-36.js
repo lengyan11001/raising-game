@@ -1067,15 +1067,15 @@ async function handleGenerateUserCharacterImage(req, res) {
   } catch (error) {
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[character-image-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
+    let refunded = cost <= 0;
+    let refundError = null;
     if (cost > 0) {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, auth.user.id, cost, "character_image_generate_refund", { taskId, error: error.message || "Wan2.7 character image failed." });
-        await recordSubtokenAdjustment(auth, { taskId, type: "character_image_generate_refund", amount: -cost, meta: { error: error.message || "Wan2.7 character image failed." } });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[character-image-refund-failed]", refundError.message || refundError);
-      }
+      const result = await refundCreditsWithSubtoken(auth, auth.user.id, cost, "character_image_generate_refund", {
+        taskId,
+        error: error.message || "Wan2.7 character image failed.",
+      }, { logTag: "character-image" });
+      refunded = result.refunded;
+      refundError = result.error;
     }
     await updateAssetImageModifyRecord(taskId, {
       status: "failed",
@@ -1086,8 +1086,9 @@ async function handleGenerateUserCharacterImage(req, res) {
       createResponse: errorInfo.payload || null,
       finalCredits: 0,
       originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
+      billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+      billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+      billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     }, "character-image-failed");
     return sendJson(res, error.statusCode || 502, {
@@ -1259,15 +1260,16 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
   } catch (error) {
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[character-image-modify-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
+    let refunded = cost <= 0;
+    let refundError = null;
     if (cost > 0) {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, auth.user.id, cost, "character_image_modify_refund", { taskId, characterId: character.id || "", error: error.message || "Wan2.7 character modify failed." });
-        await recordSubtokenAdjustment(auth, { taskId, type: "character_image_modify_refund", amount: -cost, meta: { characterId: character.id || "", error: error.message || "Wan2.7 character modify failed." } });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[character-image-modify-refund-failed]", refundError.message || refundError);
-      }
+      const result = await refundCreditsWithSubtoken(auth, auth.user.id, cost, "character_image_modify_refund", {
+        taskId,
+        characterId: character.id || "",
+        error: error.message || "Wan2.7 character modify failed.",
+      }, { logTag: "character-image-modify" });
+      refunded = result.refunded;
+      refundError = result.error;
     }
     await updateAssetImageModifyRecord(taskId, {
       status: "failed",
@@ -1278,8 +1280,9 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
       createResponse: errorInfo.payload || null,
       finalCredits: 0,
       originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
+      billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+      billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+      billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     }, "character-image-modify-failed");
     return sendJson(res, error.statusCode || 502, {

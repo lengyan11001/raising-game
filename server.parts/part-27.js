@@ -1139,20 +1139,15 @@ async function runSeedream5ImageGenerationJob(job = {}) {
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[seedream5-image-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
     const currentRecord = await getGenerationRecord(taskId).catch(() => null);
-    if (cost > 0 && currentRecord?.billingStatus !== "refunded") {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, userId, cost, "advanced_seedream5_image_refund", { taskId, error: error.message || "Seedream 5.0 Image failed." });
-        await recordSubtokenAdjustment(currentRecord || { taskId, userId }, {
-          taskId,
-          type: "advanced_seedream5_image_refund",
-          amount: -cost,
-          meta: { error: error.message || "Seedream 5.0 Image failed." },
-        });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[seedream5-image-refund-failed]", taskId, refundError.message || refundError);
-      }
+    let refunded = cost <= 0;
+    let refundError = null;
+    if (cost > 0) {
+      const result = await refundCreditsWithSubtoken(currentRecord || { taskId, userId }, userId, cost, "advanced_seedream5_image_refund", {
+        taskId,
+        error: error.message || "Seedream 5.0 Image failed.",
+      }, { logTag: "seedream5-image" });
+      refunded = result.refunded;
+      refundError = result.error;
     }
     await upsertGenerationRecord({
       taskId,
@@ -1165,8 +1160,9 @@ async function runSeedream5ImageGenerationJob(job = {}) {
       upstreamPayload,
       finalCredits: 0,
       originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
+      billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+      billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+      billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     });
   }

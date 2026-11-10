@@ -1341,6 +1341,17 @@ async function handleVolcengineCreateGenerationTask(req, res) {
     }
     return sendJson(res, 200, raw);
   } catch (error) {
+    let refunded = cost <= 0;
+    let refundError = null;
+    if (cost > 0) {
+      const result = await refundCreditsWithSubtoken(auth, auth.user.id, cost, "volcengine_generation_submit_refund", {
+        taskId: fallbackTaskId,
+        provider: "seedance",
+        reason: error.message || "submit failed",
+      }, { logTag: "seedance-submit" });
+      refunded = result.refunded;
+      refundError = result.error;
+    }
     await upsertGenerationRecord({
       taskId: fallbackTaskId,
       status: "failed",
@@ -1364,9 +1375,9 @@ async function handleVolcengineCreateGenerationTask(req, res) {
       finalCredits: 0,
       originalFinalCredits: 0,
       userPricingMultiplier: pricing.userPricingMultiplier,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
-      billingError: "",
+      billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
+      billingSettledAt: refunded ? new Date().toISOString() : "",
+      billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
       pricingEstimate: pricing,
       createResponse: error.payload || null,
       awaitingUpstreamTask: false,
@@ -1375,20 +1386,6 @@ async function handleVolcengineCreateGenerationTask(req, res) {
       apiTokenType: auth.tokenRecord?.quotaType || "",
       apiTokenSource: auth.tokenSource || "",
     });
-    if (cost > 0) {
-      await changeUserCredits(auth.db, auth.user.id, cost, "volcengine_generation_submit_refund", {
-        taskId: fallbackTaskId,
-        provider: "seedance",
-        reason: error.message || "submit failed",
-      });
-      await recordSubtokenAdjustment(auth, {
-        taskId: fallbackTaskId,
-        type: "volcengine_generation_submit_refund",
-        amount: -cost,
-        meta: { provider: "seedance", reason: error.message || "submit failed" },
-      });
-      if (!dbEnabled()) await writeDb(auth.db);
-    }
     return sendJson(res, error.statusCode || 502, {
       error: {
         code: error.code || "UPSTREAM_SUBMIT_FAILED",

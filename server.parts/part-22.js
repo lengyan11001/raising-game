@@ -1502,17 +1502,16 @@ async function refundVideoToolTask(taskId, message = "Video tool generation fail
   const record = await getGenerationRecord(taskId);
   if (!record) return null;
   const cost = creditsAmount(record.preDeductedCredits || 0);
-  const alreadyRefunded = String(record.billingStatus || "").toLowerCase() === "refunded";
-  if (cost > 0 && !alreadyRefunded) {
-    const db = await readDb();
-    await changeUserCredits(db, record.userId, cost, "video_tool_refund", { taskId, action: record.params?.toolAction || "", error: message });
-    await recordSubtokenAdjustment(record, {
+  let refunded = cost <= 0;
+  let refundError = null;
+  if (cost > 0) {
+    const result = await refundCreditsWithSubtoken(record, record.userId, cost, "video_tool_refund", {
       taskId,
-      type: "video_tool_refund",
-      amount: -cost,
-      meta: { action: record.params?.toolAction || "", error: message },
-    });
-    if (!dbEnabled()) await writeDb(db);
+      action: record.params?.toolAction || "",
+      error: message,
+    }, { logTag: "video-tool" });
+    refunded = result.refunded;
+    refundError = result.error;
   }
   const freeClaimId = String(record.freeImageClaimId || record.params?.freeImageClaimId || "").trim();
   if (freeClaimId) {
@@ -1528,8 +1527,9 @@ async function refundVideoToolTask(taskId, message = "Video tool generation fail
     error: message,
     finalCredits: 0,
     originalFinalCredits: 0,
-    billingStatus: cost > 0 ? "refunded" : freeClaimId ? "free_released" : "free",
-    billingSettledAt: new Date().toISOString(),
+    billingStatus: cost <= 0 ? (freeClaimId ? "free_released" : "free") : refunded ? "refunded" : "pre_deducted",
+    billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
+    billingSettledAt: refunded ? new Date().toISOString() : "",
     failedAt: new Date().toISOString(),
     queryResponse: errorPayload || record.queryResponse || null,
     lastUpdateReason: "video-tool-failed",

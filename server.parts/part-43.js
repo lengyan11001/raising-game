@@ -134,6 +134,15 @@ const STALLED_GENERATION_REFUND_PROVIDERS = new Set([
   "qwen-image3",
 ]);
 
+const FAILED_REFUND_AUDIT_LEDGER_TYPES = new Map([
+  ["seedream5-image", { charge: "advanced_seedream5_image", refund: "advanced_seedream5_image_refund" }],
+  ["qwen-image3", { charge: "advanced_qwen_image3", refund: "advanced_qwen_image3_refund" }],
+  ["qwen37-flash", { charge: "advanced_qwen37_flash", refund: "advanced_qwen37_flash_refund" }],
+  ["papaya", { charge: "advanced_qwen37_flash", refund: "advanced_qwen37_flash_refund" }],
+  ["byteplus-language", { charge: "advanced_qwen37_flash", refund: "advanced_qwen37_flash_refund" }],
+  ["z-image-spicy-pro", { charge: "advanced_z_image_spicy_pro", refund: "advanced_z_image_spicy_pro_refund" }],
+]);
+
 const stalledGenerationRepairLocks = new Set();
 
 async function withStalledGenerationRepairLock(taskId = "", callback = async () => null) {
@@ -234,6 +243,176 @@ async function stalledGenerationRefundExists(record = {}, refundType = stalledGe
   return (db.creditLedger || []).some((entry) => (
     refundTypes.includes(entry.type) && String(entry.meta?.taskId || "") === String(record.taskId || "")
   ));
+}
+
+function failedRefundAuditLedgerTypes(record = {}) {
+  return FAILED_REFUND_AUDIT_LEDGER_TYPES.get(String(record.provider || "").toLowerCase()) || null;
+}
+
+async function generationTaskLedgerSummary(record = {}, ledgerTypes = null) {
+  const types = ledgerTypes || failedRefundAuditLedgerTypes(record);
+  if (!record.taskId || !types) return [];
+  if (!dbEnabled()) return [];
+  const { rows } = await dbQuery(`
+    SELECT type, COALESCE(SUM(delta), 0)::numeric AS total, COUNT(*)::int AS count
+    FROM app_credit_ledger
+    WHERE meta->>'taskId' = $1
+      AND type = ANY($2::text[])
+    GROUP BY type
+  `, [String(record.taskId || ""), [types.charge, types.refund]]);
+  return rows.map((row) => ({
+    type: String(row.type || ""),
+    total: creditsAmount(row.total || 0),
+    count: Math.max(0, Math.trunc(Number(row.count || 0))),
+  }));
+}
+
+function falseRefundedGenerationAudit(record = {}, ledgerSummary = []) {
+  const ledgerTypes = failedRefundAuditLedgerTypes(record);
+  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  const status = String(record.status || "").toLowerCase();
+  const billingStatus = String(record.billingStatus || "").toLowerCase();
+  if (!ledgerTypes) return { eligible: false, reason: "provider-not-allowlisted", preDeducted };
+  if (!record.taskId || !record.userId || record.deletedAt) return { eligible: false, reason: "invalid-record", preDeducted };
+  if (status !== "failed" || billingStatus !== "refunded" || preDeducted <= 0) {
+    return { eligible: false, reason: "not-a-false-refunded-record", preDeducted };
+  }
+  const charge = ledgerSummary.find((entry) => entry.type === ledgerTypes.charge);
+  const refund = ledgerSummary.find((entry) => entry.type === ledgerTypes.refund);
+  const chargedCredits = charge ? Math.abs(Math.min(0, charge.total)) : 0;
+  if (!charge || charge.count !== 1 || charge.total >= 0) return { eligible: false, reason: "charge-ledger-missing-or-invalid", preDeducted, chargedCredits };
+  if (refund?.count > 0 || refund?.total > 0) return { eligible: false, reason: "refund-already-recorded", preDeducted, chargedCredits };
+  if (Math.abs(chargedCredits - preDeducted) > 0.000001) return { eligible: false, reason: "charge-amount-mismatch", preDeducted, chargedCredits };
+  return {
+    eligible: true,
+    reason: "refund-ledger-missing",
+    preDeducted,
+    refundCredits: chargedCredits,
+    chargedCredits,
+    ledgerTypes,
+  };
+}
+
+async function listFailedRefundedGenerationRecordsForAudit({ taskIds = [], sinceMs = 30 * 24 * 60 * 60 * 1000, limit = 100 } = {}) {
+  const ids = [...new Set((Array.isArray(taskIds) ? taskIds : []).map((value) => String(value || "").trim()).filter(Boolean))];
+  if (ids.length) {
+    const records = await Promise.all(ids.map((taskId) => getGenerationRecord(taskId)));
+    return records.filter((record) => record && record.taskId);
+  }
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for failed refund audit.");
+  const providers = [...FAILED_REFUND_AUDIT_LEDGER_TYPES.keys()];
+  const safeLimit = Math.max(1, Math.min(500, Math.trunc(Number(limit || 100) || 100)));
+  const { rows } = await dbQuery(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND LOWER(COALESCE(payload->>'status', '')) = 'failed'
+      AND LOWER(COALESCE(payload->>'billingStatus', '')) = 'refunded'
+      AND LOWER(COALESCE(payload->>'provider', '')) = ANY($1::text[])
+      AND COALESCE(NULLIF(payload->>'createdAt', '')::timestamptz, created_at) >= NOW() - ($2::int * INTERVAL '1 millisecond')
+    ORDER BY COALESCE(NULLIF(payload->>'createdAt', '')::timestamptz, created_at) ASC
+    LIMIT $3
+  `, [providers, Math.max(0, Number(sinceMs || 0)), safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
+async function repairFailedRefundedGenerationRecords({ apply = false, taskIds = [], sinceMs = 30 * 24 * 60 * 60 * 1000, limit = 100 } = {}) {
+  const records = await listFailedRefundedGenerationRecordsForAudit({ taskIds, sinceMs, limit });
+  const results = [];
+  for (const record of records) {
+    const base = {
+      taskId: record.taskId,
+      userId: record.userId,
+      provider: record.provider || "",
+      status: record.status || "",
+      billingStatus: record.billingStatus || "",
+      preDeductedCredits: creditsAmount(record.preDeductedCredits || 0),
+    };
+    const ledgerSummary = await generationTaskLedgerSummary(record);
+    const audit = falseRefundedGenerationAudit(record, ledgerSummary);
+    const auditLedgerTypes = failedRefundAuditLedgerTypes(record);
+    base.refundAlreadyRecorded = Boolean(auditLedgerTypes && ledgerSummary.some((entry) => entry.type === auditLedgerTypes.refund && entry.count > 0));
+    if (!audit.eligible) {
+      results.push({ ...base, action: "skipped", reason: audit.reason });
+      continue;
+    }
+    if (!apply) {
+      results.push({ ...base, action: "refund-ledger-only", reason: audit.reason, refundCredits: audit.refundCredits });
+      continue;
+    }
+    try {
+      const result = await withStalledGenerationRepairLock(record.taskId, async () => {
+        const current = await getGenerationRecord(record.taskId);
+        const currentSummary = await generationTaskLedgerSummary(current || {});
+        const currentAudit = falseRefundedGenerationAudit(current || {}, currentSummary);
+        if (!currentAudit.eligible) return { record: current, audit: currentAudit, summary: currentSummary, inserted: false };
+        const { charge, refund } = currentAudit.ledgerTypes;
+        const refundCredits = currentAudit.refundCredits;
+        const meta = {
+          taskId: record.taskId,
+          provider: record.provider || "",
+          reason: "failed-refund-ledger-repair",
+          preDeducted: currentAudit.preDeducted,
+          chargedCredits: currentAudit.chargedCredits,
+          refundedCredits: refundCredits,
+          previousBillingStatus: "refunded",
+          previousChargeType: charge,
+        };
+        if (dbEnabled()) {
+          await applyCreditDeltaInDb({
+            id: stableLedgerId(refund, meta),
+            userId: current.userId,
+            delta: refundCredits,
+            type: refund,
+            meta,
+            payload: {
+              userId: current.userId,
+              delta: refundCredits,
+              type: refund,
+              meta,
+              createdAt: new Date().toISOString(),
+            },
+          });
+        } else {
+          const db = await readDb();
+          await changeUserCredits(db, current.userId, refundCredits, refund, meta);
+          if (!dbEnabled()) await writeDb(db);
+        }
+        await recordSubtokenAdjustment(current, {
+          taskId: current.taskId,
+          type: refund,
+          amount: -refundCredits,
+          meta: { reason: "failed-refund-ledger-repair", previousChargeType: charge },
+        }).catch((error) => console.error("[failed-refund-subtoken-adjustment-failed]", current.taskId, error.message || error));
+        const nextRecord = await upsertGenerationRecord({
+          taskId: current.taskId,
+          billingStatus: "refunded",
+          billingSettledAt: new Date().toISOString(),
+          billingError: "",
+          lastUpdateReason: "failed-refund-ledger-repair",
+        });
+        return { record: nextRecord, audit: currentAudit, summary: await generationTaskLedgerSummary(current), inserted: true };
+      });
+      results.push({
+        ...base,
+        action: result.inserted ? "refunded" : "skipped",
+        reason: result.audit?.reason || "",
+        refundCredits: result.inserted ? result.audit.refundCredits : 0,
+        finalBillingStatus: result.record?.billingStatus || "",
+      });
+    } catch (error) {
+      results.push({ ...base, action: "failed-to-repair", reason: String(error.message || error).slice(0, 240) });
+    }
+  }
+  return {
+    apply: Boolean(apply),
+    mode: "failed-refund-ledger-audit",
+    scanned: records.length,
+    repaired: results.filter((item) => item.action === "refunded").length,
+    skipped: results.filter((item) => item.action === "skipped").length,
+    failed: results.filter((item) => item.action === "failed-to-repair").length,
+    results,
+  };
 }
 
 async function failStalledGenerationRecord(record = {}, reason = "stalled-generation-repair") {
@@ -499,6 +678,8 @@ module.exports = {
   objectStorageKeyFromPublicUrl,
   handleAdvancedVegaGenerate,
   repairStalledGenerationRecords,
+  repairFailedRefundedGenerationRecords,
+  listFailedRefundedGenerationRecordsForAudit,
   listStalledGenerationRecordsForRepair,
   isStalledGenerationRecordCandidate,
   failStalledGenerationRecord,

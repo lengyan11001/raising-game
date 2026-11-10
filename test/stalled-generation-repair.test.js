@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+const server = require("../server-source").readServerSource();
 const script = fs.readFileSync(path.join(__dirname, "..", "scripts", "repair-stalled-generation-records.js"), "utf8");
 const { isStalledGenerationRecordCandidate } = require("../server");
 
@@ -69,4 +69,33 @@ test("stale pre-submit scans have bounded queries, record isolation, and diagnos
   assert.match(scan, /Promise\.race\(\[promise, timeout\]\)/);
   assert.match(scan, /for \(const record of staleRecords\)[\s\S]*?catch \(error\)[\s\S]*?\}\s*\}\s*if \(settled\.length\)/);
   assert.match(scan, /finally \{\s*staleSubmitScanRunning = false;/);
+});
+
+test("seedream failure does not claim refunded unless the refund ledger write succeeded", () => {
+  const part = fs.readFileSync(path.join(__dirname, "..", "server.parts", "part-27.js"), "utf8");
+  const handler = part.slice(part.indexOf("async function runSeedream5ImageGenerationJob"), part.indexOf("function startSeedream5ImageGenerationJob"));
+  assert.match(handler, /let refunded = cost <= 0/);
+  assert.match(handler, /refunded = result\.refunded/);
+  assert.match(handler, /billingStatus: cost <= 0 \? "free" : refunded \? "refunded" : "pre_deducted"/);
+  assert.match(handler, /billingSettledAt: refunded \? new Date\(\)\.toISOString\(\) : ""/);
+  assert.match(handler, /billingError: refundError \?/);
+});
+
+test("failed generation paths never claim a refund before the real ledger write succeeds", () => {
+  const seedance = fs.readFileSync(path.join(__dirname, "..", "server.parts", "part-15.js"), "utf8");
+  const seedanceHandler = seedance.slice(seedance.indexOf("async function handleVolcengineCreateGenerationTask("), seedance.indexOf("async function handleSeedanceVideoTask"));
+  const seedanceRefund = seedanceHandler.indexOf('refundCreditsWithSubtoken(auth, auth.user.id, cost, "volcengine_generation_submit_refund"');
+  const seedanceRecord = seedanceHandler.indexOf("await upsertGenerationRecord({", seedanceRefund);
+  assert.ok(seedanceRefund > 0 && seedanceRecord > seedanceRefund);
+  assert.match(seedanceHandler, /let refunded = cost <= 0/);
+  assert.match(seedanceHandler, /billingStatus: cost <= 0 \? "free" : refunded \? "refunded" : "pre_deducted"/);
+  assert.match(seedanceHandler, /billingError: refundError \? `Refund failed: \$\{refundError\.message \|\| refundError\}` : ""/);
+
+  const videoTool = fs.readFileSync(path.join(__dirname, "..", "server.parts", "part-22.js"), "utf8");
+  const refundVideoTool = videoTool.slice(videoTool.indexOf("async function refundVideoToolTask("), videoTool.indexOf("function closestWan27ImageRatioForAsset("));
+  assert.match(refundVideoTool, /let refunded = cost <= 0/);
+  assert.match(refundVideoTool, /refundCreditsWithSubtoken\(record, record\.userId, cost, "video_tool_refund"/);
+  assert.match(refundVideoTool, /billingStatus: cost <= 0 \? \(freeClaimId \? "free_released" : "free"\) : refunded \? "refunded" : "pre_deducted"/);
+  assert.match(refundVideoTool, /billingSettledAt: refunded \? new Date\(\)\.toISOString\(\) : ""/);
+  assert.match(refundVideoTool, /billingError: refundError \?/);
 });

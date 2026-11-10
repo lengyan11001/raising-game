@@ -11,7 +11,7 @@ const vega = require("../tencent-vod-vega");
 const vegaMedia = require("../platform.vega-media");
 const providers = require("../lib-providers");
 const application = require("../server");
-const server = read("server.js");
+const server = require("../server-source").readServerSource();
 const html = read("platform.html");
 const ui = read("platform.ui.js");
 const create = read("platform.create.js");
@@ -1057,7 +1057,9 @@ test("Vega pricing is checked before charging or calling the upstream API", () =
 
 test("Vega create failure and polling failure paths refund without double charging", () => {
   const handler = sourceBetween(server, "async function handleAdvancedVegaGenerate(", "function advancedRuntimeForProvider(");
-  assert.match(handler, /if \(charged\)[\s\S]*advanced_vega_refund[\s\S]*billingStatus: cost > 0 \? "refunded" : "free"/);
+  assert.match(handler, /if \(charged\)[\s\S]*advanced_vega_refund[\s\S]*refunded = result\.refunded/);
+  assert.match(handler, /billingStatus: cost <= 0 \? "free" : refunded \? "refunded" : "pre_deducted"/);
+  assert.match(handler, /billingSettledAt: refunded \? new Date\(\)\.toISOString\(\) : ""/);
   const refresh = sourceBetween(server, "async function refreshGenerationRecordStatus(", "if (record.provider === \"apiz\")");
   assert.match(refresh, /upstreamResourceMissing\(error\)[\s\S]*status: "failed"[\s\S]*finalCredits: 0[\s\S]*originalFinalCredits: 0/);
   assert.match(server, /function needsSeedanceFailureRefund[\s\S]*isVegaProvider\(provider\)/);
