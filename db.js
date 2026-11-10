@@ -1116,9 +1116,28 @@ async function ensureSchemaInner() {
     );
   `);
   await query(`
-    ALTER TABLE app_generation_records
-      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'app_generation_records'
+          AND column_name = 'created_at'
+      ) THEN
+        ALTER TABLE app_generation_records
+          ADD COLUMN created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'app_generation_records'
+          AND column_name = 'updated_at'
+      ) THEN
+        ALTER TABLE app_generation_records
+          ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+      END IF;
+    END
+    $$;
   `);
   await query(`
     CREATE INDEX IF NOT EXISTS app_generation_records_created_at_idx
@@ -1138,6 +1157,54 @@ async function ensureSchemaInner() {
     CREATE INDEX IF NOT EXISTS app_generation_records_advanced_download_pending_idx
       ON app_generation_records (task_id)
       WHERE payload->>'advancedDownloadStatus' IN ('preparing', 'queued', 'processing');
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_generation_records_poster_maintenance_pending_v2_idx
+      ON app_generation_records (created_at DESC, updated_at DESC)
+      WHERE COALESCE(payload->>'deletedAt', '') = ''
+        AND COALESCE(payload->>'r2PurgedAt', '') = ''
+        AND COALESCE(payload->>'cdnPosterUrl', '') = ''
+        AND COALESCE(payload->>'localPosterUrl', '') = ''
+        AND COALESCE(payload->>'posterMaintenanceTerminalAt', '') = ''
+        AND COALESCE(NULLIF(payload->>'posterMaintenanceAttempts', '')::int, 0) < 3
+        AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+        AND LOWER(COALESCE(payload->>'advancedDownloadStatus', '')) <> 'failed'
+        AND LOWER(COALESCE(payload->>'tokenSource', '')) NOT IN ('api_token', 'subtoken')
+        AND LOWER(COALESCE(payload->>'apiTokenSource', '')) NOT IN ('api_token', 'subtoken')
+        AND COALESCE(payload->>'kind', '') NOT ILIKE '%image%'
+        AND COALESCE(payload->>'provider', '') NOT ILIKE '%image%'
+        AND (
+          COALESCE(payload->>'remoteVideoUrl', '') <> ''
+          OR COALESCE(payload->>'providerVideoUrl', '') <> ''
+          OR COALESCE(payload->>'upstreamVideoUrl', '') <> ''
+          OR COALESCE(payload->>'localVideoUrl', '') <> ''
+          OR COALESCE(payload->'queryResponse'->'content'->>'video_url', '') <> ''
+          OR COALESCE(payload->'createResponse'->'content'->>'video_url', '') <> ''
+        );
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_generation_records_r2_recovery_pending_idx
+      ON app_generation_records (updated_at DESC)
+      WHERE COALESCE(payload->>'deletedAt', '') = ''
+        AND COALESCE(payload->>'r2PurgedAt', '') = ''
+        AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+        AND (
+          (
+            COALESCE(payload->>'cdnVideoUrl', '') = ''
+            AND (
+              COALESCE(payload->>'localVideoUrl', '') <> ''
+              OR COALESCE(payload->>'remoteVideoUrl', '') <> ''
+            )
+          )
+          OR (
+            COALESCE(payload->>'cdnImageUrl', '') = ''
+            AND (
+              COALESCE(payload->>'localImageUrl', '') <> ''
+              OR COALESCE(payload->>'localImagePath', '') <> ''
+              OR COALESCE(payload->>'remoteImageUrl', '') <> ''
+            )
+          )
+        );
   `);
   await query(`
     CREATE TABLE IF NOT EXISTS app_media_ingest_jobs (

@@ -1,3 +1,13 @@
+## 2026-11-10 PostgreSQL maintenance/recovery index follow-up (deployed Old baseline)
+
+- Source/release: Old currently runs source `f39b8db` / release `31cda6a52ed14521838b0cf5bccca2d07e443a34`; Live untouched.
+- Follow-up fixes in working tree (not yet committed/deployed): migrations avoid `ALTER TABLE app_generation_records ADD COLUMN IF NOT EXISTS` on every cold start (that statement took an AccessExclusiveLock and caused lock waits); add exact partial indexes for poster maintenance and R2 recovery pending scans.
+- Production measurements: poster maintenance query 5.2s / 147k buffers -> 0.27ms / 37 buffers after exact partial index; R2 recovery query ~2.3s / 146k buffers -> 0.22ms / 96 buffers. Old slow log then showed only manual index/ANALYZE commands and broad `SELECT * FROM app_user_assets` snapshots.
+- Residual risk: `readAppDbFromTables()` still does broad snapshots for legacy callers; assets scan is ~94ms server-side now but serialization/network can be ~1.2s in logs. Do not change response shapes without targeted caller migration.
+- Verification baseline: service active, NRestarts=0, health ok; sessions 948 (78 unexpired, intentionally preserved), 0 idle-in-transaction, 0 lock waiters, DB 724MB, cache hit ~88.8%, no deadlocks; 4 vCPU / 7.1GiB, disk 57%, no server upgrade justified.
+- Focused generated-media/security suite has 4 unrelated stale UI-source assertions from existing WIP; do not deploy those WIP files.
+- Refund audit remains clean: today's failed generations refunded; do not touch `img-20261110122402-fcedf9`.
+
 ## 2026-11-10 PostgreSQL stale-submit index predicate + media pending scan (deployed Old)
 
 - Commit/release: `725e299` / `e975126` initially deployed the stale-submit partial index. Follow-up commit makes the query predicate match the partial index exactly (`payload->>'awaitingUpstreamTask' = 'true'`), because `COALESCE(...)` prevented index use and still caused a 2.8-3.3s full table scan.
