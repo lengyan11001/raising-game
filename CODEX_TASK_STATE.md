@@ -1,3 +1,19 @@
+## 2026-11-10 video-tool asset scan scope fix (ready for Old deployment)
+
+- Production inspection found residual active queries: `SELECT * FROM app_user_assets ORDER BY created_at DESC` from legacy full snapshots, including video-tool job runners.
+- Changed four video-tool runners in `server.parts/part-23.js` to `readGenerationJobDb(userId)`, loading only the job user and that user's assets. Charge/refund, source media validation, and upstream calls are unchanged.
+- Added regression coverage in `test/generation-db-scope.test.js`; generation scope, refund guard, and wallet scan tests pass 9/9; syntax and `git diff --check` pass.
+- Publish scope: `server.parts/part-23.js`, `test/generation-db-scope.test.js`, and this state entry only. Do not stage unrelated untracked canvas/test artifacts.
+
+## 2026-11-10 wallet one-hour production verification (verified Old)
+
+- User requested wallet scanning limited to the most recent 30-60 minutes instead of all history.
+- Production `123vips.com` is running `raising-game-demo` at `77ab98873eecba0c7f7917e57d5c06bf2dab6f7d`; service active and `/api/health` returns `{"ok":true}`.
+- `/etc/raising-game-demo.env` and the running process both have `WALLET_CHAIN_SCAN_ORDER_TTL_HOURS=1`.
+- Production verification: pending manual wallet orders in the last hour `0`; all historical pending `704`; scanner is bounded to the one-hour window and does not read those historical rows.
+- `EXPLAIN (ANALYZE, BUFFERS)` for the exact bounded query uses `app_wallet_orders_status_idx`; zero recent rows completed in about `0.180ms` with `2` shared buffers. The paid-transaction CTE was not executed when there were no recent pending candidates.
+- `node --test test/wallet-scan.test.js` passes 2/2. No session cleanup or forced logout was performed.
+
 ## 2026-11-10 canvas Seedance null-node error fix (ready for Old deployment)
 
 - User hit `Cannot read properties of null (reading 'id')` while generating in canvas with Seedance 2.5, 8s, 16:9, multimodal references, 480p, and two references. Server logs had no matching exception; the failure is in the React canvas's transient null node render path.

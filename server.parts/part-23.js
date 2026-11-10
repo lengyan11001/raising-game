@@ -1,6 +1,6 @@
 async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabel = "image edit", successReason = "image-edit" } = {}) {
   const { taskId, userId, pricing } = job;
-  const db = await readDb();
+  const db = await readGenerationJobDb(userId);
   const user = (db.users || []).find((entry) => entry.id === userId);
   if (!user) throw new Error("User not found.");
   const assets = [];
@@ -137,7 +137,7 @@ async function runVideoToolImageFaceSwap(job) {
 async function runVideoToolFaceSwap(job) {
   const { taskId, userId, imageAssetId, videoAssetId, pricing } = job;
   const undressVideo = job.action === "undress-video";
-  const db = await readDb();
+  const db = await readGenerationJobDb(userId);
   const user = (db.users || []).find((entry) => entry.id === userId);
   if (!user) throw new Error("User not found.");
   let imageAsset = undressVideo ? null : videoToolAsset(db, userId, imageAssetId, "image", "Face image");
@@ -279,7 +279,7 @@ async function runVideoToolUndress(job) {
 
 async function runVideoToolUndressImageVideo(job) {
   const { taskId, userId, imageAssetId, pricing } = job;
-  const db = await readDb();
+  const db = await readGenerationJobDb(userId);
   const user = (db.users || []).find((entry) => entry.id === userId);
   if (!user) throw new Error("User not found.");
   const sourceAsset = await ensurePublicUrlForUserMediaAsset(
@@ -366,7 +366,7 @@ async function runVideoToolUndressImageVideo(job) {
 
 async function runVideoToolUndressVideoLegacy(job) {
   const { taskId, userId, imageAssetId, pricing } = job;
-  const db = await readDb();
+  const db = await readGenerationJobDb(userId);
   const user = (db.users || []).find((entry) => entry.id === userId);
   if (!user) throw new Error("User not found.");
   const sourceAsset = videoToolAsset(db, userId, imageAssetId, "image", "Source image");

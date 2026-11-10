@@ -33,6 +33,22 @@ test("advanced generation jobs load only the creating user and that user's asset
   assert.match(db, /WHERE user_id = \$1[\s\S]*?deleted_at IS NULL/);
 });
 
+test("video tool jobs load only the creating user and that user's assets", () => {
+  const part23 = read("server.parts/part-23.js");
+  const runners = part23.slice(
+    part23.indexOf("async function runVideoToolImageEdit"),
+    part23.indexOf("const VIDEO_TOOL_JOB_CONCURRENCY"),
+  );
+  assert.ok(runners.length > 0);
+  assert.doesNotMatch(runners, /\breadDb\s*\(/);
+  const calls = runners.match(/readGenerationJobDb\(userId\)/g) || [];
+  assert.equal(calls.length, 4);
+  assert.match(runners, /async function runVideoToolImageEdit[\s\S]*?const db = await readGenerationJobDb\(userId\)/);
+  assert.match(runners, /async function runVideoToolFaceSwap[\s\S]*?const db = await readGenerationJobDb\(userId\)/);
+  assert.match(runners, /async function runVideoToolUndressImageVideo[\s\S]*?const db = await readGenerationJobDb\(userId\)/);
+  assert.match(runners, /async function runVideoToolUndressVideoLegacy[\s\S]*?const db = await readGenerationJobDb\(userId\)/);
+});
+
 
 test("legacy full snapshots use one pooled connection and skip unused tables", () => {
   const db = read("db.js");
