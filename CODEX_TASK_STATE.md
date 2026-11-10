@@ -1,3 +1,13 @@
+## 2026-11-11 Seedream 5 regeneration without aspect ratio (deployed Old)
+
+- User report: endpoint `ep-20260721175949-xw978` / production record `img-20261110224714-e648ed` showed “加载失败” when clicking regenerate.
+- Root cause: the complete-detail guard required both `ratio` and `resolution` for every record. Seedream 5 image records legitimately store `resolution: "2K"` (and `params.size: "2K"`) without an aspect ratio, so a successful detail refresh was still classified as incomplete.
+- Fix: image records now require a resolution only; video records still require `ratio`, `resolution`, and `duration`. The change is limited to `advancedRegenerationRecordIsComplete()`.
+- Regression coverage reproduces the exact production Seedream record shape and verifies that image regeneration accepts a missing ratio while video regeneration remains incomplete without duration.
+- Verification: `node --check platform.create.parts/part-04.js`; `node --require ./test/source-compat.js --test test/vega-regeneration-media.test.js` passes 29/29; `git diff --check` passes.
+- Publish scope: `platform.create.parts/part-04.js`, `test/vega-regeneration-media.test.js`, and this state entry. The unrelated `useAssetInAdvanced()` WIP was explicitly reverted and is not part of this release.
+- Deployed Old only with `scripts/deploy_local.sh --site old`. `/api/health` returns `{"ok":true}` and the served `platform.create.parts/part-04.js` contains the image-specific completeness check. Live remains untouched; untracked WIP files were preserved.
+
 ## 2026-11-11 Result image duplicate from durable + provider fallback (deployed Old)
 
 - User report: completed image task `img-20261111005109-24948d` still displayed two thumbnails in Result.
