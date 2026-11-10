@@ -7,7 +7,7 @@
 - Billing: the generation is `failed` with `billingStatus=refunded`; ledger contains `-12.5` charge and matching `+12.5` refund, so no duplicate refund is needed.
 - Verification: focused upstream/media/auth/refund/security suite passes 60/60; 357 ms CDN asset probe returns 200 with full content length; syntax and whitespace checks pass.
 - Publish scope: `server.parts/part-19.js`, `server.parts/part-43.js`, `test/upstream-reference-delivery.test.js`, and this state entry only. Exclude unrelated WIP.
-- Deployment status: pending selective commit, platform release snapshot, Old-only deployment, and post-deploy health/log/generation verification. Live must remain untouched.
+- Deployment: source `old-site` `dbe9a85`; platform release `c9fc77e`; deployed Old only via `scripts/deploy_local.sh --site old`. Production checkout is `c9fc77e`, service active with `NRestarts=0`, `/api/health` returns `200 {"ok":true}`, public root returns 200, and production code signs the reported asset as a `assets-cdn.123vips.com` URL. A production fetch of that signed URL returned `200`, `2,799,219` bytes in `367 ms`. No post-deploy image-download timeout errors were logged. Sessions remained intact (966 before/after checks); Live was not deployed.
 
 ## 2026-11-10 image regeneration no-duration fix (ready for Old deployment)
 
