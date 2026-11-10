@@ -371,6 +371,42 @@ test("HTTP timing-safe comparisons execute without relying on an outer module sc
   assert.equal(timingSafeEqualString("webhook-secret", "wrong-secret"), false);
 });
 
+test("transient database failures preserve login state on user and admin surfaces", () => {
+  const part32 = read("server.parts/part-32.js");
+  const me = part32.match(/async function handleMe\([\s\S]*?\n}\r?\n\r?\nasync function handleGetCompanionLevel/);
+  assert.ok(me, "handleMe should exist");
+  assert.match(me[0], /getAuth\(req, \{ includeUserAssets: false \}\)/);
+
+  const admin = read("admin.js");
+  const bootstrapFetch = admin.match(/async function fetchBootstrapMe\([\s\S]*?\n}\r?\n\r?\nasync function bootstrap/);
+  assert.ok(bootstrapFetch, "admin bootstrap fetch should exist");
+  assert.match(bootstrapFetch[0], /response\.status === 401 \|\| code === "LOGIN_REQUIRED" \|\| code === "SESSION_REPLACED"/);
+  assert.match(bootstrapFetch[0], /response\.status === 401 \|\| code === "LOGIN_REQUIRED" \|\| code === "SESSION_REPLACED"/);
+  const bootstrap = admin.match(/async function bootstrap\(\) \{[\s\S]*?\n}\r?\n\r?\nels\.loginForm/);
+  assert.ok(bootstrap, "admin bootstrap should exist");
+  assert.match(bootstrap[0], /if \(!response\.ok\)[\s\S]*?const sessionRejected = response\.status === 401 \|\| code === "LOGIN_REQUIRED" \|\| code === "SESSION_REPLACED"/);
+  assert.match(bootstrap[0], /showBootstrapUnavailable\(payload\?\.message \|\| `管理服务暂时不可用（\$\{response\.status\}）`\)/);
+  assert.match(bootstrap[0], /catch \(err\) \{[\s\S]*?showBootstrapUnavailable/);
+
+  const createUi = read("platform.create.parts/part-06.js");
+  const loadMe = createUi.match(/async function loadMe\(\) \{[\s\S]*?\n}\r?\n\r?\nasync function loadBillingSummary/);
+  assert.ok(loadMe, "platform loadMe should exist");
+  assert.match(loadMe[0], /if \(error\?\.statusCode === 401\) \{[\s\S]*?setUser\(null\)/);
+  assert.match(loadMe[0], /console\.warn\("session restore temporarily unavailable"/);
+
+  const app = read("app.js");
+  const appSession = app.match(/async function loadSession\(\) \{[\s\S]*?\n}\r?\n\r?\nfunction renderAssetLibrary/);
+  assert.ok(appSession, "app loadSession should exist");
+  assert.match(appSession[0], /if \(error\?\.status === 401 \|\| error\?\.code === "SESSION_REPLACED"\)/);
+  assert.match(appSession[0], /console\.warn\("session restore temporarily unavailable"/);
+
+  const game = read("game.js");
+  const gameSession = game.match(/async function loadSession\(\) \{[\s\S]*?\n}\r?\n\r?\n?async function loadConfig/);
+  assert.ok(gameSession, "game loadSession should exist");
+  assert.match(gameSession[0], /if \(error\?\.status === 401 \|\| error\?\.code === "SESSION_REPLACED"\)/);
+  assert.match(gameSession[0], /console\.warn\("session restore temporarily unavailable"/);
+});
+
 test("anonymous auth and existing-user credential login avoid full application snapshots", () => {
   const auth = read("server.parts/part-12.js");
   const getAuth = auth.match(/async function getAuth\(req, options = \{\}\) \{[\s\S]*?\n}\r?\n\r?\nasync function requireUser/);

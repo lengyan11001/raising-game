@@ -95,7 +95,7 @@ test("customer support routes require authentication and admin routes require ad
   for (const handler of ["handleCreateSupportTicket", "handleListSupportTickets", "handleGetSupportTicket", "handleReplySupportTicket", "handleListSystemNotifications"]) {
     const block = server.match(new RegExp(`async function ${handler}\\([\\s\\S]*?\\n}`));
     assert.ok(block, `${handler} should exist`);
-    assert.match(block[0], /await requireUser\(req, res\)/, `${handler} must require user auth`);
+    assert.match(block[0], /await requireUser\(req, res(?:, \{ loadDb: false \})?\)/, `${handler} must require user auth`);
   }
   const db = read("db.js");
   assert.match(db, /FROM app_support_tickets t[\s\S]*?WHERE t\.id = \$1 AND t\.user_id = \$2/);

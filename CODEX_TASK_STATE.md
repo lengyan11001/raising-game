@@ -1,3 +1,13 @@
+## 2026-11-10 repeated user/admin logout diagnosis and recovery (ready for Old deployment)
+
+- Goal: determine why ordinary and admin accounts appeared to be logged out repeatedly, preserve valid sessions, and remove the database pressure amplifying the issue. Old only; do not deploy Live or bulk-expire/delete sessions.
+- Production evidence: `app_sessions` had 946 rows and 0 expired rows; existing admin sessions were still present with `expires_at=NULL`. Sessions were not revoked. The observed logout was a client-side false negative during backend saturation.
+- Root cause: PostgreSQL pool exhaustion (`PGPOOL_MAX=20`) produced `timeout exceeded when trying to connect`. Concurrent auth/session requests loaded the full application snapshot, including `app_user_assets` (~27,757 rows / 61 MB). Notification polling was the main load source: `/api/system-notifications` had 24,249 requests that day, including 9,719 HTTP 500 and 13,622 HTTP 499.
+- Frontend amplification: admin bootstrap and user session restore previously deleted tokens on any request failure, including 5xx/502/timeouts. They now retain the token for transient failures and clear it only on explicit `401` / `LOGIN_REQUIRED` / `SESSION_REPLACED`.
+- Backend mitigation: `getAuth()` supports `includeUserAssets:false`; `/api/auth/me` and companion-level use it; notification, support-ticket and Live-notification hot paths use `loadDb:false`. Added admin reconnect UI styles and regression assertions for these contracts.
+- Verification: focused suites 54/54 pass; JS syntax checks pass. Production process `2416740` has been healthy since 14:30:48 CST and `/api/health` returns 200; the last recorded pool timeout was before that restart.
+- Publish scope: `admin.css`, `test/auth-risk.test.js`, `test/support-notifications.test.js`, this state entry. The backend/session-token fixes are already in committed integration `f4d9f00`; unrelated model-picker/test/canvas WIP must not be staged.
+
 ## 2026-11-10 database safety, refund integrity, and pool pressure (ready for Old deployment)
 
 - Goal: fix database-triggered production errors without evicting logged-in users, reverse only the confirmed bad 12-credit refund, tighten PostgreSQL settings, and deploy Old only.

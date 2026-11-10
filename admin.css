@@ -1577,6 +1577,29 @@ a { color: inherit; text-decoration: none; }
   transition: opacity 0.25s ease;
 }
 .adm-app-loading.is-hidden { display: none !important; opacity: 0; pointer-events: none !important; }
+.adm-app-loading-card {
+  width: min(420px, calc(100vw - 40px));
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  padding: 28px;
+  border: 1px solid var(--adm-line);
+  border-radius: 16px;
+  background: rgba(24, 18, 34, 0.94);
+  box-shadow: var(--adm-shadow);
+  text-align: center;
+}
+.adm-app-loading-card strong {
+  color: var(--adm-ink);
+  font-size: 1.05rem;
+}
+.adm-app-loading-card p {
+  margin: 0;
+  color: var(--adm-muted);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+.adm-app-loading-card .adm-btn { margin-top: 2px; }
 input[type="file"][hidden] {
   position: absolute !important;
   width: 1px !important;
