@@ -395,6 +395,7 @@ async function getAuth(req, options = {}) {
   if (!token) return { db: lightweightAuthDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
   if (dbEnabled()) {
     const db = loadDb ? await readDb({ includeUserAssets: options.includeUserAssets !== false }) : lightweightAuthDb();
+    const loadCurrentUserAssets = loadDb && options.loadCurrentUserAssets === true;
     const session = await getSessionByTokenInDb(token);
     if (session && recordBelongsToTenant(session, tenantId)) {
       const user = await getUserByIdInDb(session.userId);
@@ -404,6 +405,7 @@ async function getAuth(req, options = {}) {
       if (user?.riskStatus === "quarantined") {
         return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
       }
+      if (loadCurrentUserAssets) db.userAssets = await getUserAssetsForUserFromDb(user.id);
       const auth = { db, user, session, ...authUserContext(user, token, "session", null) };
       const store = requestContext.getStore();
       if (store) store.auth = auth;
@@ -414,6 +416,7 @@ async function getAuth(req, options = {}) {
       if (user.riskStatus === "quarantined") {
         return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
       }
+      if (loadCurrentUserAssets) db.userAssets = await getUserAssetsForUserFromDb(user.id);
       const auth = { db, user, session: null, ...authUserContext(user, token, "api_token", null) };
       const store = requestContext.getStore();
       if (store) store.auth = auth;
@@ -426,6 +429,7 @@ async function getAuth(req, options = {}) {
         return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
       }
       if (recordBelongsToTenant(parent, tenantId)) {
+        if (loadCurrentUserAssets) db.userAssets = await getUserAssetsForUserFromDb(parent.id);
         const auth = {
           db,
           user: parent,

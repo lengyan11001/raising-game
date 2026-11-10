@@ -113,7 +113,7 @@ async function sendAdvancedRequestFailure(req, res, auth, {
 }
 
 async function handleAdvancedGenerate(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: true, includeUserAssets: false, loadCurrentUserAssets: true });
   if (!auth) return;
   if (!await enforceBusinessRateLimit(req, res, auth, { action: "advanced_generate", limit: 30, windowMs: 10 * 60_000 })) return;
   const externalApiCaller = auth.tokenSource === "api_token" || auth.tokenSource === "subtoken" || auth.isApiToken === true;
@@ -1132,8 +1132,7 @@ async function handleAdvancedGenerate(req, res) {
     caseTitle: selectedCase?.title || "",
     config,
   });
-  const latestDb = await readDb();
-  const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
+  const latestUser = await getUserByIdInDb(auth.user.id) || auth.user;
   return sendJson(res, 200, {
     ok: true,
     task: { taskId, status: record.status },

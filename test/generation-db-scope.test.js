@@ -21,6 +21,11 @@ test("advanced generation jobs load only the creating user and that user's asset
   assert.doesNotMatch(job, /\breadDb\s*\(/);
   assert.match(job, /readGenerationJobDb\(userId\)/);
   assert.match(part02, /async function readGenerationJobDb\(userId = ""\)/);
+  const part12 = read("server.parts/part-12.js");
+  const part29 = read("server.parts/part-29.js");
+  assert.match(part12, /loadCurrentUserAssets[\s\S]*?getUserAssetsForUserFromDb\(user\.id\)/);
+  assert.match(part29, /const auth = await requireUser\(req, res, \{ loadDb: true, includeUserAssets: false, loadCurrentUserAssets: true \}\)/);
+  assert.match(part29, /const latestUser = await getUserByIdInDb\(auth\.user\.id\) \|\| auth\.user/);
   assert.match(part02, /getUserByIdInDb\(cleanUserId\)/);
   assert.match(part02, /getUserAssetsForUserFromDb\(cleanUserId\)/);
   assert.match(part01, /getUserAssetsForUserFromDb/);

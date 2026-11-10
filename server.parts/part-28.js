@@ -407,8 +407,7 @@ async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
     model,
     images: papayaImages,
   });
-  const latestDb = await readDb();
-  const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+  const latestUser = await getUserByIdInDb(auth.user.id) || auth.user;
   return sendJson(res, 200, {
     ok: true,
     async: true,
@@ -659,8 +658,7 @@ async function handleAdvancedQwenImage3Generate(req, res, context = {}) {
       if (!dbEnabled()) await writeDb(auth.db);
     }
     startQwenImage3GenerationJob({ taskId, userId: auth.user.id, body, bodyParams, initialParams: initialRecord.params, prompt, tier, model, resolution, ratio, size, outputImageCount, negativePrompt, promptExtend, promptExtendMode, watermark, seed, pricing, cost });
-    const latestDb = await readDb();
-    const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    const latestUser = await getUserByIdInDb(auth.user.id) || auth.user;
     return sendJson(res, 200, { ok: true, async: true, taskId, user: userView(latestUser), pricing, cost, record: publicGenerationRecord(initialRecord, generationRecordResponseOptionsForAuth(auth)), params: initialRecord.params });
   });
 }
@@ -867,8 +865,7 @@ async function handleAdvancedZImageSpicyProGenerate(req, res, context = {}) {
       billingSettledAt: new Date().toISOString(),
       error: "",
     });
-    const latestDb = await readDb();
-    const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    const latestUser = await getUserByIdInDb(auth.user.id) || auth.user;
     const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || initialRecord, generationRecordResponseOptionsForAuth(auth));
     return sendJson(res, 200, {
       ok: true,
