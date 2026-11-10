@@ -1069,6 +1069,20 @@ function advancedVegaGenerationOptions(provider = currentAdvancedProvider()) {
   };
 }
 
+function advancedRegenerationPrompt(record = {}, params = {}) {
+  const submitted = params?.submissionSnapshot && typeof params.submissionSnapshot === "object" && !Array.isArray(params.submissionSnapshot)
+    ? params.submissionSnapshot
+    : {};
+  const candidates = [record?.prompt, submitted.prompt, params?.prompt, record?.finalPrompt]
+    .map((value) => typeof value === "string" ? value : "")
+    .filter((value) => value.trim());
+  const hasMediaMention = (value) => /@(?:image|图片|video|视频|audio|音频)\s*\d+/i.test(value);
+  // Upstream may normalize finalPrompt and drop the @ from user-visible
+  // Image/Video mentions. Prefer the original user prompt, and when both forms
+  // exist prefer the one that still contains the mention syntax users expect.
+  return candidates.find(hasMediaMention) || candidates[0] || "";
+}
+
 function advancedRegenerationRecordIsComplete(record = {}) {
   if (!record?.taskId) return false;
   const params = recordParams(record);
@@ -1340,7 +1354,7 @@ function applyRecordToAdvancedCreate(record = {}, button = null) {
     els.advancedWanAnimateMode.value = params.animateMode || params.parameters?.mode || "wan-std";
   }
   if (els.advancedPrompt) {
-    const rawPrompt = record.finalPrompt || record.prompt || params.prompt || "";
+    const rawPrompt = advancedRegenerationPrompt(record, params);
     window.setAdvancedPromptValue?.(restoredPresetFlow ? promptWithoutPresetParts(rawPrompt, params) : rawPrompt, { emitInput: false });
     autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }

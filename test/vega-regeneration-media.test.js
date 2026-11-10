@@ -949,6 +949,31 @@ test("Vega regeneration combines snapshot asset IDs with legacy preview URLs", (
   assert.deepEqual(media.referenceVideoUrls, ["https://cdn.example.com/video.mp4"]);
 });
 
+test("Regeneration prefers the original prompt that still contains @ media mentions", () => {
+  const runtime = new Function(
+    `${extractFunction(createSource, "advancedRegenerationPrompt")}
+return { advancedRegenerationPrompt };`,
+  )();
+  assert.equal(
+    runtime.advancedRegenerationPrompt({
+      prompt: "@Image 1 把@Image 2 举在空中",
+      finalPrompt: "Image 1 把Image 2 举在空中",
+    }),
+    "@Image 1 把@Image 2 举在空中",
+  );
+  assert.equal(
+    runtime.advancedRegenerationPrompt({
+      prompt: "plain original",
+      finalPrompt: "plain normalized",
+    }),
+    "plain original",
+  );
+  assert.equal(
+    runtime.advancedRegenerationPrompt({}, { submissionSnapshot: { prompt: "@Video 1 保持动作" } }),
+    "@Video 1 保持动作",
+  );
+});
+
 test("Regeneration waits for complete detail instead of applying partial poll records", async () => {
   const createNames = [
     "advancedRegenerationRecordIsComplete",

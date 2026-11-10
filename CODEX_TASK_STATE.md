@@ -1,3 +1,10 @@
+## 2026-11-10 regeneration prompt @ mention preservation
+
+- User report: regeneration/history restore was filling prompts without `@`, e.g. `@Image 1 ... @Image 2 ...` became `Image 1 ... Image 2 ...`.
+- Root cause: `applyRecordToAdvancedCreate()` preferred `finalPrompt` over the original user `prompt`; upstream-normalized final prompts can omit the mention `@`.
+- Fix: added `advancedRegenerationPrompt()` to prefer a candidate that still contains `@Image/@图片/@Video/@视频/@Audio/@音频` syntax, then fall back to the original `record.prompt` before `finalPrompt`. The rich prompt editor itself already round-trips `@` correctly; added regression coverage for exact preservation.
+- Tests: `test/prompt-editor.test.js` + `test/vega-regeneration-media.test.js` 36/36 pass; syntax and diff checks pass. No unrelated WIP staged.
+
 ## 2026-11-10 regeneration legacy-record compatibility correction (deploying Old)
 
 - Follow-up regression: `fb22e88` required `params.submissionSnapshot` before restoring any field. Most legacy generation records do not have that nested snapshot, so prompt, visible parameters and media were all rejected even though the authoritative generation detail had the complete inputs.

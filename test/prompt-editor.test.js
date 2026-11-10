@@ -121,8 +121,17 @@ test("initialization failure falls back to the legacy textarea and preserves its
 
 test("prompt write points use the synced value helper", () => {
   assert.match(main, /window\.setAdvancedPromptValue\?\.\(""/);
+  assert.match(part04, /const rawPrompt = advancedRegenerationPrompt\(record, params\)/);
   assert.match(part04, /window\.setAdvancedPromptValue\?\.\(restoredPresetFlow/);
   assert.match(part05, /window\.setAdvancedPromptValue\?\.\(els\.templatePrompt/);
+});
+
+test("setting a rich prompt preserves @ media mentions exactly", () => {
+  const { sandbox, textarea } = setupAdapter();
+  const prompt = "@Image 1 把@Image 2 举在空中";
+  assert.equal(sandbox.setAdvancedPromptValue(prompt, { emitInput: false }), true);
+  assert.equal(sandbox.getAdvancedPromptValue(), prompt);
+  assert.equal(textarea.value, prompt);
 });
 
 test("rich mention support branches on editor selection while keeping textarea fallback", () => {
