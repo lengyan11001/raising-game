@@ -1,3 +1,11 @@
+## 2026-11-11 post-deploy verification: same admin device, old burst stopped
+
+- Rechecked the same administrator device `2407:cdc0:b010::237` on Old after deployment `c41bba3`.
+- Before the deployment fence at `00:15:23 +08:00`, the device continued firing repeated 21-22 same-second `/api/generation-records/<taskId>` bursts from `https://123vip.fans/`.
+- Served `platform-sw.js` now contains the network-first 1.5s fence, homepage references `platform.js?v=5d0765d97c26`, and that module contains both the visible-result-page scope and `const concurrency = 2`.
+- After the deployment completed, the admin device sent only normal list polling and notification requests. `/api/generation-records/<taskId>` detail count was `0` in the following ~90 seconds through `00:16:58 +08:00`.
+- Service remained `active`, `NRestarts=0`, load average `0.47/0.46/0.40`, health returned `200` in `0.09s`, home returned `200` in `0.55s`, and no application errors or post-restart 5xx responses were observed.
+- Sessions/users remain `968/926`; no sessions were cleared and no users were logged out. Live was not changed.
 ## 2026-11-10 stale service-worker navigation kept admin on old result refresh code
 
 - Production deployment `729ce16` did contain the bounded result-page/concurrency-2 fix, but the administrator device kept issuing 21 detail requests in a single second after deployment. Server logs show no new module downloads from that client after deploy, confirming its active service worker was serving the previously cached platform shell and module query string.
