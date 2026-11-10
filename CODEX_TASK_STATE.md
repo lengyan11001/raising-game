@@ -1,3 +1,13 @@
+## 2026-11-11 P2 watchdog controlled dry-run readiness
+
+- User directed backup work to the end; P2 proceeds before any further backup/off-host work.
+- Added `ops/install-service-watchdog.sh`: defaults to dry-run, requires `--confirm-active` for actual restarts, and rollback only disables/removes `raising-game-watchdog.{service,timer}` without touching `raising-game-demo`.
+- Dry-run behavior now emits one `would restart` alert at the threshold, then resets the failure counter so a sustained outage does not page every 10 seconds. Success and recovery reset the counter.
+- Added dynamic tests: healthy/failing/recovering endpoint, exact threshold, one restart only, inactive-service skip, dry-run re-arm, and isolated installer dry-run/active/rollback modes. `test/resilience-ops.test.js` is 8/8 passing.
+- Old isolated systemd drill used test-only units under `/run/systemd/system`, a temporary health server on port 47841, isolated state/lock files, and a fake `systemctl` service check. Results: healthy counter stayed 0 across repeated timer runs; failing endpoint produced failures 1, 2, 3 then exactly one `dry-run would restart`; recovery reset to 0; inactive service skipped with no state write. Production remained `active`, `NRestarts=0`.
+- Staging scripts were copied to `/tmp` for drill only; no production unit was installed and no backup work was resumed.
+- Next: select only resilience files, commit on `old-site`, build/push `platform-release`, deploy Old via `scripts/deploy_local.sh --site old`, then install watchdog in dry-run mode and verify timer/health/logs/rollback status. Preserve unrelated WIP.
+
 ## 2026-11-11 P1 backup recovery drill and resilience plan (deployed Old)
 
 - Scope: Old only (`123vips.com` / `47.84.76.131`). Live untouched. No production service restart, schema change, or source-database mutation.

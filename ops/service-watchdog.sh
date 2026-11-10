@@ -60,6 +60,8 @@ fi
 
 if [[ "$WATCHDOG_DRY_RUN" == "1" ]]; then
   log "dry-run would restart service=$SERVICE consecutive_failures=$failures"
+  # Re-arm after reporting so observation does not emit the same alert every timer tick.
+  printf '0\n' > "$STATE_FILE"
   exit 0
 fi
 

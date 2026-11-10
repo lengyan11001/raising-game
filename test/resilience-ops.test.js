@@ -1,8 +1,9 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
+const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
@@ -11,6 +12,7 @@ const root = path.resolve(__dirname, "..");
 const snapshotBuilder = fs.readFileSync(path.join(root, "scripts", "build_release_snapshot.py"), "utf8");
 const verifyScript = fs.readFileSync(path.join(root, "ops", "verify-postgres-backup.sh"), "utf8");
 const watchdogScript = fs.readFileSync(path.join(root, "ops", "service-watchdog.sh"), "utf8");
+const installScript = fs.readFileSync(path.join(root, "ops", "install-service-watchdog.sh"), "utf8");
 const watchdogService = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-watchdog.service"), "utf8");
 const watchdogTimer = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-watchdog.timer"), "utf8");
 const plan = fs.readFileSync(path.join(root, "ops", "RESILIENCE-PLAN.md"), "utf8");
@@ -25,10 +27,75 @@ function run(command, args, options = {}) {
   return result.stdout;
 }
 
+function withTempDir(fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "raising-game-resilience-"));
+  try {
+    return fn(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function writeExecutable(file, body) {
+  fs.writeFileSync(file, body, { mode: 0o755 });
+}
+
+async function withHealthServer(fn) {
+  let healthy = true;
+  const server = http.createServer((req, res) => {
+    if (req.url !== "/api/livez") {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found\n");
+      return;
+    }
+    if (healthy) {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("ready\n");
+      return;
+    }
+    res.writeHead(503, { "content-type": "text/plain" });
+    res.end("not ready\n");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  try {
+    return await fn({
+      url: `http://127.0.0.1:${port}/api/livez`,
+      fail: () => { healthy = false; },
+      recover: () => { healthy = true; },
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+function invokeWatchdog(env) {
+  return spawnSync(path.join(root, "ops", "service-watchdog.sh"), [], {
+    cwd: root,
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+  });
+}
+
+function invokeWatchdogAsync(env) {
+  return new Promise((resolve) => {
+    const child = spawn(path.join(root, "ops", "service-watchdog.sh"), [], {
+      cwd: root,
+      env: { ...process.env, ...env },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+    child.on("close", (status, signal) => resolve({ status, signal, stdout, stderr }));
+  });
+}
+
 test("resilience operations are included only in the platform release snapshot", () => {
   for (const file of [
     "ops/RESILIENCE-PLAN.md",
     "ops/service-watchdog.sh",
+    "ops/install-service-watchdog.sh",
     "ops/systemd/raising-game-watchdog.service",
     "ops/systemd/raising-game-watchdog.timer",
     "ops/verify-postgres-backup.sh",
@@ -62,6 +129,138 @@ test("watchdog uses liveness, requires consecutive failures, and skips inactive 
   assert.match(watchdogService, /Environment=FAILURE_THRESHOLD=3/);
   assert.match(watchdogTimer, /OnUnitActiveSec=10s/);
   assert.match(watchdogTimer, /WantedBy=timers\.target/);
+});
+
+test("watchdog installer defaults to dry-run and protects active/rollback paths", () => {
+  assert.match(installScript, /WATCHDOG_INSTALL_MODE:-dry-run/);
+  assert.match(installScript, /refusing to enable automatic restarts without --confirm-active/);
+  assert.match(installScript, /Environment=WATCHDOG_DRY_RUN=1/);
+  assert.match(installScript, /disable --now "\$TIMER_NAME"/);
+  assert.match(installScript, /application service was not touched/);
+  assert.match(watchdogScript, /dry-run would restart service=/);
+  assert.match(watchdogScript, /printf '0\\n' > "\$STATE_FILE"/);
+});
+
+test("watchdog requires consecutive failures, re-arms dry-run, and resets after recovery", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      const state = path.join(dir, "failures");
+      const baseEnv = {
+        HEALTH_URL: health.url,
+        STATE_FILE: state,
+        LOCK_FILE: path.join(dir, "lock"),
+        FAILURE_THRESHOLD: "3",
+        WATCHDOG_DRY_RUN: "1",
+        RESTART_COMMAND: `printf restart >> ${path.join(dir, "restart")}`,
+      };
+
+      health.fail();
+      let result = await invokeWatchdogAsync(baseEnv);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(fs.readFileSync(state, "utf8").trim(), "1");
+      assert.equal(fs.existsSync(path.join(dir, "restart")), false);
+
+      result = await invokeWatchdogAsync(baseEnv);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(fs.readFileSync(state, "utf8").trim(), "2");
+
+      result = await invokeWatchdogAsync(baseEnv);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /dry-run would restart/);
+      assert.equal(fs.readFileSync(state, "utf8").trim(), "0");
+      assert.equal(fs.existsSync(path.join(dir, "restart")), false);
+
+      result = await invokeWatchdogAsync(baseEnv);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(fs.readFileSync(state, "utf8").trim(), "1");
+
+      fs.writeFileSync(state, "2\n");
+      health.recover();
+      result = await invokeWatchdogAsync(baseEnv);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /recovered/);
+      assert.equal(fs.readFileSync(state, "utf8").trim(), "0");
+    });
+  });
+});
+
+test("watchdog restarts exactly once at threshold and skips inactive services", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      const state = path.join(dir, "failures");
+      const restart = path.join(dir, "restart");
+      const env = {
+        HEALTH_URL: health.url,
+        STATE_FILE: state,
+        LOCK_FILE: path.join(dir, "lock"),
+        FAILURE_THRESHOLD: "2",
+        WATCHDOG_DRY_RUN: "0",
+        RESTART_COMMAND: `printf restart >> ${restart}`,
+      };
+
+      health.fail();
+      assert.equal((await invokeWatchdogAsync(env)).status, 0);
+      assert.equal(fs.existsSync(restart), false);
+      assert.equal((await invokeWatchdogAsync(env)).status, 0);
+      assert.equal(fs.readFileSync(restart, "utf8"), "restart");
+      assert.equal(fs.readFileSync(state, "utf8").trim(), "0");
+
+      const bin = path.join(dir, "bin");
+      fs.mkdirSync(bin);
+      writeExecutable(path.join(bin, "systemctl"), "#!/usr/bin/env bash\n[[ \"$1\" == is-active ]] && exit 3\nexit 0\n");
+      const skippedState = path.join(dir, "inactive-failures");
+      const skipped = await invokeWatchdogAsync({
+        ...env,
+        PATH: `${bin}:${process.env.PATH}`,
+        SERVICE_CHECK_ACTIVE: "1",
+        SERVICE: "raising-game-demo",
+        STATE_FILE: skippedState,
+      });
+      assert.equal(skipped.status, 0, skipped.stderr);
+      assert.match(skipped.stderr, /service is not active/);
+      assert.equal(fs.existsSync(skippedState), false);
+    });
+  });
+});
+
+test("watchdog installer dry-run/active/rollback modes are isolated", () => {
+  withTempDir((dir) => {
+    const unitDir = path.join(dir, "units");
+    const log = path.join(dir, "systemctl.log");
+    const fakeSystemctl = path.join(dir, "systemctl");
+    writeExecutable(fakeSystemctl, `#!/usr/bin/env bash
+printf '%s\n' "$*" >> ${JSON.stringify(log)}
+exit 0
+`);
+    const common = {
+      PATH: `${dir}:${process.env.PATH}`,
+      SYSTEMD_UNIT_DIR: unitDir,
+      SYSTEMCTL_BIN: fakeSystemctl,
+      WATCHDOG_INSTALL_TEST_MODE: "1",
+      WATCHDOG_START_NOW: "0",
+    };
+    const script = path.join(root, "ops", "install-service-watchdog.sh");
+    let result = spawnSync(script, ["--mode", "dry-run"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.service")), true);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.timer")), true);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.service.d", "50-dry-run.conf")), true);
+    assert.match(fs.readFileSync(log, "utf8"), /enable raising-game-watchdog\.timer/);
+
+    result = spawnSync(script, ["--mode", "active"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /without --confirm-active/);
+
+    result = spawnSync(script, ["--mode", "active", "--confirm-active"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.service.d")), false);
+
+    result = spawnSync(script, ["--mode", "rollback"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.service")), false);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.timer")), false);
+    assert.doesNotMatch(fs.readFileSync(log, "utf8"), /restart raising-game-demo/);
+  });
 });
 
 test("resilience plan does not promise multi-process or RPO before verification", () => {

@@ -62,10 +62,21 @@ until the off-host schedule and a restore drill have both been verified.
 ### P2 - Process-hang detection
 
 1. Test `ops/service-watchdog.sh` against healthy, failing, and recovering local endpoints.
-2. Install the systemd timer only after a dedicated staging/replay test.
-3. Require three consecutive `/api/livez` failures before restarting; reset the counter on success.
-4. Preserve Nginx-level readiness and graceful shutdown. Do not use `/api/health` as the restart
+2. Use `ops/install-service-watchdog.sh --mode dry-run` first. Dry-run installs the timer and records
+   one `would restart` event at the threshold without restarting the application.
+3. Require three consecutive `/api/livez` failures before an actual restart; reset the counter on
+   success and after one dry-run alert so observation does not repeatedly page on the same outage.
+4. Enable actual restarts only with `--mode active --confirm-active` after the dry-run observation
+   window is healthy and the rollback path has been tested.
+5. Roll back with `--mode rollback`. It disables/removes only the watchdog units and never restarts
+   `raising-game-demo`.
+6. Preserve Nginx-level readiness and graceful shutdown. Do not use `/api/health` as the restart
    signal because it intentionally remains a shallow liveness contract.
+
+The 2026-11-11 Old drill used isolated unit names, URL, state file, and a fake service manager.
+The timer stayed stable while healthy, produced exactly one dry-run alert after three failures,
+reset after recovery, and skipped checks when the service was inactive. Production remained
+`active` with `NRestarts=0` throughout.
 
 ### P3 - Capacity review
 
