@@ -1007,9 +1007,18 @@ return { restoreRecordToAdvancedCreate, advancedRegenerationRecordIsComplete };`
   );
 
   assert.equal(runtime.advancedRegenerationRecordIsComplete(partial), false);
+  assert.equal(runtime.advancedRegenerationRecordIsComplete(detail), true);
   assert.equal(runtime.advancedRegenerationRecordIsComplete({
     ...detail,
-    params: { ...detail.params, submissionSnapshot: { ratio: "1:1", resolution: "1080P" } },
+    ratio: "",
+    resolution: "",
+    duration: "",
+    params: {
+      ...detail.params,
+      ratio: "",
+      resolution: "",
+      submissionSnapshot: { ratio: "1:1", resolution: "1080P" },
+    },
   }), false);
   assert.equal(runtime.advancedRegenerationRecordIsComplete({
     ...detail,
@@ -1020,6 +1029,16 @@ return { restoreRecordToAdvancedCreate, advancedRegenerationRecordIsComplete };`
       referenceAudioAssetIds: [],
     },
   }), false);
+  assert.equal(runtime.advancedRegenerationRecordIsComplete({
+    taskId: "legacy-seedance",
+    provider: "seedance",
+    prompt: "legacy prompt",
+    ratio: "16:9",
+    resolution: "720p",
+    duration: 15,
+    params: { provider: "seedance", mediaMode: "reference_video" },
+    mediaAssets: [{ type: "reference_image", userAssetId: "old-asset" }],
+  }), true);
   const restored = await runtime.restoreRecordToAdvancedCreate(partial, { id: "button" });
   assert.equal(restored, true);
   assert.deepEqual(calls.fetch, ["/api/generation-records/vega-partial"]);

@@ -1081,12 +1081,20 @@ function advancedRegenerationRecordIsComplete(record = {}) {
     if (typeof value === "object") return Object.keys(value).length > 0;
     return true;
   };
-  // Poll/list snapshots omit submission inputs. A restorable record must have
-  // the complete visible parameter snapshot, not merely one surviving field.
-  const completeSnapshot = hasValue(submitted.ratio)
-    && hasValue(submitted.resolution)
-    && hasValue(submitted.duration);
-  if (!completeSnapshot) return false;
+  const value = (...items) => items.find((item) => hasValue(item));
+  // Poll/list snapshots retain only display results and deliberately omit
+  // params, prompt and asset payloads. Require a real input payload before a
+  // record may replace the current form.
+  const promptValue = value(record.prompt, record.finalPrompt, params.prompt, submitted.prompt);
+  const inputPayload = Object.keys(params).length > 0
+    && (hasValue(promptValue) || hasValue(params.referenceImages) || hasValue(params.referenceVideos));
+  if (!inputPayload) return false;
+  // Old records predate submissionSnapshot. Their complete visible values live
+  // on the record and/or params; both those formats are legitimate details.
+  const ratioValue = value(submitted.ratio, submitted.aspect_ratio, record.ratio, params.ratio, params.aspect_ratio, params.aspectRatio);
+  const resolutionValue = value(submitted.resolution, record.resolution, params.resolution, params.resolution_name, params.resolutionName);
+  const durationValue = value(submitted.duration, record.duration, params.duration, params.durationSeconds, params.duration_seconds);
+  if (!hasValue(ratioValue) || !hasValue(resolutionValue) || !hasValue(durationValue)) return false;
   // If media was submitted, every submitted media channel must still be
   // present. This catches truncated detail/list payloads before they clear the
   // current form or restore only a subset of references.

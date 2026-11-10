@@ -1,3 +1,11 @@
+## 2026-11-10 regeneration legacy-record compatibility correction (deploying Old)
+
+- Follow-up regression: `fb22e88` required `params.submissionSnapshot` before restoring any field. Most legacy generation records do not have that nested snapshot, so prompt, visible parameters and media were all rejected even though the authoritative generation detail had the complete inputs.
+- Correction: `advancedRegenerationRecordIsComplete()` accepts both legacy detail records (top-level + `params`) and new Vega records (`submissionSnapshot`), while still rejecting result/list poll snapshots that omit `params`. It requires visible ratio/resolution/duration and preserves every submitted media channel.
+- Tests: regeneration/result suites 124/124 pass; syntax checks and `git diff --check` pass. Added legacy Seedance fixture and partial-poll regression coverage.
+- Deploying Old only; Live untouched. Rollback target remains `platform-release` `24c7deb` (previous deployed release before this follow-up).
+- Unrelated canvas/UI/test-mode WIP remains unstaged and excluded.
+
 ## 2026-11-10 regeneration complete-detail gating regression fix (deploying Old)
 
 - User report: regeneration regressed again; ratio fell back to 9:16, resolution/duration/media were lost, and clicks felt slow.
