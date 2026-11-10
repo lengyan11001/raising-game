@@ -2887,17 +2887,23 @@ CODEX_TASK_STATE.md
 - Production checks passed: `https://123vips.com/api/health` and `https://live.123vipeak.com/api/health` return `{"ok":true}`; `https://123vipeak.com/` exposes `开发者接入`, Character API, Programmatic Session, Relay WebSocket, and `/docs/vidu-live-integration.md`; the public docs return HTTP 200 with compute-relay, Relay WebSocket, `pcm_s16le`, and 24,000 Hz sections.
 - Isolation checks passed: `123vips.com` still serves the Vipeak AI platform homepage, while `live.html`, `live.css`, and `site-landing.html` remain HTTP 404 on that domain.
 
-## 2026-11-11 main-site multi-device compatibility (Old only, pending deploy)
+## 2026-11-11 main-site multi-device compatibility (deployed Old only)
 
 - User corrected scope: only `123vips.com` and `123vip.fans` are main sites; `123vipeak.com` / Live is excluded. Tests replay real HTML fetched from the two main-site domains as local fixtures, not the Live site.
 - Fixtures: `tmp/main-site-vips-local.html`, `tmp/main-site-fans-local.html`, `<base href="/">`, cache version `main-site-compat-20261111-1`.
+- Source commit: `63e66f2` (`old-site`, pushed). Platform release snapshot: `bfdf28c`, built from `63e66f2`, pushed to `platform-release`.
+- Deployed Old with `scripts/deploy_local.sh --site old`; release boundary check passed and production checkout is `bfdf28c`. Live was not pushed or deployed.
 - Viewport: `platform.main.js` synchronizes `--app-height`, `--app-width`, `--app-keyboard-inset` from `visualViewport`; listens to resize/orientation/visualViewport resize+scroll; marks `body.app-keyboard-open` when keyboard inset >= 120px. CSS uses `100dvh` fallback, safe-area padding, touch-action manipulation, live visual-viewport heights for onboarding/workflow/modal.
 - Responsive fixes: mobile workflow panel min-height 0; desktop `.seo-discovery`/`.site-foot` width `min(1440px,100%)`, fixing vips 1366 scrollWidth 1530 -> 1366; workflow toolbar at <=420px has 44px Back/Save/New height, nowrap labels, bounded ellipsis title.
 - Workflow: production `workflow-react/dist/canvas.js` rebuilt from source with temporary dependencies; source CSS updated at `workflow-react/src/components/workflow/WorkflowEditor.css`. Do not include `canvas.js.map` or `workflow-react/node_modules`.
 - Automated acceptance:
   - Source: `main-site-compatibility` 4/4; `mobile-tool-ux` + compatibility 16/16; `workflow-canvases` 38/38; `node --check platform.main.js`; `git diff --check`. Prior `advanced-custom-ui` 10 failures match clean baseline and are unrelated.
-  - Dual-site browser matrix: vips 320/390/1366, fans 320/390/768/1366 all no horizontal overflow and no blocking exceptions. Evidence `/tmp/main-site-compat/dual-results.json`, `dual-check-final.log`.
+  - Local dual-site replay matrix: vips 320/390/1366, fans 320/390/768/1366 all no horizontal overflow and no blocking exceptions. Evidence `/tmp/main-site-compat/dual-results.json`, `dual-check-final.log`.
   - Real React workflow CDP: both sites at 320/390 open canvas; select image node; parameters visible; change ratio to 3:4 and resolution to 1K; Save emits PUT `/api/workflow/canvases/compat-canvas` with changed values; toolbar actions 44px; no overflow/blocking exceptions. Evidence `/tmp/main-site-compat/workflow-results.json`.
+  - Production Chrome matrix against the real domains: `123vips.com` 320/390/1366 and `123vip.fans` 320/390/768/1366 all document/body scrollWidth equals viewport width, no page-level horizontal overflow, no JS exceptions. Evidence `/tmp/main-site-compat/prod-browser-results.json`, `prod-browser-check.log`.
+- Production verification (both domains):
+  - `/api/health` and `/api/readyz` return 200 with ready/DB OK; `/` and `/platform.html` return 200.
+  - Deployed HTML contains cache version `main-site-compat-20261111-1`.
+  - `raising-game-demo` is `active/running`, `NRestarts=0`; startup logs show Database configured, Ark configured, upstream direct, and successful startup stale-record scan.
 - Remaining: manual real-device/browser acceptance (iPhone Safari, Android Chrome/Samsung Internet/WeChat WebView, iOS/Android software keyboard, macOS Safari, Desktop Firefox, orientation changes). Do not claim full browser certification yet.
-- State: source changes uncommitted; not built into release snapshot; not deployed. Next: inspect/stage only compatibility files, commit `old-site`, build/push platform release, deploy Old via `scripts/deploy_local.sh --site old`, verify both domains and `/platform.html` cache version. Never deploy Live.
-- Exclude unrelated WIP: `scripts/build_release_snapshot.py`, `ops/service-watchdog.sh`, `ops/install-service-watchdog.sh`, `test/resilience-ops.test.js`, `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, `workflow-react/node_modules`.
+- Exclude unrelated WIP: `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, `workflow-react/node_modules`.
