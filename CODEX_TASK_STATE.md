@@ -6,7 +6,11 @@
 - Added dynamic tests: healthy/failing/recovering endpoint, exact threshold, one restart only, inactive-service skip, dry-run re-arm, and isolated installer dry-run/active/rollback modes. `test/resilience-ops.test.js` is 8/8 passing.
 - Old isolated systemd drill used test-only units under `/run/systemd/system`, a temporary health server on port 47841, isolated state/lock files, and a fake `systemctl` service check. Results: healthy counter stayed 0 across repeated timer runs; failing endpoint produced failures 1, 2, 3 then exactly one `dry-run would restart`; recovery reset to 0; inactive service skipped with no state write. Production remained `active`, `NRestarts=0`.
 - Staging scripts were copied to `/tmp` for drill only; no production unit was installed and no backup work was resumed.
-- Next: select only resilience files, commit on `old-site`, build/push `platform-release`, deploy Old via `scripts/deploy_local.sh --site old`, then install watchdog in dry-run mode and verify timer/health/logs/rollback status. Preserve unrelated WIP.
+- Local verification: 8/8 resilience tests, shell syntax, Python compile, and `git diff --check` pass. Commit `7b140f6`; platform release `fa688ec`; pushed `platform-release` `2d400ed..fa688ec`.
+- Deployed Old through `scripts/deploy_local.sh --site old`. Post-deploy: release `fa688ec`, `/api/health` 200 `{"ok":true}`, `/api/readyz` 200 ready/DB OK, service `active`, `NRestarts=0`; deployed watchdog/installer hashes match local.
+- Enabled Old watchdog in dry-run through the deployed installer. Verified timer repeats every 10 seconds, unit environment includes `WATCHDOG_DRY_RUN=1`, state remains `0`, app remains `active` with `NRestarts=0`.
+- Rollback drill on Old: `--mode rollback` removed both watchdog units and the dry-run drop-in; app stayed `active` with `NRestarts=0`. Reinstalled dry-run successfully; timer active, state `0`, app `active`, `NRestarts=0`.
+- Current state: Old watchdog is enabled in dry-run observation mode. It does not restart the app. Next after observation: review timer failures/logs and only then decide whether to run `--mode active --confirm-active`. Do not resume backup work until the user asks.
 
 ## 2026-11-11 P1 backup recovery drill and resilience plan (deployed Old)
 
