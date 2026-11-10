@@ -1,3 +1,14 @@
+## 2026-11-10 upstream reference image timeout fix (ready for Old deployment)
+
+- User report: `img-20261110224714-e648ed` failed with `Timeout while downloading` for a signed `123vips.com/assets/user-uploads/...png` reference.
+- Diagnosis: source file exists and its signature is valid; public application-origin download measured only ~2.6 KB/s and timed out, while the server local Nginx served ~47 MB/s. The same asset already has an OSS/CDN mirror that returned HTTP 200, 2,799,219 bytes in 357 ms from production.
+- Root cause: `publicUrlForLocalAsset()` preferred the protected application origin over an existing object-storage mirror, so upstream Seedream fetched a very slow origin URL.
+- Fix: prefer a signed OSS/CDN URL for upstream reference delivery and retain the signed application-origin URL only as fallback when no object mirror exists.
+- Billing: the generation is `failed` with `billingStatus=refunded`; ledger contains `-12.5` charge and matching `+12.5` refund, so no duplicate refund is needed.
+- Verification: focused upstream/media/auth/refund/security suite passes 60/60; 357 ms CDN asset probe returns 200 with full content length; syntax and whitespace checks pass.
+- Publish scope: `server.parts/part-19.js`, `server.parts/part-43.js`, `test/upstream-reference-delivery.test.js`, and this state entry only. Exclude unrelated WIP.
+- Deployment status: pending selective commit, platform release snapshot, Old-only deployment, and post-deploy health/log/generation verification. Live must remain untouched.
+
 ## 2026-11-10 image regeneration no-duration fix (ready for Old deployment)
 
 - User report: clicking regenerate on completed image results appeared to do nothing, e.g. `img-20261110222140-4eac3a`.

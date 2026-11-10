@@ -685,6 +685,7 @@ module.exports = {
   signLocalMediaPath,
   signLocalUserUploadPath,
   localMediaDeliveryUrl,
+  publicUrlForLocalAsset,
   verifyLocalMediaSignature,
   verifyLocalUserUploadSignature,
   signedOssCdnUrlForDelivery,

@@ -939,17 +939,22 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
 }
 
 function publicUrlForLocalAsset(asset = {}) {
-  const directLocalDeliveryUrl = localUserUploadDeliveryUrl(asset.localUrl, { absolute: true });
-  if (directLocalDeliveryUrl) return directLocalDeliveryUrl;
   const storedUrl = isPublicHttpUrl(asset.wan30PublicUrl)
     ? asset.wan30PublicUrl
     : (isPublicHttpUrl(asset.publicUrl) ? asset.publicUrl : publicUrlForAssetPath(asset.localUrl));
-  const localDeliveryUrl = localUserUploadDeliveryUrl(storedUrl, { absolute: isPublicHttpUrl(storedUrl) });
-  return signedOssCdnUrlForDelivery(storedUrl, {
+  // Upstream providers must fetch private references from object storage/CDN,
+  // never from the protected application origin. The origin path is a signed
+  // fallback only when no configured object-storage mirror exists.
+  const signedObjectUrl = signedOssCdnUrlForDelivery(storedUrl, {
     key: isPublicHttpUrl(asset.wan30PublicUrl)
       ? (asset.wan30R2Key || asset.wan30StorageKey || "")
       : (asset.storageKey || asset.objectStorageKey || asset.r2Key || ""),
-  }) || localDeliveryUrl || storedUrl;
+  });
+  if (signedObjectUrl) return signedObjectUrl;
+  const directLocalDeliveryUrl = localUserUploadDeliveryUrl(asset.localUrl, { absolute: true });
+  if (directLocalDeliveryUrl) return directLocalDeliveryUrl;
+  const localDeliveryUrl = localUserUploadDeliveryUrl(storedUrl, { absolute: isPublicHttpUrl(storedUrl) });
+  return localDeliveryUrl || storedUrl;
 }
 
 async function ensureWan30R2MirrorForUserMediaAsset(db, userAsset) {
