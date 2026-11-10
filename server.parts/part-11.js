@@ -1376,6 +1376,7 @@ async function appendCreditLedger(db, user, delta, type, meta = {}) {
     createdAt: new Date().toISOString(),
   };
   if (dbEnabled()) {
+    const refundLike = amount > 0 && /refund|reversal/i.test(String(type || ""));
     const applied = await applyCreditDeltaInDb({
       id: record.id,
       userId: user.id,
@@ -1383,7 +1384,10 @@ async function appendCreditLedger(db, user, delta, type, meta = {}) {
       type,
       meta: normalizedMeta,
       payload: record,
+      requireTaskCharge: refundLike && Boolean(normalizedMeta?.taskId),
+      refundTypes: refundLike ? [type] : [],
     });
+    if (applied?.skipped) return null;
     if (applied?.user) {
       Object.assign(user, applied.user);
       record.balanceAfter = creditsAmount(applied.user.credits);

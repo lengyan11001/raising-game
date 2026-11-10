@@ -1050,10 +1050,16 @@ async function loadMe() {
   try {
     const payload = await requestJson("/api/auth/me");
     setUser(payload.user);
-  } catch {
-    state.token = "";
-    localStorage.removeItem(TOKEN_KEY);
-    setUser(null);
+  } catch (error) {
+    // A database/pool timeout or transient 502 must not erase a valid browser
+    // session. Only an explicit auth rejection means the token is unusable.
+    if (error?.statusCode === 401) {
+      state.token = "";
+      localStorage.removeItem(TOKEN_KEY);
+      setUser(null);
+      return;
+    }
+    console.warn("session restore temporarily unavailable", error?.message || error);
   }
 }
 

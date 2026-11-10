@@ -87,20 +87,31 @@ async function refundCreditsWithSubtoken(authOrRecord, userId = "", amount = 0, 
   const credits = creditsAmount(amount || 0);
   if (credits <= 0) return { refunded: true, error: null };
   try {
-    if (dbEnabled() && meta?.taskId) {
-      const { rows } = await dbQuery(`
-        SELECT 1
-        FROM app_credit_ledger
-        WHERE type = $1
-          AND meta->>'taskId' = $2
-          AND delta > 0
-        LIMIT 1
-      `, [type, String(meta.taskId)]);
-      if (rows.length) return { refunded: true, error: null };
+    if (dbEnabled()) {
+      const normalizedMeta = attachAuthContextToMeta(meta);
+      const applied = await applyCreditDeltaInDb({
+        id: stableLedgerId(type, normalizedMeta),
+        userId,
+        delta: credits,
+        type,
+        meta: normalizedMeta,
+        payload: {
+          userId,
+          delta: credits,
+          type,
+          meta: normalizedMeta,
+          createdAt: new Date().toISOString(),
+        },
+        requireTaskCharge: true,
+        refundTypes: [type],
+      });
+      if (applied?.skipped) return { refunded: true, error: null, noCharge: true };
+      if (applied?.inserted === false) return { refunded: true, error: null, duplicate: true };
+    } else {
+      const db = await readDb();
+      await changeUserCredits(db, userId, credits, type, meta);
+      await writeDb(db);
     }
-    const db = await readDb();
-    await changeUserCredits(db, userId, credits, type, meta);
-    if (!dbEnabled()) await writeDb(db);
   } catch (error) {
     console.error(`[${logTag}-refund-failed]`, meta?.taskId || "", error.message || error);
     return { refunded: false, error };
@@ -383,7 +394,7 @@ async function getAuth(req, options = {}) {
   // generation jobs for PostgreSQL pool connections.
   if (!token) return { db: lightweightAuthDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
   if (dbEnabled()) {
-    const db = loadDb ? await readDb() : lightweightAuthDb();
+    const db = loadDb ? await readDb({ includeUserAssets: options.includeUserAssets !== false }) : lightweightAuthDb();
     const session = await getSessionByTokenInDb(token);
     if (session && recordBelongsToTenant(session, tenantId)) {
       const user = await getUserByIdInDb(session.userId);

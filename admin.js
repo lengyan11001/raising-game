@@ -9231,25 +9231,90 @@ async function fetchGeoCheck(check = {}) {
 }
 
 /* ============ boot ============ */
+function showBootstrapUnavailable(message = "") {
+  if (!els.appLoadingScreen) return;
+  els.appLoadingScreen.classList.remove("is-hidden");
+  els.appLoadingScreen.style.display = "";
+  els.appLoadingScreen.style.pointerEvents = "";
+  els.appLoadingScreen.innerHTML = `
+    <div class="adm-app-loading-card">
+      <div class="adm-spinner"></div>
+      <strong>管理后台暂时连接不上</strong>
+      <p>${escapeHtml(message || "服务繁忙，登录状态已保留，请稍后重试。")}</p>
+      <button type="button" class="adm-btn adm-btn-primary" id="bootstrapRetryBtn">重新连接</button>
+    </div>
+  `;
+  els.appLoadingScreen.querySelector("#bootstrapRetryBtn")?.addEventListener("click", () => {
+    els.appLoadingScreen.innerHTML = '<div class="adm-spinner"></div>';
+    bootstrap();
+  });
+}
+
+async function fetchBootstrapMe(retries = 3) {
+  let lastError = null;
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      const response = await fetch("/api/auth/me", {
+        headers: { authorization: `Bearer ${state.token}` },
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) return { response, payload };
+      const code = String(payload?.code || "");
+      // Only an explicit session rejection is definitive. Permission/quarantine
+      // responses, 5xx, 502/504, rate limits and network failures must keep the
+      // browser token so a temporary outage cannot sign an admin out.
+      if (response.status === 401 || code === "LOGIN_REQUIRED" || code === "SESSION_REPLACED") {
+        return { response, payload };
+      }
+      lastError = new Error(payload?.message || `请求失败（${response.status}）`);
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < retries - 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError || new Error("服务暂时不可用");
+}
+
 async function bootstrap() {
   if (!state.token) {
     showLogin();
     return;
   }
   try {
-    const me = await fetch("/api/auth/me", {
-      headers: { authorization: `Bearer ${state.token}` },
-    }).then((r) => r.json()).catch(() => ({}));
-    if (!me?.user || me.user.role !== "admin") {
-      throw new Error(me?.message || "需要管理员账号");
+    const { response, payload } = await fetchBootstrapMe();
+    if (!response.ok) {
+      const code = String(payload?.code || "");
+      const sessionRejected = response.status === 401 || code === "LOGIN_REQUIRED" || code === "SESSION_REPLACED";
+      if (sessionRejected) {
+        state.token = "";
+        state.user = null;
+        localStorage.removeItem(TOKEN_KEY);
+        showLogin();
+        els.loginError.textContent = payload?.message || "登录已过期，请重新登录。";
+        els.loginError.hidden = false;
+        return;
+      }
+      showBootstrapUnavailable(payload?.message || `管理服务暂时不可用（${response.status}）`);
+      return;
     }
-    state.user = me.user;
+    if (!payload?.user || payload.user.role !== "admin") {
+      // A successful response means the token itself is valid, but this is not
+      // an administrator account. Do not leave the admin portal in a loop.
+      state.token = "";
+      state.user = null;
+      localStorage.removeItem(TOKEN_KEY);
+      showLogin();
+      els.loginError.textContent = payload?.message || "需要管理员账号";
+      els.loginError.hidden = false;
+      return;
+    }
+    state.user = payload.user;
     showApp();
   } catch (err) {
-    state.token = "";
-    state.user = null;
-    localStorage.removeItem(TOKEN_KEY);
-    showLogin();
+    showBootstrapUnavailable(err?.message || "服务繁忙，登录状态已保留，请稍后重试。");
   }
 }
 

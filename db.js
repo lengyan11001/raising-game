@@ -6461,7 +6461,16 @@ async function updateUserSupportMessageInDb(messageId = "", patch = {}) {
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
 }
 
-async function applyCreditDeltaInDb({ id = "", userId = "", delta = 0, type = "", meta = {}, payload = {} } = {}) {
+async function applyCreditDeltaInDb({
+  id = "",
+  userId = "",
+  delta = 0,
+  type = "",
+  meta = {},
+  payload = {},
+  requireTaskCharge = false,
+  refundTypes = [],
+} = {}) {
   if (!dbEnabled()) return null;
   const cleanUserId = String(userId || "").trim();
   const cleanType = String(type || "").trim();
@@ -6516,6 +6525,38 @@ async function applyCreditDeltaInDb({ id = "", userId = "", delta = 0, type = ""
       const existingUser = await userById(existingAfterLock.rows[0].user_id || cleanUserId);
       return { user: existingUser || userFromRow(row), ledger: existingAfterLock.rows[0].payload, inserted: false };
     }
+    if (requireTaskCharge && amount > 0) {
+      if (!eventTaskId) {
+        const error = new Error("A task id is required before refunding task-scoped credits.");
+        error.statusCode = 409;
+        error.code = "REFUND_TASK_REQUIRED";
+        throw error;
+      }
+      const chargeResult = await client.query(`
+        SELECT COALESCE(SUM(CASE WHEN delta < 0 THEN -delta ELSE 0 END), 0)::numeric AS charged,
+               COALESCE(SUM(CASE WHEN delta > 0 AND (
+                 type = ANY($3::text[]) OR type ILIKE '%refund%' OR type ILIKE '%reversal%'
+               ) THEN delta ELSE 0 END), 0)::numeric AS refunded
+        FROM app_credit_ledger
+        WHERE user_id = $1
+          AND meta->>'taskId' = $2
+      `, [cleanUserId, eventTaskId, [...new Set([cleanType, ...refundTypes].filter(Boolean))]]);
+      const charged = creditNumber(chargeResult.rows[0]?.charged || 0);
+      const refunded = creditNumber(chargeResult.rows[0]?.refunded || 0);
+      if (charged <= 0.000001) {
+        await client.query("COMMIT");
+        return { user: userFromRow(row), ledger: null, inserted: false, skipped: true, reason: "charge-not-found" };
+      }
+      if (refunded + amount > charged + 0.000001) {
+        const error = new Error(`Refund would exceed the amount charged for this task. charged=${charged}, refunded=${refunded}, requested=${amount}.`);
+        error.statusCode = 409;
+        error.code = "REFUND_EXCEEDS_CHARGE";
+        error.charged = charged;
+        error.refunded = refunded;
+        error.requested = amount;
+        throw error;
+      }
+    }
     const current = creditNumber(row.credits || 0);
     const nextCredits = creditNumber(current + amount);
     if (nextCredits < -0.000001) {
@@ -6558,7 +6599,7 @@ async function applyCreditDeltaInDb({ id = "", userId = "", delta = 0, type = ""
     );
     if (!inserted.rows.length) {
       await client.query("ROLLBACK");
-      return await applyCreditDeltaInDb({ id: cleanId, userId: cleanUserId, delta: amount, type: cleanType, meta, payload });
+      return await applyCreditDeltaInDb({ id: cleanId, userId: cleanUserId, delta: amount, type: cleanType, meta, payload, requireTaskCharge, refundTypes });
     }
     const updatedRows = await client.query(`SELECT * FROM app_users WHERE id = $1`, [cleanUserId]);
     await client.query("COMMIT");

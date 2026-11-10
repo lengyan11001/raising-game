@@ -1001,7 +1001,7 @@ async function handleGoogleLogin(req, res) {
 }
 
 async function handleMe(req, res) {
-  const auth = await getAuth(req);
+  const auth = await getAuth(req, { includeUserAssets: false });
   if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   if (auth.user && !auth.user.apiToken) {
     ensureUserApiToken(auth.user, auth.db);
@@ -1022,7 +1022,7 @@ async function handleMe(req, res) {
 }
 
 async function handleGetCompanionLevel(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { includeUserAssets: false });
   if (!auth) return;
   return sendJson(res, 200, { ok: true, companionLevel: companionLevelSummary(auth.db, auth.user.id) });
 }

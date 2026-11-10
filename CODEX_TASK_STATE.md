@@ -1,3 +1,14 @@
+## 2026-11-10 database safety, refund integrity, and pool pressure (ready for Old deployment)
+
+- Goal: fix database-triggered production errors without evicting logged-in users, reverse only the confirmed bad 12-credit refund, tighten PostgreSQL settings, and deploy Old only.
+- Confirmed production incident: `img-20261110122402-fcedf9` had `preDeductedCredits=12`, `billingStatus=refunded`, but no negative charge for that task. The only -12 row belonged to `img-20261110122038-dad671`. Original mistaken refund `ledger-4337e26bfcd7478c8be77d78` was preserved.
+- Production data repair: inserted `ledger-reversal-img-20261110122402-fcedf9`, type `generation_refund_reversal`, delta -12, reason `refund-without-charge`; user balance is now `122646.630900`; generation billingStatus is `charge_not_found_reversed`. Idempotent fixed ledger ID.
+- Code fix: `applyCreditDeltaInDb()` can require a same-task charge in the same transaction and rejects cumulative refunds exceeding that charge. `appendCreditLedger()` applies this to refund-like types; shared `refundCreditsWithSubtoken()` now uses the DB guard directly and no longer loads the full application snapshot.
+- Pool pressure fix: system-notification read/list paths use `{ loadDb: false }`; Seedream task preparation uses `readGenerationJobDb(userId)` and latest user uses `getUserByIdInDb()`. Production snapshot was still the old code during inspection, so pool timeouts continued until deployment.
+- PostgreSQL tuning: backup saved under `/root/postgresql*.bak-db-tuning-20261110-142722`; reloaded `work_mem=8MB`, `maintenance_work_mem=256MB`, `idle_in_transaction_session_timeout=30s`, `lock_timeout=5s`, `track_io_timing=on`. `max_connections` remains 100. Host is 4 vCPU/7.1GB/49GB and does not currently need a system upgrade.
+- Verification: `refund-charge-guard`, `stalled-generation-repair`, `generation-db-scope`, and `auth-risk` tests pass 39/39; syntax checks and `git diff --check` pass.
+- Publish scope: `db.js`, `server.parts/part-11.js`, `server.parts/part-12.js`, `server.parts/part-27.js`, `server.parts/part-33.js`, `test/refund-charge-guard.test.js`, this state entry. Exclude unrelated WIP files.
+
 ## 2026-11-10 unified messages entry + notification/admin loading performance (ready to deploy)
 
 - Goal: remove duplicate top bell, bottom-right support FAB and old bottom-left support entry; keep one bottom-left **消息通知** entry that opens the existing notification panel; improve slow user notification and admin support-ticket loading.

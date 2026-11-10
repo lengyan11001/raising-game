@@ -741,7 +741,7 @@ async function handleCreateSupportMessage(req, res) {
 }
 
 async function handleListUserSupportMessages(req, res, url) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "问题反馈需要数据库服务。" });
   const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 30)));
@@ -845,7 +845,7 @@ function ticketMessageView(record = {}) {
 }
 
 async function handleCreateSupportTicket(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
   if (!await enforceBusinessRateLimit(req, res, auth, { action: "support_ticket_create", limit: 5, windowMs: 60 * 60_000 })) return;
@@ -870,7 +870,7 @@ async function handleCreateSupportTicket(req, res) {
 }
 
 async function handleListSupportTickets(req, res, url) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
   const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 30)));
@@ -879,7 +879,7 @@ async function handleListSupportTickets(req, res, url) {
 }
 
 async function handleGetSupportTicket(req, res, ticketId, url) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
   const ticket = await getSupportTicketForUserFromDb(auth.user.id, ticketId);
@@ -894,7 +894,7 @@ async function handleGetSupportTicket(req, res, ticketId, url) {
 }
 
 async function handleReplySupportTicket(req, res, ticketId) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
   if (!await enforceBusinessRateLimit(req, res, auth, { action: "support_ticket_reply", limit: 30, windowMs: 60 * 60_000 })) return;
@@ -914,7 +914,7 @@ async function handleReplySupportTicket(req, res, ticketId) {
 }
 
 async function handleListSystemNotifications(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统通知需要数据库服务。" });
   const [notifications, ticketUnread] = await Promise.all([
@@ -931,7 +931,7 @@ async function handleListSystemNotifications(req, res) {
 }
 
 async function handleReadSystemNotification(req, res, notificationId) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统通知需要数据库服务。" });
   const body = await readJson(req);
@@ -940,7 +940,7 @@ async function handleReadSystemNotification(req, res, notificationId) {
 }
 
 async function handleReadAllSystemNotifications(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统通知需要数据库服务。" });
   const count = await markAllSystemNotificationsReadInDb(auth.user.id, auth.user.tenantId || DEFAULT_TENANT_ID);
@@ -1049,7 +1049,7 @@ async function handleAdminDeleteSystemNotification(req, res, notificationId) {
 }
 
 async function handleListLiveNotifications(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统消息需要数据库服务。" });
   const notifications = await listLiveNotificationsInDb(auth.user.id);
@@ -1061,7 +1061,7 @@ async function handleListLiveNotifications(req, res) {
 }
 
 async function handleReadLiveNotification(req, res, notificationId) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统消息需要数据库服务。" });
   const notification = await markLiveNotificationReadInDb(auth.user.id, notificationId);
@@ -1070,7 +1070,7 @@ async function handleReadLiveNotification(req, res, notificationId) {
 }
 
 async function handleReadAllLiveNotifications(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "系统消息需要数据库服务。" });
   const count = await markAllLiveNotificationsReadInDb(auth.user.id);

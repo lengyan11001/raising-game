@@ -1007,7 +1007,7 @@ async function runSeedream5ImageGenerationJob(job = {}) {
 
   let upstreamPayload = null;
   try {
-    const db = await readDb();
+    const db = await readGenerationJobDb(userId);
     const user = (db.users || []).find((entry) => entry.id === userId);
     if (!user) {
       const error = new Error("User not found for Seedream 5.0 Image job.");
@@ -1386,8 +1386,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     pricing,
     cost,
   });
-  const latestDb = await readDb();
-  const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+  const latestUser = await getUserByIdInDb(auth.user.id) || auth.user;
   const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || initialRecord, generationRecordResponseOptionsForAuth(auth));
   return sendJson(res, 200, {
     ok: true,
