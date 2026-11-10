@@ -5,7 +5,7 @@
 - Changed: canvas bridge/React canvas and result-node files, `platform.ui.parts/part-04.js` through `part-06.js`, `workflow-react/dist/canvas.js`, focused Seedance/canvas tests, and this state entry.
 - Verification: focused suites 54/54 pass; changed JS syntax checks and `git diff --check` pass. Production React canvas build was regenerated successfully with only existing bundle-size warnings.
 - Publish scope: canvas files and this state entry only. Exclude unrelated `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, and `workflow-react/node_modules`.
-- Deployment status: pending selective commit, `python3 scripts/build_release_snapshot.py --source old-site`, then `scripts/deploy_local.sh --site old`. Live must remain untouched.
+- Deployment: source `e24845c`, platform release `d81e5ca`; deployed Old only via `scripts/deploy_local.sh --site old`. `/api/health` returns `{"ok":true}`; production `part-06.js` contains `workflowSeedancePromptAliases` returning the prompt unchanged, and production canvas asset contains `在提示词中输入 @ 选择并引用素材，例如 @image1`. Live unchanged.
 
 ## 2026-11-10 regeneration prompt @ mention preservation
 
