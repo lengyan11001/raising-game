@@ -10,7 +10,7 @@
 - Verification: support-notifications 7/7, telegram-bot 10/10, mobile-tool-ux 11/11, auth-risk + security-regressions 42/42; syntax checks and `git diff --check` pass. `advanced-custom-ui.test.js` has pre-existing unrelated failures when run alone (10 failed, affected by unrelated generated-source/advanced-model WIP); no notification assertion failed.
 - Files for selective staging: `admin.js`, `db.js`, `platform.config.js`, `platform.css` (notification hunks only), `platform.explore.js`, `platform.html`, `platform.main.js`, `server.parts/part-01.js`, `server.parts/part-33.js`, `test/support-notifications.test.js`, `test/auth-risk.test.js`, `test/advanced-custom-ui.test.js`, this state entry.
 - Unrelated WIP to exclude: `platform.create.parts/part-02.js`, `platform.ui.parts/part-02.js`, `test/platform-site-profile.test.js`, `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, `workflow-react/node_modules`.
-- Status: not committed or deployed yet. Next: selective commit on `old-site`, build/push `platform-release`, deploy Old only, verify health and production UI/API, ensure `live-release` unchanged.
+- Final publish: `old-site` `bf70f2a`; `platform-release` `35f2bbb`; deployed Old only via `scripts/deploy_local.sh --site old`. Health `200 {"ok":true}`, service `raising-game-demo` active, production page shows only bottom-left `消息通知`; top bell hidden compatibility node, no support FAB or mobile bell. `live-release` remains `bf1e01a` and Live was not deployed.
 
 ## 2026-11-10 admin pricing deployment + model display config (deployed Old)
 
