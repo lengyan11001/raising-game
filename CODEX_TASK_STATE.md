@@ -1,3 +1,11 @@
+## 2026-11-10 Old deployment of current platform release (completed)
+
+- Deployed `platform-release` `1ef6e48` (built from `old-site` `5616095`) to Old only with `scripts/deploy_local.sh --site old`.
+- Deployment verification passed: `raising-game-demo.service` active (PID 2397458), `https://123vips.com/api/health` returned HTTP 200 `{"ok":true}`, release boundary check passed, and private media paths remained anonymously denied (404).
+- Production serves support ticket and notification code: `platform.explore.js` contains `/api/system-notifications` and `/api/support/tickets` calls; `admin.js` contains `support-tickets` and `system-notifications` routes.
+- Anonymous `/api/support/tickets` returned HTTP 401 `LOGIN_REQUIRED` as expected.
+- This deploy used the committed release snapshot only. Local uncommitted model-picker/frontend WIP was not committed or published. `origin/live-release` was untouched and Live was not deployed.
+
 ## 2026-11-10 generation DB pool exhaustion optimization (implemented, verification in progress)
 
 - Goal: prevent advanced generation jobs from consuming ten PostgreSQL pool connections by loading the full application snapshot.
