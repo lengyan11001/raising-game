@@ -492,6 +492,7 @@ function workflowGenerationRunNode(node = {}) {
   const newNode = createWorkflowNode(kind === "video" ? "add-video" : "add-image", workflowGeneratedNodePosition(node));
   if (!newNode) return node;
   newNode.title = `${kind === "video" ? "视频结果" : "图片结果"} ${workflowGeneratedResultChildren(node).length + 1}`;
+  const sourceReferences = workflowNodeCanvasReferences(node);
   newNode.data = {
     ...(newNode.data || {}),
     resultImageUrl: "",
@@ -516,9 +517,9 @@ function workflowGenerationRunNode(node = {}) {
     duration: node.data?.duration,
     mode: node.data?.mode,
     addSound: node.data?.addSound,
-    referenceImages: workflowNodeReferences(node, "referenceImages"),
-    referenceVideos: workflowNodeReferences(node, "referenceVideos"),
-    referenceAudios: workflowNodeReferences(node, "referenceAudios"),
+    referenceImages: sourceReferences.images,
+    referenceVideos: sourceReferences.videos,
+    referenceAudios: sourceReferences.audios,
     source: "generated",
     generatedFromNodeId: node.id,
     generationRunPlaceholder: true,

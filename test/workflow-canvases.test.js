@@ -783,8 +783,9 @@ test("workflow generations create a selected same-type node without replacing pr
   assert.match(part, /generationRunPlaceholder: true/);
   assert.match(part, /resultImageUrls: \[\]/);
   assert.match(part, /resultVideoUrls: \[\]/);
-  assert.match(part, /referenceImages: workflowNodeReferences\(node, "referenceImages"\)/);
-  assert.match(part, /referenceVideos: workflowNodeReferences\(node, "referenceVideos"\)/);
+  assert.match(part, /const sourceReferences = workflowNodeCanvasReferences\(node\)/);
+  assert.match(part, /referenceImages: sourceReferences\.images/);
+  assert.match(part, /referenceVideos: sourceReferences\.videos/);
   assert.match(part, /workflow\.edges = workflow\.edges\.filter\(\(edge\) => edge\.to !== newNode\.id \|\| edge\.from === node\.id\)/);
   assert.match(part, /workflow\.edges\.push\(\{ from: node\.id, to: newNode\.id \}\)/);
   assert.doesNotMatch(part, /cloneWorkflowInputEdges\(node\.id, newNode\.id\)/);
@@ -834,6 +835,7 @@ test("workflow generation runs from video and connects the result to that video 
     workflowNodeHasOwnContent: () => true,
     workflowGeneratedResultChildren: () => [],
     workflowNodeReferences: (node, field) => Array.isArray(node?.data?.[field]) ? node.data[field] : [],
+    workflowNodeCanvasReferences: () => ({ images: ["https://cdn.example/ref.png"], videos: [], audios: [] }),
     createWorkflowNode: (action, position) => {
       const node = { id: "video-result", type: action === "add-video" ? "unifiedVideoGen" : "imageGenerate", x: position.x, y: position.y, data: {} };
       workflow.nodes.push(node);
@@ -850,6 +852,7 @@ this.workflowGenerationRunNode = workflowGenerationRunNode;`, context);
   const result = context.workflowGenerationRunNode(workflow.nodes[1]);
 
   assert.equal(result.id, "video-result");
+  assert.deepEqual(Array.from(result.data.referenceImages), ["https://cdn.example/ref.png"]);
   assert.deepEqual(Array.from(workflow.edges, (edge) => `${edge.from}->${edge.to}`), [
     "reference-image->video-source",
     "video-source->video-result",
