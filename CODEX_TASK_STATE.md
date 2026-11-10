@@ -1,3 +1,12 @@
+## 2026-11-10 canvas generated result edge follows clicked node (ready for Old deployment)
+
+- User report: when generating from a video node connected to uploaded reference images, the new result node appeared connected to the reference image node; stale generation errors also remained when retrying.
+- Root cause: `workflowGenerationRunNode()` cloned the source node's incoming edges onto the new result node, visually re-parenting the result to the upstream reference nodes.
+- Fix: generation parameters and explicit references remain copied into the new node, but its graph edge is now only `clicked source node -> new result node`. Removed the now-unused input-edge cloning helper. Image and video run entrypoints reset stale `status` / `error` / `record` / `taskId` before a retry.
+- Regression coverage in `test/workflow-canvases.test.js` asserts the result edge targets the clicked node and stale errors are cleared at run start.
+- Verification: syntax and `git diff --check` pass; workflow canvas suite passes 33/33.
+- Publish scope: `platform.ui.parts/part-06.js`, `test/workflow-canvases.test.js`, this state entry only. Do not include unrelated WIP.
+
 ## 2026-11-10 uploaded canvas media persisted signed URLs fixed (ready for Old deployment)
 
 - User report: uploaded material nodes show broken media after reopening the canvas.

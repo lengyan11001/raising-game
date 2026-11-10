@@ -735,11 +735,14 @@ test("workflow generations create a selected same-type node without replacing pr
   assert.match(part, /generationRunPlaceholder: true/);
   assert.match(part, /resultImageUrls: \[\]/);
   assert.match(part, /resultVideoUrls: \[\]/);
-  assert.match(part, /function cloneWorkflowInputEdges\(sourceNodeId = "", targetNodeId = ""\)/);
   assert.match(part, /referenceImages: workflowNodeReferences\(node, "referenceImages"\)/);
   assert.match(part, /referenceVideos: workflowNodeReferences\(node, "referenceVideos"\)/);
-  assert.match(part, /cloneWorkflowInputEdges\(node\.id, newNode\.id\)/);
+  assert.match(part, /workflow\.edges = workflow\.edges\.filter\(\(edge\) => edge\.to !== newNode\.id \|\| edge\.from === node\.id\)/);
+  assert.match(part, /workflow\.edges\.push\(\{ from: node\.id, to: newNode\.id \}\)/);
+  assert.doesNotMatch(part, /cloneWorkflowInputEdges\(node\.id, newNode\.id\)/);
   assert.doesNotMatch(part, /window\.connectWorkflowNodes\?\.\(node\.id, newNode\.id\)/);
+  assert.match(part, /async function runWorkflowImageNode\(node = \{\}\) \{\n  workflowSetNodeData\(node\.id, \{ status: "preparing", error: "", record: null, taskId: "" \}\)/);
+  assert.match(part, /async function runWorkflowVideoNode\(node = \{\}\) \{\n  workflowSetNodeData\(node\.id, \{ status: "preparing", error: "", record: null, taskId: "" \}\)/);
   assert.match(part, /const runNode = workflowGenerationRunNode\(node\)/);
   assert.doesNotMatch(part, /clearWorkflowExecutionResults\(\{ fromNodeId: node\.id/);
   assert.match(part, /workflowStoreCompletedNodeResult\(node, "image", \{[\s\S]*?imageUrl/);

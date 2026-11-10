@@ -483,22 +483,6 @@ function workflowNodeHasOwnContent(node = {}) {
   return Boolean(workflowNodeOwnResultVideos(node).length || data.posterUrl || data.record || data.taskId);
 }
 
-function cloneWorkflowInputEdges(sourceNodeId = "", targetNodeId = "") {
-  if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) return;
-  const workflow = ensureWorkflowState();
-  const existingSources = new Set(
-    workflow.edges
-      .filter((edge) => edge.to === targetNodeId)
-      .map((edge) => edge.from),
-  );
-  workflow.edges
-    .filter((edge) => edge.to === sourceNodeId && edge.from !== targetNodeId && !existingSources.has(edge.from))
-    .forEach((edge) => {
-      existingSources.add(edge.from);
-      workflow.edges.push({ from: edge.from, to: targetNodeId });
-    });
-}
-
 function workflowGenerationRunNode(node = {}) {
   if (!node?.id) return null;
   if (node.data?.generationRunPlaceholder) return node;
@@ -540,10 +524,14 @@ function workflowGenerationRunNode(node = {}) {
     status: "submitting",
     error: "",
   };
-  // A repeat generation must receive the same upstream inputs and explicit
-  // references as the source node. Connecting source -> new would feed the
-  // source's own result back as a reference, which is not part of its params.
-  cloneWorkflowInputEdges(node.id, newNode.id);
+  // The result node belongs to the node the user clicked. Do not clone the
+  // source node's input edges: that visually attaches the result to a reference
+  // image/video instead of the generating node. The generation parameters and
+  // explicit references were copied above, so source -> result is sufficient.
+  workflow.edges = workflow.edges.filter((edge) => edge.to !== newNode.id || edge.from === node.id);
+  if (!workflow.edges.some((edge) => edge.from === node.id && edge.to === newNode.id)) {
+    if (workflowCanConnectNodes(node.id, newNode.id)) workflow.edges.push({ from: node.id, to: newNode.id });
+  }
   state.workflowSelectedNodeId = newNode.id;
   persistWorkflowState();
   window.WorkflowReactCanvas?.sync?.();
@@ -733,6 +721,7 @@ function workflowVideoGenerationBody(node = {}) {
 }
 
 async function runWorkflowImageNode(node = {}) {
+  workflowSetNodeData(node.id, { status: "preparing", error: "", record: null, taskId: "" });
   const model = workflowImageModelById(node.data?.modelId);
   const references = workflowNodeImageInputs(node);
   if (model.id === "qwen-image-edit-spicy" && !references.length) throw new Error("Qwen Image Edit Spicy requires an input image.");
@@ -781,6 +770,7 @@ async function runWorkflowImageNode(node = {}) {
 }
 
 async function runWorkflowVideoNode(node = {}) {
+  workflowSetNodeData(node.id, { status: "preparing", error: "", record: null, taskId: "" });
   const model = workflowVideoModelById(node.data?.modelId);
   const body = workflowVideoGenerationBody(node);
   if (!String(body.prompt || "").trim() && !body.referenceImages?.length && !body.referenceVideoUrls?.length && !body.videoDataUrl) {
