@@ -2432,7 +2432,7 @@ CODEX_TASK_STATE.md
 - Verification: syntax checks passed for all changed JS; focused support/auth/chat/admin/mobile/platform/site/email tests passed (6/6 support, 25/25 auth, 44/44 chat settlement, 78/78 selected UI/site). `git diff --check` pending final state-file cleanup.
 - Pending: selective commit, build/push `platform-release`, deploy Old only via `scripts/deploy_local.sh --site old`, then verify health and production assets/API.
 
-## 2026-11-10 cold refresh latency and pool starvation cleanup (ready for Old deployment)
+## 2026-11-10 cold refresh latency and pool starvation cleanup (deployed Old)
 
 - Goal: fix 20+ second cold homepage/admin refreshes, especially the first request after an idle period, while leaving Live unchanged.
 - Reproduction: homepage TTFB reached 21.13s while `/api/health` (0.39–0.49s), `/admin.html` (0.14–0.59s), and `/api/config/public` (0.09s) were healthy. Fresh Chrome cold load completed at 3.99s, but 25 critical scripts plus all deferred tools and Lucide were fetched again by Service Worker precache after load.
@@ -2441,4 +2441,5 @@ CODEX_TASK_STATE.md
 - Frontend fix: removed Service Worker install-time shell prefetch, removed full critical+deferred+Lucide precache message, and no longer auto-loads five deferred tools during `load`. Workflow, video-tool, and chat entry points load deferred modules on demand.
 - Verification: `platform-refresh-performance` + `generation-db-scope` pass 14/14; `support-notifications` + `chat-live-settlement` + `auth-risk` pass 78/78; syntax checks and `git diff --check` pass.
 - Publish scope: `db.js`, `platform.js`, `platform-sw.js`, `platform.explore.js`, `server.parts/part-01.js`, `server.parts/part-33.js`, `test/generation-db-scope.test.js`, `test/platform-refresh-performance.test.js`, this state entry. Unrelated model-picker/canvas WIP must not be staged.
-- Post-deploy verification: fresh Chrome cold visit request count/load time, homepage and admin TTFB, `/api/health`, and absence of new `timeout exceeded when trying to connect` logs. Confirm `live-release` remains `bf1e01a`.
+- Deployment: committed `ec270ae`, built platform release `0c836ed`, pushed `old-site` and `platform-release`, deployed Old only with `scripts/deploy_local.sh --site old`. Live release remains `bf1e01a`.
+- Production verification: homepage TTFB 0.37s cold / 0.14–0.43s repeated; admin TTFB 0.22s cold / 0.14–0.16s repeated; `/api/health` 0.08–0.21s. Server HEAD is `0c836ed`, service active, zero restart-timeout/error matches, and no `timeout exceeded when trying to connect` entries since restart. Production `platform-sw.js` no longer contains precache shell logic, and `platform.js` exposes deferred modules without loading them on page load.
