@@ -1,4 +1,4 @@
-## 2026-11-11 Result image duplicate from durable + provider fallback (ready for Old deployment)
+## 2026-11-11 Result image duplicate from durable + provider fallback (deployed Old)
 
 - User report: completed image task `img-20261111005109-24948d` still displayed two thumbnails in Result.
 - Production record stores one durable OSS/CDN output at `seedance-assets/123vips/generated/images/img-20261111005109-24948d.png` and also retains the provider source at a different path under `usercontent1.carrothub.ai/public/artifacts/.../output_00.png`. Pathname dedupe alone cannot recognize these as the same generated image.
@@ -7,7 +7,7 @@
 - Regression tests cover the exact production task schema, direct public-record output, durable plus different-path provider fallback, and distinct multi-image preservation.
 - Verification: `node --check` for changed source/tests; result/history suites pass 39/39; OSS/generated-media/authorization suites pass 48/48; `git diff --check` passes.
 - Publish scope: `platform.ui.parts/part-02.js`, `server.parts/part-20.js`, `test/result-image-dedupe.test.js`, this state entry. Preserve unrelated `platform.create.parts/part-04.js` and untracked WIP.
-- Deployment: pending commit -> build `platform-release` from committed `old-site` -> deploy Old only. Live must remain untouched.
+- Deployed Old only: source `old-site` `dbf8e0a`; `platform-release` / `origin/platform-release` `1ee58d1`; previous remote release `eb15a5a`. `/api/health` returns `{"ok":true}`, service `NRestarts=0`, and production files contain the durable-image fallback fix. Live untouched.
 
 ## 2026-11-11 Seedance 2.0 to Vega Pro regeneration media fix (deployed Old)
 
