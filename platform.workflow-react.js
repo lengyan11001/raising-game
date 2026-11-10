@@ -322,54 +322,23 @@
   }
 
   function UploadReference(node, kind) {
-    var fieldName = kind === "video" ? "videoUrl" : "imageUrl";
-    var value = node.data && node.data[fieldName] || "";
-    var busyState = React.useState(false);
-    var busy = busyState[0];
-    var setBusy = busyState[1];
+    var value = node.data && node.data[kind === "video" ? "videoUrl" : "imageUrl"] || "";
     var fileInput = h("input", {
       type: "file",
       accept: kind + "/*",
-      disabled: busy,
       onChange: function (event) {
-        var file = event.target.files && event.target.files[0];
-        if (!file || typeof window.uploadWorkflowFile !== "function") return;
+        var files = Array.from(event.target.files || []);
+        if (!files.length || typeof window.uploadWorkflowFilesToNode !== "function") return;
         event.stopPropagation();
-        var canvasId = typeof window.activeWorkflowCanvasId === "function" ? window.activeWorkflowCanvasId() : "";
-        setBusy(true);
-        if (node.data) node.data.uploadPending = true;
-        if (typeof window.persistWorkflowState === "function") window.persistWorkflowState();
-        window.uploadWorkflowFile(file, node.id).then(function (uploaded) {
-          if (canvasId && typeof window.activeWorkflowCanvasId === "function" && window.activeWorkflowCanvasId() !== canvasId) return;
-          var patch = {};
-          patch[fieldName] = uploaded.url || "";
-          patch[fieldName + "AssetId"] = uploaded.assetId || "";
-          patch.uploadPending = false;
-          patch.error = "";
-          persistNode(node, patch);
-          if (typeof window.clearWorkflowExecutionResults === "function") {
-            window.clearWorkflowExecutionResults({ fromNodeId: node.id, message: "Input updated. Run downstream nodes again.", render: false });
-          }
-          refreshCanvas();
-        }).catch(function (error) {
-          if (node.data) {
-            node.data.uploadPending = false;
-            node.data.error = error && error.message ? error.message : "Upload failed.";
-            if (typeof window.persistWorkflowState === "function") window.persistWorkflowState();
-            refreshCanvas();
-          }
-          console.error("Workflow upload failed", error);
-        }).finally(function () {
-          setBusy(false);
-          event.target.value = "";
-        });
+        event.target.value = "";
+        window.uploadWorkflowFilesToNode(files, node.id);
       },
     });
     var media = value
       ? kind === "video"
         ? h("video", { src: value, controls: true, playsInline: true, preload: "metadata", className: "nodrag nowheel", onPointerDown: stopNodeEvent })
         : h("img", { src: value, alt: "", loading: "lazy", decoding: "async" })
-      : h("span", { className: "workflow-react-upload-copy" }, icon("upload"), h("strong", null, busy || (node.data && node.data.uploadPending) ? "Uploading..." : "Add " + kind), h("small", null, node.data && node.data.error ? node.data.error : "Click or drop a file"));
+      : h("span", { className: "workflow-react-upload-copy" }, icon("upload"), h("strong", null, "Add " + kind), h("small", null, node.data && node.data.error ? node.data.error : "Click or drop a file"));
     return h("article", { className: "workflow-react-card is-reference is-" + kind + " " + (node.id === window.__workflowReactSelectedNodeId ? "is-selected" : ""), "data-workflow-react-node": node.id },
       Header(node, node.title, kind === "video" ? "video" : "image", deleteAction(node)),
       h("label", { className: "nodrag workflow-react-dropzone", onPointerDown: stopNodeEvent }, fileInput, media),

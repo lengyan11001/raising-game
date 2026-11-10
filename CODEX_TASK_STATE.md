@@ -5,6 +5,17 @@
 - Added regression coverage for null nodes, empty model libraries, and Seedance 2.5 identity. Targeted canvas tests pass 32/32; webpack production build succeeds with bundle-size warnings only; syntax and `git diff --check` pass.
 - Publish scope: `platform.ui.parts/part-05.js`, `platform.ui.parts/part-06.js`, `test/workflow-canvases.test.js`, `workflow-react/dist/canvas.js`, and this state entry. Do not stage unrelated WIP or the generated source map.
 
+## 2026-11-10 canvas reference upload UX (ready for Old deployment with null-node fix)
+
+- User asked for reference uploads to create the new node first, show upload progress on that node, use smaller reference thumbnails, and replace Image1/Image2 instructions with a simple `提示词中输入 @ 即可引用素材` hint.
+- `uploadWorkflowFilesToNode()` now creates one selected, linked same-type node per accepted file before reading/uploading, writes `status: "uploading"`, `uploadProgress`, and `uploadFileName`, uploads concurrently, then replaces the same node preview on success or marks it failed.
+- Upload transport uses `XMLHttpRequest` progress against the site's own `/api/user-assets`; intermediate progress persists locally with `skipServer: true`, while completion/failure persist normally.
+- Canvas generation nodes render a dedicated upload-progress result state. Reference thumbnails are 36x36; the visible hint is `提示词中输入 @ 即可引用素材`; numbered Image labels are no longer shown in upload controls.
+- New upload nodes use real card-size spacing: `workflowAvailableNodePosition()` searches on 448x644 steps (420px card + 28px gap), and multiple uploads stack down the source node's left side. This fixes uploaded nodes landing far from their source.
+- Legacy React `UploadReference()` now delegates to `window.uploadWorkflowFilesToNode(files, node.id)`, so that path also creates a node first and shows progress.
+- Verification: `test/workflow-canvases.test.js` 32/32 pass; production webpack build succeeds with existing bundle-size warnings only; `node --check platform.ui.parts/part-05.js`, `platform.ui.parts/part-06.js`, `platform.workflow-react.js`, and `git diff --check` pass.
+- Publish scope: `platform.ui.parts/part-05.js`, `platform.ui.parts/part-06.js`, `platform.workflow-react.js`, `test/workflow-canvases.test.js`, `workflow-react/src/components/canvas/siteNodes/SiteNodeUpload.js`, `GenerationResultMedia.js`, `SiteImageGenerationNode.js`, `SiteVideoGenerationNode.js`, `workflow-react/src/site/site.css`, `workflow-react/dist/canvas.js`, and this state entry. Exclude unrelated WIP and `workflow-react/dist/canvas.js.map`.
+
 ## 2026-11-10 admin actual sale equals purchase report (investigated, no code change)
 
 - User reported every admin actual sale price equals purchase price while multipliers are normal.

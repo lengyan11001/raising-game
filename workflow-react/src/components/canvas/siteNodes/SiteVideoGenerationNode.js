@@ -108,6 +108,8 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
             status={results.length ? 'succeeded' : data.status}
             error={results.length ? '' : data.error}
             sourceNodeId={id}
+            uploadProgress={data.uploadProgress}
+            uploadFileName={data.uploadFileName}
           />
         </div>
         <div className="site-generation-controls is-selected-only">

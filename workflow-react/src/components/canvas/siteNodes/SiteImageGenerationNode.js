@@ -61,7 +61,7 @@ export function SiteImageGenerationNode({ id, selected = false }) {
           <small>{data.status ? String(data.status) : '就绪'}</small>
         </div>
         <div className="site-generation-result">
-          <GenerationResultMedia kind="image" urls={results} status={results.length ? 'succeeded' : data.status} error={results.length ? '' : data.error} sourceNodeId={id} />
+          <GenerationResultMedia kind="image" urls={results} status={results.length ? 'succeeded' : data.status} error={results.length ? '' : data.error} sourceNodeId={id} uploadProgress={data.uploadProgress} uploadFileName={data.uploadFileName} />
         </div>
         <div className="site-generation-controls is-selected-only">
           <label className="site-field site-prompt-field">

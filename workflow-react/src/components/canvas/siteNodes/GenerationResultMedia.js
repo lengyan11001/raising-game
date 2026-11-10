@@ -13,8 +13,19 @@ function beginMediaDrag(event, { kind, url, index, sourceNodeId }) {
   event.dataTransfer.setData('text/uri-list', url);
 }
 
-export function GenerationResultMedia({ kind = 'image', urls = [], poster = '', status = '', error = '', sourceNodeId = '' }) {
+export function GenerationResultMedia({ kind = 'image', urls = [], poster = '', status = '', error = '', sourceNodeId = '', uploadProgress = 0, uploadFileName = '' }) {
   const { openPreview, previewOverlay } = useMediaPreview();
+  if (status === 'uploading') {
+    const progress = Math.max(0, Math.min(100, Math.round(Number(uploadProgress || 0))));
+    return (
+      <div className="site-generation-uploading" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}>
+        <i className="bi bi-cloud-arrow-up" />
+        <strong>正在上传 {progress}%</strong>
+        <div className="site-generation-uploading-track"><span style={{ width: `${progress}%` }} /></div>
+        <small>{uploadFileName || '素材上传完成后会显示预览'}</small>
+      </div>
+    );
+  }
   if (status === 'failed' && error) {
     return <div className="site-generation-empty is-error"><i className="bi bi-exclamation-circle"></i><span>{error}</span></div>;
   }

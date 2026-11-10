@@ -105,7 +105,7 @@ function selectWorkflowNode(nodeId = "", { render = true } = {}) {
 }
 
 function workflowNodePositionIsFree(candidate = {}, workflow = ensureWorkflowState()) {
-  const width = 440;
+  const width = 420;
   const height = 620;
   return !(workflow.nodes || []).some((node) => (
     Math.abs(Number(node.x || 0) - Number(candidate.x || 0)) < width
@@ -116,9 +116,9 @@ function workflowNodePositionIsFree(candidate = {}, workflow = ensureWorkflowSta
 function workflowAvailableNodePosition(position = null) {
   const base = clampWorkflowNodePosition(position?.x, position?.y);
   if (workflowNodePositionIsFree(base)) return base;
-  const stepX = 76;
-  const stepY = 64;
-  for (let ring = 1; ring <= 40; ring += 1) {
+  const stepX = 448;
+  const stepY = 644;
+  for (let ring = 1; ring <= 20; ring += 1) {
     for (let row = -ring; row <= ring; row += 1) {
       for (let column = -ring; column <= ring; column += 1) {
         if (Math.max(Math.abs(row), Math.abs(column)) !== ring) continue;

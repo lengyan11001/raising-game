@@ -554,19 +554,19 @@
   display: flex;
   grid-column: 1 / -1;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   min-width: 0;
 }
 
-.site-node-upload-thumbs a {
+.site-node-upload-thumbs .site-media-preview-trigger {
   position: relative;
   display: block;
-  width: 46px;
-  height: 46px;
+  width: 36px;
+  height: 36px;
   flex: none;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 7px;
+  border-radius: 6px;
   background: #0d0d10;
 }
 
@@ -593,6 +593,35 @@
 .site-node-upload-hint b {
   color: #f1a8cd;
   font-weight: 600;
+}
+
+.site-node-upload-progress {
+  position: relative;
+  grid-column: 1 / -1;
+  height: 24px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .065);
+}
+
+.site-node-upload-progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, rgba(255, 79, 163, .55), rgba(255, 79, 163, .26));
+  transition: width .18s ease;
+}
+
+.site-node-upload-progress > small {
+  position: relative;
+  z-index: 1;
+  display: block;
+  padding: 5px 8px;
+  overflow: hidden;
+  color: #f6d6e6;
+  font-size: 9px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .site-node-upload-thumbs img,
@@ -629,6 +658,60 @@
   border-color: rgba(255, 79, 163, .5);
   color: white;
   background: rgba(255, 79, 163, .11);
+}
+
+.site-node-upload-button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.site-generation-uploading {
+  display: grid;
+  min-height: 164px;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  padding: 18px;
+  border: 1px dashed rgba(255, 79, 163, .3);
+  border-radius: 10px;
+  color: #f6d6e6;
+  background: rgba(255, 79, 163, .035);
+  text-align: center;
+}
+
+.site-generation-uploading > i {
+  color: rgba(255, 79, 163, .86);
+  font-size: 28px;
+}
+
+.site-generation-uploading > strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.site-generation-uploading > small {
+  max-width: 260px;
+  overflow: hidden;
+  color: var(--site-canvas-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-generation-uploading-track {
+  width: min(240px, 68vw);
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .09);
+}
+
+.site-generation-uploading-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--site-canvas-pink);
+  transition: width .18s ease;
 }
 
 .site-video-result-grid {

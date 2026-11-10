@@ -243,6 +243,9 @@ test("canvas media controls open an in-app preview without download links", () =
   assert.doesNotMatch(upload, /href=/);
   assert.match(css, /\.site-media-preview-overlay/);
   assert.match(css, /\.site-media-preview-frame video/);
+  assert.match(css, /\.site-node-upload-thumbs \.site-media-preview-trigger[\s\S]*?width: 36px;[\s\S]*?height: 36px;/);
+  assert.match(css, /\.site-node-upload-progress/);
+  assert.match(css, /\.site-generation-uploading-track/);
   assert.match(css, /\.site-media-preview-stage \{[\s\S]*?width: min\(960px, calc\(100vw - 48px\)\)/);
   assert.match(css, /\.site-media-preview-stage \{[\s\S]*?height: min\(680px, calc\(100vh - 80px\)\)/);
   assert.match(css, /@media \(max-width: 640px\)/);
@@ -499,6 +502,7 @@ test("workflow React Flow adapter owns creation, connection, and business deleti
   assert.match(ui, /function workflowAvailableNodePosition\(position = null\)/);
   assert.match(ui, /function workflowNodePositionIsFree\(candidate = \{\}/);
   assert.match(ui, /const point = position \? workflowAvailableNodePosition\(position\) : workflowNewNodePosition\(\)/);
+  assert.match(ui, /const stepX = 448;[\s\S]*?const stepY = 644;/);
   assert.match(ui, /const cardWidth = 420;[\s\S]*?const columnGap = 28;[\s\S]*?cardWidth \+ columnGap/);
   assert.match(ui, /function syncWorkflowStatusText\(\)/);
   assert.match(css, /\.site-generation-card \{[\s\S]*?border-radius: 14px/);
@@ -658,20 +662,30 @@ test("workflow viewport is persisted and stale edges are filtered", () => {
 
 test("workflow upload creates a selected linked preview node with generation controls", () => {
   const part = read("platform.ui.parts/part-05.js");
+  const upload = read("workflow-react/src/components/canvas/siteNodes/SiteNodeUpload.js");
+  const media = read("workflow-react/src/components/canvas/siteNodes/GenerationResultMedia.js");
   const bridge = read("workflow-react/src/site/SiteBridge.js");
   const canvas = read("workflow-react/src/components/canvas/Canvas.js");
   const drop = read("platform.ui.parts/part-06.js");
-  const media = read("workflow-react/src/components/canvas/siteNodes/GenerationResultMedia.js");
   const videoNode = read("workflow-react/src/components/canvas/siteNodes/SiteVideoGenerationNode.js");
   assert.match(part, /const WORKFLOW_UPLOAD_NODE_TYPES = new Set\(\["imageGenerate", "unifiedVideoGen"\]\)/);
   assert.match(part, /const canvasId = String\(state\.workflowActiveCanvasId \|\| ""\)/);
   assert.match(part, /if \(String\(state\.workflowActiveCanvasId \|\| ""\) !== canvasId\) return false/);
-  assert.match(part, /const newNode = createWorkflowNode\(action, workflowUploadedNodePosition\(current\)\)/);
+  assert.match(part, /const jobs = accepted\.map\(\(file, index\) => \{/);
+  assert.match(part, /const newNode = createWorkflowNode\(action, workflowUploadedNodePosition\(current, index\)\)/);
+  assert.match(part, /\.\.\.workflowUploadingPreviewPatch\(file\)/);
+  assert.match(part, /uploadProgress: 5/);
+  assert.match(part, /uploadFileName: file\.name/);
+  assert.match(part, /const results = await Promise\.all\(jobs\.map/);
+  assert.match(part, /uploadNode\.data = \{ \.\.\.\(uploadNode\.data \|\| \{\}\), uploadProgress: progress \}/);
+  assert.match(part, /persistWorkflowState\(\{ skipServer: true \}\)/);
   assert.match(part, /resultImageUrl: uploaded\.url/);
   assert.match(part, /resultVideoUrl: uploaded\.url/);
   assert.match(part, /window\.connectWorkflowNodes\?\.\(newNode\.id, current\.id\)/);
   assert.match(part, /state\.workflowSelectedNodeId = newNode\.id/);
-  assert.match(part, /window\.WorkflowReactCanvas\?\.selectNode\?\.\(newNode\.id\)/);
+  assert.match(part, /window\.WorkflowReactCanvas\?\.selectNode\?\.\(jobs\[jobs\.length - 1\]\.nodeId\)/);
+  assert.match(part, /requestWorkflowUploadJson/);
+  assert.match(part, /request\.upload\.addEventListener\("progress"/);
   assert.match(drop, /window\.activeWorkflowSelectedNodeId = \(\) => String\(state\.workflowSelectedNodeId/);
   assert.match(bridge, /selected: String\(node\.id \|\| ""\) === String\(selectedNodeId \|\| ""\)/);
   assert.match(drop, /function addWorkflowNodeAt[\s\S]*?window\.WorkflowReactCanvas\.selectNode\(node\.id\);[\s\S]*?return node\.id/);
@@ -680,7 +694,14 @@ test("workflow upload creates a selected linked preview node with generation con
   assert.doesNotMatch(part, /async function uploadWorkflowFilesToNode[\s\S]{0,2400}?clearWorkflowExecutionResults/);
   assert.match(canvas, /window\.uploadWorkflowFilesToNode\(files, targetNodeId\)/);
   assert.match(drop, /window\.uploadWorkflowFilesToNode\(files, nodeId\)/);
+  assert.match(read("platform.workflow-react.js"), /window\.uploadWorkflowFilesToNode\(files, node\.id\)/);
   assert.match(videoNode, /workflowNodeResultVideos/);
+  assert.match(upload, /上传中 \$\{uploadProgress\}%/);
+  assert.match(upload, /提示词中输入 <b>@<\/b> 即可引用素材/);
+  assert.doesNotMatch(upload, /Image1|Image2|按显示顺序编号|提示词写/);
+  assert.doesNotMatch(upload, /site-node-upload-index/);
+  assert.match(media, /status === 'uploading'/);
+  assert.match(media, /site-generation-uploading-track/);
   assert.match(media, /urls\.map\(\(url, index\)/);
   assert.match(media, /beginMediaDrag\(event, \{ kind, url, index, sourceNodeId \}\)/);
 });

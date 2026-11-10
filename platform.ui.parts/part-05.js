@@ -1188,11 +1188,50 @@ function updateWorkflowNodeFromControl(control) {
   window.WorkflowReactCanvas?.sync?.();
 }
 
-async function uploadWorkflowMediaDataUrl(dataUrl = "", { name = "Workflow media", fileName = "workflow-media" } = {}) {
-  const payload = await requestJson("/api/user-assets", {
-    method: "POST",
-    body: { dataUrl, name, fileName },
+function requestWorkflowUploadJson(url = "", { body, onUploadProgress = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", url);
+    request.setRequestHeader("content-type", "application/json");
+    if (state.token) request.setRequestHeader("authorization", `Bearer ${state.token}`);
+    request.upload.addEventListener("progress", (event) => {
+      if (!event.lengthComputable || typeof onUploadProgress !== "function") return;
+      onUploadProgress(Math.max(1, Math.min(100, Math.round((event.loaded / event.total) * 100))));
+    });
+    request.addEventListener("load", () => {
+      let payload = {};
+      try {
+        payload = JSON.parse(request.responseText || "{}");
+      } catch {}
+      if (request.status >= 200 && request.status < 300 && payload.ok !== false) {
+        if (typeof onUploadProgress === "function") onUploadProgress(100);
+        resolve(payload);
+        return;
+      }
+      const sessionLost = request.status === 401 && Boolean(state.token)
+        && (payload.code === "SESSION_REPLACED" || payload.code === "LOGIN_REQUIRED");
+      if (sessionLost) clearClientAuthState();
+      if (payload.code === "SESSION_REPLACED") {
+        window.dispatchEvent(new CustomEvent("raising-session-replaced", { detail: payload }));
+      }
+      const error = new Error(payload.message || payload.detail || `Request failed: ${request.status}`);
+      error.statusCode = request.status;
+      error.code = payload.code || "";
+      error.payload = payload;
+      error.details = payload.details || null;
+      reject(error);
+    });
+    request.addEventListener("error", () => reject(new Error("Upload failed. Check your network connection.")));
+    request.addEventListener("abort", () => reject(new Error("Upload canceled.")));
+    request.send(typeof body === "string" ? body : JSON.stringify(body || {}));
   });
+}
+
+async function uploadWorkflowMediaDataUrl(dataUrl = "", { name = "Workflow media", fileName = "workflow-media", onUploadProgress = null } = {}) {
+  const body = { dataUrl, name, fileName };
+  const payload = onUploadProgress
+    ? await requestWorkflowUploadJson("/api/user-assets", { body, onUploadProgress })
+    : await requestJson("/api/user-assets", { method: "POST", body });
   const asset = payload.asset || null;
   const url = String(asset?.publicUrl || asset?.localUrl || asset?.previewUrl || "").trim();
   if (!asset?.id || !url) throw new Error("Failed to store workflow media.");
@@ -1203,12 +1242,18 @@ async function uploadWorkflowMediaDataUrl(dataUrl = "", { name = "Workflow media
 
 window.activeWorkflowCanvasId = () => String(state.workflowActiveCanvasId || "");
 
-async function uploadWorkflowFile(file, nodeId = "") {
+async function uploadWorkflowFile(file, nodeId = "", onProgress = null) {
+  const reportProgress = (value) => {
+    if (typeof onProgress === "function") onProgress(Math.max(0, Math.min(100, Math.round(Number(value) || 0))));
+  };
   if (typeof window.markWorkflowCanvasLocalEdit === "function") window.markWorkflowCanvasLocalEdit();
+  reportProgress(8);
   const dataUrl = await readFileAsDataUrl(file);
+  reportProgress(35);
   return uploadWorkflowMediaDataUrl(dataUrl, {
     name: file.name || "Workflow media",
     fileName: file.name || `${nodeId || "workflow"}-media`,
+    onUploadProgress: (value) => reportProgress(35 + Number(value || 0) * 0.6),
   });
 }
 
@@ -1221,6 +1266,7 @@ function workflowUploadKindForFile(file = {}) {
 
 function workflowUploadAcceptsFile(node = {}, file = {}) {
   if (!WORKFLOW_UPLOAD_NODE_TYPES.has(node.type)) return false;
+  if (node.data?.status === "uploading") return false;
   const mime = String(file.type || "").toLowerCase();
   if (mime.startsWith("image/")) return true;
   return mime.startsWith("video/") && node.type !== "imageGenerate";
@@ -1248,12 +1294,23 @@ function workflowUploadedPreviewPatch(file = {}, uploaded = {}) {
   };
 }
 
-function workflowUploadedNodePosition(source = {}) {
+function workflowUploadedNodePosition(source = {}, index = 0) {
   const nodeWidth = typeof WORKFLOW_NODE_WIDTH === "number" ? WORKFLOW_NODE_WIDTH : 420;
-  const nodeGap = typeof WORKFLOW_NODE_GAP === "number" ? WORKFLOW_NODE_GAP : 36;
+  const nodeGap = typeof WORKFLOW_NODE_GAP === "number" ? WORKFLOW_NODE_GAP : 28;
+  const rowHeight = 620 + 24;
   return {
     x: Number(source.x || 0) - nodeWidth - nodeGap,
-    y: Number(source.y || 0),
+    y: Number(source.y || 0) + Math.max(0, Number(index) || 0) * rowHeight,
+  };
+}
+
+function workflowUploadingPreviewPatch(file = {}) {
+  return {
+    source: "upload",
+    status: "uploading",
+    uploadProgress: 5,
+    uploadFileName: file.name || "素材",
+    error: "",
   };
 }
 
@@ -1265,39 +1322,72 @@ async function uploadWorkflowFilesToNode(files = [], nodeId = "") {
   if (!node || !WORKFLOW_UPLOAD_NODE_TYPES.has(node.type)) return false;
   const accepted = list.filter((file) => workflowUploadAcceptsFile(node, file));
   if (!accepted.length) return false;
-  state.workflowMessage = "Uploading media...";
-  window.WorkflowReactCanvas?.sync?.();
+  state.workflowMessage = "正在上传素材...";
   try {
-    for (const file of accepted) {
-      const uploaded = await uploadWorkflowFile(file, node.id);
-      if (String(state.workflowActiveCanvasId || "") !== canvasId) return false;
+    const jobs = accepted.map((file, index) => {
       const current = workflowNodeById(node.id);
-      if (!current || !WORKFLOW_UPLOAD_NODE_TYPES.has(current.type)) return false;
+      if (!current || !WORKFLOW_UPLOAD_NODE_TYPES.has(current.type)) return null;
       const action = workflowUploadKindForFile(file) === "video" ? "add-video" : "add-image";
-      const newNode = createWorkflowNode(action, workflowUploadedNodePosition(current));
+      const newNode = createWorkflowNode(action, workflowUploadedNodePosition(current, index));
       if (!newNode) throw new Error("Failed to create uploaded media node.");
       newNode.data = {
         ...(newNode.data || {}),
-        ...workflowUploadedPreviewPatch(file, uploaded),
+        ...workflowUploadingPreviewPatch(file),
       };
       window.connectWorkflowNodes?.(newNode.id, current.id);
       state.workflowSelectedNodeId = newNode.id;
-      persistWorkflowState();
-      window.WorkflowReactCanvas?.sync?.();
-      window.WorkflowReactCanvas?.selectNode?.(newNode.id);
-    }
-    state.workflowMessage = "";
-    return true;
-  } catch (error) {
-    state.workflowMessage = "";
-    if (String(state.workflowActiveCanvasId || "") === canvasId) {
-      const current = workflowNodeById(node.id);
-      if (current) {
-        current.data = { ...(current.data || {}), error: error.message || "Upload failed." };
+      return { file, nodeId: newNode.id };
+    }).filter(Boolean);
+    if (!jobs.length) throw new Error("Failed to create uploaded media node.");
+    persistWorkflowState();
+    window.WorkflowReactCanvas?.sync?.();
+    window.WorkflowReactCanvas?.selectNode?.(jobs[jobs.length - 1].nodeId);
+    const results = await Promise.all(jobs.map(async ({ file, nodeId: uploadNodeId }) => {
+      const updateProgress = (progress) => {
+        if (String(state.workflowActiveCanvasId || "") !== canvasId) return;
+        const uploadNode = workflowNodeById(uploadNodeId);
+        if (!uploadNode) return;
+        uploadNode.data = { ...(uploadNode.data || {}), uploadProgress: progress };
+        persistWorkflowState({ skipServer: true });
+        window.WorkflowReactCanvas?.sync?.();
+      };
+      try {
+        const uploaded = await uploadWorkflowFile(file, uploadNodeId, updateProgress);
+        if (String(state.workflowActiveCanvasId || "") !== canvasId) return false;
+        const uploadNode = workflowNodeById(uploadNodeId);
+        if (!uploadNode) return false;
+        uploadNode.data = {
+          ...(uploadNode.data || {}),
+          ...workflowUploadedPreviewPatch(file, uploaded),
+          uploadProgress: 100,
+          uploadFileName: "",
+        };
         persistWorkflowState();
         window.WorkflowReactCanvas?.sync?.();
+        return true;
+      } catch (error) {
+        if (String(state.workflowActiveCanvasId || "") === canvasId) {
+          const uploadNode = workflowNodeById(uploadNodeId);
+          if (uploadNode) {
+            uploadNode.data = {
+              ...(uploadNode.data || {}),
+              status: "failed",
+              uploadProgress: 0,
+              error: error.message || "Upload failed.",
+            };
+            persistWorkflowState();
+            window.WorkflowReactCanvas?.sync?.();
+          }
+        }
+        return false;
       }
-    }
+    }));
+    if (String(state.workflowActiveCanvasId || "") !== canvasId) return false;
+    state.workflowMessage = "";
+    return results.every(Boolean);
+  } catch (error) {
+    state.workflowMessage = "";
+    console.error("Workflow upload failed", error);
     return false;
   }
 }

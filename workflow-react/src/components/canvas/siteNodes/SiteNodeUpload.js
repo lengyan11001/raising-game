@@ -13,7 +13,10 @@ export function SiteNodeUpload({
   const { openPreview, previewOverlay } = useMediaPreview();
   const values = Array.from(new Set((references || []).filter(Boolean)));
   const labels = values.map((_, index) => referenceLabels[index] || '');
-  const showNumbers = labels.some(Boolean);
+  const node = typeof window.workflowNodeById === 'function' ? window.workflowNodeById(id) : null;
+  const data = node?.data || {};
+  const uploading = data.status === 'uploading';
+  const uploadProgress = Math.max(0, Math.min(100, Math.round(Number(data.uploadProgress || 0))));
   const handleFiles = (event) => {
     event.stopPropagation();
     const files = Array.from(event.target.files || []);
@@ -26,8 +29,14 @@ export function SiteNodeUpload({
     <div className="site-node-upload" onPointerDown={(event) => event.stopPropagation()}>
       <div className="site-node-upload-head">
         <span>{label} <b>{values.length}</b></span>
-        <small>{values.length ? emptyLabel : '图片 / 视频'}</small>
+        <small>{uploading ? `上传中 ${uploadProgress}%` : values.length ? emptyLabel : '图片 / 视频'}</small>
       </div>
+      {uploading && (
+        <div className="site-node-upload-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={uploadProgress}>
+          <span style={{ width: `${uploadProgress}%` }} />
+          <small>{data.uploadFileName || '正在上传素材'}</small>
+        </div>
+      )}
       {values.length > 0 && (
         <div className="site-node-upload-thumbs">
           {values.slice(0, 4).map((url, index) => {
@@ -37,12 +46,11 @@ export function SiteNodeUpload({
                 key={`${url}-${index}`}
                 media={{ kind, url, label: `参考素材 ${index + 1}` }}
                 onOpen={openPreview}
-                title={`预览参考素材 ${index + 1}${labels[index] ? ` · 提示词写 ${labels[index]}` : ''}`}
+                title={`预览参考素材 ${index + 1} · 提示词输入 @ 引用`}
               >
                 {kind === 'video'
                   ? <video src={url} muted playsInline preload="metadata" />
                   : <img src={url} alt={`参考素材 ${index + 1}`} loading="lazy" decoding="async" />}
-                {labels[index] && <span className="site-node-upload-index">{labels[index]}</span>}
               </MediaPreviewTrigger>
             );
           })}
@@ -50,12 +58,8 @@ export function SiteNodeUpload({
         </div>
       )}
       {previewOverlay}
-      {showNumbers && (
-        <p className="site-node-upload-hint">
-          提示词中用 <b>{labels.filter(Boolean).slice(0, 2).join('</b>、<b>')}</b> 引用上方素材，按显示顺序编号。
-        </p>
-      )}
-      <button type="button" className="site-node-upload-button" onClick={() => inputRef.current?.click()}>
+      {values.length > 0 && <p className="site-node-upload-hint">提示词中输入 <b>@</b> 即可引用素材</p>}
+      <button type="button" className="site-node-upload-button" disabled={uploading} onClick={() => inputRef.current?.click()}>
         <i className="bi bi-upload" /> 上传素材
       </button>
       <input ref={inputRef} type="file" accept={accept} multiple hidden onChange={handleFiles} />
