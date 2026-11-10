@@ -1,3 +1,14 @@
+## 2026-11-10 regeneration restore cache-first + detail correction (ready for Old deployment)
+
+- User report: regeneration again defaults ratio to 9:16 and loses media; suspected the later parameter-restore change broke the previously working media restore.
+- Root cause: regeneration was changed to restore immediately from the result/history cache, but the completion-poll list intentionally deletes `params`, `prompt`, `mediaAssets`, asset IDs and submission snapshot fields. Those cached rows therefore cannot supply ratio/resolution/duration/media. `renderAdvancedCreateControls()` then resets ratio to `9:16`. The media helpers were not the primary regression.
+- Fix: cache-first restore stays immediate. A background detail fetch now hydrates fresh previews and, if the user has not changed provider/prompt/ratio/resolution/duration/media mode/audio/frame/reference fingerprint, reapplies the authoritative detail record. If any visible field or media changed, only matching preview URLs are merged; user edits are never overwritten.
+- Added `submissionSnapshot` preservation in the non-Vega advanced server path; Vega already persists it in its dedicated handler.
+- Coverage: result/history cache-first assertions, background full-detail correction, no-overwrite fingerprint coverage, Vega submission snapshot media restoration, first/last frame and reference order.
+- Verification: 96/96 focused tests (`advanced-workspace-routing`, `tencent-vod-vega`, `vega-regeneration-media`), JS syntax checks, `git diff --check`.
+- Do not include unrelated untracked test-mode CSS/test files or workflow node_modules/map WIP in the release.
+- Deploy only Old through the required committed `old-site` -> `platform-release` flow.
+
 ## 2026-11-10 canvas connected references preserved on generation (ready for Old deployment)
 
 - User report: when generating from a canvas node connected to reference images, the generated result does not carry the connected references.

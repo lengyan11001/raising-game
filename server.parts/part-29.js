@@ -366,9 +366,15 @@ async function handleAdvancedGenerate(req, res) {
     });
   }
 
+  const submittedSnapshot = body.submissionSnapshot && typeof body.submissionSnapshot === "object" && !Array.isArray(body.submissionSnapshot)
+    ? body.submissionSnapshot
+    : bodyParams.submissionSnapshot && typeof bodyParams.submissionSnapshot === "object" && !Array.isArray(bodyParams.submissionSnapshot)
+      ? bodyParams.submissionSnapshot
+      : null;
   const requestParams = {
     ...caseParams,
     ...bodyParams,
+    ...(submittedSnapshot ? { submissionSnapshot: submittedSnapshot } : {}),
     provider,
     preserveUserPrompt: isAdvancedCustomPrompt(mergedBodyBase),
     seedanceTier: normalizeSeedanceTier(requestedSeedanceTier),

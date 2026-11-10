@@ -871,16 +871,130 @@ test("Hidden regeneration snapshot is scoped to the same Vega provider", () => {
   assert.equal(options.outputFormat, "mp4");
 });
 
-test("Regeneration restore never repopulates visible or hidden Vega controls", () => {
+test("Regeneration restores submitted visible parameters while keeping Vega hidden controls hidden", () => {
   const restoreSource = extractFunction(createSource, "restoreRecordToAdvancedCreate");
-  assert.doesNotMatch(restoreSource, /els\.advancedRatio\.value\s*=/);
-  assert.doesNotMatch(restoreSource, /els\.advancedResolution\.value\s*=/);
-  assert.doesNotMatch(restoreSource, /els\.advancedDuration\.value\s*=/);
-  assert.doesNotMatch(restoreSource, /els\.advancedVega(TaskType|Draft|DraftTaskId|AssetGroupId|ReturnLastFrame|ReturnUsage|EnhancePromptMode|ModerationMode|GenerateMode|QualityMode|OutputFormat)\.(value|checked)\s*=/);
-  assert.match(restoreSource, /clearAdvancedCreationInputs\(\{ preserveRegenerationSnapshot: true \}\)/);
-  assert.match(restoreSource, /state\.advancedRegenerationSnapshot = regenerationSnapshot;/);
+  const applySource = extractFunction(createSource, "applyRecordToAdvancedCreate");
+  const visibleHelper = extractFunction(createSource, "applyAdvancedRegenerationVisibleParameters");
+  assert.match(applySource, /applyAdvancedRegenerationVisibleParameters\(regenerationSnapshot, provider\)/);
+  assert.match(visibleHelper, /els\.advancedRatio\.value\s*=/);
+  assert.match(visibleHelper, /els\.advancedResolution\.value\s*=/);
+  assert.match(visibleHelper, /els\.advancedDuration\.value\s*=/);
+  assert.match(visibleHelper, /els\.advancedSeedanceGenerateAudio\.value\s*=/);
+  assert.doesNotMatch(visibleHelper, /els\.advancedVega(TaskType|Draft|DraftTaskId|AssetGroupId|ReturnLastFrame|ReturnUsage|EnhancePromptMode|ModerationMode|GenerateMode|QualityMode|OutputFormat)\.(value|checked)\s*=/);
+  assert.match(applySource, /clearAdvancedCreationInputs\(\{ preserveRegenerationSnapshot: true \}\)/);
+  assert.match(applySource, /state\.advancedRegenerationSnapshot = regenerationSnapshot;/);
   assert.match(createSource, /function advancedVegaGenerationOptions/);
   assert.match(createUrlSource, /const vegaOptions = advancedVegaGenerationOptions\(provider\);/);
-  assert.match(createUrlSource, /submissionSnapshot: \{ \.\.\.vegaPayloadBase \}/);
+  assert.match(createUrlSource, /const vegaPayload = \{ \.\.\.vegaPayloadBase, submissionSnapshot: \{ \.\.\.vegaPayloadBase \} \};/);
   assert.match(createControlsSource, /document\.querySelectorAll\("\.advanced-vega-option"\)\.forEach\(\(item\) => \{[\s\S]*?item\.hidden = true;/);
+});
+
+test("Vega regeneration keeps canonical media when the submission snapshot has empty lists", () => {
+  const { restoreVegaRecordMedia } = frontendRuntime();
+  const record = {
+    taskId: "vega-empty-snapshot-media",
+    provider: "seedance20-vega",
+    mediaAssets: [
+      { type: "first_frame", userAssetId: "asset-first", previewUrl: "https://cdn.example.com/first.png" },
+      { type: "last_frame", userAssetId: "asset-last", previewUrl: "https://cdn.example.com/last.png" },
+      { type: "reference_image", userAssetId: "asset-image", previewUrl: "https://cdn.example.com/image.png" },
+      { type: "reference_video", userAssetId: "asset-video", previewUrl: "https://cdn.example.com/video.mp4" },
+      { type: "reference_audio", userAssetId: "asset-audio", previewUrl: "https://cdn.example.com/audio.mp3" },
+    ],
+    params: {
+      provider: "seedance20-vega",
+      mediaMode: "reference_video",
+      submissionSnapshot: {
+        referenceImages: [],
+        referenceImageUrls: [],
+        referenceVideos: [],
+        referenceVideoUrls: [],
+        referenceAudios: [],
+        referenceAudioUrls: [],
+      },
+      referenceImages: [{ assetId: "asset-image", url: "https://cdn.example.com/image.png" }],
+      referenceVideos: [{ assetId: "asset-video", url: "https://cdn.example.com/video.mp4" }],
+      referenceAudios: [{ assetId: "asset-audio", url: "https://cdn.example.com/audio.mp3" }],
+    },
+  };
+  const media = restoreVegaRecordMedia(record, record.params);
+  assert.deepEqual([media.firstFrameAssetId, media.lastFrameAssetId], ["asset-first", "asset-last"]);
+  assert.deepEqual(media.referenceImages.map((item) => item.assetId), ["asset-image"]);
+  assert.deepEqual(media.referenceVideos.map((item) => item.assetId), ["asset-video"]);
+  assert.deepEqual(media.referenceAudios.map((item) => item.assetId), ["asset-audio"]);
+});
+
+test("Vega regeneration combines snapshot asset IDs with legacy preview URLs", () => {
+  const { restoreVegaRecordMedia } = frontendRuntime();
+  const record = {
+    taskId: "vega-split-snapshot-media",
+    provider: "seedance25-vega",
+    mediaAssets: [],
+    params: {
+      provider: "seedance25-vega",
+      mediaMode: "reference_video",
+      submissionSnapshot: {
+        mediaMode: "reference_video",
+        referenceImageAssetIds: ["asset-one", "asset-two"],
+        referenceVideoAssetIds: ["asset-video"],
+      },
+      referenceImageUrls: ["https://cdn.example.com/one.png", "https://cdn.example.com/two.png"],
+      referenceVideoUrls: ["https://cdn.example.com/video.mp4"],
+    },
+  };
+  const media = restoreVegaRecordMedia(record, record.params);
+  assert.deepEqual(media.referenceImages.map((item) => item.assetId), ["asset-one", "asset-two"]);
+  assert.deepEqual(media.referenceImageUrls, ["https://cdn.example.com/one.png", "https://cdn.example.com/two.png"]);
+  assert.deepEqual(media.referenceVideos.map((item) => item.assetId), ["asset-video"]);
+  assert.deepEqual(media.referenceVideoUrls, ["https://cdn.example.com/video.mp4"]);
+});
+
+test("Regeneration restores cached media immediately and corrects the full form from detail when untouched", () => {
+  const restoreSource = extractFunction(createSource, "restoreRecordToAdvancedCreate");
+  const backgroundSource = extractFunction(createSource, "refreshAdvancedRegenerationMediaInBackground");
+  const fingerprintSource = extractFunction(createSource, "advancedRegenerationMediaFingerprint");
+  const applySource = extractFunction(createSource, "applyHydratedAdvancedRegenerationMedia");
+  assert.match(restoreSource, /applyRecordToAdvancedCreate\(record, button\)/);
+  assert.match(restoreSource, /void refreshAdvancedRegenerationMediaInBackground\(record, fingerprint\)/);
+  assert.doesNotMatch(restoreSource, /await hydrateRecordMediaUserAssetPreviews/);
+  assert.match(backgroundSource, /fingerprint !== advancedRegenerationMediaFingerprint\(\)/);
+  assert.match(backgroundSource, /applyHydratedAdvancedRegenerationMedia\(hydrated\)/);
+  assert.match(backgroundSource, /applyRecordToAdvancedCreate\(hydrated, null\)/);
+  assert.match(fingerprintSource, /prompt/);
+  assert.match(fingerprintSource, /ratio/);
+  assert.match(fingerprintSource, /resolution/);
+  assert.match(fingerprintSource, /duration/);
+  assert.match(fingerprintSource, /images:/);
+  assert.match(fingerprintSource, /videos:/);
+  assert.match(fingerprintSource, /audios:/);
+  assert.doesNotMatch(applySource, /clearAdvancedCreationInputs/);
+  assert.doesNotMatch(applySource, /renderAdvancedCreateControls/);
+});
+
+test("Vega regeneration media reads the submitted snapshot and preserves reference order", () => {
+  const { restoreVegaRecordMedia } = frontendRuntime();
+  const record = {
+    taskId: "vega-snapshot-media",
+    provider: "seedance20-vega",
+    mediaAssets: [
+      { type: "reference_image", userAssetId: "asset-two", previewUrl: "https://cdn.example.com/two.png" },
+      { type: "reference_video", userAssetId: "asset-video", previewUrl: "https://cdn.example.com/source.mp4" },
+    ],
+    params: {
+      provider: "seedance20-vega",
+      submissionSnapshot: {
+        mediaMode: "reference_video",
+        referenceImages: ["https://cdn.example.com/one.png"],
+        referenceImageAssetIds: ["asset-one", "asset-two"],
+        referenceVideoUrls: ["https://cdn.example.com/source.mp4"],
+        referenceVideoAssetIds: ["asset-video"],
+      },
+    },
+  };
+  const media = restoreVegaRecordMedia(record, record.params);
+  assert.equal(media.referenceImages.length, 2);
+  assert.deepEqual(media.referenceImages.map((item) => item.assetId), ["asset-one", "asset-two"]);
+  assert.deepEqual(media.referenceImageUrls, ["https://cdn.example.com/one.png", "https://cdn.example.com/two.png"]);
+  assert.equal(media.referenceVideos.length, 1);
+  assert.equal(media.referenceVideos[0].assetId, "asset-video");
 });

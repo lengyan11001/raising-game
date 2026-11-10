@@ -1095,16 +1095,16 @@ function bindAdvancedResultCardEvents(card) {
       button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
       refreshIcons();
       try {
-        const record = await refreshedRegenerationRecord(cachedRecord);
-        await restoreRecordToAdvancedCreate(record, button);
+        if (!cachedRecord) throw new Error(t("history.loadFailed", { message: "record not found" }));
+        // Use the record already rendered in the result list so regeneration is
+        // immediate. restoreRecordToAdvancedCreate refreshes media/detail in the
+        // background and never clears a form the user has started editing.
+        restoreRecordToAdvancedCreate(cachedRecord, button);
       } catch (error) {
-        if (!cachedRecord) {
-          button.disabled = false;
-          button.innerHTML = `<i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}`;
-          refreshIcons();
-          throw error;
-        }
-        await restoreRecordToAdvancedCreate(cachedRecord, button);
+        button.disabled = false;
+        button.innerHTML = `<i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}`;
+        refreshIcons();
+        throw error;
       } finally {
         state.advancedRegenerationRestoreInFlight = false;
       }

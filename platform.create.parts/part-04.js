@@ -409,48 +409,61 @@ function hydrateRecordMediaParamPreviews(record = {}, resolvedAssets = new Map()
   const params = recordParams(record);
   if (!params || !(resolvedAssets instanceof Map) || !resolvedAssets.size) return record;
   let changed = false;
-  const nextParams = { ...params };
-  const hydrateList = (key, idKey) => {
-    if (!Array.isArray(nextParams[key])) return;
-    const ids = arrayFrom(nextParams[idKey]);
-    nextParams[key] = nextParams[key].map((item, index) => {
-      const assetId = restoreMediaAssetId(item) || String(ids[index] || "").trim();
-      const asset = resolvedAssets.get(assetId);
-      if (!asset) return item;
-      changed = true;
-      return hydrateRecordMediaItemPreview(item, asset);
-    });
-  };
-  hydrateList("referenceImages", "referenceImageAssetIds");
-  hydrateList("reference_images", "reference_image_asset_ids");
-  hydrateList("referenceVideos", "referenceVideoAssetIds");
-  hydrateList("reference_videos", "reference_video_asset_ids");
-  hydrateList("referenceAudios", "referenceAudioAssetIds");
-  hydrateList("reference_audios", "reference_audio_asset_ids");
-  const hydrateUrlArray = (urlKey, idKey) => {
-    if (!Array.isArray(nextParams[urlKey])) return;
-    const ids = arrayFrom(nextParams[idKey]);
-    nextParams[urlKey] = nextParams[urlKey].map((url, index) => {
-      const asset = resolvedAssets.get(String(ids[index] || "").trim());
+  const hydrateContainer = (container = {}) => {
+    let containerChanged = false;
+    const hydrateList = (key, idKey) => {
+      if (!Array.isArray(container[key])) return;
+      const ids = arrayFrom(container[idKey]);
+      container[key] = container[key].map((item, index) => {
+        const assetId = restoreMediaAssetId(item) || String(ids[index] || "").trim();
+        const asset = resolvedAssets.get(assetId);
+        if (!asset) return item;
+        containerChanged = true;
+        return hydrateRecordMediaItemPreview(item, asset);
+      });
+    };
+    hydrateList("referenceImages", "referenceImageAssetIds");
+    hydrateList("reference_images", "reference_image_asset_ids");
+    hydrateList("referenceVideos", "referenceVideoAssetIds");
+    hydrateList("reference_videos", "reference_video_asset_ids");
+    hydrateList("referenceAudios", "referenceAudioAssetIds");
+    hydrateList("reference_audios", "reference_audio_asset_ids");
+    const hydrateUrlArray = (urlKey, idKey) => {
+      if (!Array.isArray(container[urlKey])) return;
+      const ids = arrayFrom(container[idKey]);
+      container[urlKey] = container[urlKey].map((url, index) => {
+        const asset = resolvedAssets.get(String(ids[index] || "").trim());
+        const previewUrl = asset ? restoreMediaPreviewUrl(asset) : "";
+        if (!previewUrl) return url;
+        containerChanged = true;
+        return previewUrl;
+      });
+    };
+    hydrateUrlArray("referenceImageUrls", "referenceImageAssetIds");
+    hydrateUrlArray("reference_image_urls", "reference_image_asset_ids");
+    hydrateUrlArray("referenceVideoUrls", "referenceVideoAssetIds");
+    hydrateUrlArray("reference_video_urls", "reference_video_asset_ids");
+    hydrateUrlArray("referenceAudioUrls", "referenceAudioAssetIds");
+    hydrateUrlArray("reference_audio_urls", "reference_audio_asset_ids");
+    [["firstFrameUrl", "firstFrameAssetId"], ["first_frame_url", "first_frame_asset_id"], ["lastFrameUrl", "lastFrameAssetId"], ["last_frame_url", "last_frame_asset_id"]].forEach(([urlKey, idKey]) => {
+      const asset = resolvedAssets.get(String(container[idKey] || "").trim());
       const previewUrl = asset ? restoreMediaPreviewUrl(asset) : "";
-      if (!previewUrl) return url;
-      changed = true;
-      return previewUrl;
+      if (!previewUrl) return;
+      container[urlKey] = previewUrl;
+      containerChanged = true;
     });
+    return containerChanged;
   };
-  hydrateUrlArray("referenceImageUrls", "referenceImageAssetIds");
-  hydrateUrlArray("reference_image_urls", "reference_image_asset_ids");
-  hydrateUrlArray("referenceVideoUrls", "referenceVideoAssetIds");
-  hydrateUrlArray("reference_video_urls", "reference_video_asset_ids");
-  hydrateUrlArray("referenceAudioUrls", "referenceAudioAssetIds");
-  hydrateUrlArray("reference_audio_urls", "reference_audio_asset_ids");
-  [["firstFrameUrl", "firstFrameAssetId"], ["first_frame_url", "first_frame_asset_id"], ["lastFrameUrl", "lastFrameAssetId"], ["last_frame_url", "last_frame_asset_id"]].forEach(([urlKey, idKey]) => {
-    const asset = resolvedAssets.get(String(nextParams[idKey] || "").trim());
-    const previewUrl = asset ? restoreMediaPreviewUrl(asset) : "";
-    if (!previewUrl) return;
-    nextParams[urlKey] = previewUrl;
-    changed = true;
-  });
+  const nextParams = { ...params };
+  changed = hydrateContainer(nextParams) || changed;
+  const submittedParams = params.submissionSnapshot && typeof params.submissionSnapshot === "object" && !Array.isArray(params.submissionSnapshot)
+    ? { ...params.submissionSnapshot }
+    : null;
+  if (submittedParams) {
+    const submittedChanged = hydrateContainer(submittedParams);
+    if (submittedChanged) nextParams.submissionSnapshot = submittedParams;
+    changed = submittedChanged || changed;
+  }
   return changed ? { ...record, params: nextParams } : record;
 }
 
@@ -864,38 +877,57 @@ function mergeVegaMediaItems(...lists) {
 
 function restoreVegaRecordMedia(record = {}, params = {}) {
   const media = restoreRecordMedia(record);
+  const submitted = params.submissionSnapshot && typeof params.submissionSnapshot === "object" && !Array.isArray(params.submissionSnapshot)
+    ? params.submissionSnapshot
+    : {};
   const firstNonEmpty = (...values) => values.find((value) => value !== undefined && value !== null && String(value).trim() !== "") || "";
+  const firstNonEmptyList = (...values) => {
+    for (const value of values) {
+      const list = arrayFrom(value).filter((item) => item !== undefined && item !== null && String(item).trim() !== "");
+      if (list.length) return list;
+    }
+    return [];
+  };
+  const mergeNonEmptyLists = (...values) => values.reduce((items, value) => (
+    items.length ? items : arrayFrom(value).filter((item) => item !== undefined && item !== null && String(item).trim() !== "")
+  ), []);
   const firstFrame = restoreVegaMediaItem({
     ...(media.firstFrame || {}),
-    assetId: restoreMediaAssetId(media.firstFrame) || firstNonEmpty(params.firstFrameAssetId, params.first_frame_asset_id, params.firstFrameUserAssetId),
-    url: firstNonEmpty(media.firstFrame?.url, media.firstFrame?.dataUrl, params.firstFrameUrl, params.first_frame_url, record.firstFrameUrl, record.first_frame_url),
+    assetId: restoreMediaAssetId(media.firstFrame) || firstNonEmpty(submitted.firstFrameAssetId, submitted.first_frame_asset_id, params.firstFrameAssetId, params.first_frame_asset_id, params.firstFrameUserAssetId),
+    url: firstNonEmpty(media.firstFrame?.url, media.firstFrame?.dataUrl, submitted.firstFrameUrl, submitted.first_frame_url, params.firstFrameUrl, params.first_frame_url, record.firstFrameUrl, record.first_frame_url),
   }, 0, "first-frame");
   const lastFrame = restoreVegaMediaItem({
     ...(media.lastFrame || {}),
-    assetId: restoreMediaAssetId(media.lastFrame) || firstNonEmpty(params.lastFrameAssetId, params.last_frame_asset_id, params.lastFrameUserAssetId),
-    url: firstNonEmpty(media.lastFrame?.url, media.lastFrame?.dataUrl, params.lastFrameUrl, params.last_frame_url, record.lastFrameUrl, record.last_frame_url),
+    assetId: restoreMediaAssetId(media.lastFrame) || firstNonEmpty(submitted.lastFrameAssetId, submitted.last_frame_asset_id, params.lastFrameAssetId, params.last_frame_asset_id, params.lastFrameUserAssetId),
+    url: firstNonEmpty(media.lastFrame?.url, media.lastFrame?.dataUrl, submitted.lastFrameUrl, submitted.last_frame_url, params.lastFrameUrl, params.last_frame_url, record.lastFrameUrl, record.last_frame_url),
   }, 0, "last-frame");
-  const imageAssetIds = arrayFrom(firstNonEmpty(params.referenceImageAssetIds, params.reference_image_asset_ids));
-  const videoAssetIds = arrayFrom(firstNonEmpty(params.referenceVideoAssetIds, params.reference_video_asset_ids));
-  const audioAssetIds = arrayFrom(firstNonEmpty(params.referenceAudioAssetIds, params.reference_audio_asset_ids));
+  // Asset IDs and preview URLs can be stored in separate legacy fields. Use
+  // each group independently so a non-empty snapshot ID list is not discarded
+  // merely because another source has no URLs (or vice versa).
+  const imageAssetIds = firstNonEmptyList(submitted.referenceImageAssetIds, submitted.reference_image_asset_ids, params.referenceImageAssetIds, params.reference_image_asset_ids);
+  const videoAssetIds = firstNonEmptyList(submitted.referenceVideoAssetIds, submitted.reference_video_asset_ids, params.referenceVideoAssetIds, params.reference_video_asset_ids);
+  const audioAssetIds = firstNonEmptyList(submitted.referenceAudioAssetIds, submitted.reference_audio_asset_ids, params.referenceAudioAssetIds, params.reference_audio_asset_ids);
   const withAssetIds = (items, ids) => items.map((item, index) => ({
     ...item,
     assetId: item.assetId || String(ids[index] || "").trim(),
   }));
   const referenceImages = withAssetIds(mergeVegaMediaItems(
-    arrayFrom(firstNonEmpty(params.referenceImages, params.reference_images)),
+    mergeNonEmptyLists(submitted.referenceImages, submitted.reference_images, params.referenceImages, params.reference_images),
     arrayFrom(record.referenceImages),
     media.referenceImages,
+    mergeNonEmptyLists(submitted.referenceImageUrls, submitted.reference_image_urls, params.referenceImageUrls, params.reference_image_urls),
   ), imageAssetIds);
   const referenceVideos = withAssetIds(mergeVegaMediaItems(
-    arrayFrom(firstNonEmpty(params.referenceVideos, params.reference_videos)),
+    mergeNonEmptyLists(submitted.referenceVideos, submitted.reference_videos, params.referenceVideos, params.reference_videos),
     arrayFrom(record.referenceVideos),
     media.videos,
+    mergeNonEmptyLists(submitted.referenceVideoUrls, submitted.reference_video_urls, params.referenceVideoUrls, params.reference_video_urls),
   ), videoAssetIds);
   const referenceAudios = withAssetIds(mergeVegaMediaItems(
-    arrayFrom(firstNonEmpty(params.referenceAudios, params.reference_audios)),
+    mergeNonEmptyLists(submitted.referenceAudios, submitted.reference_audios, params.referenceAudios, params.reference_audios),
     arrayFrom(record.referenceAudios),
     media.audios,
+    mergeNonEmptyLists(submitted.referenceAudioUrls, submitted.reference_audio_urls, params.referenceAudioUrls, params.reference_audio_urls),
   ), audioAssetIds);
   const mediaSourceValue = (item) => {
     const publicCandidates = [item?.sourceUrl, item?.publicUrl, item?.cdnUrl, item?.previewUrl, item?.dataUrl, item?.url].map((value) => String(value || "").trim());
@@ -947,6 +979,7 @@ function advancedRegenerationParameterSnapshot(record = {}, params = {}, provide
     ratio: String(value(submitted.ratio, record.ratio, params.ratio, params.aspect_ratio, params.aspectRatio) || "").trim(),
     resolution: String(value(submitted.resolution, record.resolution, params.resolution, params.resolution_name, params.resolutionName) || "").trim(),
     duration: value(submitted.duration, record.duration, params.duration, params.durationSeconds, params.duration_seconds),
+    mediaMode: String(value(submitted.mediaMode, submitted.media_mode, record.mediaMode, params.mediaMode, params.media_mode, params.seedanceMode) || "").trim(),
     seed: value(submitted.seed, record.seed, params.seed, nestedParams.seed),
     preprocessReference: value(submitted.preprocessReference, params.preprocessReference, params.preprocess_reference, record.preprocessReference),
     generateAudio: value(submitted.generateAudio, submitted.generate_audio, params.generateAudio, params.generate_audio, nestedParams.generateAudio, nestedParams.generate_audio, record.generateAudio, record.generate_audio),
@@ -972,6 +1005,38 @@ function advancedRegenerationSnapshotFor(provider = "") {
   const snapshot = state.advancedRegenerationSnapshot;
   if (!snapshot || advancedRegenerationSnapshotProvider(snapshot) !== normalizeAdvancedProvider(provider)) return null;
   return snapshot;
+}
+
+function applyAdvancedRegenerationVisibleParameters(snapshot = {}, provider = currentAdvancedProvider()) {
+  if (!snapshot || typeof snapshot !== "object") return;
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  const rawRatio = String(snapshot.ratio || "").trim();
+  if (els.advancedRatio && rawRatio) {
+    const normalizedRatio = isVegaAdvancedProvider(normalizedProvider) && rawRatio.toLowerCase() === "adaptive"
+      ? "adaptive"
+      : normalizeVideoRatio(rawRatio);
+    els.advancedRatio.value = normalizedRatio;
+  }
+  const rawResolution = String(snapshot.resolution || "").trim();
+  if (els.advancedResolution && rawResolution) {
+    const resolutionOptions = advancedVideoResolutionOptions(normalizedProvider);
+    const normalizedResolution = normalizeAdvancedResolution(rawResolution, normalizedProvider);
+    if (resolutionOptions.includes(normalizedResolution)) els.advancedResolution.value = normalizedResolution;
+  }
+  const rawDuration = Number(snapshot.duration);
+  const bounds = advancedDurationBounds(normalizedProvider);
+  if (els.advancedDuration && Number.isFinite(rawDuration)) {
+    const duration = bounds.smart && rawDuration === -1
+      ? -1
+      : Math.min(bounds.max, Math.max(bounds.min, rawDuration));
+    if (duration === -1 || (duration >= bounds.min && duration <= bounds.max)) {
+      els.advancedDuration.value = String(duration);
+    }
+  }
+  if (snapshot.generateAudio !== undefined && snapshot.generateAudio !== null && snapshot.generateAudio !== "") {
+    state.advancedSeedanceGenerateAudio = advancedBoolFromValue(snapshot.generateAudio, true);
+    if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = state.advancedSeedanceGenerateAudio ? "true" : "false";
+  }
 }
 
 function advancedVegaGenerationOptions(provider = currentAdvancedProvider()) {
@@ -1000,9 +1065,186 @@ function advancedVegaGenerationOptions(provider = currentAdvancedProvider()) {
   };
 }
 
-async function restoreRecordToAdvancedCreate(record = {}, button = null) {
+function advancedRegenerationMediaIdentity(item = {}) {
+  return String(
+    restoreMediaAssetId(item)
+    || restoreMediaAssetUri(item)
+    || reliableAssetUrl(item)
+    || item?.dataUrl
+    || item?.url
+    || item?.previewUrl
+    || "",
+  ).trim();
+}
+
+function advancedRegenerationMediaFingerprint() {
+  const identityList = (items) => (Array.isArray(items) ? items : []).map(advancedRegenerationMediaIdentity);
+  const prompt = String(window.getAdvancedPromptValue?.() ?? els.advancedPrompt?.value ?? "");
+  return JSON.stringify({
+    provider: currentAdvancedProvider(),
+    prompt,
+    ratio: String(els.advancedRatio?.value || "").trim(),
+    resolution: String(els.advancedResolution?.value || "").trim(),
+    duration: String(els.advancedDuration?.value || "").trim(),
+    mediaMode: String(els.advancedSeedanceMediaMode?.value || "").trim(),
+    generateAudio: Boolean(state.advancedSeedanceGenerateAudio),
+    firstFrame: String(state.advancedSeedanceFirstFrameAssetId || state.advancedSeedanceFirstFrameDataUrl || "").trim(),
+    lastFrame: String(state.advancedSeedanceLastFrameAssetId || state.advancedSeedanceLastFrameDataUrl || "").trim(),
+    images: identityList(state.advancedReferenceImages),
+    videos: identityList(advancedSeedanceVideoReferences()),
+    audios: identityList(advancedSeedanceAudioReferences()),
+  });
+}
+
+function mergeFreshAdvancedMediaItems(current = [], fresh = []) {
+  const currentItems = Array.isArray(current) ? current.map((item) => ({ ...item })) : [];
+  const freshItems = Array.isArray(fresh) ? fresh : [];
+  const usedIndexes = new Set();
+  freshItems.forEach((freshItem, freshIndex) => {
+    const freshIdentity = advancedRegenerationMediaIdentity(freshItem);
+    let currentIndex = currentItems.findIndex((item, index) => !usedIndexes.has(index)
+      && freshIdentity
+      && advancedRegenerationMediaIdentity(item) === freshIdentity);
+    if (currentIndex < 0 && currentItems.length === freshItems.length && !usedIndexes.has(freshIndex)) {
+      currentIndex = freshIndex;
+    }
+    const previewUrl = reliableAssetUrl(freshItem);
+    const posterUrl = reliableAssetPosterUrl(freshItem);
+    if (currentIndex >= 0) {
+      usedIndexes.add(currentIndex);
+      const currentItem = currentItems[currentIndex];
+      const assetUri = restoreMediaAssetUri(freshItem) || restoreMediaAssetUri(currentItem);
+      currentItems[currentIndex] = {
+        ...currentItem,
+        ...(restoreMediaAssetId(freshItem) ? { assetId: restoreMediaAssetId(freshItem) } : {}),
+        ...(assetUri ? { assetUri, referenceAssetUri: currentItem.referenceAssetUri || assetUri } : {}),
+        ...(previewUrl ? {
+          url: previewUrl,
+          publicUrl: previewUrl,
+          cdnUrl: previewUrl,
+          previewUrl,
+          sourceUrl: previewUrl,
+          dataUrl: previewUrl,
+          imageUrl: previewUrl,
+        } : {}),
+        ...(posterUrl ? { posterUrl, thumbnailUrl: posterUrl, coverUrl: posterUrl } : {}),
+      };
+      return;
+    }
+    if (!freshIdentity) return;
+    currentItems.push({
+      ...freshItem,
+      assetId: restoreMediaAssetId(freshItem),
+      assetUri: restoreMediaAssetUri(freshItem),
+      referenceAssetUri: restoreMediaAssetUri(freshItem),
+      url: previewUrl,
+      publicUrl: previewUrl,
+      cdnUrl: previewUrl,
+      previewUrl,
+      sourceUrl: previewUrl,
+      dataUrl: previewUrl,
+      imageUrl: previewUrl,
+      ...(posterUrl ? { posterUrl, thumbnailUrl: posterUrl, coverUrl: posterUrl } : {}),
+      name: freshItem.name || freshItem.label || freshItem.fileName || "Reference",
+      fileName: freshItem.fileName || freshItem.name || "",
+      fromLibrary: Boolean(restoreMediaAssetId(freshItem)),
+    });
+  });
+  return currentItems;
+}
+
+function applyHydratedAdvancedRegenerationMedia(record = {}) {
+  const params = recordParams(record);
+  const provider = restoreRecordProvider(record);
+  if (isVegaAdvancedProvider(provider)) {
+    const media = restoreVegaRecordMedia(record, params);
+    const updateFrame = (assetId, dataUrl, freshItem, freshUrl) => {
+      const freshAssetId = String(freshItem?.assetId || "").trim();
+      if (!freshItem || (assetId && freshAssetId && assetId !== freshAssetId)) return { assetId, dataUrl };
+      return {
+        assetId: assetId || freshAssetId,
+        dataUrl: freshUrl || dataUrl,
+      };
+    };
+    const firstFrame = updateFrame(
+      String(state.advancedSeedanceFirstFrameAssetId || "").trim(),
+      String(state.advancedSeedanceFirstFrameDataUrl || "").trim(),
+      media.firstFrame,
+      media.firstFrameUrl,
+    );
+    state.advancedSeedanceFirstFrameAssetId = firstFrame.assetId;
+    state.advancedSeedanceFirstFrameDataUrl = firstFrame.dataUrl;
+    state.advancedFirstFrameAssetId = firstFrame.assetId;
+    const lastFrame = updateFrame(
+      String(state.advancedSeedanceLastFrameAssetId || "").trim(),
+      String(state.advancedSeedanceLastFrameDataUrl || "").trim(),
+      media.lastFrame,
+      media.lastFrameUrl,
+    );
+    state.advancedSeedanceLastFrameAssetId = lastFrame.assetId;
+    state.advancedSeedanceLastFrameDataUrl = lastFrame.dataUrl;
+    state.advancedReferenceImages = mergeFreshAdvancedMediaItems(state.advancedReferenceImages, media.referenceImages);
+    setAdvancedSeedanceVideoReferences(mergeFreshAdvancedMediaItems(advancedSeedanceVideoReferences(), media.referenceVideos));
+    setAdvancedSeedanceAudioReferences(mergeFreshAdvancedMediaItems(advancedSeedanceAudioReferences(), media.referenceAudios));
+    state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.url || state.advancedReferenceImages[0]?.dataUrl || "";
+  } else {
+    const restored = restoreRecordMedia(record);
+    const firstFrame = restored.firstFrame || restored.references[0];
+    const lastFrame = restored.lastFrame;
+    state.advancedReferenceImages = mergeFreshAdvancedMediaItems(state.advancedReferenceImages, restored.referenceImages);
+    if (firstFrame) {
+      const firstUrl = reliableAssetUrl(firstFrame);
+      if (!state.advancedSeedanceFirstFrameAssetId || state.advancedSeedanceFirstFrameAssetId === restoreMediaAssetId(firstFrame)) {
+        state.advancedSeedanceFirstFrameAssetId = state.advancedSeedanceFirstFrameAssetId || restoreMediaAssetId(firstFrame);
+        state.advancedSeedanceFirstFrameDataUrl = firstUrl || state.advancedSeedanceFirstFrameDataUrl;
+      }
+    }
+    if (lastFrame) {
+      const lastUrl = reliableAssetUrl(lastFrame);
+      if (!state.advancedSeedanceLastFrameAssetId || state.advancedSeedanceLastFrameAssetId === restoreMediaAssetId(lastFrame)) {
+        state.advancedSeedanceLastFrameAssetId = state.advancedSeedanceLastFrameAssetId || restoreMediaAssetId(lastFrame);
+        state.advancedSeedanceLastFrameDataUrl = lastUrl || state.advancedSeedanceLastFrameDataUrl;
+      }
+    }
+    setAdvancedSeedanceVideoReferences(mergeFreshAdvancedMediaItems(advancedSeedanceVideoReferences(), restored.videos));
+    setAdvancedSeedanceAudioReferences(mergeFreshAdvancedMediaItems(advancedSeedanceAudioReferences(), restored.audios));
+  }
+  renderAdvancedPresetBuilder();
+  renderAdvancedReferencePreviews();
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+async function refreshAdvancedRegenerationMediaInBackground(record = {}, fingerprint = "") {
+  if (!record?.taskId || !fingerprint) return;
+  try {
+    const refreshed = await refreshedRegenerationRecord(record);
+    const hydrated = await hydrateRecordMediaUserAssetPreviews(refreshed);
+    // The list response used for the immediate restore intentionally omits
+    // params and mediaAssets. If the user has not touched the restored form,
+    // replace it with the complete detail record so ratio/resolution/duration
+    // and every reference are restored correctly. Once the user edits any
+    // visible field or media item, only refresh matching previews.
+    if (fingerprint !== advancedRegenerationMediaFingerprint()) {
+      applyHydratedAdvancedRegenerationMedia(hydrated);
+      return;
+    }
+    applyRecordToAdvancedCreate(hydrated, null);
+  } catch (_error) {
+    // Immediate cached restoration is already usable; a transient detail or
+    // signing failure must not interrupt the user's edit.
+  }
+}
+
+function restoreRecordToAdvancedCreate(record = {}, button = null) {
   if (!record?.taskId && !record?.prompt && !record?.params) return;
-  record = await hydrateRecordMediaUserAssetPreviews(record);
+  applyRecordToAdvancedCreate(record, button);
+  const fingerprint = advancedRegenerationMediaFingerprint();
+  void refreshAdvancedRegenerationMediaInBackground(record, fingerprint);
+}
+
+function applyRecordToAdvancedCreate(record = {}, button = null) {
+  if (!record?.taskId && !record?.prompt && !record?.params) return;
   const params = recordParams(record);
   const provider = restoreRecordProvider(record);
   const { references, videos, audios } = restoreRecordMedia(record);
@@ -1066,9 +1308,11 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
     state.advancedSeedanceGenerateAudio = advancedBoolFromValue(params.generateAudio ?? params.generate_audio ?? record.generateAudio ?? record.generate_audio, true);
     if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = state.advancedSeedanceGenerateAudio ? "true" : "false";
   }
+  applyAdvancedRegenerationVisibleParameters(regenerationSnapshot, provider);
   if (isVegaAdvancedProvider(provider)) {
     const media = restoreVegaRecordMedia(record, params);
     const explicitMediaMode = firstPresent(
+      regenerationSnapshot.mediaMode,
       record.mediaMode,
       params.mediaMode,
       params.seedanceMode,
@@ -1097,16 +1341,16 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
     setAdvancedSeedanceVideoReferences([]);
     setAdvancedSeedanceAudioReferences([]);
     state.advancedUploadDataUrl = "";
-    if (vegaMediaMode === "first_frame" || vegaMediaMode === "first_last_frame") {
+    if (media.firstFrameAssetId || media.firstFrameUrl || media.firstFrame?.assetUri) {
       state.advancedSeedanceFirstFrameAssetId = media.firstFrameAssetId;
       state.advancedSeedanceFirstFrameDataUrl = media.firstFrameUrl;
       state.advancedFirstFrameAssetId = media.firstFrameAssetId;
     }
-    if (vegaMediaMode === "last_frame" || vegaMediaMode === "first_last_frame") {
+    if (media.lastFrameAssetId || media.lastFrameUrl || media.lastFrame?.assetUri) {
       state.advancedSeedanceLastFrameAssetId = media.lastFrameAssetId;
       state.advancedSeedanceLastFrameDataUrl = media.lastFrameUrl;
     }
-    if (vegaMediaMode === "reference_video") {
+    if (media.referenceImages.length) {
       state.advancedReferenceImages = media.referenceImages.map((item, index) => {
         const sourceUrl = item.sourceUrl || item.url || item.assetUri || "";
         return stampAdvancedReferenceOrder({
@@ -1120,6 +1364,8 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
         });
       });
       state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.url || "";
+    }
+    if (media.referenceVideos.length) {
       setAdvancedSeedanceVideoReferences(media.referenceVideos.map((item, index) => {
         const sourceUrl = item.sourceUrl || item.url || item.assetUri || "";
         return {
@@ -1131,6 +1377,8 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
           fileName: item.fileName || `video-${index + 1}`,
         };
       }));
+    }
+    if (media.referenceAudios.length) {
       setAdvancedSeedanceAudioReferences(media.referenceAudios.map((item, index) => {
         const sourceUrl = item.sourceUrl || item.url || item.assetUri || "";
         return {
@@ -1152,6 +1400,7 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
     renderAdvancedReferencePreviews();
     updateAdvancedModelControls();
     syncAdvancedVideoSettingsControls();
+    applyAdvancedRegenerationVisibleParameters(regenerationSnapshot, provider);
     updateAdvancedButtonCost();
     setAdvancedSideTab("assets");
     if (els.advancedNote) els.advancedNote.textContent = t("history.regenerateSubmitted");
@@ -1226,6 +1475,7 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
   renderAdvancedReferencePreviews();
   updateAdvancedModelControls();
   syncAdvancedVideoSettingsControls();
+  applyAdvancedRegenerationVisibleParameters(regenerationSnapshot, provider);
   updateAdvancedButtonCost();
   setAdvancedSideTab("assets");
   if (els.advancedNote) els.advancedNote.textContent = t("history.regenerateSubmitted");
@@ -1234,6 +1484,7 @@ async function restoreRecordToAdvancedCreate(record = {}, button = null) {
     button.disabled = false;
     refreshIcons();
   }
+  return true;
 }
 
 function splitUrlList(value = "") {

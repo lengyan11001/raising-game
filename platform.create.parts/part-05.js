@@ -1190,14 +1190,12 @@ async function regenerateHistoryRecord(taskId, button) {
       const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
       record = payload.record || payload.generation || null;
       if (payload.user) setUser(payload.user);
-    } else {
-      // List responses can omit structured media asset IDs. Reload the
-      // authoritative detail before restoring the form so Regenerate never
-      // silently drops selected library assets.
-      record = await refreshedRegenerationRecord(record);
     }
     if (!record) throw new Error(t("history.loadFailed", { message: "record not found" }));
-    await restoreRecordToAdvancedCreate(record, button);
+    // Restore from the list/detail record already in memory. The detail reload
+    // and fresh media URL resolution are handed to the background refresher so
+    // the form is usable immediately even on a slow database or OSS response.
+    restoreRecordToAdvancedCreate(record, button);
     button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.regenerateSubmitted"))}`;
     refreshIcons();
   } catch (error) {

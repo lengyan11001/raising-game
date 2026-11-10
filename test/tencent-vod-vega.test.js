@@ -1105,8 +1105,9 @@ test("Vega regeneration restores and persists user asset ids end to end", () => 
   assert.match(server, /async function hydrateVegaRecordMediaAssetIds\(record = \{\}, userId = ""\)/);
   assert.match(server, /getUserAssetIdsByUrlsFromDb\(\{ userId, urls \}\)/);
   assert.match(server, /let nextRecord = await hydrateVegaRecordMediaAssetIds\(record, auth\.user\.id\)/);
-  assert.match(create, /button\.addEventListener\("click", async \(\) => \{[\s\S]*?refreshedRegenerationRecord\(cachedRecord\)/);
-  assert.match(create, /record = await refreshedRegenerationRecord\(record\)/);
+  assert.match(create, /button\.addEventListener\("click", async \(\) => \{[\s\S]*?restoreRecordToAdvancedCreate\(cachedRecord, button\)/);
+  assert.match(create, /void refreshAdvancedRegenerationMediaInBackground\(record, fingerprint\)/);
+  assert.match(create, /const refreshed = await refreshedRegenerationRecord\(record\)/);
 });
 
 test("Vega UI options are appended after existing video models with exact labels", () => {
