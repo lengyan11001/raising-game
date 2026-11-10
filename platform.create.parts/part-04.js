@@ -2056,16 +2056,7 @@ async function openAssetFrameDialog(asset = {}) {
 function useAssetInAdvanced(asset = {}, action = "use") {
   if (!asset) return;
   if (!state.user) return openLogin();
-  if (action === "modify") {
-    openAssetModifyDialog(asset).catch((error) => {
-      if (els.advancedNote) {
-        els.advancedNote.textContent = error.message || String(error);
-        els.advancedNote.classList.add("is-error");
-      }
-    });
-    return;
-  }
-  state.advancedCreateKind = "video";
+  state.advancedCreateKind = action === "modify" ? "image" : "video";
   state.advancedCreateMode = action === "modify"
     ? "image-edit"
     : action === "replace"
