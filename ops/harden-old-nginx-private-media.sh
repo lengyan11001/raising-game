@@ -21,6 +21,14 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 mkdir -p "$BACKUP_DIR"
+LIMIT_CONF="/etc/nginx/conf.d/raising-game-private-media-limits.conf"
+[[ -f "$LIMIT_CONF" ]] && cp -p "$LIMIT_CONF" "$BACKUP_DIR/raising-game-private-media-limits.conf.${STAMP}"
+mkdir -p /etc/nginx/conf.d
+cat > "$LIMIT_CONF" <<'NGINX'
+# managed by raising-game private-media hardening
+limit_conn_zone $binary_remote_addr zone=raising_private_media_per_ip:10m;
+limit_req_zone $binary_remote_addr zone=raising_private_media_per_ip:10m rate=20r/s;
+NGINX
 for file in "${FILES[@]}"; do
   [[ -f "$file" ]] && cp -p "$file" "$BACKUP_DIR/$(echo "$file" | sed 's|^/||; s|/|__|g').private-media.${STAMP}"
 done
@@ -36,6 +44,7 @@ if ! nginx -t; then
     backup="$BACKUP_DIR/$(echo "$file" | sed 's|^/||; s|/|__|g').private-media.${STAMP}"
     [[ -f "$backup" ]] && cp -p "$backup" "$file"
   done
+  [[ -f "$BACKUP_DIR/raising-game-private-media-limits.conf.${STAMP}" ]] && cp -p "$BACKUP_DIR/raising-game-private-media-limits.conf.${STAMP}" "$LIMIT_CONF"
   exit 1
 fi
 

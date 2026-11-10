@@ -32,6 +32,29 @@ test("release tooling can create the media key before the service restarts", () 
   assert.doesNotMatch(helper, /print\((?:value|secret)/i);
 });
 
+test("default local-media signatures stay stable inside the expiry bucket", () => {
+  const originalNow = Date.now;
+  const bucketStart = 1_800_000_000_000 - (1_800_000_000_000 % (15 * 60 * 1000));
+  try {
+    Date.now = () => bucketStart + 60_000;
+    const first = application.signLocalMediaPath(uploadPath);
+    Date.now = () => bucketStart + 14 * 60_000;
+    const second = application.signLocalMediaPath(uploadPath);
+    assert.deepEqual(second, first);
+    assert.ok(first.expires > bucketStart + 14 * 60_000);
+
+    Date.now = () => bucketStart + 15 * 60_000;
+    const nextBucket = application.signLocalMediaPath(uploadPath);
+    assert.notEqual(nextBucket.expires, first.expires);
+    assert.equal(application.verifyLocalMediaSignature(uploadPath, new URLSearchParams({
+      expires: String(first.expires),
+      signature: first.signature,
+    })), true);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test("local user-upload signatures accept only the exact unexpired path", () => {
   const signed = application.signLocalUserUploadPath(uploadPath, Date.now() + 60_000);
   assert.ok(signed?.signature);

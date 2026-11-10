@@ -66,6 +66,18 @@ real_ip_recursive on;
 NGINX
 }
 
+write_private_media_limits() {
+  mkdir -p /etc/nginx/conf.d
+  cat > /etc/nginx/conf.d/raising-game-private-media-limits.conf <<'NGINX'
+# managed by raising-game production tuning
+# Bound authenticated private-media bursts per client IP. Keep this generous
+# enough for normal galleries while preventing one client from exhausting the
+# origin with repeated full-resolution downloads.
+limit_conn_zone $binary_remote_addr zone=raising_private_media_per_ip:10m;
+limit_req_zone $binary_remote_addr zone=raising_private_media_per_ip:10m rate=20r/s;
+NGINX
+}
+
 write_mainland_geo() {
   mkdir -p "$NGINX_GEO_DIR"
   local tmp_file="${CN_GEO_FILE}.tmp"
@@ -271,6 +283,8 @@ server {
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
+        limit_conn raising_private_media_per_ip 8;
+        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
     }
 
     location ^~ /assets/admin/home/ {
@@ -307,6 +321,8 @@ server {
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
+        limit_conn raising_private_media_per_ip 8;
+        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
     }
 
     # Generated character/panorama media may contain private user content.
@@ -322,6 +338,8 @@ server {
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
+        limit_conn raising_private_media_per_ip 8;
+        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
     }
 
     location ^~ /assets/generated/panoramas/ {
@@ -334,6 +352,8 @@ server {
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
+        limit_conn raising_private_media_per_ip 8;
+        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
     }
 
     location ^~ /__protected_assets__/ {
@@ -463,9 +483,11 @@ backup_file "$NGINX_MAIN"
 backup_file "$NGINX_SITE"
 backup_file "$CF_REAL_IP_FILE"
 backup_file "$CN_GEO_FILE"
+backup_file /etc/nginx/conf.d/raising-game-private-media-limits.conf
 write_cloudflare_real_ip
 write_mainland_geo
 write_mainland_bypass_token
+write_private_media_limits
 write_nginx_main
 write_nginx_site
 write_systemd_override

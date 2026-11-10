@@ -130,6 +130,13 @@ async function serveStatic(req, res, url) {
     const stat = await fs.stat(filePath);
     const range = req.headers.range;
     const isProtectedMedia = isProtectedLocalMediaPath(pathname);
+    const protectedMediaCacheControl = isProtectedMedia
+      ? (() => {
+          const expires = Number(new URLSearchParams(url.searchParams).get("expires") || 0);
+          const remainingSeconds = Math.max(0, Math.floor((expires - Date.now()) / 1000));
+          return `private, max-age=${Math.min(3600, remainingSeconds)}, immutable`;
+        })()
+      : "";
 
     if (contentType.startsWith("video/") && sendInternalAsset(res, filePath, contentType, stat)) return;
     if (filePath.startsWith(path.normalize(GENERATED_POSTER_DIR)) && sendInternalAsset(res, filePath, contentType, stat)) return;
@@ -150,7 +157,7 @@ async function serveStatic(req, res, url) {
         "content-length": chunkEnd - chunkStart + 1,
         "content-range": `bytes ${chunkStart}-${chunkEnd}/${stat.size}`,
         "accept-ranges": "bytes",
-        "cache-control": isProtectedMedia ? "private, no-store" : "public, max-age=604800, immutable",
+        "cache-control": protectedMediaCacheControl || "public, max-age=604800, immutable",
       });
 
       if (req.method === "HEAD") return res.end();
@@ -191,7 +198,7 @@ async function serveStatic(req, res, url) {
       "content-length": stat.size,
       "accept-ranges": contentType.startsWith("video/") || contentType.startsWith("audio/") ? "bytes" : "none",
       "cache-control": isProtectedMedia
-        ? "private, no-store"
+        ? protectedMediaCacheControl
         : isNoStoreResponse
         ? "no-store, no-cache, must-revalidate, max-age=0"
         : isServiceWorker
@@ -201,11 +208,15 @@ async function serveStatic(req, res, url) {
           : contentType.startsWith("text/")
             ? "no-cache"
             : "public, max-age=60",
-      ...(isNoStoreResponse || isServiceWorker || isProtectedMedia ? {
+      ...(isNoStoreResponse || isServiceWorker ? {
         pragma: "no-cache",
         expires: "0",
         "cdn-cache-control": "no-store",
         "cloudflare-cdn-cache-control": "no-store",
+      } : isProtectedMedia ? {
+        "cdn-cache-control": "no-store",
+        "cloudflare-cdn-cache-control": "no-store",
+        "x-content-type-options": "nosniff",
       } : {}),
       ...extraHeaders,
     });

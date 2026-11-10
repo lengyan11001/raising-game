@@ -60,9 +60,38 @@ test("Old Nginx hardening proxies private media and keeps only public admin dirs
   for (const name of ["home", "advanced-cases", "platform-templates"]) {
     assert.match(out, new RegExp(`alias /opt/raising-game-demo/assets/admin/${name}/;`));
   }
-  for (const prefix of ["user-characters", "generated/characters", "generated/panoramas"]) {
-    assert.match(out, new RegExp(`location \\^~ \\/assets\\/${prefix.replace("/", "\\/")}\\/ \\{[\\s\\S]*?proxy_pass http:\\/\\/raising_game_app;`));
+  for (const prefix of ["admin/voice-preview", "user-uploads", "user-characters", "generated/characters", "generated/panoramas"]) {
+    const block = out.split("location ^~ /assets/")[1] && out
+      .split(/\n    location \^~ \/assets\//)
+      .find((part) => part.startsWith(`${prefix}/`));
+    assert.ok(block, prefix);
+    assert.match(block, /limit_conn raising_private_media_per_ip 8;/);
+    assert.match(block, /limit_req zone=raising_private_media_per_ip burst=40 nodelay;/);
   }
+  assert.equal((out.match(/limit_conn raising_private_media_per_ip 8;/g) || []).length, 5);
+  assert.equal((out.match(/limit_req zone=raising_private_media_per_ip burst=40 nodelay;/g) || []).length, 5);
+});
+
+test("Old private-media hardening installs Nginx limit zones and validates before reload", () => {
+  const wrapper = fs.readFileSync(path.join(root, "ops", "harden-old-nginx-private-media.sh"), "utf8");
+  const tuning = fs.readFileSync(path.join(root, "ops", "apply-production-tuning.sh"), "utf8");
+  const zone = /limit_conn_zone \$binary_remote_addr zone=raising_private_media_per_ip:10m;/;
+  const rate = /limit_req_zone \$binary_remote_addr zone=raising_private_media_per_ip:10m rate=20r\/s;/;
+  assert.match(wrapper, zone);
+  assert.match(wrapper, rate);
+  assert.match(tuning, zone);
+  assert.match(tuning, rate);
+  assert.match(wrapper, /nginx -t/);
+  assert.match(wrapper, /systemctl reload nginx/);
+});
+
+test("private media responses use browser-only caching while rejecting CDN caches", () => {
+  const server = fs.readFileSync(path.join(root, "server.parts", "part-42.js"), "utf8");
+  assert.match(server, /protectedMediaCacheControl/);
+  assert.match(server, /private, max-age=\$\{Math\.min\(3600, remainingSeconds\)\}, immutable/);
+  assert.match(server, /"cdn-cache-control": "no-store"/);
+  assert.match(server, /"cloudflare-cdn-cache-control": "no-store"/);
+  assert.doesNotMatch(server, /isProtectedMedia \? "private, no-store"/);
 });
 
 test("Old Nginx hardening is idempotent", () => {

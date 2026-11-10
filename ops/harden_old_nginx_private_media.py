@@ -76,6 +76,8 @@ HARDENED_BLOCK = '''    # Public reference media is the only admin directory ser
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
+        limit_conn raising_private_media_per_ip 8;
+        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
     }
 
     location ^~ /assets/user-uploads/ {
@@ -89,6 +91,8 @@ HARDENED_BLOCK = '''    # Public reference media is the only admin directory ser
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
+        limit_conn raising_private_media_per_ip 8;
+        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
     }
 
     location ^~ /assets/user-characters/ {
@@ -102,6 +106,8 @@ HARDENED_BLOCK = '''    # Public reference media is the only admin directory ser
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
+        limit_conn raising_private_media_per_ip 8;
+        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
     }
 
     location ^~ /assets/generated/characters/ {
@@ -115,6 +121,8 @@ HARDENED_BLOCK = '''    # Public reference media is the only admin directory ser
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
+        limit_conn raising_private_media_per_ip 8;
+        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
     }
 
     location ^~ /assets/generated/panoramas/ {
@@ -128,6 +136,8 @@ HARDENED_BLOCK = '''    # Public reference media is the only admin directory ser
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
+        limit_conn raising_private_media_per_ip 8;
+        limit_req zone=raising_private_media_per_ip burst=40 nodelay;
     }
 
 '''

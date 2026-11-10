@@ -152,6 +152,8 @@ test("production nginx proxies private voice previews through Node authorization
   assert.match(tuning, /location \^~ \/assets\/admin\/voice-preview\/ \{[\s\S]*?proxy_pass http:\/\/raising_game_app;[\s\S]*?\}/);
   assert.doesNotMatch(tuning, /location \^~ \/assets\/admin\/voice-preview\/ \{[\s\S]{0,200}alias \/opt\/raising-game-demo\/assets\/admin\/voice-preview\//);
   assert.match(tuning, /ensure_secret_env MEDIA_URL_SIGNING_SECRET 32/);
+  assert.match(tuning, /location \^~ \/assets\/admin\/voice-preview\/ \{[\s\S]*?limit_conn raising_private_media_per_ip 8;[\s\S]*?limit_req zone=raising_private_media_per_ip burst=40 nodelay;/);
+  assert.doesNotMatch(tuning, /location = \/platform\.html \{[\s\S]{0,500}?limit_conn raising_private_media_per_ip/);
 });
 
 test("voice preview assets stay local and bypass the R2 redirect", () => {

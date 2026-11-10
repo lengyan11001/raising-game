@@ -458,6 +458,12 @@ function configuredPublicBaseUrl() {
 }
 
 const LOCAL_MEDIA_SIGNATURE_TTL_MS = 60 * 60 * 1000;
+const LOCAL_MEDIA_SIGNATURE_BUCKET_MS = 15 * 60 * 1000;
+
+function stableLocalMediaExpiry(now = Date.now()) {
+  return Math.floor(now / LOCAL_MEDIA_SIGNATURE_BUCKET_MS) * LOCAL_MEDIA_SIGNATURE_BUCKET_MS
+    + LOCAL_MEDIA_SIGNATURE_TTL_MS;
+}
 
 function localMediaSigningSecret() {
   const dedicated = String(process.env.MEDIA_URL_SIGNING_SECRET || "").trim();
@@ -541,11 +547,14 @@ function isLocalApplicationAssetHostname(hostname = "") {
   return host === "123vips.com" || host === "www.123vips.com" || (configuredHost && host === configuredHost);
 }
 
-function signLocalMediaPath(pathname = "", expiresAt = Date.now() + LOCAL_MEDIA_SIGNATURE_TTL_MS) {
+function signLocalMediaPath(pathname = "", expiresAt = null) {
   const normalizedPath = normalizedProtectedLocalMediaPath(pathname);
   const secret = localMediaSigningSecret();
   if (!normalizedPath || !secret) return "";
-  const expiry = Math.max(Date.now() + 60 * 1000, Number(expiresAt) || 0);
+  const requestedExpiry = Number(expiresAt);
+  const expiry = Number.isFinite(requestedExpiry) && requestedExpiry > 0
+    ? requestedExpiry
+    : stableLocalMediaExpiry();
   const signature = crypto.createHmac("sha256", secret)
     .update(`${normalizedPath}\n${expiry}`)
     .digest("base64url");

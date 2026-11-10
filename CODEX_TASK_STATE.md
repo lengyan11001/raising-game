@@ -1,3 +1,13 @@
+## 2026-11-10 private-media bandwidth incident: stable signatures + browser caching + Nginx limits (ready for Old deployment)
+
+- Incident: admin device IP `2407:cdc0:b010::237` polled admin generation records every 12s. Protected media signatures changed on every response, so the browser could not cache full-resolution images and repeatedly downloaded them; Nginx had no private-media rate/concurrency limit. PostgreSQL was not the bottleneck.
+- Business recovery: temporary Nginx IP block restored health/home latency, Node remained active with `NRestarts=0`, and no user sessions were cleared. The block is temporary and must be removed only after this release is verified; the device belongs to the administrator.
+- Fix: protected-media default signing now uses a 15-minute expiry bucket with a one-hour TTL, keeping URLs stable within the bucket. Protected media responses use `private, max-age=<remaining>, immutable` for browser cache while keeping `cdn-cache-control: no-store` and `cloudflare-cdn-cache-control: no-store`.
+- Edge protection: Old Nginx hardening adds per-IP private-media `limit_conn` 8 and `limit_req` 20r/s burst 40 with managed zone config. The wrapper validates `nginx -t`, backs up both site and zone config, and reloads only after validation. Limits apply only to the five private media locations, not normal pages.
+- Verification: media authorization and Nginx tests 16/16; broader media/generation/site tests 44/44; deploy/retention/admin tests 42/42; admin voice preview tests 12/12 with Nginx hardening; syntax, shell syntax and `git diff --check` pass.
+- Publish scope: `server.parts/part-02.js`, `server.parts/part-42.js`, `ops/harden_old_nginx_private_media.py`, `ops/harden-old-nginx-private-media.sh`, `ops/apply-production-tuning.sh`, `test/media-authorization.test.js`, `test/nginx-private-media.test.js`, `test/admin-voice-preview.test.js`, and this state entry. Exclude unrelated WIP (`platform.create.parts/part-04.js`, generated test CSS/test file, workflow map/node_modules).
+- Deployment: pending committed `old-site` -> `platform-release` snapshot -> `scripts/deploy_local.sh --site old`; Live untouched. After deploy verify signed URL stability/cache headers, anonymous media 403, normal generation/admin flows, health latency, session count, and `NRestarts=0`, then remove the temporary IP block.
+
 ## 2026-11-10 refresh stall: service worker cache-first + non-blocking config (ready for Old deployment)
 
 - User report: every refresh shows two slow requests, the `platform.html` document and `/api/config/public`; both appear stuck for a long time.
