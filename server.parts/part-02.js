@@ -754,6 +754,28 @@ async function readDb(options = {}) {
   };
 }
 
+async function readGenerationJobDb(userId = "") {
+  if (!dbEnabled()) return readDb();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) {
+    return {
+      ...DEFAULT_DB,
+      users: [],
+      userAssets: [],
+    };
+  }
+  // Generation preparation only needs the creating user and that user's own
+  // reference assets. Loading the entire application snapshot here exhausted
+  // the shared PostgreSQL pool under concurrent traffic.
+  const user = await getUserByIdInDb(cleanUserId);
+  const userAssets = user ? await getUserAssetsForUserFromDb(cleanUserId) : [];
+  return {
+    ...DEFAULT_DB,
+    users: user ? [user] : [],
+    userAssets,
+  };
+}
+
 function isSoftDeleted(record) {
   return Boolean(record?.deletedAt);
 }

@@ -569,7 +569,7 @@ async function runAdvancedGenerationJob(job = {}) {
       error: "",
     }, "advanced-preparing");
 
-    let db = await readDb();
+    const db = await readGenerationJobDb(userId);
     const jobUser = (db.users || []).find((user) => user.id === userId && !isSoftDeleted(user)) || null;
     useIgnexSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && seedanceIgnexEnabledForUser(jobUser);
     useExternalSeedanceHttp = useIgnexSeedance;
@@ -1088,7 +1088,7 @@ async function runAdvancedGenerationJob(job = {}) {
         });
       }
       if (isAliyunVideoProvider(provider)) {
-        const dbForGateway = await readDb();
+        const dbForGateway = db;
         const assetMap = new Map((dbForGateway.userAssets || []).map((asset) => [asset.id, asset]));
         const wan30References = { referenceImages: [], referenceVideos: [], referenceAudios: [] };
         for (const item of resolvedWan27Media) {
@@ -1127,7 +1127,7 @@ async function runAdvancedGenerationJob(job = {}) {
           });
         }
       } else {
-        const dbForGateway = await readDb();
+        const dbForGateway = db;
         const assetMap = new Map((dbForGateway.userAssets || []).map((asset) => [asset.id, asset]));
         const referenceImages = [];
         const referenceVideos = [];

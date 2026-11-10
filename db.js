@@ -3557,6 +3557,21 @@ async function getUserAssetFromDb(assetId = "") {
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
 }
 
+async function getUserAssetsForUserFromDb(userId = "") {
+  if (!dbEnabled()) return [];
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT *
+    FROM app_user_assets
+    WHERE user_id = $1
+      AND deleted_at IS NULL
+    ORDER BY created_at DESC
+  `, [cleanUserId]);
+  return rows.map(recordFromPayloadRow);
+}
+
 async function getUserAssetsByIdsFromDb({ userId = "", assetIds = [] } = {}) {
   if (!dbEnabled()) return [];
   const cleanUserId = String(userId || "").trim();
@@ -8603,6 +8618,7 @@ module.exports = {
   patchUserPayloadInDb,
   upsertUserAssetInDb,
   getUserAssetFromDb,
+  getUserAssetsForUserFromDb,
   getUserAssetsByIdsFromDb,
   getVegaMediaLibraryEntryFromDb,
   getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,

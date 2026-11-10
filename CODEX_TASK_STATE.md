@@ -1,3 +1,24 @@
+## 2026-11-10 generation DB pool exhaustion optimization (implemented, verification in progress)
+
+- Goal: prevent advanced generation jobs from consuming ten PostgreSQL pool connections by loading the full application snapshot.
+- Changed generation preparation to `readGenerationJobDb(userId)`, which loads only the creating user and that user's own assets; gateway media preparation now reuses this scoped snapshot instead of re-running `readDb()`.
+- Added `getUserAssetsForUserFromDb(userId)` using the existing `app_user_assets_user_created_idx`.
+- Added the missing `listSystemNotificationsForUserFromDb` import that caused repeated `is not defined` errors in notification polling.
+- Focused verification passed: `generation-db-scope`, support notifications, security regressions, media inputs, auth risk, advanced pricing, and generation record refresh (117 tests total, 0 failures). Syntax and `git diff --check` passed.
+- Targeted files only: `db.js`, `server.parts/part-01.js`, `server.parts/part-02.js`, `server.parts/part-26.js`, `test/generation-db-scope.test.js`.
+
+## 2026-11-10 user Xingfushenghuo22 failed-generation refund audit (read-only production query)
+
+- User: `xingfushenghuo22` / `user-1781841880213-9f4b1c21`; current balance `14700.518400`.
+- Today (Asia/Shanghai, through 12:11) has 15 generation records: 12 succeeded, 3 failed.
+- All 3 failed records have `billingStatus=refunded`; each has exactly one negative charge and one equal positive `generation_refund` ledger entry, net zero:
+  - `cgt-20261110014012-59cb86` 01:40:16, timeout connecting; charged/refunded 122.472.
+  - `cgt-20261110015844-d9230a` 01:58:48, upstream copyright restriction; charged/refunded 81.648.
+  - `cgt-20261110112205-79ac92` 11:22:06, upstream copyright restriction; charged/refunded 73.4832.
+- Audit result: no missing refund found. No production mutation was performed.
+- Root cause of `cgt-20261110014012-59cb86`: not an upstream Seedance timeout. App `pg` pool connection acquisition timed out after 5s at 01:40:23 while `runAdvancedGenerationJob` called `readDb`; stack ends at `db.js:1674 readAppDbFromTables Promise.all(index 8)` / `pg-pool/index.js:45`. It never submitted an upstream task (`upstreamTaskId`/`upstreamPayload` empty).
+- That minute had app-wide DB pool saturation under concurrent traffic (`timeout exceeded when trying to connect` across notifications, generation-records, promo, advanced estimate/generate). `readDb` loads full `app_user_assets`/users/sessions/etc.; assets was 28,548 rows / 61 MB and had multiple concurrent full-table scans. System-notifications polls also hit a separate missing-function error during the same period.
+
 ## 2026-11-10 admin model pricing list/detail/config (in progress)
 
 - Goal: pricing admin no longer renders every row at once; show a searchable model list, open one model's detailed purchase/base-sale/discounted-sale pricing, and configure display name, subtitle, and discount per model.
