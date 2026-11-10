@@ -18,6 +18,7 @@ const source = [
   functionSource("advancedResultRecordTimestamp"),
   functionSource("sortAdvancedResultRecords"),
   create.match(/const ADVANCED_RESULT_MEDIA_FIELDS = \[[\s\S]*?\n\];/)?.[0] || "",
+  create.match(/const ADVANCED_RESULT_INPUT_FIELDS = \[[\s\S]*?\n\];/)?.[0] || "",
   functionSource("advancedResultRecordWithMediaFallback"),
   functionSource("mergeAdvancedResultRecord"),
   "function advancedResultHistoryFallbackRecords() { return state.historyRecords || []; }",
@@ -127,6 +128,33 @@ test("result panel keeps and displays more than six records", () => {
   assert.doesNotMatch(functionSource("mergeAdvancedResultRecord"), /slice\(0, 6\)/);
 });
 
+test("poll snapshots cannot erase detail input fields used by regeneration", () => {
+  const state = {
+    advancedResultRecords: [{
+      taskId: "vega-detail",
+      ratio: "1:1",
+      resolution: "1080P",
+      duration: 8,
+      params: {
+        provider: "seedance20-vega",
+        submissionSnapshot: { ratio: "1:1", resolution: "1080P", duration: 8, mediaMode: "reference_video" },
+      },
+      mediaAssets: [{ type: "reference_image", userAssetId: "asset-1" }],
+    }],
+    historyRecords: [],
+  };
+  const { mergeAdvancedResultRecord } = load(state);
+  mergeAdvancedResultRecord({
+    taskId: "vega-detail",
+    status: "succeeded",
+    params: {},
+    mediaAssets: [],
+  });
+  const [record] = state.advancedResultRecords;
+  assert.equal(record.params.submissionSnapshot.ratio, "1:1");
+  assert.equal(record.mediaAssets[0].userAssetId, "asset-1");
+});
+
 test("successful history rows without media still participate in detail refresh", () => {
   const state = {
     advancedResultRecords: [],
@@ -136,6 +164,7 @@ test("successful history rows without media still participate in detail refresh"
     functionSource("advancedResultRecordTimestamp"),
     functionSource("sortAdvancedResultRecords"),
     create.match(/const ADVANCED_RESULT_MEDIA_FIELDS = \[[\s\S]*?\n\];/)?.[0] || "",
+    create.match(/const ADVANCED_RESULT_INPUT_FIELDS = \[[\s\S]*?\n\];/)?.[0] || "",
     functionSource("advancedResultRecordWithMediaFallback"),
     functionSource("mergeAdvancedResultRecord"),
     functionSource("advancedResultHistoryFallbackRecords"),

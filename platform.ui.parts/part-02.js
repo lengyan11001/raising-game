@@ -1163,6 +1163,19 @@ function mergeGenerationPollRecord(previous = {}, incoming = {}) {
   // Poll responses intentionally omit input/prompt payloads. A shallow merge
   // preserves those full fields from the history/detail record, while nested
   // billing still needs its previous values when the snapshot is partial.
+  [
+    "params", "prompt", "finalPrompt", "mediaAssets", "userAssetId", "userAssetIds",
+    "referenceAssetUri", "imageUrl", "imageUrls", "sourceImageUrl", "sourceImageUrls",
+    "syntheticReferenceLocalUrl", "syntheticReferenceUrl",
+  ].forEach((key) => {
+    const incomingValue = incoming?.[key];
+    const previousValue = previous?.[key];
+    const incomingEmpty = incomingValue == null
+      || (typeof incomingValue === "string" && !incomingValue.trim())
+      || (Array.isArray(incomingValue) && !incomingValue.length)
+      || (typeof incomingValue === "object" && !Array.isArray(incomingValue) && !Object.keys(incomingValue).length);
+    if (incomingEmpty && previousValue !== undefined) merged[key] = previousValue;
+  });
   if (
     previous?.billing && typeof previous.billing === "object" && !Array.isArray(previous.billing)
     && incoming?.billing && typeof incoming.billing === "object" && !Array.isArray(incoming.billing)

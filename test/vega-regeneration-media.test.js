@@ -949,26 +949,160 @@ test("Vega regeneration combines snapshot asset IDs with legacy preview URLs", (
   assert.deepEqual(media.referenceVideoUrls, ["https://cdn.example.com/video.mp4"]);
 });
 
-test("Regeneration restores cached media immediately and corrects the full form from detail when untouched", () => {
-  const restoreSource = extractFunction(createSource, "restoreRecordToAdvancedCreate");
-  const backgroundSource = extractFunction(createSource, "refreshAdvancedRegenerationMediaInBackground");
-  const fingerprintSource = extractFunction(createSource, "advancedRegenerationMediaFingerprint");
-  const applySource = extractFunction(createSource, "applyHydratedAdvancedRegenerationMedia");
-  assert.match(restoreSource, /applyRecordToAdvancedCreate\(record, button\)/);
-  assert.match(restoreSource, /void refreshAdvancedRegenerationMediaInBackground\(record, fingerprint\)/);
-  assert.doesNotMatch(restoreSource, /await hydrateRecordMediaUserAssetPreviews/);
-  assert.match(backgroundSource, /fingerprint !== advancedRegenerationMediaFingerprint\(\)/);
-  assert.match(backgroundSource, /applyHydratedAdvancedRegenerationMedia\(hydrated\)/);
-  assert.match(backgroundSource, /applyRecordToAdvancedCreate\(hydrated, null\)/);
-  assert.match(fingerprintSource, /prompt/);
-  assert.match(fingerprintSource, /ratio/);
-  assert.match(fingerprintSource, /resolution/);
-  assert.match(fingerprintSource, /duration/);
-  assert.match(fingerprintSource, /images:/);
-  assert.match(fingerprintSource, /videos:/);
-  assert.match(fingerprintSource, /audios:/);
-  assert.doesNotMatch(applySource, /clearAdvancedCreationInputs/);
-  assert.doesNotMatch(applySource, /renderAdvancedCreateControls/);
+test("Regeneration waits for complete detail instead of applying partial poll records", async () => {
+  const createNames = [
+    "advancedRegenerationRecordIsComplete",
+    "refreshedRegenerationRecord",
+    "restoreRecordToAdvancedCreate",
+    "advancedRegenerationMediaFingerprint",
+    "refreshAdvancedRegenerationMediaInBackground",
+  ];
+  const calls = { apply: [], fetch: [], hydrate: [], background: [] };
+  const partial = { taskId: "vega-partial", status: "succeeded", videoUrl: "https://cdn.example.com/result.mp4" };
+  const detail = {
+    taskId: "vega-partial",
+    provider: "seedance20-vega",
+    ratio: "1:1",
+    resolution: "1080P",
+    duration: 8,
+    prompt: "restore me",
+    mediaAssets: [
+      { type: "first_frame", userAssetId: "first-asset", previewUrl: "https://cdn.example.com/first.png" },
+      { type: "last_frame", userAssetId: "last-asset", previewUrl: "https://cdn.example.com/last.png" },
+      { type: "reference_image", userAssetId: "image-asset", previewUrl: "https://cdn.example.com/reference.png" },
+      { type: "reference_video", userAssetId: "video-asset", previewUrl: "https://cdn.example.com/reference.mp4" },
+      { type: "reference_audio", userAssetId: "audio-asset", previewUrl: "https://cdn.example.com/reference.mp3" },
+    ],
+    params: {
+      provider: "seedance20-vega",
+      mediaMode: "reference_video",
+      submissionSnapshot: { ratio: "1:1", resolution: "1080P", duration: 8, mediaMode: "reference_video" },
+    },
+  };
+  const runtime = new Function(
+    "requestJson",
+    "setUser",
+    "hydrateRecordMediaUserAssetPreviews",
+    "applyRecordToAdvancedCreate",
+    "t",
+    "advancedRegenerationMediaFingerprint",
+    "refreshAdvancedRegenerationMediaInBackground",
+    `${extractFunction(createSource, "recordParams")}
+${createNames.map((name) => extractFunction(createSource, name)).join("\n")}
+return { restoreRecordToAdvancedCreate, advancedRegenerationRecordIsComplete };`,
+  )(
+    async (url) => {
+      calls.fetch.push(url);
+      return { record: detail };
+    },
+    () => {},
+    async (record) => {
+      calls.hydrate.push(record.taskId);
+      return record;
+    },
+    (record) => calls.apply.push(record),
+    (key, values = {}) => values.message || key,
+    () => "fingerprint",
+    () => calls.background.push("background"),
+  );
+
+  assert.equal(runtime.advancedRegenerationRecordIsComplete(partial), false);
+  assert.equal(runtime.advancedRegenerationRecordIsComplete({
+    ...detail,
+    params: { ...detail.params, submissionSnapshot: { ratio: "1:1", resolution: "1080P" } },
+  }), false);
+  assert.equal(runtime.advancedRegenerationRecordIsComplete({
+    ...detail,
+    mediaAssets: detail.mediaAssets.filter((item) => item.type !== "reference_audio"),
+    params: {
+      ...detail.params,
+      submissionSnapshot: { ...detail.params.submissionSnapshot, referenceAudioAssetIds: ["audio-asset"] },
+      referenceAudioAssetIds: [],
+    },
+  }), false);
+  const restored = await runtime.restoreRecordToAdvancedCreate(partial, { id: "button" });
+  assert.equal(restored, true);
+  assert.deepEqual(calls.fetch, ["/api/generation-records/vega-partial"]);
+  assert.deepEqual(calls.hydrate, ["vega-partial"]);
+  assert.equal(calls.apply.length, 1);
+  assert.equal(calls.apply[0].ratio, "1:1");
+  assert.equal(calls.apply[0].resolution, "1080P");
+  assert.equal(calls.apply[0].duration, 8);
+  assert.deepEqual(calls.apply[0].mediaAssets.map((item) => item.type), [
+    "first_frame", "last_frame", "reference_image", "reference_video", "reference_audio",
+  ]);
+  assert.deepEqual(calls.background, []);
+});
+
+test("Regeneration leaves the current form untouched when incomplete detail fetch fails", async () => {
+  const createNames = [
+    "advancedRegenerationRecordIsComplete",
+    "refreshedRegenerationRecord",
+    "restoreRecordToAdvancedCreate",
+    "advancedRegenerationMediaFingerprint",
+    "refreshAdvancedRegenerationMediaInBackground",
+  ];
+  let applied = false;
+  const runtime = new Function(
+    "requestJson",
+    "setUser",
+    "hydrateRecordMediaUserAssetPreviews",
+    "applyRecordToAdvancedCreate",
+    "t",
+    "advancedRegenerationMediaFingerprint",
+    "refreshAdvancedRegenerationMediaInBackground",
+    `${extractFunction(createSource, "recordParams")}
+${createNames.map((name) => extractFunction(createSource, name)).join("\n")}
+return { restoreRecordToAdvancedCreate };`,
+  )(
+    async () => { throw new Error("detail unavailable"); },
+    () => {},
+    async (record) => record,
+    () => { applied = true; },
+    (key, values = {}) => values.message || key,
+    () => "fingerprint",
+    () => {},
+  );
+
+  await assert.rejects(
+    () => runtime.restoreRecordToAdvancedCreate({ taskId: "vega-failed", status: "succeeded" }),
+    /detail unavailable/,
+  );
+  assert.equal(applied, false);
+});
+
+test("Regeneration still restores complete cached records immediately and refreshes previews in background", async () => {
+  const calls = { apply: [], background: [] };
+  const complete = {
+    taskId: "vega-complete",
+    provider: "seedance20-vega",
+    ratio: "9:16",
+    resolution: "720P",
+    duration: 5,
+    mediaAssets: [{ type: "reference_image", userAssetId: "asset-1" }],
+    params: {
+      provider: "seedance20-vega",
+      submissionSnapshot: { ratio: "9:16", resolution: "720P", duration: 5, mediaMode: "reference_video" },
+    },
+  };
+  const runtime = new Function(
+    "advancedRegenerationRecordIsComplete",
+    "advancedRegenerationMediaFingerprint",
+    "refreshAdvancedRegenerationMediaInBackground",
+    "applyRecordToAdvancedCreate",
+    `${extractFunction(createSource, "restoreRecordToAdvancedCreate")}
+return { restoreRecordToAdvancedCreate };`,
+  )(
+    () => true,
+    () => "fingerprint",
+    (record, fingerprint) => calls.background.push([record.taskId, fingerprint]),
+    (record) => calls.apply.push(record),
+  );
+
+  const restored = await runtime.restoreRecordToAdvancedCreate(complete);
+  assert.equal(restored, true);
+  assert.equal(calls.apply.length, 1);
+  assert.deepEqual(calls.background, [["vega-complete", "fingerprint"]]);
 });
 
 test("Vega regeneration media reads the submitted snapshot and preserves reference order", () => {

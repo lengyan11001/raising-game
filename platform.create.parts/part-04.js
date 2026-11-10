@@ -953,14 +953,18 @@ function restoreVegaRecordMedia(record = {}, params = {}) {
   };
 }
 
-async function refreshedRegenerationRecord(record = {}) {
+async function refreshedRegenerationRecord(record = {}, options = {}) {
   const taskId = String(record?.taskId || "").trim();
-  if (!taskId) return record;
+  if (!taskId) {
+    if (options.strict) throw new Error("Task id is required.");
+    return record;
+  }
   try {
     const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
     if (payload.user) setUser(payload.user);
     return payload.record || payload.generation || record;
-  } catch (_error) {
+  } catch (error) {
+    if (options.strict) throw error;
     return record;
   }
 }
@@ -1063,6 +1067,43 @@ function advancedVegaGenerationOptions(provider = currentAdvancedProvider()) {
     ...(hasSnapshotValue("videoQualityMode") && caps?.qualityMode !== false ? { videoQualityMode: snapshot.videoQualityMode } : {}),
     ...(hasSnapshotValue("outputFormat") ? { outputFormat: snapshot.outputFormat } : {}),
   };
+}
+
+function advancedRegenerationRecordIsComplete(record = {}) {
+  if (!record?.taskId) return false;
+  const params = recordParams(record);
+  const submitted = params.submissionSnapshot && typeof params.submissionSnapshot === "object" && !Array.isArray(params.submissionSnapshot)
+    ? params.submissionSnapshot
+    : {};
+  const hasValue = (value) => {
+    if (value === undefined || value === null || value === "") return false;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === "object") return Object.keys(value).length > 0;
+    return true;
+  };
+  // Poll/list snapshots omit submission inputs. A restorable record must have
+  // the complete visible parameter snapshot, not merely one surviving field.
+  const completeSnapshot = hasValue(submitted.ratio)
+    && hasValue(submitted.resolution)
+    && hasValue(submitted.duration);
+  if (!completeSnapshot) return false;
+  // If media was submitted, every submitted media channel must still be
+  // present. This catches truncated detail/list payloads before they clear the
+  // current form or restore only a subset of references.
+  const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const mediaChannels = [
+    { keys: ["firstFrameUrl", "firstFrameAssetId", "firstFrameAssetUri"], types: ["first_frame"] },
+    { keys: ["lastFrameUrl", "lastFrameAssetId", "lastFrameAssetUri"], types: ["last_frame"] },
+    { keys: ["referenceImages", "referenceImageUrls", "referenceImageAssetIds", "referenceImageAssetUris"], types: ["reference_image"] },
+    { keys: ["referenceVideos", "referenceVideoUrls", "referenceVideoAssetIds", "referenceVideoAssetUris"], types: ["reference_video"] },
+    { keys: ["referenceAudios", "referenceAudioUrls", "referenceAudioAssetIds", "referenceAudioAssetUris"], types: ["reference_audio"] },
+  ];
+  const hasChannel = (container, keys) => keys.some((key) => hasValue(container[key]));
+  return mediaChannels.every((channel) => (
+    !(hasChannel(submitted, channel.keys) || hasChannel(params, channel.keys))
+    || hasChannel(record, channel.keys)
+    || mediaAssets.some((item) => channel.types.includes(String(item?.type || "")))
+  ));
 }
 
 function advancedRegenerationMediaIdentity(item = {}) {
@@ -1236,11 +1277,28 @@ async function refreshAdvancedRegenerationMediaInBackground(record = {}, fingerp
   }
 }
 
-function restoreRecordToAdvancedCreate(record = {}, button = null) {
-  if (!record?.taskId && !record?.prompt && !record?.params) return;
-  applyRecordToAdvancedCreate(record, button);
+async function restoreRecordToAdvancedCreate(record = {}, button = null) {
+  if (!record?.taskId && !record?.prompt && !record?.params) return false;
+  let restoredRecord = record;
+  if (!advancedRegenerationRecordIsComplete(restoredRecord)) {
+    // Completion polls deliberately omit input parameters and media. Restoring
+    // that partial snapshot first would reset ratio/resolution/duration and
+    // clear every reference before the detail request eventually returned.
+    // Wait for the authoritative detail record and apply it exactly once.
+    restoredRecord = await refreshedRegenerationRecord(restoredRecord, { strict: true });
+    restoredRecord = await hydrateRecordMediaUserAssetPreviews(restoredRecord);
+    if (!advancedRegenerationRecordIsComplete(restoredRecord)) {
+      throw new Error(t("history.loadFailed", { message: "generation inputs unavailable" }));
+    }
+    applyRecordToAdvancedCreate(restoredRecord, button);
+    return true;
+  }
+  // Full history/detail records can restore immediately. Only their short-lived
+  // media preview URLs are refreshed in the background.
+  applyRecordToAdvancedCreate(restoredRecord, button);
   const fingerprint = advancedRegenerationMediaFingerprint();
-  void refreshAdvancedRegenerationMediaInBackground(record, fingerprint);
+  void refreshAdvancedRegenerationMediaInBackground(restoredRecord, fingerprint);
+  return true;
 }
 
 function applyRecordToAdvancedCreate(record = {}, button = null) {

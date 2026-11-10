@@ -685,6 +685,12 @@ const ADVANCED_RESULT_MEDIA_FIELDS = [
   "imageResultUrls", "providerImageUrls", "remoteImageUrls",
 ];
 
+const ADVANCED_RESULT_INPUT_FIELDS = [
+  "params", "prompt", "finalPrompt", "mediaAssets", "userAssetId", "userAssetIds",
+  "referenceAssetUri", "imageUrl", "imageUrls", "sourceImageUrl", "sourceImageUrls",
+  "syntheticReferenceLocalUrl", "syntheticReferenceUrl",
+];
+
 function advancedResultRecordWithMediaFallback(previous = null, record = {}) {
   const merged = { ...(previous || {}), ...record };
   if (!previous) return merged;
@@ -709,6 +715,17 @@ function advancedResultRecordWithMediaFallback(previous = null, record = {}) {
     const incomingEmpty = incoming == null
       || (typeof incoming === "string" && !incoming.trim())
       || (Array.isArray(incoming) && !incoming.length);
+    if (incomingEmpty && prior) merged[key] = prior;
+  });
+  // Poll/list snapshots intentionally omit submission inputs. Do not let a
+  // status-only refresh erase a complete detail record used by regeneration.
+  ADVANCED_RESULT_INPUT_FIELDS.forEach((key) => {
+    const incoming = record?.[key];
+    const prior = previous?.[key];
+    const incomingEmpty = incoming == null
+      || (typeof incoming === "string" && !incoming.trim())
+      || (Array.isArray(incoming) && !incoming.length)
+      || (typeof incoming === "object" && !Array.isArray(incoming) && !Object.keys(incoming).length);
     if (incomingEmpty && prior) merged[key] = prior;
   });
   return merged;
@@ -1096,10 +1113,10 @@ function bindAdvancedResultCardEvents(card) {
       refreshIcons();
       try {
         if (!cachedRecord) throw new Error(t("history.loadFailed", { message: "record not found" }));
-        // Use the record already rendered in the result list so regeneration is
-        // immediate. restoreRecordToAdvancedCreate refreshes media/detail in the
-        // background and never clears a form the user has started editing.
-        restoreRecordToAdvancedCreate(cachedRecord, button);
+        // A full result record restores immediately. Poll-derived rows omit
+        // parameters/media, so restoreRecordToAdvancedCreate fetches the
+        // authoritative detail first and applies the complete form once.
+        await restoreRecordToAdvancedCreate(cachedRecord, button);
       } catch (error) {
         button.disabled = false;
         button.innerHTML = `<i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}`;

@@ -1,3 +1,23 @@
+## 2026-11-10 regeneration complete-detail gating regression fix (deploying Old)
+
+- User report: regeneration regressed again; ratio fell back to 9:16, resolution/duration/media were lost, and clicks felt slow.
+- Root cause: result/history poll snapshots intentionally omit `params`, `submissionSnapshot`, `mediaAssets`, prompt and asset IDs. `b61a417` applied those partial rows immediately, resetting the form before detail hydration. If the user interacted meanwhile, only previews were refreshed, preserving the bad values.
+- Fix: `advancedRegenerationRecordIsComplete()` now requires the complete visible snapshot (`ratio`, `resolution`, `duration`) and verifies every media channel present in the submission snapshot is still represented by detail fields or `mediaAssets`. Incomplete records never touch the form; one strict detail request hydrates and applies the complete record exactly once. Detail failure leaves the current form untouched. Poll merging preserves full input fields and deep-merges billing.
+- Tests: `advanced-workspace-routing`, `tencent-vod-vega`, `vega-regeneration-media`, `generation-record-list-refresh`, `advanced-result-order`: 124/124 pass after initial test updates; final regeneration-focused rerun 123/123. Syntax checks and `git diff --check` pass.
+- Deployment status: committing and deploying Old only; Live untouched. Prior Old release rollback target remains `platform-release` `24c7deb`.
+- Unrelated WIP excluded from this fix: `platform.ui.parts/part-06.js`, `workflow-react/src/site/SiteBridge.js`, `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, `workflow-react/node_modules`.
+
+## 2026-11-10 reference canvas multi-generation result-node inspection
+
+- User asked to inspect the reference canvas multi-generation/result presentation before changing our implementation. No production code changed, no build, no deployment.
+- Reference source at `/private/tmp/canvas_web_source_20261107/canvas_web`.
+- Reference generation flow: model nodes (`gptImage2`, `nanoBanana2`, `minimaxH3Video`, etc.) keep the model parameters; each Generate click creates a new lightweight `imageTask` or `videoTask` node to the right and connects model -> task.
+- `ImageTaskNode` stores `generatedImages` and renders all outputs from that one task in one result grid. `VideoTaskNode` stores `videoUrl` and renders the video result. The task/result card is not a clone of the model-control card.
+- Upload flow: uploads use separate `imageReference` / `videoReference` / `audioReference` input nodes. `ImageReferenceNode` uploads, shows progress on that input node, and can create/connect a model node afterward.
+- `ImageDisplayNode` is a read-only image preview/result node (`imageDisplay`) and can feed downstream image inputs. However, current reference source has no automatic `type: 'imageDisplay'` creation path; it is registered, connectable, and likely used by legacy/saved workflows or manual/programmatic insertion. Current toolbar/generation completion does not spawn it automatically.
+- Key references: `Canvas.js` connection maps; `TextToImageNode.js` `handleGenerate`; `ModernImageModelNode.js` / `ModernVideoModelNode.js` task creation; `ImageTaskNode.js` result grid and node-data sync; `VideoTaskNode.js` result rendering; `ImageReferenceNode.js` upload flow; `ImageDisplayNode.js` read-only preview.
+- Current repo contrast: `platform.ui.parts/part-06.js` `workflowGenerationRunNode()` creates a new full `add-image` / `add-video` generation node per run, which is why controls/parameters appear duplicated. Proposed direction (not implemented): one stable model-generation node + lightweight result/preview nodes per run; result nodes contain only output/status and act as connectable inputs.
+
 ## 2026-11-10 regeneration restore cache-first + detail correction (ready for Old deployment)
 
 - User report: regeneration again defaults ratio to 9:16 and loses media; suspected the later parameter-restore change broke the previously working media restore.

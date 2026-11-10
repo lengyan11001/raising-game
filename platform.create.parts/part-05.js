@@ -1185,17 +1185,16 @@ async function regenerateHistoryRecord(taskId, button) {
   button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
   refreshIcons();
   try {
-    let record = (state.historyRecords || []).find((item) => String(item.taskId || "") === String(taskId));
+    const record = (state.historyRecords || []).find((item) => String(item.taskId || "") === String(taskId));
     if (!record) {
       const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
-      record = payload.record || payload.generation || null;
       if (payload.user) setUser(payload.user);
+      const detailRecord = payload.record || payload.generation || null;
+      if (!detailRecord) throw new Error(t("history.loadFailed", { message: "record not found" }));
+      await restoreRecordToAdvancedCreate(detailRecord, button);
+    } else {
+      await restoreRecordToAdvancedCreate(record, button);
     }
-    if (!record) throw new Error(t("history.loadFailed", { message: "record not found" }));
-    // Restore from the list/detail record already in memory. The detail reload
-    // and fresh media URL resolution are handed to the background refresher so
-    // the form is usable immediately even on a slow database or OSS response.
-    restoreRecordToAdvancedCreate(record, button);
     button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.regenerateSubmitted"))}`;
     refreshIcons();
   } catch (error) {
