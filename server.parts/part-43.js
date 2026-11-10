@@ -249,6 +249,12 @@ function failedRefundAuditLedgerTypes(record = {}) {
   return FAILED_REFUND_AUDIT_LEDGER_TYPES.get(String(record.provider || "").toLowerCase()) || null;
 }
 
+function signedCreditsAmount(value, fallback = 0) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return Math.round(Number(fallback || 0) * 10000) / 10000;
+  return Math.round(next * 10000) / 10000;
+}
+
 async function generationTaskLedgerSummary(record = {}, ledgerTypes = null) {
   const types = ledgerTypes || failedRefundAuditLedgerTypes(record);
   if (!record.taskId || !types) return [];
@@ -262,7 +268,7 @@ async function generationTaskLedgerSummary(record = {}, ledgerTypes = null) {
   `, [String(record.taskId || ""), [types.charge, types.refund]]);
   return rows.map((row) => ({
     type: String(row.type || ""),
-    total: creditsAmount(row.total || 0),
+    total: signedCreditsAmount(row.total || 0),
     count: Math.max(0, Math.trunc(Number(row.count || 0))),
   }));
 }

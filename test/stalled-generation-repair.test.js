@@ -42,6 +42,16 @@ test("stalled repair is idempotent for pre-deducted refunds", () => {
   assert.match(server, /billingStatus: "refunded"/);
 });
 
+test("failed-refund audit preserves signed ledger totals", () => {
+  const audit = server.slice(
+    server.indexOf("function signedCreditsAmount"),
+    server.indexOf("async function listFailedRefundedGenerationRecordsForAudit"),
+  );
+  assert.match(audit, /function signedCreditsAmount/);
+  assert.match(audit, /total: signedCreditsAmount\(row\.total \|\| 0\)/);
+  assert.doesNotMatch(audit, /total: creditsAmount\(row\.total/);
+});
+
 test("stalled repair script defaults to dry-run and supports targeted apply", () => {
   assert.match(script, /apply: false/);
   assert.match(script, /--dry-run/);
