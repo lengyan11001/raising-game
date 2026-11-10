@@ -1394,6 +1394,70 @@ async function uploadWorkflowFilesToNode(files = [], nodeId = "") {
 
 window.uploadWorkflowFilesToNode = uploadWorkflowFilesToNode;
 
+async function refreshWorkflowUploadedMediaUrls() {
+  const canvasId = String(state.workflowActiveCanvasId || "");
+  const workflow = ensureWorkflowState();
+  const nodes = (workflow.nodes || []).filter((node) => node?.data?.source === "upload");
+  const assetIds = [...new Set(nodes.flatMap((node) => [
+    String(node.data?.resultImageAssetId || "").trim(),
+    String(node.data?.resultVideoAssetId || "").trim(),
+  ]).filter(Boolean))].slice(0, 50);
+  if (!assetIds.length) return false;
+  let payload = null;
+  try {
+    payload = await requestJson("/api/user-assets/resolve", {
+      method: "POST",
+      body: { assetIds },
+    });
+  } catch (error) {
+    console.warn("Workflow uploaded media refresh failed", error);
+    return false;
+  }
+  if (String(state.workflowActiveCanvasId || "") !== canvasId) return false;
+  const assets = new Map((Array.isArray(payload?.assets) ? payload.assets : [])
+    .map((asset) => [String(asset?.id || ""), asset])
+    .filter(([id]) => id));
+  let changed = false;
+  for (const node of (ensureWorkflowState().nodes || [])) {
+    const data = node?.data || {};
+    if (data.source !== "upload") continue;
+    const imageAssetId = String(data.resultImageAssetId || "").trim();
+    const videoAssetId = String(data.resultVideoAssetId || "").trim();
+    const imageAsset = imageAssetId ? assets.get(imageAssetId) : null;
+    const videoAsset = videoAssetId ? assets.get(videoAssetId) : null;
+    if (imageAsset) {
+      const url = String(imageAsset.previewUrl || imageAsset.publicUrl || imageAsset.localUrl || "").trim();
+      const posterUrl = String(imageAsset.posterUrl || url).trim();
+      if (url && (data.resultImageUrl !== url || data.resultImageUrls?.[0] !== url || data.posterUrl !== posterUrl)) {
+        node.data = {
+          ...data,
+          resultImageUrl: url,
+          resultImageUrls: [url],
+          posterUrl,
+        };
+        changed = true;
+      }
+    }
+    if (videoAsset) {
+      const url = String(videoAsset.previewUrl || videoAsset.publicUrl || videoAsset.localUrl || "").trim();
+      const posterUrl = String(videoAsset.posterUrl || videoAsset.previewUrl || videoAsset.publicUrl || "").trim();
+      if (url && (data.resultVideoUrl !== url || data.resultVideoUrls?.[0] !== url || data.posterUrl !== posterUrl)) {
+        node.data = {
+          ...data,
+          resultVideoUrl: url,
+          resultVideoUrls: [url],
+          posterUrl,
+        };
+        changed = true;
+      }
+    }
+  }
+  if (changed) persistWorkflowState({ skipServer: true });
+  return changed;
+}
+
+window.refreshWorkflowUploadedMediaUrls = refreshWorkflowUploadedMediaUrls;
+
 async function migrateWorkflowEmbeddedMedia() {
   const workflow = ensureWorkflowState();
   let changed = false;

@@ -390,7 +390,11 @@ async function openWorkflowCanvas(canvasId = "") {
     savedWorkflowViewport = null;
     const migrated = typeof migrateWorkflowEmbeddedMedia === "function" ? await migrateWorkflowEmbeddedMedia() : false;
     if (!workflowCanvasLoadIsCurrent(switchSeq)) return false;
-    if (migrated) await saveWorkflowCanvas({ quiet: true });
+    const refreshed = typeof refreshWorkflowUploadedMediaUrls === "function"
+      ? await refreshWorkflowUploadedMediaUrls()
+      : false;
+    if (!workflowCanvasLoadIsCurrent(switchSeq)) return false;
+    if (migrated || refreshed) await saveWorkflowCanvas({ quiet: true });
     return true;
   } catch (error) {
     if (workflowCanvasLoadIsCurrent(switchSeq)) state.workflowCanvasMessage = error.message || String(error);

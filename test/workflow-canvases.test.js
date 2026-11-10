@@ -279,10 +279,22 @@ test("workflow generation runs concurrently per node", () => {
 
 test("workflow uploads store asset references instead of embedded media", () => {
   const ui = read("platform.ui.js");
+  const part = read("platform.ui.parts/part-05.js");
+  const manager = read("platform.workflow-canvases.js");
   const server = read("server.js");
 
   assert.match(ui, /async function uploadWorkflowMediaDataUrl/);
   assert.match(ui, /async function migrateWorkflowEmbeddedMedia/);
+  assert.match(part, /async function refreshWorkflowUploadedMediaUrls/);
+  assert.match(part, /\/api\/user-assets\/resolve/);
+  assert.match(part, /body: \{ assetIds \}/);
+  assert.match(part, /data\.source !== "upload"/);
+  assert.match(part, /resultImageAssetId/);
+  assert.match(part, /resultVideoAssetId/);
+  assert.match(part, /resultImageUrl: url/);
+  assert.match(part, /resultVideoUrl: url/);
+  assert.match(manager, /refreshWorkflowUploadedMediaUrls/);
+  assert.match(manager, /if \(migrated \|\| refreshed\) await saveWorkflowCanvas/);
   assert.match(ui, /publicUrl \|\| asset\?\.localUrl/);
   assert.doesNotMatch(ui, /values\.push\(await readFileAsDataUrl\(file\)\)/);
   assert.match(server, /readJson\(req, WORKFLOW_CANVAS_WRITE_PAYLOAD_BYTES\)/);

@@ -1,3 +1,13 @@
+## 2026-11-10 uploaded canvas media persisted signed URLs fixed (ready for Old deployment)
+
+- User report: uploaded material nodes show broken media after reopening the canvas.
+- Root cause: `/api/user-assets` returns a signed delivery URL with a 1-hour TTL; workflow upload nodes persisted that temporary URL even though the stable `resultImageAssetId` / `resultVideoAssetId` was also saved.
+- Fix: added `refreshWorkflowUploadedMediaUrls()` in `platform.ui.parts/part-05.js`. On canvas open it batch-calls `/api/user-assets/resolve` with stable asset IDs and refreshes only `data.source === "upload"` nodes' image/video preview, result URL array, and poster URL. Refresh failure is non-blocking.
+- `platform.workflow-canvases.js` now invokes the refresh after embedded-media migration and saves the refreshed canvas once.
+- Regression coverage added in `test/workflow-canvases.test.js`.
+- Verification: syntax checks pass; `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 33/33; `git diff --check` passes.
+- Publish scope: these 3 canvas files plus this state entry. Unrelated untracked files must remain unstaged. Deploy Old only after committing and building the release snapshot.
+
 ## 2026-11-10 canvas generation polling ReferenceError fixed (ready for Old deployment)
 
 - User report: newly created local canvas node returns `node is not define` when generating.
