@@ -443,13 +443,41 @@ function generationImageResultObjectKey(value = "") {
 
 function generationImageResultUrls(record = {}) {
   const seen = new Set();
-  return [
-    ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
-    ...(Array.isArray(record.imageResultUrls) ? record.imageResultUrls : []),
-    ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
+  const providerKeys = new Set([
+    ...(Array.isArray(record.providerImageUrls) ? record.providerImageUrls : []),
     ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
-    generationImageResultUrl(record),
-  ].map((item) => String(item || "").trim()).filter(isGenerationImageOutputUrl).filter((url) => {
+    record.providerImageUrl,
+    record.remoteImageUrl,
+    record.upstreamImageUrl,
+  ].map((item) => String(item || "").trim()).map(generationImageResultObjectKey).filter(Boolean));
+  const storedUrls = [
+    ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
+    ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
+    record.cdnImageUrl,
+    record.localImageUrl,
+  ];
+  const hasStoredImage = storedUrls.map((item) => String(item || "").trim()).some(isGenerationImageOutputUrl);
+  const resultUrls = hasStoredImage
+    // A completed generation can expose the durable copy and the provider's
+    // temporary copy under different paths. Once the durable copy exists, the
+    // public record's imageResultUrls may still be the provider fallback until
+    // the next refresh. Keep only durable copies so the same generated image is
+    // not rendered twice. Distinct durable outputs remain untouched.
+    ? [
+        ...storedUrls,
+        ...(Array.isArray(record.imageResultUrls) ? record.imageResultUrls : [])
+          .filter((url) => !providerKeys.has(generationImageResultObjectKey(url))),
+      ]
+    : [
+        ...(Array.isArray(record.imageResultUrls) ? record.imageResultUrls : []),
+        ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
+        ...(Array.isArray(record.providerImageUrls) ? record.providerImageUrls : []),
+        record.remoteImageUrl,
+        record.providerImageUrl,
+        record.upstreamImageUrl,
+        generationImageResultUrl(record),
+      ];
+  return resultUrls.map((item) => String(item || "").trim()).filter(isGenerationImageOutputUrl).filter((url) => {
     const key = generationImageResultObjectKey(url);
     if (!key || seen.has(key)) return false;
     seen.add(key);

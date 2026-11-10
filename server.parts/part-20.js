@@ -1126,6 +1126,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(Array.isArray(record.imageResultUrls) ? record.imageResultUrls : []),
     ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
     ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
+    record.cdnImageUrl,
+    record.localImageUrl,
+    record.imageResultUrl,
   ].map((item) => String(item || "").trim()).filter(isGenerationImageOutputUrl))];
   const storedImageKeys = generationRecordImageStorageKeys(record);
   const deliveryImageUrls = storedImageUrls
