@@ -382,7 +382,14 @@ test("transient database failures preserve login state on user and admin surface
   const part32 = read("server.parts/part-32.js");
   const me = part32.match(/async function handleMe\([\s\S]*?\n}\r?\n\r?\nasync function handleGetCompanionLevel/);
   assert.ok(me, "handleMe should exist");
-  assert.match(me[0], /getAuth\(req, \{ includeUserAssets: false \}\)/);
+  assert.match(me[0], /getAuth\(req, \{ loadDb: false \}\)/);
+  assert.match(me[0], /await hydrateAuthSummaryDb\(auth\)/);
+  const summary = read("db.js").match(/async function getUserAuthSummaryFromDb\([\s\S]*?\n}\r?\n\r?\nasync function getUserAssetsByIdsFromDb/);
+  assert.ok(summary, "single-user auth summary reader should exist");
+  assert.match(summary[0], /FROM app_wallet_orders o/);
+  assert.match(summary[0], /FROM app_user_characters c/);
+  assert.match(summary[0], /FROM app_credit_ledger l/);
+  assert.doesNotMatch(summary[0].split("\n", 4).join("\n"), /readAppDbFromTables|readDb\(/);
 
   const admin = read("admin.js");
   const bootstrapFetch = admin.match(/async function fetchBootstrapMe\([\s\S]*?\n}\r?\n\r?\nasync function bootstrap/);

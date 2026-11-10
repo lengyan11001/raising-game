@@ -1,10 +1,17 @@
-## 2026-11-10 auth path database hotspot cleanup (ready for Old deployment)
+## 2026-11-10 auth/me single-user summary cleanup (ready for Old deployment)
+
+- Goal: remove the remaining full-database snapshot from the frequently polled authenticated `/api/auth/me` and `/api/companion/level` paths while preserving companion level and profile statistics.
+- Code: `getUserAuthSummaryFromDb()` reads only the current user's paid wallet orders, active characters, and gift ledger rows in one aggregate query. `/api/auth/me` and `/api/companion/level` authenticate with `loadDb:false`, then hydrate that bounded summary. No session, account, balance, or media record is changed.
+- Verification: refund/generation/auth/companion focused suite passes 48/48; targeted syntax checks and `git diff --check` pass.
+
+## 2026-11-10 auth path database hotspot cleanup (deployed Old)
 
 - Goal: remove full-database snapshots from normal email, Google, and Telegram authentication while preserving all existing sessions and password login for legacy users.
 - Code: `server.parts/part-32.js` no longer calls `readDb()` for DB-backed existing-user auth. Email, password reset, email binding, Google, and Telegram paths use indexed single-user lookups; registration allocates usernames via indexed uniqueness checks.
 - Safety: Google first-user admin detection now uses `hasAnyActiveUserInDb()` (`SELECT EXISTS`) instead of a loaded user count, preventing a lightweight auth object from incorrectly granting admin.
 - Verification: focused refund/generation/auth suite passes 40/40; targeted syntax checks pass.
 - Publish scope: `db.js`, `server.parts/part-01.js`, `server.parts/part-32.js`, `test/auth-risk.test.js`, this state entry. Exclude all unrelated WIP.
+- Deployment verification: `platform-release=371a792`, service `active`, `NRestarts=0`, health 200, sessions unchanged at 946, and no pool timeout/error after 14:39 deployment. PostgreSQL was 1 active / 13 idle and host load was normal; no system upgrade required.
 
 ## 2026-11-10 repeated user/admin logout diagnosis and recovery (ready for Old deployment)
 

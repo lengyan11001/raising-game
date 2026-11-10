@@ -1021,9 +1021,16 @@ async function handleGoogleLogin(req, res) {
   }
 }
 
+async function hydrateAuthSummaryDb(auth) {
+  if (!auth?.user || !dbEnabled()) return;
+  const summary = await getUserAuthSummaryFromDb(auth.user.id);
+  auth.db = { ...lightweightAuthDb(), ...auth.db, ...summary };
+}
+
 async function handleMe(req, res) {
-  const auth = await getAuth(req, { includeUserAssets: false });
+  const auth = await getAuth(req, { loadDb: false });
   if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
+  if (auth.user) await hydrateAuthSummaryDb(auth);
   if (auth.user && !auth.user.apiToken) {
     ensureUserApiToken(auth.user, auth.db);
     if (dbEnabled()) await updateUserInDb(auth.user);
@@ -1043,8 +1050,9 @@ async function handleMe(req, res) {
 }
 
 async function handleGetCompanionLevel(req, res) {
-  const auth = await requireUser(req, res, { includeUserAssets: false });
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
+  await hydrateAuthSummaryDb(auth);
   return sendJson(res, 200, { ok: true, companionLevel: companionLevelSummary(auth.db, auth.user.id) });
 }
 

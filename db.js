@@ -3614,6 +3614,40 @@ async function getUserAssetsForUserFromDb(userId = "") {
   return rows.map(recordFromPayloadRow);
 }
 
+async function getUserAuthSummaryFromDb(userId = "") {
+  if (!dbEnabled()) return { walletOrders: [], userCharacters: [], creditLedger: [] };
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { walletOrders: [], userCharacters: [], creditLedger: [] };
+  await ensureSchema();
+  // /api/auth/me is polled by every signed-in client. Build only the current
+  // user's account summary in one round trip instead of loading every table in
+  // readDb(). The returned shapes intentionally match the domain helpers.
+  const { rows } = await query(`
+    SELECT
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(o) ORDER BY o.created_at DESC)
+        FROM app_wallet_orders o
+        WHERE o.user_id = $1 AND o.status = 'paid'
+      ), '[]'::jsonb) AS wallet_orders,
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(c) ORDER BY c.created_at DESC)
+        FROM app_user_characters c
+        WHERE c.user_id = $1 AND c.deleted_at IS NULL
+      ), '[]'::jsonb) AS user_characters,
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(l) ORDER BY l.created_at DESC)
+        FROM app_credit_ledger l
+        WHERE l.user_id = $1 AND l.delta < 0 AND l.type ILIKE '%gift%'
+      ), '[]'::jsonb) AS credit_ledger
+  `, [cleanUserId]);
+  const row = rows[0] || {};
+  return {
+    walletOrders: (Array.isArray(row.wallet_orders) ? row.wallet_orders : []).map(walletOrderFromRow),
+    userCharacters: (Array.isArray(row.user_characters) ? row.user_characters : []).map(recordFromPayloadRow),
+    creditLedger: (Array.isArray(row.credit_ledger) ? row.credit_ledger : []).map(ledgerFromRow),
+  };
+}
+
 async function getUserAssetsByIdsFromDb({ userId = "", assetIds = [] } = {}) {
   if (!dbEnabled()) return [];
   const cleanUserId = String(userId || "").trim();
@@ -8751,6 +8785,7 @@ module.exports = {
   upsertUserAssetInDb,
   getUserAssetFromDb,
   getUserAssetsForUserFromDb,
+  getUserAuthSummaryFromDb,
   getUserAssetsByIdsFromDb,
   getVegaMediaLibraryEntryFromDb,
   getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,

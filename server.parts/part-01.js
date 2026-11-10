@@ -260,6 +260,7 @@ const {
   upsertUserAssetInDb,
   getUserAssetFromDb,
   getUserAssetsForUserFromDb,
+  getUserAuthSummaryFromDb,
   getUserAssetsByIdsFromDb,
   getVegaMediaLibraryEntryFromDb,
   getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,
