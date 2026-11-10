@@ -227,8 +227,15 @@ window.reconnectWorkflowEdge = reconnectWorkflowEdge;
 window.runWorkflowSingleNode = runWorkflowSingleNode;
 
 function workflowConnectionRuleMatches(from = {}, to = {}) {
+  const fromType = String(from?.type || "");
+  const toType = String(to?.type || "");
   const generationTypes = new Set(["imageGenerate", "unifiedVideoGen"]);
-  return generationTypes.has(from?.type || "") && generationTypes.has(to?.type || "");
+  const resultTypes = new Set(["imageResult", "videoResult", "imageDisplay"]);
+  // Reference canvas contract: a model/generation node owns its result task
+  // node, and only that task/result node can feed the next generation node.
+  // A generation node itself is never a valid upstream media input.
+  return (generationTypes.has(fromType) && resultTypes.has(toType))
+    || (resultTypes.has(fromType) && generationTypes.has(toType));
 }
 
 function workflowCanConnectNodes(fromId = "", toId = "", ignoredEdge = null) {
@@ -374,11 +381,16 @@ function workflowGeneratedNodePosition(source = {}) {
   const cardWidth = 420;
   const columnGap = 28;
   const rowGap = 24;
+  const resultCardHeight = 360;
   const index = workflowGeneratedResultChildren(source).length;
   return {
     x: Number(source.x || 0) + cardWidth + columnGap,
-    y: Number(source.y || 0) + index * (620 + rowGap),
+    y: Number(source.y || 0) + index * (resultCardHeight + rowGap),
   };
+}
+
+function workflowResultNodeType(kind = "image") {
+  return kind === "video" ? "videoResult" : "imageResult";
 }
 
 function createWorkflowGeneratedResultNode(sourceNode = {}, result = {}, kind = "image") {
@@ -387,6 +399,7 @@ function createWorkflowGeneratedResultNode(sourceNode = {}, result = {}, kind = 
   if (!newNode) return null;
   const sourceData = sourceNode.data || {};
   const resultNumber = workflowGeneratedResultChildren(sourceNode).length + 1;
+  newNode.type = workflowResultNodeType(kind);
   newNode.title = `${kind === "video" ? "视频结果" : "图片结果"} ${resultNumber}`;
   const commonData = {
     ...(newNode.data || {}),
@@ -486,11 +499,11 @@ function workflowNodeHasOwnContent(node = {}) {
 function workflowGenerationRunNode(node = {}) {
   if (!node?.id) return null;
   if (node.data?.generationRunPlaceholder) return node;
-  if (!workflowNodeHasOwnContent(node)) return node;
   const workflow = ensureWorkflowState();
   const kind = ["imageDisplay", "imageGenerate"].includes(node.type) ? "image" : "video";
   const newNode = createWorkflowNode(kind === "video" ? "add-video" : "add-image", workflowGeneratedNodePosition(node));
   if (!newNode) return node;
+  newNode.type = workflowResultNodeType(kind);
   newNode.title = `${kind === "video" ? "视频结果" : "图片结果"} ${workflowGeneratedResultChildren(node).length + 1}`;
   const sourceReferences = workflowNodeCanvasReferences(node);
   newNode.data = {
@@ -567,12 +580,9 @@ function workflowStoreCompletedNodeResult(node = {}, kind = "image", result = {}
 }
 
 function workflowSeedancePromptAliases(prompt = "") {
-  return String(prompt || "").replace(/@(image|图片|video|视频|audio|音频)\s*(\d+)/gi, (_, kind, index) => {
-    const normalized = String(kind).toLowerCase();
-    if (normalized === "image" || normalized === "图片") return `Image ${index}`;
-    if (normalized === "video" || normalized === "视频") return `Video ${index}`;
-    return `Audio ${index}`;
-  });
+  // Keep @ in the submitted prompt. Users use @Image 1 / @Video 1 to select
+  // canvas references, and the provider receives the exact text they wrote.
+  return String(prompt || "");
 }
 
 function workflowVideoProviderConfig(node = {}) {
@@ -722,8 +732,14 @@ function workflowVideoGenerationBody(node = {}) {
   return body;
 }
 
-async function runWorkflowImageNode(node = {}) {
-  workflowSetNodeData(node.id, { status: "preparing", error: "", record: null, taskId: "" });
+function workflowResultNodeForRun(node = {}, kind = "image") {
+  if (!node?.id) return null;
+  return ["imageResult", "videoResult", "imageDisplay"].includes(node.type) && node.data?.generationRunPlaceholder
+    ? node
+    : null;
+}
+
+async function workflowSubmitImageTask(node = {}) {
   const model = workflowImageModelById(node.data?.modelId);
   const references = workflowNodeImageInputs(node);
   if (model.id === "qwen-image-edit-spicy" && !references.length) throw new Error("Qwen Image Edit Spicy requires an input image.");
@@ -744,35 +760,20 @@ async function runWorkflowImageNode(node = {}) {
   } else {
     payload = await requestJson("/api/advanced/generate", { method: "POST", body: workflowImageGenerationBody(node) });
   }
-  if (payload.user) setUser(payload.user);
-  const submitted = workflowRecordFromPayload(payload, { prompt: node.data?.prompt || "", model: model.label, resolution: node.data?.resolution || model.resolution, ratio: node.data?.ratio || model.ratio, duration: 1 });
+  const submitted = workflowRecordFromPayload(payload, {
+    prompt: node.data?.prompt || "",
+    model: model.label,
+    resolution: node.data?.resolution || model.resolution,
+    ratio: node.data?.ratio || model.ratio,
+    duration: 1,
+  });
   const taskId = payload.taskId || payload.task?.taskId || submitted.taskId || "";
   const immediateImage = payload.imageUrl || payload.localImageUrl || generationImageResultUrl(submitted);
   if (!taskId && !immediateImage) throw new Error("Image generation did not return a task or image.");
-  if (payload.user) setUser(payload.user);
-  if (immediateImage && !taskId) {
-    workflowStoreCompletedNodeResult(node, "image", {
-      imageUrl: immediateImage,
-      imageUrls: [immediateImage],
-    }, submitted, "");
-    return { taskId: "", imageUrl: immediateImage, record: submitted };
-  }
-  workflowSetNodeData(node.id, { status: submitted.status || "submitted", record: submitted, taskId });
-  mergeAdvancedResultRecord(submitted);
-  const finalRecord = await pollWorkflowTask(node.id, taskId, "image");
-  if (!finalRecord || !isSucceededGenerationStatus(finalRecord.status)) throw new Error(finalRecord?.error || `${model.label} failed.`);
-  const imageUrl = generationImageResultUrl(finalRecord) || workflowNodeResultImage(node);
-  if (!imageUrl) throw new Error(`${model.label} completed without an image result.`);
-  workflowStoreCompletedNodeResult(node, "image", {
-    imageUrl,
-    imageUrls: generationImageResultUrls(finalRecord),
-    posterUrl: generationPosterUrl(finalRecord),
-  }, finalRecord, taskId);
-  return { taskId, imageUrl, record: finalRecord };
+  return { payload, submitted, taskId, immediateImage, model };
 }
 
-async function runWorkflowVideoNode(node = {}) {
-  workflowSetNodeData(node.id, { status: "preparing", error: "", record: null, taskId: "" });
+async function workflowSubmitVideoTask(node = {}) {
   const model = workflowVideoModelById(node.data?.modelId);
   const body = workflowVideoGenerationBody(node);
   if (!String(body.prompt || "").trim() && !body.referenceImages?.length && !body.referenceVideoUrls?.length && !body.videoDataUrl) {
@@ -780,29 +781,110 @@ async function runWorkflowVideoNode(node = {}) {
   }
   state.workflowMessage = `Running ${model.label}...`;
   const payload = await requestJson("/api/advanced/generate", { method: "POST", body });
-  if (payload.user) setUser(payload.user);
-  const record = workflowRecordFromPayload(payload, { prompt: body.prompt, model: model.label, resolution: body.resolution, duration: body.duration, ratio: body.ratio });
-  const taskId = payload.taskId || payload.task?.taskId || record.taskId || "";
+  const submitted = workflowRecordFromPayload(payload, {
+    prompt: body.prompt,
+    model: model.label,
+    resolution: body.resolution,
+    duration: body.duration,
+    ratio: body.ratio,
+  });
+  const taskId = payload.taskId || payload.task?.taskId || submitted.taskId || "";
   if (!taskId) throw new Error("Video generation did not return a task id.");
-  workflowSetNodeData(node.id, { status: record.status || "submitted", record, taskId });
-  mergeAdvancedResultRecord(record);
-  const finalRecord = await pollWorkflowTask(node.id, taskId, "video");
-  if (!finalRecord || !isSucceededGenerationStatus(finalRecord.status)) throw new Error(finalRecord?.error || `${model.label} failed.`);
-  const videoUrl = generationVideoUrl(finalRecord) || workflowNodeResultVideo(node);
-  if (!videoUrl) throw new Error(`${model.label} completed without a result video.`);
-  workflowStoreCompletedNodeResult(node, "video", {
-    videoUrl,
-    posterUrl: generationPosterUrl(finalRecord),
-  }, finalRecord, taskId);
-  return { taskId, videoUrl, record: finalRecord };
+  return { payload, submitted, taskId, model };
+}
+
+async function runWorkflowImageNode(node = {}) {
+  const model = workflowImageModelById(node.data?.modelId);
+  if (!workflowResultNodeForRun(node, "image")) {
+    // Reference canvas contract: create the result/task node only after the
+    // provider accepted the task. The model node stays parameters-only.
+    const submission = await workflowSubmitImageTask(node);
+    const runNode = workflowGenerationRunNode(node);
+    if (!runNode) throw new Error("Could not create an image result node.");
+    state.workflowRunningNodeIds = [...new Set([...(state.workflowRunningNodeIds || []), String(runNode.id)])];
+    state.workflowActiveNodeId = runNode.id;
+    if (submission.immediateImage && !submission.taskId) {
+      if (submission.payload.user) setUser(submission.payload.user);
+      workflowStoreCompletedNodeResult(runNode, "image", {
+        imageUrl: submission.immediateImage,
+        imageUrls: [submission.immediateImage],
+      }, submission.submitted, "");
+      return { taskId: "", imageUrl: submission.immediateImage, record: submission.submitted };
+    }
+    if (submission.payload.user) setUser(submission.payload.user);
+    workflowSetNodeData(runNode.id, { status: submission.submitted.status || "submitted", record: submission.submitted, taskId: submission.taskId });
+    mergeAdvancedResultRecord(submission.submitted);
+    const finalRecord = await pollWorkflowTask(runNode.id, submission.taskId, "image");
+    if (!finalRecord || !isSucceededGenerationStatus(finalRecord.status)) throw new Error(finalRecord?.error || `${model.label} failed.`);
+    const imageUrl = generationImageResultUrl(finalRecord) || workflowNodeResultImage(runNode);
+    if (!imageUrl) throw new Error(`${model.label} completed without an image result.`);
+    workflowStoreCompletedNodeResult(runNode, "image", {
+      imageUrl,
+      imageUrls: generationImageResultUrls(finalRecord),
+      posterUrl: generationPosterUrl(finalRecord),
+    }, finalRecord, submission.taskId);
+    return { taskId: submission.taskId, imageUrl, record: finalRecord };
+  }
+  // A result/task node is an existing task container. It may resume polling,
+  // but it must never submit a second task or be used as an input by mistake.
+  if (node.data?.taskId) {
+    const finalRecord = await pollWorkflowTask(node.id, node.data.taskId, "image");
+    if (!finalRecord || !isSucceededGenerationStatus(finalRecord.status)) throw new Error(finalRecord?.error || `${model.label} failed.`);
+    const imageUrl = generationImageResultUrl(finalRecord) || workflowNodeResultImage(node);
+    if (!imageUrl) throw new Error(`${model.label} completed without an image result.`);
+    workflowStoreCompletedNodeResult(node, "image", {
+      imageUrl,
+      imageUrls: generationImageResultUrls(finalRecord),
+      posterUrl: generationPosterUrl(finalRecord),
+    }, finalRecord, node.data.taskId);
+    return { taskId: node.data.taskId, imageUrl, record: finalRecord };
+  }
+  throw new Error("Result node has no task to resume.");
+}
+
+async function runWorkflowVideoNode(node = {}) {
+  const model = workflowVideoModelById(node.data?.modelId);
+  if (!workflowResultNodeForRun(node, "video")) {
+    const submission = await workflowSubmitVideoTask(node);
+    const runNode = workflowGenerationRunNode(node);
+    if (!runNode) throw new Error("Could not create a video result node.");
+    state.workflowRunningNodeIds = [...new Set([...(state.workflowRunningNodeIds || []), String(runNode.id)])];
+    state.workflowActiveNodeId = runNode.id;
+    if (submission.payload.user) setUser(submission.payload.user);
+    workflowSetNodeData(runNode.id, { status: submission.submitted.status || "submitted", record: submission.submitted, taskId: submission.taskId });
+    mergeAdvancedResultRecord(submission.submitted);
+    const finalRecord = await pollWorkflowTask(runNode.id, submission.taskId, "video");
+    if (!finalRecord || !isSucceededGenerationStatus(finalRecord.status)) throw new Error(finalRecord?.error || `${model.label} failed.`);
+    const videoUrl = generationVideoUrl(finalRecord) || workflowNodeResultVideo(runNode);
+    if (!videoUrl) throw new Error(`${model.label} completed without a result video.`);
+    workflowStoreCompletedNodeResult(runNode, "video", {
+      videoUrl,
+      posterUrl: generationPosterUrl(finalRecord),
+    }, finalRecord, submission.taskId);
+    return { taskId: submission.taskId, videoUrl, record: finalRecord };
+  }
+  if (node.data?.taskId) {
+    const finalRecord = await pollWorkflowTask(node.id, node.data.taskId, "video");
+    if (!finalRecord || !isSucceededGenerationStatus(finalRecord.status)) throw new Error(finalRecord?.error || `${model.label} failed.`);
+    const videoUrl = generationVideoUrl(finalRecord) || workflowNodeResultVideo(node);
+    if (!videoUrl) throw new Error(`${model.label} completed without a result video.`);
+    workflowStoreCompletedNodeResult(node, "video", {
+      videoUrl,
+      posterUrl: generationPosterUrl(finalRecord),
+    }, finalRecord, node.data.taskId);
+    return { taskId: node.data.taskId, videoUrl, record: finalRecord };
+  }
+  throw new Error("Result node has no task to resume.");
 }
 
 async function runWorkflowNode(node = {}) {
   workflowThrowIfCancelled(node.id);
   state.workflowActiveNodeId = node.id;
   state.workflowSelectedNodeId = node.id;
-  if (["imageDisplay", "imageGenerate"].includes(node.type)) return runWorkflowImageNode(node);
-  if (["unifiedVideoGen", "video"].includes(node.type)) return runWorkflowVideoNode(node);
+  // Result/task nodes are media containers only. They are valid upstream
+  // inputs, but they must never submit a second generation themselves.
+  if (["imageDisplay", "imageGenerate", "imageResult"].includes(node.type)) return runWorkflowImageNode(node);
+  if (["unifiedVideoGen", "video", "videoResult"].includes(node.type)) return runWorkflowVideoNode(node);
   throw new Error("Workflow node not found.");
 }
 
@@ -965,22 +1047,26 @@ async function runWorkflowNodeLegacyDisabled(node = {}, { previousFrameUrl = "",
   return { taskId, videoUrl, frameUrl, record: finalRecord, model };
 }
 
-function workflowCompletedRunData(nodes = workflowOrderedVideoNodes()) {
+function workflowCompletedRunData(nodes = workflowOrderedExecutableNodes()) {
   const taskIds = [];
   const videoUrls = [];
   const imageUrls = [];
   let allComplete = Boolean(nodes.length);
   nodes.forEach((node) => {
-    const videoUrl = workflowNodeResultVideo(node);
-    const imageUrl = workflowNodeResultImage(node);
-    const taskId = node.data?.taskId || node.data?.record?.taskId || "";
-    if (!workflowNodeHasSuccessfulResult(node) || (!videoUrl && !imageUrl)) {
+    const results = workflowGeneratedResultChildren(node);
+    const completedResults = results.filter((resultNode) => workflowNodeHasSuccessfulResult(resultNode));
+    if (!results.length || completedResults.length !== results.length) {
       allComplete = false;
       return;
     }
-    if (videoUrl) videoUrls.push(videoUrl);
-    if (imageUrl) imageUrls.push(imageUrl);
-    if (taskId) taskIds.push(taskId);
+    completedResults.forEach((resultNode) => {
+      const videoUrl = workflowNodeResultVideo(resultNode);
+      const imageUrl = workflowNodeResultImage(resultNode);
+      const taskId = resultNode.data?.taskId || resultNode.data?.record?.taskId || "";
+      if (videoUrl) videoUrls.push(videoUrl);
+      if (imageUrl) imageUrls.push(imageUrl);
+      if (taskId) taskIds.push(taskId);
+    });
   });
   return { allComplete, taskIds, videoUrls, imageUrls };
 }
@@ -1071,26 +1157,53 @@ async function runWorkflowSingleNode(nodeId = "") {
     renderWorkflowPanel();
     return;
   }
-  const runNode = workflowGenerationRunNode(node);
-  if (!runNode) throw new Error("Could not create a generation node.");
-  state.workflowRunningNodeIds = [...new Set([...(state.workflowRunningNodeIds || []), String(runNode.id)])];
-  state.workflowRunning = state.workflowRunningNodeIds.length > 0;
-  state.workflowActiveNodeId = runNode.id;
+  const sourceNodeId = String(node.id);
+  state.workflowRunningNodeIds = [...new Set([...(state.workflowRunningNodeIds || []), sourceNodeId])];
+  state.workflowRunning = true;
+  state.workflowActiveNodeId = sourceNodeId;
   state.workflowMessage = "Running node...";
   renderWorkflowPanel();
   try {
-    await runWorkflowNode(runNode);
-    state.workflowMessage = `${runNode.title || "Node"} completed.`;
+    await runWorkflowNode(node);
+    state.workflowMessage = `${node.title || "Node"} completed.`;
   } catch (error) {
-    workflowHandleExecutionError(error, runNode.id);
+    workflowHandleExecutionError(error, state.workflowActiveNodeId || sourceNodeId);
   } finally {
-    state.workflowRunningNodeIds = (state.workflowRunningNodeIds || []).filter((id) => id !== String(runNode.id));
+    const completedResultIds = workflowGeneratedResultChildren(node)
+      .filter((child) => child.data?.generatedFromNodeId === sourceNodeId)
+      .slice(-1)
+      .map((child) => String(child.id));
+    const finishedIds = new Set([sourceNodeId, state.workflowActiveNodeId, ...completedResultIds].filter(Boolean).map(String));
+    state.workflowRunningNodeIds = (state.workflowRunningNodeIds || []).filter((id) => !finishedIds.has(String(id)));
     state.workflowRunning = state.workflowRunningNodeIds.length > 0;
     state.workflowActiveNodeId = state.workflowRunningNodeIds[state.workflowRunningNodeIds.length - 1] || "";
     persistWorkflowState();
     renderWorkflowPanel();
   }
 }
+
+const workflowResultResumeJobs = new Set();
+
+async function resumeWorkflowResultNode(nodeId = "") {
+  const id = String(nodeId || "").trim();
+  if (!id || workflowResultResumeJobs.has(id) || !state.user) return false;
+  const node = workflowNodeById(id);
+  if (!node?.data?.generationRunPlaceholder || !node.data?.taskId) return false;
+  if (isTerminalGenerationStatus(node.data.status)) return false;
+  workflowResultResumeJobs.add(id);
+  try {
+    return await runWorkflowNode(node);
+  } catch (error) {
+    workflowHandleExecutionError(error, id);
+    return false;
+  } finally {
+    workflowResultResumeJobs.delete(id);
+    persistWorkflowState();
+    window.WorkflowReactCanvas?.sync?.();
+  }
+}
+
+window.resumeWorkflowResultNode = resumeWorkflowResultNode;
 
 async function runWorkflow() {
   if (!state.user) return openLogin();
@@ -1111,7 +1224,7 @@ async function runWorkflow() {
       workflowThrowIfCancelled(node.id);
       const dependencies = workflowIncomingEdges(node.id)
         .map((edge) => workflowNodeById(edge.from))
-        .filter((item) => item && ["imageDisplay", "imageGenerate", "unifiedVideoGen", "video"].includes(item.type));
+        .filter((item) => item && ["imageResult", "videoResult", "imageDisplay"].includes(item.type));
       if (dependencies.some((dependency) => !workflowNodeHasSuccessfulResult(dependency))) {
         throw new Error(`${node.title || "Node"} is waiting for a connected input.`);
       }

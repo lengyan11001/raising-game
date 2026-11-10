@@ -1,19 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { NodeLayout } from '../nodes/NodeLayout';
 import { useSiteNode, optionsFrom, selectedOption } from './useSiteNode';
-import { GenerationResultMedia } from './GenerationResultMedia';
 import { SiteNodeUpload } from './SiteNodeUpload';
 import { PromptMentionTextarea } from './PromptMentionTextarea';
-
-function videoResults(node = {}, nodeId = '') {
-  const sourceNode = (typeof window.workflowNodeById === 'function' && window.workflowNodeById(nodeId)) || node;
-  if (!sourceNode?.data) return [];
-  if (typeof window.workflowNodeOwnResultVideos === 'function') return window.workflowNodeOwnResultVideos(sourceNode);
-  if (typeof window.workflowNodeResultVideos === 'function') return window.workflowNodeResultVideos(sourceNode);
-  if (typeof window.workflowNodeResultVideo === 'function') return [window.workflowNodeResultVideo(sourceNode)].filter(Boolean);
-  const data = sourceNode.data || {};
-  return [...new Set([...(data.resultVideoUrls || []), ...(data.videoUrls || []), data.resultVideoUrl, data.videoUrl].filter(Boolean))];
-}
 
 function canvasReferences(node = {}, nodeId = '') {
   const sourceNode = (typeof window.workflowNodeById === 'function' && window.workflowNodeById(nodeId)) || node;
@@ -39,7 +28,6 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
   const resolutions = optionsFrom(typeof window.workflowVideoResolutionOptions === 'function' ? window.workflowVideoResolutionOptions(model) : ['720p']);
   const durations = optionsFrom(typeof window.workflowVideoDurationOptions === 'function' ? window.workflowVideoDurationOptions(model, data.resolution) : [5], { '-1': '自动' });
   const modes = (typeof window.workflowVideoModeOptions === 'function' ? window.workflowVideoModeOptions(model) : []);
-  const results = useMemo(() => videoResults(node, id), [node, id]);
   const references = useMemo(() => canvasReferences(node, id), [node, id]);
   // A controlled React Flow node can briefly outlive its business record while
   // deletion is being propagated. Do not call node helpers with null.
@@ -97,20 +85,12 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
       showOutputHandle
       showDuplicateButton={false}
       selected={selected}
-      canDownload={results.length > 0}
+      canDownload={false}
     >
       <div className="site-generation-node is-video">
-        <div className="site-generation-result">
-          <GenerationResultMedia
-            kind="video"
-            urls={results}
-            poster={poster}
-            status={results.length ? 'succeeded' : data.status}
-            error={results.length ? '' : data.error}
-            sourceNodeId={id}
-            uploadProgress={data.uploadProgress}
-            uploadFileName={data.uploadFileName}
-          />
+        <div className="site-generation-summary">
+          <span><i className="bi bi-camera-video" /> {model.label || model.id || '视频生成'}</span>
+          <small>{data.status ? String(data.status) : '就绪'} · {data.ratio || model.ratio || '16:9'} · {data.duration || model.duration || 5}s</small>
         </div>
         <div className="site-generation-controls is-selected-only">
           <label className="site-field site-prompt-field">

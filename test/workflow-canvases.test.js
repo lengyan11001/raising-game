@@ -259,8 +259,8 @@ test("canvas media controls open an in-app preview without download links", () =
   assert.match(css, /\.site-media-preview-frame\.has-size/);
   assert.match(css, /\.site-image-result img \{[\s\S]*?width: auto;[\s\S]*?max-width: 100%;[\s\S]*?max-height: min\(360px, 42vh\);[\s\S]*?aspect-ratio: auto;[\s\S]*?object-fit: contain;/);
   assert.doesNotMatch(css, /\.site-image-result img \{[\s\S]*?aspect-ratio: 1 \/ 1;/);
-  assert.match(css, /\.site-generation-result \{[\s\S]*?min-height: 190px;[\s\S]*?overflow: visible;/);
-  assert.doesNotMatch(css, /\.site-generation-result \{[\s\S]*?max-height: 210px;/);
+  assert.doesNotMatch(css, /\.site-generation-result \{/);
+  assert.match(css, /\.site-result-node-media \{[\s\S]*?min-height: 220px;/);
   assert.match(css, /\.site-media-preview-close \{[\s\S]*?position: absolute;[\s\S]*?top: 10px;[\s\S]*?right: 10px;/);
 });
 
@@ -274,7 +274,8 @@ test("workflow generation runs concurrently per node", () => {
   assert.match(nodeUi, /workflowRunningNodeIds\.includes/);
   assert.doesNotMatch(nodeUi, /if \(state\.workflowRunning\) \{\s*return \{ canRun: false/);
   assert.match(runner, /workflowRunningNodeIds = \[\.\.\.new Set/);
-  assert.match(runner, /filter\(\(id\) => id !== String\(runNode\.id\)\)/);
+  assert.match(nodeUi, /workflowRunningNodeIds\.includes\(String\(node\?\.id \|\| ""\)\)/);
+  assert.match(runner, /const finishedIds = new Set\(\[sourceNodeId, state\.workflowActiveNodeId, \.\.\.completedResultIds\]/);
 });
 
 test("workflow uploads store asset references instead of embedded media", () => {
@@ -543,8 +544,8 @@ test("workflow React Flow adapter owns creation, connection, and business deleti
   assert.match(canvas, /window\.workflowCanConnectNodes\(connection\.source, connection\.target\)/);
   assert.match(canvas, /onNodesDelete=\{\(deleted\) =>/);
   assert.match(canvas, /onEdgesDelete=\{\(deleted\) =>/);
-  assert.match(canvas, /minZoom=\{0\.25\}/);
-  assert.match(canvas, /maxZoom=\{1\.5\}/);
+  assert.match(canvas, /minZoom=\{0\.1\}/);
+  assert.match(canvas, /maxZoom=\{2\}/);
   assert.match(canvas, /nodeTypes=\{nodeTypes\}/);
   assert.match(canvas, /screenToFlowPosition/);
   assert.match(bridge, /function toReactFlowGraph/);
@@ -586,13 +587,16 @@ test("source canvas supports double-click creation and only two site node types"
   assert.match(canvas, /screenToFlowPosition\(\{ x: event\.clientX, y: event\.clientY \}\)/);
   assert.match(siteNodes, /siteImageGeneration: SiteImageGenerationNode/);
   assert.match(siteNodes, /siteVideoGeneration: SiteVideoGenerationNode/);
-  assert.doesNotMatch(siteNodes, /prompt|imageReference|videoReference|imageResult|videoResult|output/i);
+  assert.match(siteNodes, /siteImageResult: SiteImageResultNode/);
+  assert.match(siteNodes, /siteVideoResult: SiteVideoResultNode/);
+  assert.doesNotMatch(siteNodes, /prompt|imageReference|videoReference|output/i);
   assert.match(ui, /type: "imageGenerate"/);
   assert.match(ui, /type: "unifiedVideoGen"/);
 });
 
 test("workflow connection types and empty input handles are validated", () => {
   const ui = read("platform.ui.js");
+  const part = read("platform.ui.parts/part-06.js");
 
   assert.match(ui, /function workflowConnectionRuleMatches\(from = \{\}, to = \{\}\)/);
   assert.match(ui, /function workflowCanConnectNodes\(fromId = "", toId = "", ignoredEdge = null\)/);
@@ -600,8 +604,10 @@ test("workflow connection types and empty input handles are validated", () => {
   assert.match(ui, /if \(!workflowConnectionRuleMatches\(from, to\)\) return false/);
   assert.match(ui, /if \(workflowGraphReachesWithoutEdge\(toId, fromId, ignoredEdge\)\) return false/);
   assert.match(ui, /function workflowConnectionRuleMatches\(from = \{\}, to = \{\}\)/);
-  assert.match(ui, /generationTypes\.has\(from\?\.type \|\| ""\)/);
-  const part = read("platform.ui.parts/part-06.js");
+  assert.match(part, /const resultTypes = new Set\(\["imageResult", "videoResult", "imageDisplay"\]\)/);
+  assert.match(part, /return \(generationTypes\.has\(fromType\) && resultTypes\.has\(toType\)\)/);
+  assert.match(part, /\|\| \(resultTypes\.has\(fromType\) && generationTypes\.has\(toType\)\)/);
+  assert.doesNotMatch(part, /generationTypes\.has\(fromType\) && generationTypes\.has\(toType\)/);
   assert.doesNotMatch(part, /"add-prompt"|"add-image-reference"|"add-video-reference"|"add-output"/);
   assert.doesNotMatch(part, /window\.createWorkflowInputNodeAndConnect/);
 });
@@ -627,6 +633,26 @@ test("workflow generation nodes own their input media without standalone input n
   assert.match(ui, /function renderWorkflowVideoEditor\(node = \{\}\)/);
 });
 
+test("canvas submission preserves @ media mentions and resumes task polling", () => {
+  const part = read("platform.ui.parts/part-06.js");
+  const runtime = new Function(
+    `${extractFunction(part, "workflowSeedancePromptAliases")}
+return { workflowSeedancePromptAliases };`,
+  )();
+  assert.equal(
+    runtime.workflowSeedancePromptAliases("@Image 1 把@Image 2 举在空中"),
+    "@Image 1 把@Image 2 举在空中",
+  );
+  assert.match(part, /window\.resumeWorkflowResultNode = resumeWorkflowResultNode/);
+  assert.match(part, /workflowResultResumeJobs\.has\(id\)/);
+  const imageResume = part.slice(part.indexOf('if (node.data?.taskId) {'), part.indexOf('async function runWorkflowVideoNode'));
+  const videoResume = part.slice(part.indexOf('async function runWorkflowVideoNode'), part.indexOf('async function runWorkflowNode'));
+  assert.match(imageResume, /workflowStoreCompletedNodeResult\(node, "image"/);
+  assert.match(videoResume, /workflowStoreCompletedNodeResult\(node, "video"/);
+  assert.match(read("workflow-react/src/components/canvas/siteNodes/SiteImageResultNode.js"), /resumeWorkflowResultNode/);
+  assert.match(read("workflow-react/src/components/canvas/siteNodes/SiteVideoResultNode.js"), /resumeWorkflowResultNode/);
+});
+
 test("workflow media results feed downstream generation with model-specific payloads", () => {
   const ui = read("platform.ui.js");
   const incoming = read("platform.ui.parts/part-05.js");
@@ -646,14 +672,14 @@ test("workflow media results feed downstream generation with model-specific payl
   assert.match(part, /window\.workflowNodeCanvasReferences = workflowNodeCanvasReferences/);
   assert.doesNotMatch(part, /linkedReferenceImages|linkedReferenceVideos|workflowSyncCanvasNodeReferences/);
   assert.match(part, /function workflowSeedancePromptAliases/);
-  assert.match(part, /return `Image \$\{index\}`/);
+  assert.match(part, /return String\(prompt \|\| ""\)/);
   assert.match(part, /const imagePayload = seedanceFrameMode \? \[\] : workflowReferencePayload\(images\)/);
   assert.match(part, /referenceImages: imagePayload/);
   assert.match(part, /referenceVideoUrls: videoUrls/);
   assert.match(part, /\["wan27-i2v", "happyhorse-i2v", "wan-animate-move", "wan-animate-mix"\]/);
   assert.match(part, /function workflowGenerationRunNode\(node = \{\}\)/);
-  assert.match(part, /workflowStoreCompletedNodeResult\(node, "image", \{[\s\S]*?imageUrl/);
-  assert.match(part, /workflowStoreCompletedNodeResult\(node, "video", \{[\s\S]*?videoUrl/);
+  assert.match(part, /workflowStoreCompletedNodeResult\(runNode, "image", \{[\s\S]*?imageUrl/);
+  assert.match(part, /workflowStoreCompletedNodeResult\(runNode, "video", \{[\s\S]*?videoUrl/);
   assert.match(part, /generationRunPlaceholder: false/);
   assert.match(videoNode, /workflowNodeCanvasReferences/);
   assert.match(videoNode, /references=\{referenceValues\}/);
@@ -755,9 +781,9 @@ test("workflow upload creates a selected linked preview node with generation con
   assert.match(canvas, /window\.uploadWorkflowFilesToNode\(files, targetNodeId\)/);
   assert.match(drop, /window\.uploadWorkflowFilesToNode\(files, nodeId\)/);
   assert.match(read("platform.workflow-react.js"), /window\.uploadWorkflowFilesToNode\(files, node\.id\)/);
-  assert.match(videoNode, /workflowNodeResultVideos/);
+  assert.doesNotMatch(videoNode, /workflowNodeResultVideos|GenerationResultMedia/);
   assert.match(upload, /上传中 \$\{uploadProgress\}%/);
-  assert.match(upload, /提示词中输入 <b>@<\/b> 即可引用素材/);
+  assert.match(upload, /在提示词中输入 <b>@<\/b> 选择并引用素材，例如 @image1/);
   assert.doesNotMatch(upload, /Image1|Image2|按显示顺序编号|提示词写/);
   assert.doesNotMatch(upload, /site-node-upload-index/);
   assert.match(media, /status === 'uploading'/);
@@ -779,7 +805,9 @@ test("workflow generations create a selected same-type node without replacing pr
   assert.match(part, /state\.workflowSelectedNodeId = newNode\.id/);
   assert.match(part, /window\.WorkflowReactCanvas\?\.selectNode\?\.\(newNode\.id\)/);
   assert.match(part, /function workflowGenerationRunNode\(node = \{\}\)/);
-  assert.match(part, /if \(!workflowNodeHasOwnContent\(node\)\) return node/);
+  assert.doesNotMatch(part, /if \(!workflowNodeHasOwnContent\(node\)\) return node/);
+  assert.match(part, /if \(node\.data\?\.generationRunPlaceholder\) return node/);
+  assert.match(part, /newNode\.type = workflowResultNodeType\(kind\)/);
   assert.match(part, /generationRunPlaceholder: true/);
   assert.match(part, /resultImageUrls: \[\]/);
   assert.match(part, /resultVideoUrls: \[\]/);
@@ -787,15 +815,14 @@ test("workflow generations create a selected same-type node without replacing pr
   assert.match(part, /referenceImages: sourceReferences\.images/);
   assert.match(part, /referenceVideos: sourceReferences\.videos/);
   assert.match(part, /workflow\.edges = workflow\.edges\.filter\(\(edge\) => edge\.to !== newNode\.id \|\| edge\.from === node\.id\)/);
-  assert.match(part, /workflow\.edges\.push\(\{ from: node\.id, to: newNode\.id \}\)/);
+  assert.match(part, /if \(workflowCanConnectNodes\(node\.id, newNode\.id\)\) workflow\.edges\.push\(\{ from: node\.id, to: newNode\.id \}\)/);
   assert.doesNotMatch(part, /cloneWorkflowInputEdges\(node\.id, newNode\.id\)/);
   assert.doesNotMatch(part, /window\.connectWorkflowNodes\?\.\(node\.id, newNode\.id\)/);
-  assert.match(part, /async function runWorkflowImageNode\(node = \{\}\) \{\n  workflowSetNodeData\(node\.id, \{ status: "preparing", error: "", record: null, taskId: "" \}\)/);
-  assert.match(part, /async function runWorkflowVideoNode\(node = \{\}\) \{\n  workflowSetNodeData\(node\.id, \{ status: "preparing", error: "", record: null, taskId: "" \}\)/);
-  assert.match(part, /const runNode = workflowGenerationRunNode\(node\)/);
+  assert.match(part, /async function runWorkflowImageNode\(node = \{\}\) \{[\s\S]*?const submission = await workflowSubmitImageTask\(node\);[\s\S]*?const runNode = workflowGenerationRunNode\(node\);/);
+  assert.match(part, /async function runWorkflowVideoNode\(node = \{\}\) \{[\s\S]*?const submission = await workflowSubmitVideoTask\(node\);[\s\S]*?const runNode = workflowGenerationRunNode\(node\);/);
   assert.doesNotMatch(part, /clearWorkflowExecutionResults\(\{ fromNodeId: node\.id/);
-  assert.match(part, /workflowStoreCompletedNodeResult\(node, "image", \{[\s\S]*?imageUrl/);
-  assert.match(part, /workflowStoreCompletedNodeResult\(node, "video", \{[\s\S]*?videoUrl/);
+  assert.match(part, /workflowStoreCompletedNodeResult\(runNode, "image", \{[\s\S]*?imageUrl/);
+  assert.match(part, /workflowStoreCompletedNodeResult\(runNode, "video", \{[\s\S]*?videoUrl/);
   assert.doesNotMatch(part, /async function runWorkflowImageNode[\s\S]*?createWorkflowGeneratedResultNode\(node, \{[\s\S]*?imageUrl/);
   assert.doesNotMatch(part, /async function runWorkflowVideoNode[\s\S]*?createWorkflowGeneratedResultNode\(node, \{[\s\S]*?videoUrl/);
   assert.match(part, /resultImageUrl: imageUrls\[0\]/);
@@ -809,8 +836,10 @@ test("workflow generations create a selected same-type node without replacing pr
   assert.match(ui, /const uploadSource = data\.source === "upload"/);
   assert.match(ui, /\.\.\.\(!uploadSource \? recordVideos : \[\]\)/);
   assert.match(ui, /\.\.\.\(!uploadSource \? record : \[\]\)/);
-  assert.match(imageNode, /workflowNodeOwnResultImages/);
-  assert.match(videoNode, /workflowNodeOwnResultVideos/);
+  assert.doesNotMatch(imageNode, /workflowNodeOwnResultImages|GenerationResultMedia/);
+  assert.doesNotMatch(videoNode, /workflowNodeOwnResultVideos|GenerationResultMedia/);
+  assert.match(imageNode, /site-generation-summary/);
+  assert.match(videoNode, /site-generation-summary/);
   assert.doesNotMatch(ui, /resultImageUrl: "",\s+resultImageUrls: \[\],\s+posterUrl: ""/);
   assert.doesNotMatch(part, /status: "submitting"[\s\S]{0,160}?resultImageUrl: ""/);
   assert.doesNotMatch(part, /status: "submitting"[\s\S]{0,160}?resultVideoUrl: ""/);
@@ -822,7 +851,7 @@ test("workflow generation runs from video and connects the result to that video 
   const part = read("platform.ui.parts/part-06.js");
   const workflow = {
     nodes: [
-      { id: "reference-image", type: "imageGenerate", x: 0, y: 0, data: { resultImageUrl: "https://cdn.example/ref.png" } },
+      { id: "reference-image", type: "imageResult", x: 0, y: 0, data: { source: "generated", status: "succeeded", resultImageUrl: "https://cdn.example/ref.png" } },
       { id: "video-source", type: "unifiedVideoGen", x: 500, y: 0, data: { prompt: "move", referenceImages: [] } },
     ],
     edges: [{ from: "reference-image", to: "video-source" }],
@@ -832,7 +861,6 @@ test("workflow generation runs from video and connects the result to that video 
     state: { workflow, workflowSelectedNodeId: "" },
     workflow,
     ensureWorkflowState: () => workflow,
-    workflowNodeHasOwnContent: () => true,
     workflowGeneratedResultChildren: () => [],
     workflowNodeReferences: (node, field) => Array.isArray(node?.data?.[field]) ? node.data[field] : [],
     workflowNodeCanvasReferences: () => ({ images: ["https://cdn.example/ref.png"], videos: [], audios: [] }),
@@ -846,12 +874,15 @@ test("workflow generation runs from video and connects the result to that video 
     persistWorkflowState: () => {},
     window: { WorkflowReactCanvas: { sync() {}, selectNode(id) { selected.push(id); } } },
   });
-  vm.runInContext(`${extractFunction(part, "workflowGenerationRunNode")}
+  vm.runInContext(`${extractFunction(part, "workflowResultNodeType")}
+${extractFunction(part, "workflowGenerationRunNode")}
+this.workflowResultNodeType = workflowResultNodeType;
 this.workflowGenerationRunNode = workflowGenerationRunNode;`, context);
 
   const result = context.workflowGenerationRunNode(workflow.nodes[1]);
 
   assert.equal(result.id, "video-result");
+  assert.equal(result.type, "videoResult");
   assert.deepEqual(Array.from(result.data.referenceImages), ["https://cdn.example/ref.png"]);
   assert.deepEqual(Array.from(workflow.edges, (edge) => `${edge.from}->${edge.to}`), [
     "reference-image->video-source",
@@ -909,6 +940,8 @@ test("workflow delete keys only remove selected canvas elements", () => {
   assert.match(layout, /<i className="bi bi-trash3" aria-hidden="true" \/>/);
   assert.doesNotMatch(layout, />\s*×\s*<\/button>/);
   assert.match(layout, /window\.removeWorkflowNode\(id\)/);
+  assert.doesNotMatch(layout, /onPointerDown=\{removeNode\}/);
+  assert.match(layout, /onClick=\{removeNode\}/);
   assert.match(layout, /new CustomEvent\('workflow-react:sync'\)/);
   assert.match(layout, /deleteElements\(\{ nodes: \[\{ id \}\] \}\)/);
   assert.match(css, /\.site-generation-delete \{/);
@@ -924,8 +957,8 @@ test("canvas generation nodes download their generated content", () => {
   assert.match(layout, /className="nodrag nopan site-generation-download"/);
   assert.match(layout, /aria-label="下载节点生成内容"/);
   assert.match(layout, /window\.downloadWorkflowNodeResult\?\.\(id\)/);
-  assert.match(imageNode, /canDownload=\{results\.length > 0\}/);
-  assert.match(videoNode, /canDownload=\{results\.length > 0\}/);
+  assert.match(imageNode, /canDownload=\{false\}/);
+  assert.match(videoNode, /canDownload=\{false\}/);
   assert.match(part, /async function downloadWorkflowNodeResult\(nodeId = ""\)/);
   assert.match(part, /workflowNodeOwnResultVideos\(node\)/);
   assert.match(part, /workflowNodeOwnResultImages\(node\)/);

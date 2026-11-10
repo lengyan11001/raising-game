@@ -1,3 +1,12 @@
+## 2026-11-10 canvas @ mention submission preservation (ready for Old deployment)
+
+- Goal: verify canvas prompt references such as `@image1`, `@image2`, and `@video1` are not stripped when a generation task is submitted, and keep the upload guidance unambiguous.
+- Decision: the Seedance prompt alias helper now returns the exact user-entered prompt; both Seedance APIZ and direct payload builders preserve mentions verbatim. The mention picker inserts actual `@alias` text, and upload guidance now says `在提示词中输入 @ 选择并引用素材，例如 @image1`.
+- Changed: canvas bridge/React canvas and result-node files, `platform.ui.parts/part-04.js` through `part-06.js`, `workflow-react/dist/canvas.js`, focused Seedance/canvas tests, and this state entry.
+- Verification: focused suites 54/54 pass; changed JS syntax checks and `git diff --check` pass. Production React canvas build was regenerated successfully with only existing bundle-size warnings.
+- Publish scope: canvas files and this state entry only. Exclude unrelated `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, and `workflow-react/node_modules`.
+- Deployment status: pending selective commit, `python3 scripts/build_release_snapshot.py --source old-site`, then `scripts/deploy_local.sh --site old`. Live must remain untouched.
+
 ## 2026-11-10 regeneration prompt @ mention preservation
 
 - User report: regeneration/history restore was filling prompts without `@`, e.g. `@Image 1 ... @Image 2 ...` became `Image 1 ... Image 2 ...`.

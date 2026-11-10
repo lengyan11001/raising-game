@@ -16,6 +16,7 @@ export const NodeLayout = memo(({
   isValidConnection,
   selected = false,
   canDownload = false,
+  className = '',
 }) => {
   const { deleteElements } = useReactFlow();
   const [downloading, setDownloading] = React.useState(false);
@@ -57,7 +58,7 @@ export const NodeLayout = memo(({
 
   return (
     <div
-      className={`site-generation-card${selected ? ' is-selected' : ''}`}
+      className={`site-generation-card${selected ? ' is-selected' : ''}${className ? ` ${className}` : ''}`}
       data-node-id={id}
       data-node-type={type}
       onPointerDownCapture={() => {
@@ -76,7 +77,13 @@ export const NodeLayout = memo(({
 
       <div className="site-generation-card-head site-generation-drag-handle">
         <span className="site-generation-card-icon">
-          <i className={`bi ${type === 'unifiedVideoGen' ? 'bi-camera-video' : 'bi-image'}`} />
+          <i className={`bi ${
+            type === 'unifiedVideoGen' || type === 'videoResult'
+              ? 'bi-camera-video'
+              : type === 'imageResult'
+                ? 'bi-collection'
+                : 'bi-image'
+          }`} />
         </span>
         <span>{title}</span>
         <span className="site-generation-card-actions">
@@ -96,11 +103,14 @@ export const NodeLayout = memo(({
             className="nodrag nopan site-generation-delete"
             aria-label="删除节点"
             title="删除节点"
-            onPointerDown={removeNode}
-            onClick={(event) => {
+            onPointerDown={(event) => {
+              // Keep the node alive through pointer capture; deleting here can
+              // leave React Flow processing a removed node and let the same
+              // gesture reach browser history. Deletion happens on click.
               event.preventDefault();
               event.stopPropagation();
             }}
+            onClick={removeNode}
           >
             <i className="bi bi-trash3" aria-hidden="true" />
           </button>

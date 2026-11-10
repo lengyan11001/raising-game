@@ -1,10 +1,14 @@
 const SITE_NODE_TYPES = Object.freeze({
   image: "siteImageGeneration",
   video: "siteVideoGeneration",
+  imageResult: "siteImageResult",
+  videoResult: "siteVideoResult",
 });
 
 const IMAGE_NODE_TYPES = new Set(["imageGenerate"]);
 const VIDEO_NODE_TYPES = new Set(["unifiedVideoGen"]);
+const IMAGE_RESULT_NODE_TYPES = new Set(["imageResult", "imageDisplay"]);
+const VIDEO_RESULT_NODE_TYPES = new Set(["videoResult"]);
 
 function siteWorkflow() {
   return typeof window.ensureWorkflowState === "function"
@@ -32,14 +36,20 @@ function siteNode(nodeId = "") {
 }
 
 function isSiteGenerationNode(node = {}) {
-  return IMAGE_NODE_TYPES.has(node.type) || VIDEO_NODE_TYPES.has(node.type);
+  return IMAGE_NODE_TYPES.has(node.type)
+    || VIDEO_NODE_TYPES.has(node.type)
+    || IMAGE_RESULT_NODE_TYPES.has(node.type)
+    || VIDEO_RESULT_NODE_TYPES.has(node.type);
 }
 
 function toReactFlowNode(node = {}, selectedNodeId = "") {
-  const isVideo = VIDEO_NODE_TYPES.has(node.type);
+  let type = SITE_NODE_TYPES.image;
+  if (VIDEO_NODE_TYPES.has(node.type)) type = SITE_NODE_TYPES.video;
+  else if (IMAGE_RESULT_NODE_TYPES.has(node.type)) type = SITE_NODE_TYPES.imageResult;
+  else if (VIDEO_RESULT_NODE_TYPES.has(node.type)) type = SITE_NODE_TYPES.videoResult;
   return {
     id: String(node.id || ""),
-    type: isVideo ? SITE_NODE_TYPES.video : SITE_NODE_TYPES.image,
+    type,
     selected: String(node.id || "") === String(selectedNodeId || ""),
     position: { x: Number(node.x || 0), y: Number(node.y || 0) },
     data: {

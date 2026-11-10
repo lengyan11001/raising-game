@@ -1109,13 +1109,13 @@ function syncWorkflowCanvasStageSize() {
 
 function workflowVideoNodes() {
   return ensureWorkflowState().nodes
-    .filter((node) => ["unifiedVideoGen", "video"].includes(node.type))
+    .filter((node) => node.type === "unifiedVideoGen")
     .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
 }
 
 function workflowImageNodes() {
   return ensureWorkflowState().nodes
-    .filter((node) => ["imageDisplay", "imageGenerate"].includes(node.type))
+    .filter((node) => node.type === "imageGenerate")
     .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
 }
 
@@ -1125,12 +1125,18 @@ function workflowVideoReferenceNodes() {
 
 function workflowGenerationNodes() {
   return ensureWorkflowState().nodes
-    .filter((node) => ["imageDisplay", "unifiedVideoGen", "imageGenerate", "video", "imageResult", "videoResult"].includes(node.type))
+    .filter((node) => ["imageGenerate", "unifiedVideoGen"].includes(node.type))
+    .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
+}
+
+function workflowGraphNodes() {
+  return ensureWorkflowState().nodes
+    .filter((node) => ["imageGenerate", "unifiedVideoGen", "imageResult", "videoResult", "imageDisplay"].includes(node.type))
     .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
 }
 
 function workflowSourceNodes() {
-  return ensureWorkflowState().nodes.filter((node) => ["imageGenerate", "unifiedVideoGen", "video"].includes(node.type));
+  return workflowGenerationNodes();
 }
 
 function workflowOutputNodes() {
@@ -1168,7 +1174,7 @@ function workflowDownstreamGenerationNodes(nodeId = "") {
       .forEach((node) => {
         if (visited.has(node.id)) return;
         visited.add(node.id);
-        if (["imageDisplay", "imageGenerate", "unifiedVideoGen", "video"].includes(node.type)) videos.push(node);
+        if (["imageGenerate", "unifiedVideoGen"].includes(node.type)) videos.push(node);
         queue.push(node.id);
       });
   }
@@ -1178,7 +1184,7 @@ function workflowDownstreamGenerationNodes(nodeId = "") {
 function workflowOrderedVideoNodes() {
   const workflow = ensureWorkflowState();
   const nodeById = new Map(workflow.nodes.map((node) => [node.id, node]));
-  const graphIds = new Set(workflowGenerationNodes().map((node) => node.id));
+  const graphIds = new Set(workflowGraphNodes().map((node) => node.id));
   const incomingCounts = new Map([...graphIds].map((nodeId) => [nodeId, 0]));
   workflow.edges.forEach((edge) => {
     if (graphIds.has(edge.from) && graphIds.has(edge.to)) {
@@ -1206,10 +1212,13 @@ function workflowOrderedVideoNodes() {
         }
       });
   }
-  const executable = orderedGraph.filter((node) => graphIds.has(node.id));
+  // Result nodes participate in topology so generation nodes connected through
+  // a result are ordered correctly, but they are never executable work.
+  const executable = orderedGraph.filter((node) => ["imageGenerate", "unifiedVideoGen"].includes(node.type));
   const missing = [...graphIds]
     .map((nodeId) => nodeById.get(nodeId))
     .filter(Boolean)
+    .filter((node) => ["imageGenerate", "unifiedVideoGen"].includes(node.type))
     .filter((node) => !executable.some((item) => item.id === node.id))
     .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
   return [...executable, ...missing];
@@ -1220,7 +1229,7 @@ function workflowOrderedExecutableNodes() {
 }
 
 function workflowFirstVideoNode() {
-  return workflowOrderedVideoNodes()[0] || null;
+  return workflowOrderedExecutableNodes()[0] || null;
 }
 
 function workflowUploadNode() {
@@ -1259,9 +1268,11 @@ function workflowNodeStatusText(node = {}) {
 
 function workflowNodeHasSuccessfulResult(node = {}) {
   const status = node.data?.status || node.data?.record?.status || "";
-  const hasResult = ["imageDisplay", "imageGenerate"].includes(node.type)
+  const hasResult = ["imageDisplay", "imageGenerate", "imageResult"].includes(node.type)
     ? Boolean(workflowNodeResultImage(node))
-    : Boolean(workflowNodeResultVideo(node));
+    : ["unifiedVideoGen", "videoResult"].includes(node.type)
+      ? Boolean(workflowNodeResultVideo(node))
+      : false;
   return hasResult && isSucceededGenerationStatus(status || "succeeded");
 }
 

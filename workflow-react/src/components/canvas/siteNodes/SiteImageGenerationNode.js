@@ -1,17 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { NodeLayout } from '../nodes/NodeLayout';
 import { useSiteNode, optionsFrom, selectedOption } from './useSiteNode';
-import { GenerationResultMedia } from './GenerationResultMedia';
 import { SiteNodeUpload } from './SiteNodeUpload';
-
-function imageResults(node = {}, nodeId = '') {
-  const sourceNode = (typeof window.workflowNodeById === 'function' && window.workflowNodeById(nodeId)) || node;
-  if (!sourceNode?.data) return [];
-  if (typeof window.workflowNodeOwnResultImages === 'function') return window.workflowNodeOwnResultImages(sourceNode);
-  if (typeof window.workflowNodeResultImages === 'function') return window.workflowNodeResultImages(sourceNode);
-  const data = sourceNode.data || {};
-  return [...new Set([...(data.resultImageUrls || []), data.resultImageUrl].filter(Boolean))];
-}
 
 export function SiteImageGenerationNode({ id, selected = false }) {
   const { node, update, run } = useSiteNode(id);
@@ -23,7 +13,6 @@ export function SiteImageGenerationNode({ id, selected = false }) {
   const resolutions = optionsFrom(typeof window.workflowImageResolutionOptions === 'function' ? window.workflowImageResolutionOptions(model) : ['2K']);
   const tiers = optionsFrom(model.tiers || [], { standard: 'Standard', pro: 'Pro' });
   const outputCounts = optionsFrom(model.outputCounts || [1], Object.fromEntries((model.outputCounts || [1]).map((value) => [value, `${value} 张`])));
-  const results = useMemo(() => imageResults(node, id), [node, id]);
   // A controlled React Flow node can briefly outlive its business record while
   // deletion is being propagated. Do not call node helpers with null.
   if (!node?.data) return null;
@@ -53,15 +42,12 @@ export function SiteImageGenerationNode({ id, selected = false }) {
       showDuplicateButton={false}
       inputHandleLabel=""
       selected={selected}
-      canDownload={results.length > 0}
+      canDownload={false}
     >
       <div className="site-generation-node">
-        <div className="site-generation-result-head">
-          <span><i className="bi bi-stars" /> 生成结果</span>
-          <small>{data.status ? String(data.status) : '就绪'}</small>
-        </div>
-        <div className="site-generation-result">
-          <GenerationResultMedia kind="image" urls={results} status={results.length ? 'succeeded' : data.status} error={results.length ? '' : data.error} sourceNodeId={id} uploadProgress={data.uploadProgress} uploadFileName={data.uploadFileName} />
+        <div className="site-generation-summary">
+          <span><i className="bi bi-stars" /> {model.label || model.id || '图片生成'}</span>
+          <small>{data.status ? String(data.status) : '就绪'} · {data.ratio || model.ratio || '1:1'} · {data.resolution || model.resolution || '2K'}</small>
         </div>
         <div className="site-generation-controls is-selected-only">
           <label className="site-field site-prompt-field">

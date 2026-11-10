@@ -46,7 +46,7 @@ function workflowNodeRunState(node = {}) {
   if (workflowNodeIsRunning(node)) {
     return { canRun: false, disabled: true, icon: "loader-circle", label: "Running", reason: "This node is running." };
   }
-  if (!node?.id || !["imageDisplay", "imageGenerate", "unifiedVideoGen", "video"].includes(node.type)) {
+  if (!node?.id || !["imageGenerate", "unifiedVideoGen"].includes(node.type)) {
     return { canRun: false, disabled: true, icon: "play", label: "Run", reason: "This node cannot run." };
   }
   const ordered = workflowOrderedExecutableNodes();
@@ -56,7 +56,7 @@ function workflowNodeRunState(node = {}) {
   }
   const dependencies = workflowIncomingEdges(node.id)
     .map((edge) => workflowNodeById(edge.from))
-    .filter((item) => item && ["imageDisplay", "imageGenerate", "unifiedVideoGen", "video"].includes(item.type));
+    .filter((item) => item && ["imageResult", "videoResult", "imageDisplay"].includes(item.type));
   if (dependencies.some((dependency) => !workflowNodeHasSuccessfulResult(dependency))) {
     return { canRun: false, disabled: true, icon: "play", label: "Run", reason: "Run connected input nodes first." };
   }
@@ -683,20 +683,22 @@ function revealWorkflowNode(nodeId = "") {
 }
 
 function workflowNodeAcceptsInput(node = null) {
-  return Boolean(node && ["imageGenerate", "unifiedVideoGen"].includes(node.type));
+  return Boolean(node && ["imageGenerate", "unifiedVideoGen", "imageResult", "videoResult", "imageDisplay"].includes(node.type));
 }
 
 function workflowNodeAcceptsOutput(node = null) {
-  return Boolean(node && ["imageGenerate", "unifiedVideoGen"].includes(node.type));
+  return Boolean(node && ["imageGenerate", "unifiedVideoGen", "imageResult", "videoResult", "imageDisplay"].includes(node.type));
 }
 
 function workflowNodeWidth(node = {}) {
+  if (["imageResult", "videoResult"].includes(node.type)) return 360;
   if (["imageReference", "image", "upload", "videoReference"].includes(node.type)) return 300;
   if (["prompt", "output"].includes(node.type)) return 360;
   return WORKFLOW_NODE_WIDTH;
 }
 
 function workflowNodeHeight(node = {}) {
+  if (["imageResult", "videoResult"].includes(node.type)) return 340;
   if (["imageReference", "image", "upload", "videoReference"].includes(node.type)) return 300;
   if (node.type === "prompt") return 300;
   if (node.type === "output") return 270;
@@ -704,7 +706,8 @@ function workflowNodeHeight(node = {}) {
 }
 
 function workflowNodeAnchor(node = {}, side = "out") {
-  const yOffset = ["imageReference", "image", "upload", "videoReference"].includes(node.type) ? 150
+  const yOffset = ["imageResult", "videoResult"].includes(node.type) ? 20
+    : ["imageReference", "image", "upload", "videoReference"].includes(node.type) ? 150
     : node.type === "prompt" ? 145
       : node.type === "output" ? 105
         : node.type === "imageDisplay" || node.type === "imageGenerate" ? 170 : 190;
@@ -1269,7 +1272,7 @@ function workflowUploadAcceptsFile(node = {}, file = {}) {
   if (node.data?.status === "uploading") return false;
   const mime = String(file.type || "").toLowerCase();
   if (mime.startsWith("image/")) return true;
-  return mime.startsWith("video/") && node.type !== "imageGenerate";
+  return mime.startsWith("video/") && node.type === "unifiedVideoGen";
 }
 
 function workflowUploadedPreviewPatch(file = {}, uploaded = {}) {
@@ -1297,7 +1300,7 @@ function workflowUploadedPreviewPatch(file = {}, uploaded = {}) {
 function workflowUploadedNodePosition(source = {}, index = 0) {
   const nodeWidth = typeof WORKFLOW_NODE_WIDTH === "number" ? WORKFLOW_NODE_WIDTH : 420;
   const nodeGap = typeof WORKFLOW_NODE_GAP === "number" ? WORKFLOW_NODE_GAP : 28;
-  const rowHeight = 620 + 24;
+  const rowHeight = 360 + 24;
   return {
     x: Number(source.x || 0) - nodeWidth - nodeGap,
     y: Number(source.y || 0) + Math.max(0, Number(index) || 0) * rowHeight,
@@ -1330,6 +1333,8 @@ async function uploadWorkflowFilesToNode(files = [], nodeId = "") {
       const action = workflowUploadKindForFile(file) === "video" ? "add-video" : "add-image";
       const newNode = createWorkflowNode(action, workflowUploadedNodePosition(current, index));
       if (!newNode) throw new Error("Failed to create uploaded media node.");
+      newNode.type = workflowUploadKindForFile(file) === "video" ? "videoResult" : "imageResult";
+      newNode.title = `${newNode.type === "videoResult" ? "视频素材" : "图片素材"} ${workflowGeneratedResultChildren(current).length + 1}`;
       newNode.data = {
         ...(newNode.data || {}),
         ...workflowUploadingPreviewPatch(file),

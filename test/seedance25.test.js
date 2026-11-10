@@ -66,6 +66,15 @@ test("multimodal payload preserves ordered media and supported parameters", () =
   assert.equal("model" in payload.params, false);
 });
 
+test("multimodal payload preserves exact @ media mentions in the prompt", () => {
+  const prompt = "@image1 把 @image2 举在空中，保持 @video1 的镜头运动";
+  const payload = buildSeedance25TaskPayload(baseInput({ prompt }), OUTER_MODEL);
+  assert.equal(payload.params.prompt, prompt);
+  assert.equal(payload.params.prompt.includes("@image1"), true);
+  assert.equal(payload.params.prompt.includes("@image2"), true);
+  assert.equal(payload.params.prompt.includes("@video1"), true);
+});
+
 test("unsupported legacy edit and extend modes are rejected", () => {
   for (const mode of ["edit", "extend"]) {
     assert.throws(

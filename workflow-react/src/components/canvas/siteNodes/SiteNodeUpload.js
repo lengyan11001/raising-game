@@ -58,7 +58,7 @@ export function SiteNodeUpload({
         </div>
       )}
       {previewOverlay}
-      {values.length > 0 && <p className="site-node-upload-hint">提示词中输入 <b>@</b> 即可引用素材</p>}
+      {values.length > 0 && <p className="site-node-upload-hint">在提示词中输入 <b>@</b> 选择并引用素材，例如 @image1</p>}
       <button type="button" className="site-node-upload-button" disabled={uploading} onClick={() => inputRef.current?.click()}>
         <i className="bi bi-upload" /> 上传素材
       </button>

@@ -643,11 +643,11 @@ const CanvasInner = ({
           defaultViewport={viewportRef.current || { x: 0, y: 0, zoom: 1 }}
           fitViewOptions={{
             padding: { top: 94, right: 76, bottom: 118, left: 76 },
-            minZoom: 0.25,
-            maxZoom: 1,
+            minZoom: 0.1,
+            maxZoom: 2,
           }}
-          minZoom={0.25}
-          maxZoom={1.5}
+          minZoom={0.1}
+          maxZoom={2}
           zoomOnScroll
           zoomOnPinch
           preventScrolling={false}
