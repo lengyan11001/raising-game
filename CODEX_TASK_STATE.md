@@ -6,7 +6,9 @@
 - `platform.workflow-canvases.js` now invokes the refresh after embedded-media migration and saves the refreshed canvas once.
 - Regression coverage added in `test/workflow-canvases.test.js`.
 - Verification: syntax checks pass; `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 33/33; `git diff --check` passes.
-- Publish scope: these 3 canvas files plus this state entry. Unrelated untracked files must remain unstaged. Deploy Old only after committing and building the release snapshot.
+- Publish scope: these 3 canvas files plus this state entry. Unrelated untracked files must remain unstaged.
+- Deployed Old only: source `old-site` `fac0ab7`; `platform-release` / `origin/platform-release` `f97ccc8`; previous remote release `75e06f3`. Live untouched at `origin/live-release` `bf1e01a`.
+- Post-deploy verification: `/api/health` returned `{"ok":true}`; production `part-05.js` and `platform.workflow-canvases.js` contain the new resolve-on-open path; release boundary checks passed.
 
 ## 2026-11-10 canvas generation polling ReferenceError fixed (ready for Old deployment)
 
