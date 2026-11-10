@@ -1,3 +1,11 @@
+## 2026-11-10 stale service-worker navigation kept admin on old result refresh code
+
+- Production deployment `729ce16` did contain the bounded result-page/concurrency-2 fix, but the administrator device kept issuing 21 detail requests in a single second after deployment. Server logs show no new module downloads from that client after deploy, confirming its active service worker was serving the previously cached platform shell and module query string.
+- Root cause: `platform-sw.js` returned cached navigation immediately and revalidated only in the background. Because `platform.js` derives every module query string from `platform.js?v=<content-hash>`, the stale cached shell pinned the client to the old `platform.create.parts/part-01.js` URL for the entire session/navigation.
+- Fix: navigation is now a deployment fence with network-first behavior, a bounded 1.5s wait, and cached navigation only as an offline/slow-origin fallback. Exact content-hashed module URLs remain browser-cached. API requests remain outside the service worker.
+- Verification: `platform-refresh-performance` plus advanced-result suites pass 29/29; service-worker syntax and diff checks pass. Publish scope is `platform-sw.js`, `test/platform-refresh-performance.test.js`, and this state entry.
+- Deployment: commit -> rebuild `platform-release` from committed `old-site` -> deploy Old only with `scripts/deploy_local.sh --site old`. Live remains untouched. After deploy, verify served `platform-sw.js` contains `networkWithin(networkPromise, 1500)`, a fresh home response references the new asset hash, health/load remain normal, sessions are unchanged, and `NRestarts=0`.
+
 ## 2026-11-10 result-page detail refresh burst: bounded visible page + concurrency 2
 
 - User reports another slowdown and asks whether it is the same device. Production logs confirm it is still administrator device `2407:cdc0:b010::237`, primarily from `https://123vip.fans/`.

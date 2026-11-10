@@ -114,11 +114,14 @@ test("service worker never intercepts API or non-GET requests", () => {
   assert.match(sw, /caches\.delete\(key\)/);
 });
 
-test("service worker serves cached navigation immediately and revalidates", () => {
+test("service worker prefers a fresh navigation and uses cache only as fallback", () => {
   const sw = read("platform-sw.js");
   const navigate = sw.match(/if \(request\.mode === "navigate"\) \{([\s\S]*?)\n    \}/)?.[1] || "";
+  assert.match(navigate, /fetchAndCache\(cache, request, key\)/);
+  assert.match(navigate, /networkWithin\(networkPromise, 1500\)/);
+  assert.match(navigate, /if \(fresh\) return fresh;/);
   assert.match(navigate, /const cached = await cache\.match\(key, \{ ignoreSearch: true \}\);/);
-  assert.match(navigate, /if \(cached\) \{[\s\S]*?event\.waitUntil\(refresh\(cache, request, key\)\);[\s\S]*?return cached;/);
+  assert.match(navigate, /if \(cached\) \{[\s\S]*?event\.waitUntil\(networkPromise\);[\s\S]*?return cached;/);
   const asset = sw.match(/if \(isPlatformAsset\(url\.pathname\)\) \{([\s\S]*?)\n      \}/)?.[1] || "";
   assert.match(asset, /const cached = await cache\.match\(request\);/);
   assert.match(asset, /if \(cached\) \{[\s\S]*?event\.waitUntil\(refresh\(cache, request\)\);[\s\S]*?return cached;/);

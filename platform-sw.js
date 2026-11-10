@@ -21,11 +21,30 @@
     })());
   });
 
+  async function fetchAndCache(cache, request, key = request) {
+    const response = await fetch(request, { cache: "no-cache" });
+    if (response.ok) await cache.put(key, response.clone());
+    return response;
+  }
+
   async function refresh(cache, request, key = request) {
     try {
-      const response = await fetch(request, { cache: "no-cache" });
-      if (response.ok) await cache.put(key, response.clone());
+      await fetchAndCache(cache, request, key);
     } catch (error) {}
+  }
+
+  async function networkWithin(promise, timeoutMs) {
+    let timer = 0;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise((resolve) => {
+          timer = self.setTimeout(() => resolve(null), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) self.clearTimeout(timer);
+    }
   }
 
   function isPlatformAsset(pathname) {
@@ -42,21 +61,19 @@
       const key = url.pathname === "/" || url.pathname === "/platform.html" ? "/" : request;
       event.respondWith((async () => {
         const cache = await caches.open(cacheName);
-        // Painted shell first: public-origin TCP/TLS stalls must not hold an
-        // already-cached refresh hostage. Revalidate in the background so a
-        // deployment is picked up on the next navigation.
+        // Navigation is the deployment fence. Prefer a fresh shell so every
+        // deploy also changes the content-hashed module query string; only use
+        // the cached shell when the public origin is genuinely slow or down.
+        const networkPromise = fetchAndCache(cache, request, key).catch(() => null);
+        const fresh = await networkWithin(networkPromise, 1500);
+        if (fresh) return fresh;
         const cached = await cache.match(key, { ignoreSearch: true });
         if (cached) {
-          event.waitUntil(refresh(cache, request, key));
+          event.waitUntil(networkPromise);
           return cached;
         }
-        try {
-          const response = await fetch(request, { cache: "no-cache" });
-          if (response.ok) await cache.put(key, response.clone());
-          return response;
-        } catch (error) {
-          return Response.error();
-        }
+        const response = await networkPromise;
+        return response || Response.error();
       })());
       return;
     }
