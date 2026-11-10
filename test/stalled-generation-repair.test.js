@@ -42,6 +42,17 @@ test("stalled repair is idempotent for pre-deducted refunds", () => {
   assert.match(server, /billingStatus: "refunded"/);
 });
 
+test("failed-refund audit uses timestamp range instead of integer milliseconds", () => {
+  const audit = server.slice(
+    server.indexOf("async function listFailedRefundedGenerationRecordsForAudit"),
+    server.indexOf("async function repairFailedRefundedGenerationRecords"),
+  );
+  assert.match(audit, /const sinceAt = new Date\(Date\.now\(\) - /);
+  assert.match(audit, />= \$2::timestamptz/);
+  assert.match(audit, /\[providers, sinceAt, safeLimit\]/);
+  assert.doesNotMatch(audit, /\$2::int/);
+});
+
 test("failed-refund audit preserves signed ledger totals", () => {
   const audit = server.slice(
     server.indexOf("function signedCreditsAmount"),

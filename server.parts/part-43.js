@@ -308,6 +308,7 @@ async function listFailedRefundedGenerationRecordsForAudit({ taskIds = [], since
   if (!dbEnabled()) throw new Error("DATABASE_URL is required for failed refund audit.");
   const providers = [...FAILED_REFUND_AUDIT_LEDGER_TYPES.keys()];
   const safeLimit = Math.max(1, Math.min(500, Math.trunc(Number(limit || 100) || 100)));
+  const sinceAt = new Date(Date.now() - Math.max(0, Number(sinceMs || 0))).toISOString();
   const { rows } = await dbQuery(`
     SELECT payload
     FROM app_generation_records
@@ -315,10 +316,10 @@ async function listFailedRefundedGenerationRecordsForAudit({ taskIds = [], since
       AND LOWER(COALESCE(payload->>'status', '')) = 'failed'
       AND LOWER(COALESCE(payload->>'billingStatus', '')) = 'refunded'
       AND LOWER(COALESCE(payload->>'provider', '')) = ANY($1::text[])
-      AND COALESCE(NULLIF(payload->>'createdAt', '')::timestamptz, created_at) >= NOW() - ($2::int * INTERVAL '1 millisecond')
+      AND COALESCE(NULLIF(payload->>'createdAt', '')::timestamptz, created_at) >= $2::timestamptz
     ORDER BY COALESCE(NULLIF(payload->>'createdAt', '')::timestamptz, created_at) ASC
     LIMIT $3
-  `, [providers, Math.max(0, Number(sinceMs || 0)), safeLimit]);
+  `, [providers, sinceAt, safeLimit]);
   return rows.map((row) => row.payload).filter(Boolean);
 }
 
