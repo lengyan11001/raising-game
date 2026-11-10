@@ -1,3 +1,17 @@
+## 2026-11-11 P1 backup recovery drill and resilience plan (verified, not yet deployed)
+
+- Scope: Old only (`123vips.com` / `47.84.76.131`). Live untouched. No production service restart, schema change, or source-database mutation.
+- Root decision: an isolated restore drill and external watchdog improve recoverability/process detection. A larger host is only a capacity change; multiple same-host `server.js` processes are unsafe before scheduler ownership is fixed.
+- Added: `ops/RESILIENCE-PLAN.md`, `ops/service-watchdog.sh`, `ops/systemd/raising-game-watchdog.{service,timer}`, `ops/verify-postgres-backup.sh`, `test/resilience-ops.test.js`. Platform snapshot allowlist includes the operations assets; no Live release scope.
+- Restore drill implementation: uses a single exported PostgreSQL repeatable-read snapshot, `pg_dump --snapshot`, and a 67-table count manifest read inside that same transaction. Restored manifest must match exactly; no race with live writes and no `dblink`/guessed-key dependency. Exporter sessions are bounded by `DRAIN_TIMEOUT_SECONDS=120` and cleaned up.
+- Real drill evidence: selected backup `/var/backups/raising-game/verify-20261111-013315.dump`, 74,898,405 bytes, SHA-256 `2f5b6358d7f173e08d12cf1f1c637261688b94cf4aa96d8ee31a4e8748dc5581`. Fresh snapshot 74,900,114 bytes, SHA-256 `ba0a38b0db8fc6cf877bc6ef9bdebe5a12483a209540a3fab1324e9237ef079e`; restore 35s; 67 tables, 6 sequences, 172 indexes, 4 FKs, invalid indexes 0, unvalidated constraints 0, exact manifest match, drill DB auto-dropped.
+- Earlier daily backup RPO evidence remains: a 21.5-hour-old dump missed 642 generation records, 764 credit-ledger rows, 593 assets, and 20 users. Automatic RPO is still about 24h until off-host incremental/WAL or more frequent dumps are scheduled and restored.
+- Transitional off-host copy: `/Users/x042/raising-game-backups/2026-11-11/db-20261111-013315.dump`, remote SHA verified; not a substitute for a monitored independent backup service.
+- Watchdog verification: three consecutive `/api/livez` failures required; success resets counter; inactive service skips restart. Dynamic test produced exactly one restart after three failures. Timer/unit files are not installed on production.
+- Cleanup: previous failed drill databases were removed; only `raising_game` remains. Retained two useful verify snapshots (01:33 and 01:52) pending off-host policy; removed four failed-attempt snapshots.
+- 2026-11-11 local verification: resilience tests 4/4, shell syntax, Python compile, `git diff --check` pass. Preserve unrelated WIP.
+- Next deployment gate: commit only resilience assets, build `platform-release` from committed `old-site` via `scripts/build_release_snapshot.py`, deploy Old through `scripts/deploy_local.sh --site old`, verify health/livez/readyz and `NRestarts=0`. Do not install watchdog timer until post-deploy dry-run observation. Do not touch Live.
+
 ## 2026-11-11 P0 readiness and deployment safety (deployed Old)
 
 - User goal: improve single-node fault tolerance in controlled stages without disrupting production; do not confuse capacity upgrades or multiple API processes with resilience.

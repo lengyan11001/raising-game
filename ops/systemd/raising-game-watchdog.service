@@ -1,0 +1,17 @@
+[Unit]
+Description=Raise-game external liveness watchdog
+After=raising-game-demo.service
+ConditionPathExists=/opt/raising-game-demo/ops/service-watchdog.sh
+
+[Service]
+Type=oneshot
+User=root
+Environment=HEALTH_URL=http://127.0.0.1:4174/api/livez
+Environment=FAILURE_THRESHOLD=3
+Environment=TIMEOUT_SECONDS=3
+Environment=SERVICE=raising-game-demo
+Environment=SERVICE_CHECK_ACTIVE=1
+Environment=STATE_FILE=/run/raising-game-watchdog.failures
+Environment=LOCK_FILE=/run/raising-game-watchdog.lock
+ExecStart=/opt/raising-game-demo/ops/service-watchdog.sh
+Nice=10

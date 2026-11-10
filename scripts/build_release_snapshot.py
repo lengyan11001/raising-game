@@ -62,9 +62,14 @@ PLATFORM_PATTERNS = (
     "assets/user-characters/**",
     "assets/admin/**",
     "workflow-react/**",
+    "ops/RESILIENCE-PLAN.md",
     "ops/apply-production-tuning.sh",
     "ops/harden_old_nginx_private_media.py",
     "ops/harden-old-nginx-private-media.sh",
+    "ops/service-watchdog.sh",
+    "ops/systemd/raising-game-watchdog.service",
+    "ops/systemd/raising-game-watchdog.timer",
+    "ops/verify-postgres-backup.sh",
 )
 LIVE_SHARED_PATHS = (
     "chat-live.js",
