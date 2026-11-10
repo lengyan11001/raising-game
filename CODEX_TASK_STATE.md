@@ -6,7 +6,10 @@
 - Fix: activation is async and runs migration + upload URL refresh before returning; React open/create paths await activation before mounting the editor. Refreshed canvas is saved quietly once.
 - Regression coverage: execution-level VM test verifies ordered `activate -> migrate -> refresh -> save` and fresh URL assignment; source test verifies both React entry calls await activation.
 - Verification: `node --check` for manager, React source, and `part-05`; workflow canvas suite 36/36; `git diff --check`; production webpack build passed (size warnings only).
-- Commit: `b8b5e5e` on `old-site`. Unrelated WIP remains unstaged.
+- Commit: `b8b5e5e` on `old-site`; state record `dd8e222`; `platform-release` `45bd44d`; previous remote release `1db7149`.
+- Deployed Old only with `scripts/deploy_local.sh --site old`; Live untouched.
+- Post-deploy verification: `/api/health` is `{"ok":true}`; production `platform.workflow-canvases.js` contains async activation + refresh + quiet save; production React bundle contains `activateWorkflowCanvasProject`; release boundary passed.
+- Unrelated WIP remains unstaged.
 
 ## 2026-11-10 canvas generate button hotfix (deployed Old)
 
