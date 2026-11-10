@@ -334,6 +334,7 @@ function workflowMediaBodyValue(value = "") {
 }
 
 function workflowNodeCanvasReferences(node = {}) {
+  if (!node?.id) return { images: [], videos: [], audios: [] };
   const incoming = workflowNodeIncomingMedia(node);
   return {
     images: workflowMediaValueList([
@@ -585,7 +586,7 @@ function workflowSeedancePromptAliases(prompt = "") {
 }
 
 function workflowVideoProviderConfig(node = {}) {
-  const modelId = workflowVideoModelById(node.data?.modelId).id;
+  const modelId = workflowVideoModelById(node?.data?.modelId).id;
   const images = workflowNodeImageInputs(node);
   const videos = workflowNodeVideoInputs(node);
   if (modelId === "wan30-prime") return { provider: "wan30", videoCapability: "wan30-video-prime" };

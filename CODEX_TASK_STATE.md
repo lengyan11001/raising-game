@@ -1,3 +1,18 @@
+## 2026-11-10 canvas Seedance null-node error fix (ready for Old deployment)
+
+- User hit `Cannot read properties of null (reading 'id')` while generating in canvas with Seedance 2.5, 8s, 16:9, multimodal references, 480p, and two references. Server logs had no matching exception; the failure is in the React canvas's transient null node render path.
+- Made `workflowCostLabel`, result helpers, incoming media, references, and model lookup null-safe. Model lookup now always returns an object and aliases legacy `seedance25` to the UI's `seedance-nsfw` Seedance 2.5 entry.
+- Added regression coverage for null nodes, empty model libraries, and Seedance 2.5 identity. Targeted canvas tests pass 32/32; webpack production build succeeds with bundle-size warnings only; syntax and `git diff --check` pass.
+- Publish scope: `platform.ui.parts/part-05.js`, `platform.ui.parts/part-06.js`, `test/workflow-canvases.test.js`, `workflow-react/dist/canvas.js`, and this state entry. Do not stage unrelated WIP or the generated source map.
+
+## 2026-11-10 admin actual sale equals purchase report (investigated, no code change)
+
+- User reported every admin actual sale price equals purchase price while multipliers are normal.
+- Fresh read-only production export of PostgreSQL `app_kv.app_config -> platform.advancedPricing` reconstructed through the deployed `adminAdvancedPricingView`: 84 rows, 0 rows with purchase == effective sale, 0 rows with ratio within 0.001 of 1.
+- Representative production values remain distinct: Vega 1.0 Pro 1080P purchase 0.2662 / base 0.3993 / effective 0.3993 USD/s (1.500x); Vega 1.0 Pro video input 1080P 0.1662 / 0.2493 / 0.2493; Vega 1.5 Pro 1080P 0.3979 / 0.59685 / 0.59685; Seedance 2.5 720P 0.149925 / 0.164918 / 0.164918 (1.100x).
+- Admin JS source and production `/admin.js` hash are identical. Deployed server pricing source hashes also match local. All six configured model discounts are currently `1`, so “实际售价” equals “折扣前售价” by design, not purchase price. Labels may be the source of confusion.
+- Tests previously passed for advanced pricing, Vega labels, and Seedance fast pricing (42/42); syntax and `git diff --check` clean. No source edits are needed for a pricing-calculation defect; get the exact model/resolution and visible values before changing calculation logic.
+
 ## 2026-11-10 PostgreSQL maintenance/recovery index follow-up (deployed Old baseline)
 
 - Source/release: Old currently runs source `f39b8db` / release `31cda6a52ed14521838b0cf5bccca2d07e443a34`; Live untouched.

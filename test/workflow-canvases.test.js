@@ -6,6 +6,14 @@ const test = require("node:test");
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `${name} exists`);
+  const next = source.indexOf("\nfunction ", start + 1);
+  assert.ok(next > start, `${name} has a following function`);
+  return source.slice(start, next).trim();
+}
+
 test("workflow canvas state is normalized and bounded", () => {
   const {
     defaultWorkflowCanvasState,
@@ -588,6 +596,40 @@ test("workflow media results feed downstream generation with model-specific payl
   assert.match(videoNode, /referenceLabels=\{referenceLabels\}/);
 });
 
+test("workflow render helpers tolerate null nodes and keep Seedance 2.5 model identity", () => {
+  const source = read("platform.ui.parts/part-05.js");
+  const helpers = [
+    extractFunction(source, "workflowImageModelById"),
+    extractFunction(source, "workflowVideoModelById"),
+    extractFunction(source, "workflowCostLabel"),
+    extractFunction(source, "workflowNodeIncomingMedia"),
+  ].join("\n");
+  const context = new Function(`
+    const WORKFLOW_IMAGE_MODEL_LIBRARY = [{ id: "qwen-image3", ratio: "1:1", resolution: "2K" }];
+    const WORKFLOW_VIDEO_MODEL_LIBRARY = [
+      { id: "seedance", ratio: "16:9", resolution: "720p" },
+      { id: "seedance-nsfw", ratio: "adaptive", resolution: "480p" },
+    ];
+    ${helpers}
+    return { workflowImageModelById, workflowVideoModelById, workflowCostLabel, workflowNodeIncomingMedia };
+  `)();
+
+  assert.equal(context.workflowCostLabel(null), "0");
+  assert.deepEqual(context.workflowNodeIncomingMedia(null), { images: [], videos: [] });
+  assert.equal(context.workflowVideoModelById("seedance25").id, "seedance-nsfw");
+  assert.equal(context.workflowVideoModelById("missing").id, "seedance");
+  assert.equal(context.workflowImageModelById("missing").id, "qwen-image3");
+
+  const emptyModels = new Function(`
+    const WORKFLOW_IMAGE_MODEL_LIBRARY = [];
+    const WORKFLOW_VIDEO_MODEL_LIBRARY = [];
+    ${extractFunction(source, "workflowImageModelById")}
+    ${extractFunction(source, "workflowVideoModelById")}
+    return [workflowImageModelById("x"), workflowVideoModelById("x")];
+  `)();
+  emptyModels.forEach((model) => assert.equal(typeof model.id, "string"));
+});
+
 test("workflow graph supports fan-in, rejects loops, and migrates embedded references", () => {
   const ui = read("platform.ui.js");
   const manager = read("platform.workflow-canvases.js");
@@ -679,7 +721,7 @@ test("workflow generations create a selected same-type node without replacing pr
   assert.match(ui, /window\.workflowNodeOwnResultImages = workflowNodeOwnResultImages/);
   assert.match(ui, /window\.workflowNodeOwnResultVideos = workflowNodeOwnResultVideos/);
   assert.match(ui, /const uploadSource = data\.source === "upload"/);
-  assert.match(ui, /const uploadSource = node\.data\?\.source === "upload"/);
+  assert.match(ui, /const uploadSource = data\.source === "upload"/);
   assert.match(ui, /\.\.\.\(!uploadSource \? recordVideos : \[\]\)/);
   assert.match(ui, /\.\.\.\(!uploadSource \? record : \[\]\)/);
   assert.match(imageNode, /workflowNodeOwnResultImages/);

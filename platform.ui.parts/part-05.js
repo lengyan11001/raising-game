@@ -78,7 +78,7 @@ function workflowGeneratedResultChildren(node = {}) {
 }
 
 function workflowNodeOwnResultVideos(node = {}) {
-  const data = node.data || {};
+  const data = node?.data || {};
   const uploadSource = data.source === "upload";
   const direct = Array.isArray(data.resultVideoUrls) ? data.resultVideoUrls : [];
   const taskVideos = Array.isArray(data.videoUrls) ? data.videoUrls : [];
@@ -119,14 +119,15 @@ function workflowNodeResultVideo(node = {}) {
 }
 
 function workflowNodeOwnResultImages(node = {}) {
-  const uploadSource = node.data?.source === "upload";
-  const direct = Array.isArray(node.data?.resultImageUrls) ? node.data.resultImageUrls : [];
-  const record = typeof generationImageResultUrls === "function" ? generationImageResultUrls(node.data?.record || {}) : [];
+  const data = node?.data || {};
+  const uploadSource = data.source === "upload";
+  const direct = Array.isArray(data.resultImageUrls) ? data.resultImageUrls : [];
+  const record = typeof generationImageResultUrls === "function" ? generationImageResultUrls(data.record || {}) : [];
   const single = [
-    node.data?.resultImageUrl,
-    ...(!uploadSource ? [typeof generationImageResultUrl === "function" ? generationImageResultUrl(node.data?.record || {}) : ""] : []),
+    data.resultImageUrl,
+    ...(!uploadSource ? [typeof generationImageResultUrl === "function" ? generationImageResultUrl(data.record || {}) : ""] : []),
   ];
-  if (node.type === "imageResult") single.unshift(node.data?.imageUrl);
+  if (node?.type === "imageResult") single.unshift(data.imageUrl);
   return [...new Set([...direct, ...(!uploadSource ? record : []), ...single]
     .map((value) => String(value || "").trim())
     .filter(Boolean))];
@@ -145,13 +146,13 @@ function workflowNodeResultImage(node = {}) {
 }
 
 function workflowNodePoster(node = {}) {
-  return node.data?.posterUrl
+  return node?.data?.posterUrl
     || workflowNodeResultImage(node)
-    || node.data?.lastFrameUrl
-    || node.data?.stripTargetImageUrl
-    || node.data?.keyframeImageUrl
-    || generationPosterUrl(node.data?.record || {})
-    || node.data?.sourceImage
+    || node?.data?.lastFrameUrl
+    || node?.data?.stripTargetImageUrl
+    || node?.data?.keyframeImageUrl
+    || generationPosterUrl(node?.data?.record || {})
+    || node?.data?.sourceImage
     || "";
 }
 
@@ -164,6 +165,7 @@ function workflowPhysicsPrompt() {
 }
 
 function workflowUpstreamPromptNodes(node = {}) {
+  if (!node?.id) return [];
   const workflow = ensureWorkflowState();
   const nodeById = new Map(workflow.nodes.map((item) => [item.id, item]));
   const visited = new Set();
@@ -206,8 +208,10 @@ function workflowImageKey(value = "") {
 }
 
 function workflowCostLabel(node = {}) {
+  if (!node?.id || !node?.type) return "0";
   const isImage = ["imageDisplay", "imageGenerate"].includes(node.type);
-  const modelId = isImage ? workflowImageModelById(node.data?.modelId).id : workflowVideoModelById(node.data?.modelId).id;
+  const model = isImage ? workflowImageModelById(node.data?.modelId) : workflowVideoModelById(node.data?.modelId);
+  const modelId = model.id;
   const duration = isImage ? 1 : Number(node.data?.duration || 5);
   const resolution = node.data?.resolution || (isImage ? "2K" : "720p");
   const ratio = node.data?.ratio || (isImage ? "1:1" : "16:9");
@@ -725,11 +729,18 @@ function renderWorkflowConnectors(node = {}) {
 }
 
 function workflowImageModelById(modelId = "") {
-  return WORKFLOW_IMAGE_MODEL_LIBRARY.find((model) => model.id === modelId) || WORKFLOW_IMAGE_MODEL_LIBRARY[0];
+  const library = Array.isArray(WORKFLOW_IMAGE_MODEL_LIBRARY) ? WORKFLOW_IMAGE_MODEL_LIBRARY.filter(Boolean) : [];
+  return library.find((model) => model.id === modelId)
+    || library[0]
+    || { id: "", label: "", ratio: "1:1", resolution: "2K", ratios: ["1:1"], resolutions: ["2K"], outputCounts: [1] };
 }
 
 function workflowVideoModelById(modelId = "") {
-  return WORKFLOW_VIDEO_MODEL_LIBRARY.find((model) => model.id === modelId) || WORKFLOW_VIDEO_MODEL_LIBRARY[0];
+  const normalizedModelId = modelId === "seedance25" ? "seedance-nsfw" : modelId;
+  const library = Array.isArray(WORKFLOW_VIDEO_MODEL_LIBRARY) ? WORKFLOW_VIDEO_MODEL_LIBRARY.filter(Boolean) : [];
+  return library.find((model) => model.id === normalizedModelId)
+    || library[0]
+    || { id: "", label: "", ratio: "16:9", resolution: "720p", durations: [4, 5, 8], ratios: ["16:9"], resolutions: ["480p", "720p"], modes: [] };
 }
 
 function workflowImageModelOptions(model = {}) {
@@ -766,16 +777,17 @@ function workflowVideoMode(node = {}, model = {}) {
 }
 
 function workflowNodeModel(node = {}) {
-  return ["imageDisplay", "imageGenerate"].includes(node.type)
+  return ["imageDisplay", "imageGenerate"].includes(node?.type)
     ? workflowImageModelById(node.data?.modelId)
     : workflowVideoModelById(node.data?.modelId);
 }
 
 function workflowNodeReferences(node = {}, field = "referenceImages") {
-  return Array.isArray(node.data?.[field]) ? node.data[field].filter(Boolean) : [];
+  return Array.isArray(node?.data?.[field]) ? node.data[field].filter(Boolean) : [];
 }
 
 function workflowNodeIncomingMedia(node = {}) {
+  if (!node?.id) return { images: [], videos: [] };
   const images = [];
   const videos = [];
   const sources = workflowIncomingEdges(node.id)
