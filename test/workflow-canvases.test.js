@@ -304,6 +304,54 @@ test("workflow uploads store asset references instead of embedded media", () => 
   assert.match(server, /WORKFLOW_CANVAS_UPDATE_IN_PROGRESS/);
 });
 
+test("react canvas activation refreshes uploaded media before opening", async () => {
+  const vm = require("node:vm");
+  const manager = read("platform.workflow-canvases.js");
+  const events = [];
+  const loadedCanvas = {
+    id: "canvas-expired-assets",
+    workflow: { nodes: [{ id: "uploaded", data: { source: "upload", resultImageAssetId: "asset-1" } }] },
+  };
+  const context = vm.createContext({
+    state: {},
+    beginWorkflowCanvasLoad: () => 42,
+    setActiveWorkflowCanvas: (canvas, options) => {
+      events.push(`activate:${canvas.id}:${options.requestSeq}`);
+      return true;
+    },
+    workflowCanvasLoadIsCurrent: (seq) => seq === 42,
+    migrateWorkflowEmbeddedMedia: async () => {
+      events.push("migrate");
+      return false;
+    },
+    refreshWorkflowUploadedMediaUrls: async () => {
+      events.push("refresh");
+      loadedCanvas.workflow.nodes[0].data.resultImageUrl = "https://cdn.example/fresh.png";
+      return true;
+    },
+    saveWorkflowCanvas: async () => {
+      events.push("save");
+    },
+  });
+  const activationStart = manager.indexOf("async function activateWorkflowCanvasProject(");
+  const activationEnd = manager.indexOf("\nfunction deactivateWorkflowCanvasProject(", activationStart);
+  assert.ok(activationStart >= 0 && activationEnd > activationStart, "activateWorkflowCanvasProject is extractable");
+  vm.runInContext(`${manager.slice(activationStart, activationEnd)}
+this.activateWorkflowCanvasProject = activateWorkflowCanvasProject;`, context);
+
+  const activated = await context.activateWorkflowCanvasProject(loadedCanvas);
+
+  assert.equal(activated, true);
+  assert.deepEqual(events, ["activate:canvas-expired-assets:42", "migrate", "refresh", "save"]);
+  assert.equal(loadedCanvas.workflow.nodes[0].data.resultImageUrl, "https://cdn.example/fresh.png");
+});
+
+test("react project bridge waits for canvas activation and media refresh", () => {
+  const index = read("workflow-react/src/index.js");
+  assert.match(index, /const activated = await window\.activateWorkflowCanvasProject\(canvas\);/);
+  assert.match(index, /const activated = await window\.activateWorkflowCanvasProject\(\{ \.\.\.canvas, workflow \}\);/);
+});
+
 test("workflow rerenders preserve the viewport without a side panel", () => {
   const ui = read("platform.ui.js");
   const part = read("platform.ui.parts/part-05.js");

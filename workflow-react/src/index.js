@@ -135,7 +135,8 @@ function WorkflowWorkspace() {
       if (typeof window.activateWorkflowCanvasProject !== 'function') {
         throw new Error('画布站点桥接未加载');
       }
-      if (!window.activateWorkflowCanvasProject(canvas)) throw new Error('画布激活失败');
+      const activated = await window.activateWorkflowCanvasProject(canvas);
+      if (!activated) throw new Error('画布激活失败');
       editorOpenRef.current = true;
       rememberEditorHistory(canvas.id);
       setProject(canvas);
@@ -165,7 +166,8 @@ function WorkflowWorkspace() {
       if (typeof window.activateWorkflowCanvasProject !== 'function') {
         throw new Error('画布站点桥接未加载');
       }
-      if (!window.activateWorkflowCanvasProject({ ...canvas, workflow })) throw new Error('画布激活失败');
+      const activated = await window.activateWorkflowCanvasProject({ ...canvas, workflow });
+      if (!activated) throw new Error('画布激活失败');
       editorOpenRef.current = true;
       rememberEditorHistory(canvas.id, Boolean(projectRef.current));
       setProject({ ...canvas, workflow });
