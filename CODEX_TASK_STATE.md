@@ -1,3 +1,12 @@
+## 2026-11-10 result-page detail refresh burst: bounded visible page + concurrency 2
+
+- User reports another slowdown and asks whether it is the same device. Production logs confirm it is still administrator device `2407:cdc0:b010::237`, primarily from `https://123vip.fans/`.
+- Current site is not fully down: service active with `NRestarts=0`, repeated health checks return HTTP 200 in about 0.10-0.14s, homepage is about 0.37s, load average is 0.46/0.35/0.36, and no sustained 5xx burst was found. Logs show 487 requests from the device in the recent 50k Nginx lines, including 214 in the `00:05` minute and many same-second generation-detail requests.
+- Root cause: `advancedResultRefreshTaskIds()` expanded the result refresh queue to every displayable history record and `refreshAdvancedResultRecord()` launched all detail requests with one `Promise.allSettled`. The result page could therefore fire dozens of same-second `/api/generation-records/<taskId>` requests again.
+- Fix: detail refreshes are now limited to `advancedResultPageData().records` for the visible result page, and requests run in batches of `2`. No session cleanup or forced logout was performed.
+- Verification: focused advanced-result/history/media/Nginx/OSS/upstream regression suite passes 53/53; `node --check platform.create.parts/part-01.js` and `git diff --check` pass. Publish scope is `platform.create.parts/part-01.js`, `test/advanced-result-refresh.test.js`, and this state entry.
+- Deployment: pending commit -> rebuild `platform-release` from committed `old-site` -> deploy Old only with `scripts/deploy_local.sh --site old`. Live must remain untouched. Verify result-page detail request concurrency, health latency, sessions unchanged, and `NRestarts=0`.
+
 ## 2026-11-10 OSS delivery signatures: stable five-minute URL buckets
 
 - User question: whether the user client should cache data and whether rapid refreshes can recreate the incident. Yes, it needs bounded short-lived caching, but runtime account/business data must remain server/PostgreSQL authoritative and must not be persisted in a local JSON/flat-file fallback.

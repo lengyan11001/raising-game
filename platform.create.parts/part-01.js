@@ -747,19 +747,16 @@ function mergeAdvancedResultRecord(record = {}) {
 }
 
 function advancedResultRefreshTaskIds() {
-  const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
   const taskIds = [];
   const pushTaskId = (taskId) => {
     const id = String(taskId || "").trim();
     if (!id || id.startsWith("pending-") || taskIds.includes(id)) return;
     taskIds.push(id);
   };
-  pushTaskId(state.advancedResultTaskId);
-  records.forEach((record) => pushTaskId(record.taskId));
-  // A cached history row can be the only record after login or page reload.
-  // Refresh that row once from its detail endpoint instead of trusting stale
-  // status stored in the browser.
-  advancedResultHistoryFallbackRecords().forEach((record) => pushTaskId(record.taskId));
+  // Detail refreshes must stay bounded to the result page that is actually
+  // visible. Expanding this to every history row causes a burst of detail
+  // requests and defeats browser caching when users switch tabs quickly.
+  advancedResultPageData().records.forEach((record) => pushTaskId(record.taskId));
   return taskIds;
 }
 
@@ -1387,9 +1384,14 @@ async function refreshAdvancedResultRecord() {
   let rendered = false;
   let firstError = "";
   try {
-    const results = await Promise.allSettled(
-      taskIds.map((taskId) => requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`)),
-    );
+    const results = [];
+    const concurrency = 2;
+    for (let offset = 0; offset < taskIds.length; offset += concurrency) {
+      results.push(...await Promise.allSettled(
+        taskIds.slice(offset, offset + concurrency)
+          .map((taskId) => requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`)),
+      ));
+    }
     results.forEach((result) => {
       if (result.status !== "fulfilled") {
         firstError = firstError || (result.reason?.message || String(result.reason));

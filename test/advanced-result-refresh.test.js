@@ -45,10 +45,13 @@ test("result entry refreshes server detail even when history is cached", () => {
   assert.doesNotMatch(sideTab, /setInterval/);
 });
 
-test("history fallback records participate in the one-shot detail refresh", () => {
+test("result detail refresh is limited to the visible page", () => {
   const refreshIds = create.match(/function advancedResultRefreshTaskIds\(\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(refreshIds, "advancedResultRefreshTaskIds should exist");
-  assert.match(refreshIds, /advancedResultHistoryFallbackRecords\(\)\.forEach\(\(record\) => pushTaskId\(record\.taskId\)\)/);
+  assert.match(refreshIds, /advancedResultPageData\(\)\.records\.forEach\(\(record\) => pushTaskId\(record\.taskId\)\)/);
+  assert.doesNotMatch(refreshIds, /advancedResultHistoryFallbackRecords/);
+  assert.match(create, /const concurrency = 2;/);
+  assert.match(create, /taskIds\.slice\(offset, offset \+ concurrency\)/);
 });
 
 test("fresh server detail overrides stale local task status", () => {
