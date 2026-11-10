@@ -139,6 +139,11 @@ test("OSS public and signed URLs use the configured CDN and endpoint", () => {
   assert.ok(signed.searchParams.get("Expires"));
   assert.doesNotMatch(signed.toString(), /aliyuncs\.com/i);
   assert.match(signed.searchParams.get("response-content-disposition"), /filename\*=UTF-8''/);
+  const bucketStart = 1_800_000_000_000;
+  const firstInBucket = signedCdnUrl({ key: "generated/videos/demo.mp4", now: bucketStart + 1_000, config });
+  const lastInBucket = signedCdnUrl({ key: "generated/videos/demo.mp4", now: bucketStart + 299_000, config });
+  assert.equal(firstInBucket, lastInBucket);
+  assert.equal(new URL(firstInBucket).searchParams.get("Expires"), String(bucketStart / 1000 + config.signedUrlTtlSeconds));
   // OSS V1 signs the response override subresource only when present. An
   // inline URL must not reuse the download signature after deleting it.
   const inline = new URL(signedCdnUrl({ key: "generated/videos/demo.mp4", config }));
