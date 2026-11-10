@@ -1,3 +1,13 @@
+## 2026-11-10 canvas generate button hotfix (deploying Old)
+
+- User report: after the previous canvas edge fix, the generate button stopped working.
+- Root cause: `workflowGenerationRunNode()` wrote `workflow.edges` without binding `workflow`, causing `ReferenceError: workflow is not defined` on click.
+- Fix: bind `const workflow = ensureWorkflowState()` before creating the result node and edge. Result remains connected only from the clicked source node to the newly created result node.
+- Regression coverage: new execution-level test runs `workflowGenerationRunNode()` in a VM, verifies no exception, verifies `reference-image -> video-source` remains and only `video-source -> video-result` is added, and verifies selection.
+- Verification: `node --check platform.ui.parts/part-06.js`; `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 34/34; `git diff --check` pending commit.
+- Known broken release: `platform-release` `8889329`; source `old-site` `3813fb3`. Live remains untouched at `bf1e01a`.
+- Publish scope: `platform.ui.parts/part-06.js`, `test/workflow-canvases.test.js`, this state entry only. Do not stage unrelated WIP.
+
 ## 2026-11-10 canvas generated result edge follows clicked node (ready for Old deployment)
 
 - User report: when generating from a video node connected to uploaded reference images, the new result node appeared connected to the reference image node; stale generation errors also remained when retrying.

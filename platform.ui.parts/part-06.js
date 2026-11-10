@@ -487,6 +487,7 @@ function workflowGenerationRunNode(node = {}) {
   if (!node?.id) return null;
   if (node.data?.generationRunPlaceholder) return node;
   if (!workflowNodeHasOwnContent(node)) return node;
+  const workflow = ensureWorkflowState();
   const kind = ["imageDisplay", "imageGenerate"].includes(node.type) ? "image" : "video";
   const newNode = createWorkflowNode(kind === "video" ? "add-video" : "add-image", workflowGeneratedNodePosition(node));
   if (!newNode) return node;

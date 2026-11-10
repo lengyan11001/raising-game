@@ -768,6 +768,49 @@ test("workflow generations create a selected same-type node without replacing pr
   assert.doesNotMatch(part, /status: "succeeded", record: finalRecord, taskId, resultVideoUrl: videoUrl/);
 });
 
+test("workflow generation runs from video and connects the result to that video node", () => {
+  const vm = require("node:vm");
+  const part = read("platform.ui.parts/part-06.js");
+  const workflow = {
+    nodes: [
+      { id: "reference-image", type: "imageGenerate", x: 0, y: 0, data: { resultImageUrl: "https://cdn.example/ref.png" } },
+      { id: "video-source", type: "unifiedVideoGen", x: 500, y: 0, data: { prompt: "move", referenceImages: [] } },
+    ],
+    edges: [{ from: "reference-image", to: "video-source" }],
+  };
+  const selected = [];
+  const context = vm.createContext({
+    state: { workflow, workflowSelectedNodeId: "" },
+    workflow,
+    ensureWorkflowState: () => workflow,
+    workflowNodeHasOwnContent: () => true,
+    workflowGeneratedResultChildren: () => [],
+    workflowNodeReferences: (node, field) => Array.isArray(node?.data?.[field]) ? node.data[field] : [],
+    createWorkflowNode: (action, position) => {
+      const node = { id: "video-result", type: action === "add-video" ? "unifiedVideoGen" : "imageGenerate", x: position.x, y: position.y, data: {} };
+      workflow.nodes.push(node);
+      return node;
+    },
+    workflowGeneratedNodePosition: (node) => ({ x: node.x + 448, y: node.y }),
+    workflowCanConnectNodes: () => true,
+    persistWorkflowState: () => {},
+    window: { WorkflowReactCanvas: { sync() {}, selectNode(id) { selected.push(id); } } },
+  });
+  vm.runInContext(`${extractFunction(part, "workflowGenerationRunNode")}
+this.workflowGenerationRunNode = workflowGenerationRunNode;`, context);
+
+  const result = context.workflowGenerationRunNode(workflow.nodes[1]);
+
+  assert.equal(result.id, "video-result");
+  assert.deepEqual(Array.from(workflow.edges, (edge) => `${edge.from}->${edge.to}`), [
+    "reference-image->video-source",
+    "video-source->video-result",
+  ]);
+  assert.ok(!workflow.edges.some((edge) => edge.to === "video-result" && edge.from !== "video-source"));
+  assert.equal(context.state.workflowSelectedNodeId, "video-result");
+  assert.deepEqual(selected, ["video-result"]);
+});
+
 test("inline workflow dialogs use an explicit async confirm handler", () => {
   const ui = read("platform.ui.js");
   const manager = read("platform.workflow-canvases.js");
