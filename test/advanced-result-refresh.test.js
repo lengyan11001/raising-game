@@ -214,12 +214,13 @@ test("result image outputs dedupe signed aliases by media path without merging d
     "generationImageResultObjectKey",
     "generationImageResultUrls",
   ];
-  const helpers = names.map((name) => extractFunction(ui, name)).join("\n");
+  const uiPart = fs.readFileSync(path.join(root, "platform.ui.parts", "part-02.js"), "utf8");
+  const helpers = names.map((name) => extractFunction(uiPart, name)).join("\n");
   const vm = require("node:vm");
   const context = { URL };
   vm.runInNewContext(`${helpers}\nthis.urls = generationImageResultUrls;`, context);
   assert.deepEqual(
-    Array.from(context.urls({
+    JSON.parse(JSON.stringify(context.urls({
       cdnImageUrls: [
         "https://assets-cdn.123vips.com/assets/generated/a.png?Expires=1&OSSAccessKeyId=k&Signature=one",
         "https://media.123vips.com/assets/generated/b.png?Expires=1&Signature=two",
@@ -229,7 +230,7 @@ test("result image outputs dedupe signed aliases by media path without merging d
       ],
       localImageUrls: ["/assets/generated/b.png?Expires=2&Signature=four"],
       imageResultUrl: "https://assets-cdn.123vips.com/assets/generated/a.png?Expires=3&Signature=five",
-    })),
+    }))),
     [
       "https://assets-cdn.123vips.com/assets/generated/a.png?Expires=1&OSSAccessKeyId=k&Signature=one",
       "https://media.123vips.com/assets/generated/b.png?Expires=1&Signature=two",
