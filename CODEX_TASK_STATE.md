@@ -2673,3 +2673,13 @@ CODEX_TASK_STATE.md
 - Character IDs are currently content hashes and therefore unstable. Replace with stable random IDs while preserving merchant isolation and inline ticket compatibility.
 - Compute-relay must use separate `computeRelayCostCreditsPerMinute` and `computeRelaySaleCreditsPerMinute`, fail closed when absent, reserve before upstream creation, roll back on failure, settle from Vidu billed seconds, and include `externalUserId` in ledger metadata.
 - Planning references: `chat-live-component.js` for the dependency-free WS client and Vidu signal protocol; `db.js` for character/session persistence; `admin.js` for pricing UI.
+
+## Vidu Live integration completion status (2026-11-10)
+
+- Implementation is complete on `old-site`: merchant-isolated Character CRUD with stable `embedchar-*` IDs, programmatic `compute-relay` sessions, HMAC-bound Relay WebSocket tokens, Vidu international-only upstream calls, PostgreSQL-backed character/session persistence, reserve-before-upstream billing, failure rollback, billed-second settlement, admin compute-relay pricing, public docs, and the `123vipeak.com` developer entry.
+- Public docs: `GET /docs/vidu-live-integration.md`.
+- Relay contract: `pcm_s16le`, 24,000 Hz, mono, 960 bytes / 20 ms.
+- Homepage entry: `site-landing.html` exposes `开发者接入`, Character API / Programmatic Session / Relay WebSocket, and the docs link.
+- Verification passed: `node --require ./test/source-compat.js --test test/vidu-live-relay.test.js test/vidu-live-api.test.js test/live-companion-prototype.test.js` = 40/40; `node --require ./test/source-compat.js --test test/eleven-eleven-promo.test.js` = 8/8; syntax checks and `git diff --check` pass.
+- Documentation: `docs/vidu-live-integration.md` includes auth, assets, voices, Character API, iframe/ticket flow, compute-relay sessions, Relay commands/events, PCM contract, independent pricing, error codes, security rules, and a full Node.js example.
+- Deployment remains pending at the time of this entry. Build both release snapshots from committed `old-site`, deploy platform first, then Live, and verify both domains.
