@@ -8,6 +8,7 @@
 - Verification: all modified JS syntax checks pass; deployment Python compile and `git diff --check` pass. Focused generation/refund/deploy suite 56/56, result refresh and service-worker suite 30/30, combined final suite 86/86.
 - Changed files: `server.parts/part-01.js`, `part-25.js`, `part-26.js`, `part-27.js`, `part-28.js`, `part-38.js`, `part-43.js`; `platform.ui.parts/part-02.js`; `scripts/deploy_pull.py`, `scripts/deploy_site.py`; `test/generation-submit-drain.test.js`, `test/deploy-targets.test.js`, `test/advanced-result-refresh.test.js`.
 - Sessions are not cleared and users are not logged out. Live remains untouched. Unrelated WIP (`platform.create.parts/part-04.js`, `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, `workflow-react/node_modules`) is excluded.
+- Old deployment completed from source commit `0b2f303` and platform release `b2670a7`; `platform-release` was force-pushed to match the generated snapshot. Old serves `b2670a7`, health 200, active/running, `NRestarts=0`. Temporary `90-generation-submit-drain.conf` was removed after health verification. Post-deploy: 968 sessions (99 active), 926 users, last 15 minutes 11 generations (10 succeeded, 0 failed, 1 in progress), 0 refund events, no 5xx or uncaught exceptions. Live release remains untouched.
 ## 2026-11-11 post-deploy verification: same admin device, old burst stopped
 
 - Rechecked the same administrator device `2407:cdc0:b010::237` on Old after deployment `c41bba3`.
