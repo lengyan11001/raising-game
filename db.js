@@ -1129,6 +1129,12 @@ async function ensureSchemaInner() {
       ON app_generation_records ((payload->>'userId'), created_at DESC);
   `);
   await query(`
+    CREATE INDEX IF NOT EXISTS app_generation_records_awaiting_submit_created_idx
+      ON app_generation_records (created_at ASC)
+      WHERE payload->>'awaitingUpstreamTask' = 'true'
+        AND COALESCE(payload->>'upstreamTaskId', '') = '';
+  `);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_media_ingest_jobs (
       task_id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
