@@ -1,4 +1,4 @@
-## 2026-11-11 P0 readiness and deployment safety (ready for Old deployment)
+## 2026-11-11 P0 readiness and deployment safety (deployed Old)
 
 - User goal: improve single-node fault tolerance in controlled stages without disrupting production; do not confuse capacity upgrades or multiple API processes with resilience.
 - P0 scope: distinguish process liveness from dependency readiness. `/api/health` retains its existing `{"ok":true}` contract for monitors and deployment; `/api/livez` reports process liveness without DB IO; `/api/readyz` verifies PostgreSQL with bounded connection and query time and returns 503 until bootstrap is ready or when DB is unavailable.
