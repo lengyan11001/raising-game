@@ -230,6 +230,7 @@ const {
   markSystemNotificationReadInDb,
   markAllSystemNotificationsReadInDb,
   createUserSupportMessageInDb,
+  getSupportMessageByIdInDb,
   updateUserSupportMessageInDb,
   listLiveNotificationsInDb,
   createLiveNotificationInDb,

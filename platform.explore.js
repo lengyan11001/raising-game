@@ -133,7 +133,13 @@ function setTab(tab) {
   if (nextTab === "spending") loadSpendingRecords();
   if (nextTab === "referral") loadReferralSummary({ force: true });
   if (nextTab === "pricing") renderPricing();
-  if (nextTab === "chat") loadChatConversations({ selectFirst: true });
+  if (nextTab === "chat") {
+    loadChatConversations({ selectFirst: true });
+    // The live-chat client is a deferred module. Load it when the chat panel is
+    // opened rather than during first paint; platform-deferred-ready hydrates
+    // the live entry after the script arrives.
+    window.PlatformDeferredModules?.load?.().catch(() => {});
+  }
   if (nextTab === "assets") {
     if (state.user) loadUserAssets();
     else renderAssets([]);

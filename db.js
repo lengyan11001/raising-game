@@ -1663,42 +1663,43 @@ async function readAppDbFromTables(defaultDb = {}, options = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
   const includeUserAssets = options.includeUserAssets !== false;
-  const [
-    users,
-    sessions,
-    walletOrders,
-    referralWithdrawals,
-    creditLedger,
-    userAssets,
-    userCharacters,
-    userUnlocks,
-    adminHomeItems,
-    supportMessages,
-  ] = await Promise.all([
-    query(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`),
-    query(`SELECT * FROM app_sessions ORDER BY created_at ASC`),
-    query(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`),
-    query(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`),
-    query(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`),
-    includeUserAssets ? query(`SELECT * FROM app_user_assets ORDER BY created_at DESC`) : Promise.resolve({ rows: [] }),
-    query(`SELECT * FROM app_user_characters ORDER BY created_at DESC`),
-    query(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`),
-    query(`SELECT * FROM app_admin_home_items ORDER BY created_at DESC`),
-    query(`SELECT * FROM app_support_messages ORDER BY created_at DESC`),
-  ]);
-  return {
-    users: users.rows.map(userFromRow),
-    sessions: sessions.rows.map(sessionFromRow),
-    walletOrders: walletOrders.rows.map(walletOrderFromRow),
-    referralWithdrawals: referralWithdrawals.rows.map(referralWithdrawalFromRow),
-    creditLedger: creditLedger.rows.map(ledgerFromRow),
-    userAssets: userAssets.rows.map(recordFromPayloadRow),
-    userCharacters: userCharacters.rows.map(recordFromPayloadRow),
-    userUnlocks: userUnlocks.rows.map(recordFromPayloadRow),
-    adminHomeItems: adminHomeItems.rows.map(recordFromPayloadRow),
-    supportMessages: supportMessages.rows.map(recordFromPayloadRow),
-    apiSubtokens: Array.isArray(defaultDb.apiSubtokens) ? defaultDb.apiSubtokens : [],
-  };
+  // A full application snapshot used to issue every table query through the
+  // shared pool at once. Two callers could therefore consume all 20 pool slots
+  // before either one finished, starving auth, notifications, and generation.
+  // Keep the broad snapshot for legacy callers, but read it through one pooled
+  // connection so one request costs one slot regardless of table count.
+  const client = await getPool().connect();
+  try {
+    const readRows = async (sql, params = []) => (await client.query(sql, params)).rows;
+    const users = await readRows(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`);
+    const sessions = await readRows(`SELECT * FROM app_sessions ORDER BY created_at ASC`);
+    const walletOrders = await readRows(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`);
+    const referralWithdrawals = await readRows(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`);
+    const creditLedger = await readRows(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`);
+    const userAssets = includeUserAssets
+      ? await readRows(`SELECT * FROM app_user_assets ORDER BY created_at DESC`)
+      : [];
+    const userCharacters = await readRows(`SELECT * FROM app_user_characters ORDER BY created_at DESC`);
+    const userUnlocks = await readRows(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`);
+    // Admin home items and support messages have dedicated paginated readers.
+    // They were previously queried here and then discarded by readDb(), wasting
+    // two sequential round trips and transferring payloads nobody consumed.
+    return {
+      users: users.map(userFromRow),
+      sessions: sessions.map(sessionFromRow),
+      walletOrders: walletOrders.map(walletOrderFromRow),
+      referralWithdrawals: referralWithdrawals.map(referralWithdrawalFromRow),
+      creditLedger: creditLedger.map(ledgerFromRow),
+      userAssets: userAssets.map(recordFromPayloadRow),
+      userCharacters: userCharacters.map(recordFromPayloadRow),
+      userUnlocks: userUnlocks.map(recordFromPayloadRow),
+      adminHomeItems: [],
+      supportMessages: [],
+      apiSubtokens: Array.isArray(defaultDb.apiSubtokens) ? defaultDb.apiSubtokens : [],
+    };
+  } finally {
+    client.release();
+  }
 }
 
 async function replaceAppDbTables(db = {}, options = {}) {
@@ -6449,6 +6450,19 @@ async function createUserSupportMessageInDb(record = {}) {
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
 }
 
+async function getSupportMessageByIdInDb(messageId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(messageId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT * FROM app_support_messages
+    WHERE id = $1 AND deleted_at IS NULL
+    LIMIT 1
+  `, [id]);
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
 async function updateUserSupportMessageInDb(messageId = "", patch = {}) {
   if (!dbEnabled()) return null;
   const id = String(messageId || "").trim();
@@ -8726,6 +8740,7 @@ module.exports = {
   getAdminCreatorWithdrawalsPageFromDb,
   updateCreatorWithdrawalInDb,
   createUserSupportMessageInDb,
+  getSupportMessageByIdInDb,
   updateUserSupportMessageInDb,
   hasReferralRewardInDb,
   setMembershipActivationCodeStatusInDb,

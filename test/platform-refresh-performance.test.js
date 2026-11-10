@@ -85,7 +85,7 @@ test("first paint defers heavy optional modules and icons", () => {
   assert.match(html, /rel="preconnect" href="https:\/\/media\.123vips\.com"/);
   assert.match(loader, /const criticalChunkFiles = \[/);
   assert.match(loader, /const deferredChunkFiles = \[[\s\S]*?platform\.workflow-canvases\.js[\s\S]*?platform\.video-tools\.js[\s\S]*?platform\.undress-tool\.js[\s\S]*?chat-live\.js/);
-  assert.match(loader, /requestIdleCallback\(\(\) => loadDeferredChunks\(\)/);
+  assert.doesNotMatch(loader, /requestIdleCallback\(\(\) => loadDeferredChunks\(\)/);
   assert.match(loader, /requestIdleCallback\(loadIcons/);
   assert.match(loader, /window\.PlatformDeferredModules = \{ load: loadDeferredChunks \}/);
   assert.match(loader, /deferredLoadPromise = appendChunks\(deferredChunkFiles\)/);
@@ -102,6 +102,7 @@ test("deferred interactions hydrate instead of throwing on first click", () => {
   assert.match(explore, /deferred\.then\(loadCanvases\)/);
   assert.match(chat, /platform-deferred-ready/);
   assert.match(chat, /hydrateChatLiveEntry/);
+  assert.match(explore, /nextTab === "chat"[\s\S]*?PlatformDeferredModules\?\.load\?\.\(\)/);
   assert.match(main, /deferredVideoTool/);
   assert.match(main, /openVideoToolDialog\(action\)/);
 });
@@ -112,7 +113,8 @@ test("service worker never intercepts API or non-GET requests", () => {
   assert.match(sw, /url\.pathname\.startsWith\("\/api\/"\)/);
   assert.match(sw, /request\.mode === "navigate"/);
   assert.match(sw, /refresh/);
-  assert.match(sw, /type !== "precache"/);
+  assert.doesNotMatch(sw, /type !== "precache"/);
+  assert.doesNotMatch(sw, /shellUrls/);
   assert.match(sw, /caches\.delete\(key\)/);
 });
 
@@ -136,4 +138,5 @@ test("service worker script remains registrable", () => {
   assert.match(staticServer, /isNoStoreResponse \|\| isServiceWorker[\s\S]*?"cdn-cache-control": "no-store"/);
   assert.doesNotMatch(staticServer, /isFrontendNoStore \|\| isHtml\s*\? "no-store/);
   assert.match(loader, /updateViaCache: "none"/);
+  assert.doesNotMatch(loader, /postMessage\(\{ type: "precache"/);
 });

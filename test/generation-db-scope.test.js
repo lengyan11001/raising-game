@@ -27,3 +27,31 @@ test("advanced generation jobs load only the creating user and that user's asset
   assert.match(db, /async function getUserAssetsForUserFromDb\(userId = ""\)/);
   assert.match(db, /WHERE user_id = \$1[\s\S]*?deleted_at IS NULL/);
 });
+
+
+test("legacy full snapshots use one pooled connection and skip unused tables", () => {
+  const db = read("db.js");
+  const start = db.indexOf("async function readAppDbFromTables(");
+  const end = db.indexOf("async function replaceAppDbTables(", start);
+  const block = db.slice(start, end);
+  assert.ok(start > 0 && end > start);
+  assert.match(block, /const client = await getPool\(\)\.connect\(\)/);
+  assert.match(block, /finally \{\s*client\.release\(\);/);
+  assert.doesNotMatch(block, /Promise\.all\(\[/);
+  assert.match(block, /const users = await readRows/);
+  assert.match(block, /const sessions = await readRows/);
+  assert.doesNotMatch(block, /SELECT \* FROM app_admin_home_items/);
+  assert.doesNotMatch(block, /SELECT \* FROM app_support_messages/);
+});
+
+test("admin support replies do not load the full application snapshot", () => {
+  const server = read("server.parts/part-33.js");
+  const db = read("db.js");
+  const start = server.indexOf("async function handleAdminReplySupportMessage(");
+  const end = server.indexOf("async function handleListApiSubtokens(", start);
+  const block = server.slice(start, end);
+  assert.ok(start > 0 && end > start);
+  assert.match(block, /requireAdmin\(req, res, \{ loadDb: false \}\)/);
+  assert.match(block, /getSupportMessageByIdInDb\(messageId\)/);
+  assert.match(db, /async function getSupportMessageByIdInDb\(messageId = ""\)/);
+});

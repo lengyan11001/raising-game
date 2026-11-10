@@ -3,34 +3,12 @@
 (() => {
   const version = new URL(self.location.href).searchParams.get("v") || "dev";
   const cacheName = `vipeak-platform-shell-${version}`;
-  const shellUrls = ["/", "/platform.html", "/platform.css", "/platform.js", "/platform.vitals.js"];
   const cacheableAsset = /^\/(?:platform(?:\.|$)|vendor\/lucide-|chat-live\.js$)/;
 
   self.addEventListener("install", (event) => {
-    event.waitUntil((async () => {
-      const cache = await caches.open(cacheName);
-      await Promise.all(shellUrls.map(async (url) => {
-        try {
-          const response = await fetch(url, { cache: "reload", credentials: "same-origin" });
-          if (response.ok) await cache.put(url, response);
-        } catch (error) {}
-      }));
-      await self.skipWaiting();
-    })());
-  });
-
-  self.addEventListener("message", (event) => {
-    if (event.data?.type !== "precache" || !Array.isArray(event.data.urls)) return;
-    event.waitUntil((async () => {
-      const cache = await caches.open(cacheName);
-      await Promise.all(event.data.urls.map(async (url) => {
-        try {
-          if (await cache.match(url)) return;
-          const response = await fetch(url, { credentials: "same-origin" });
-          if (response.ok) await cache.put(url, response);
-        } catch (error) {}
-      }));
-    })());
+    // Do not preload the shell or module manifest during install. Navigation and
+    // chunks are cached by the fetch handler after the page requests them once.
+    event.waitUntil(self.skipWaiting());
   });
 
   self.addEventListener("activate", (event) => {

@@ -87,13 +87,9 @@
     return deferredLoadPromise;
   };
   window.PlatformDeferredModules = { load: loadDeferredChunks };
-  window.addEventListener("load", () => {
-    if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(() => loadDeferredChunks().catch(() => {}), { timeout: 1200 });
-    } else {
-      window.setTimeout(() => loadDeferredChunks().catch(() => {}), 250);
-    }
-  }, { once: true });
+  // Do not download deferred tools during the first page load. They account for
+  // roughly 750 KB of script and are only useful after an explicit interaction.
+  // Workflow, video-tool, and chat-live entry points call this loader on demand.
 
   // Icons are decorative and must not compete with the first screen for parse
   // time. Load them after the page load event, then hydrate the existing DOM.
@@ -128,12 +124,9 @@
         scope: new URL("./", baseUrl).pathname,
         updateViaCache: "none",
       })
-        .then(() => navigator.serviceWorker.ready)
-        .then((registration) => {
-          const urls = [...criticalChunkFiles, ...deferredChunkFiles, "vendor/lucide-1.27.0.min.js"]
-            .map((file) => sourceFor(file));
-          registration.active?.postMessage({ type: "precache", urls });
-        })
+        // The service worker caches resources as the browser naturally fetches
+        // them. Re-downloading every critical and deferred module here doubled
+        // cold-start traffic and competed with the first interactive paint.
         .catch((error) => console.warn("service worker registration failed", error.message || error));
     }, { once: true });
   }

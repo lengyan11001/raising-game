@@ -1441,12 +1441,14 @@ async function handleAdminListSupportMessages(req, res, url) {
 }
 
 async function handleAdminReplySupportMessage(req, res, messageId) {
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req);
   const reply = String(body.reply || "").trim();
   if (!reply) return sendJson(res, 400, { ok: false, message: "Reply is required." });
-  const record = (auth.db.supportMessages || []).find((item) => item.id === messageId && !isSoftDeleted(item));
+  const record = dbEnabled()
+    ? await getSupportMessageByIdInDb(messageId)
+    : (auth.db.supportMessages || []).find((item) => item.id === messageId && !isSoftDeleted(item));
   if (!record) return sendJson(res, 404, { ok: false, message: "Support message not found." });
   record.reply = reply;
   record.status = "replied";
