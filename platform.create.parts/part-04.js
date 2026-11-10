@@ -1510,11 +1510,9 @@ function applyRecordToAdvancedCreate(record = {}, button = null) {
     applyAdvancedRegenerationVisibleParameters(regenerationSnapshot, provider);
     updateAdvancedButtonCost();
     setAdvancedSideTab("assets");
-    if (els.advancedNote) els.advancedNote.textContent = t("history.regenerateSubmitted");
-    if (button) {
-      button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.regenerateSubmitted"))}`;
-      button.disabled = false;
-      refreshIcons();
+    if (els.advancedNote) {
+      els.advancedNote.textContent = "";
+      els.advancedNote.classList.remove("is-error");
     }
     return;
   }
@@ -1585,11 +1583,9 @@ function applyRecordToAdvancedCreate(record = {}, button = null) {
   applyAdvancedRegenerationVisibleParameters(regenerationSnapshot, provider);
   updateAdvancedButtonCost();
   setAdvancedSideTab("assets");
-  if (els.advancedNote) els.advancedNote.textContent = t("history.regenerateSubmitted");
-  if (button) {
-    button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.regenerateSubmitted"))}`;
-    button.disabled = false;
-    refreshIcons();
+  if (els.advancedNote) {
+    els.advancedNote.textContent = "";
+    els.advancedNote.classList.remove("is-error");
   }
   return true;
 }

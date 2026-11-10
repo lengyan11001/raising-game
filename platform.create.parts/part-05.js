@@ -1180,10 +1180,6 @@ async function unlockHistoryRecord(taskId, button, record = {}) {
 
 async function regenerateHistoryRecord(taskId, button) {
   if (!taskId || !button) return;
-  const originalHtml = button.innerHTML;
-  button.disabled = true;
-  button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
-  refreshIcons();
   try {
     const record = (state.historyRecords || []).find((item) => String(item.taskId || "") === String(taskId));
     if (!record) {
@@ -1195,19 +1191,14 @@ async function regenerateHistoryRecord(taskId, button) {
     } else {
       await restoreRecordToAdvancedCreate(record, button);
     }
-    button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.regenerateSubmitted"))}`;
-    refreshIcons();
   } catch (error) {
-    button.innerHTML = `<i data-lucide="alert-circle"></i>${escapeHtml(error.message || String(error))}`;
+    const note = document.createElement("div");
+    note.className = "job-note history-action-note";
+    note.textContent = error.message || String(error);
+    els.historyList?.prepend(note);
+    window.setTimeout(() => note.remove(), 5000);
     refreshIcons();
-    window.setTimeout(() => {
-      button.disabled = false;
-      button.innerHTML = originalHtml;
-      refreshIcons();
-    }, 2500);
-    return;
   }
-  button.disabled = false;
 }
 
 async function addHistoryRecordToAssets(taskId, button) {

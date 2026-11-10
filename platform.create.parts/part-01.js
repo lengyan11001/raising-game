@@ -1105,9 +1105,6 @@ function bindAdvancedResultCardEvents(card) {
       if (state.advancedRegenerationRestoreInFlight) return;
       state.advancedRegenerationRestoreInFlight = true;
       const cachedRecord = advancedResultPageRecord(button.dataset.advancedResultRegenerate);
-      button.disabled = true;
-      button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
-      refreshIcons();
       try {
         if (!cachedRecord) throw new Error(t("history.loadFailed", { message: "record not found" }));
         // A full result record restores immediately. Poll-derived rows omit
@@ -1115,9 +1112,6 @@ function bindAdvancedResultCardEvents(card) {
         // authoritative detail first and applies the complete form once.
         await restoreRecordToAdvancedCreate(cachedRecord, button);
       } catch (error) {
-        button.disabled = false;
-        button.innerHTML = `<i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}`;
-        refreshIcons();
         const detail = String(error?.message || error || "").trim();
         if (detail && els.advancedNote) {
           els.advancedNote.textContent = detail;

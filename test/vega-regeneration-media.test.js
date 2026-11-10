@@ -604,6 +604,20 @@ test("Regeneration clicks are serialized and failed previews do not remain black
   assert.match(previewSource, /素材不可用/);
   assert.match(exploreSource, /recordImageAssets\(detailRecord\)/);
   assert.match(exploreSource, /referenceImages: \[\], referenceVideos: \[\], referenceAudios: \[\]/);
+
+  const resultRegenerateHandler = createUiSource.match(
+    /card\.querySelectorAll\("\[data-advanced-result-regenerate\]"\)[\s\S]*?\n  \}\);/,
+  )?.[0] || "";
+  assert.ok(resultRegenerateHandler, "result-card regenerate handler should exist");
+  assert.doesNotMatch(resultRegenerateHandler, /button\.innerHTML\s*=/);
+  assert.doesNotMatch(resultRegenerateHandler, /history\.regenerating|history\.regenerateSubmitted/);
+
+  const historyRegenerate = extractFunction(previewSource, "regenerateHistoryRecord");
+  assert.doesNotMatch(historyRegenerate, /button\.innerHTML\s*=/);
+  assert.doesNotMatch(historyRegenerate, /history\.regenerating|history\.regenerateSubmitted/);
+
+  const applySource = extractFunction(createSource, "applyRecordToAdvancedCreate");
+  assert.doesNotMatch(applySource, /history\.regenerateSubmitted/);
 });
 
 
