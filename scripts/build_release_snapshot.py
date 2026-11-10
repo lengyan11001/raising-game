@@ -175,6 +175,10 @@ def write_release_tree(root: Path, source_ref: str, profile: str, parent: str | 
     return run(["git", "commit-tree", tree, *parent_args, "-m", message], root)
 
 
+def release_branch_for_profile(args: argparse.Namespace, profile: str) -> str:
+    return args.platform_branch if profile == "platform" else args.live_branch
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create clean platform/live release branches.")
     parser.add_argument("--source", default="old-site", help="Integration branch or commit to snapshot.")
@@ -210,7 +214,15 @@ def main() -> None:
             subprocess.run(["git", "update-ref", base_ref, base_commit, "0" * 40], cwd=root, check=True)
             print(f"{profile}: created immutable base={base_commit}")
 
-        release_commit = write_release_tree(root, source_ref, profile, base_commit)
+        remote_release_ref = f"refs/remotes/origin/{release_branch_for_profile(args, profile)}"
+        remote_release = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{remote_release_ref}^{{commit}}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        parent_commit = remote_release.stdout.strip() if remote_release.returncode == 0 else base_commit
+        release_commit = write_release_tree(root, source_ref, profile, parent_commit)
         release_branch = args.platform_branch if profile == "platform" else args.live_branch
         release_ref = f"refs/heads/{release_branch}"
         old_release = subprocess.run(

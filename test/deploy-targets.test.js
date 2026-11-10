@@ -289,5 +289,14 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
   assert.equal(platformTree.includes("scripts/build_release_snapshot.py"), true, "platform release must include its release tooling");
   assert.equal(liveTree.some((file) => file.startsWith("scripts/")), false);
   assert.equal(run("git", ["rev-list", "--count", "release-base/platform..platform-release"], { cwd: source }).trim(), "1");
+  run("git", ["update-ref", "refs/remotes/origin/platform-release", "release-base/platform"], { cwd: source });
+  run("git", ["update-ref", "-d", "refs/heads/platform-release"], { cwd: source });
+  writeFile(path.join(source, "readiness.js"), "readiness\n");
+  run("git", ["add", "readiness.js"], { cwd: source });
+  run("git", ["commit", "-qm", "readiness fixture"], { cwd: source });
+  run("python3", [snapshotBuilder, "--repo-root", source, "--source", "HEAD"], { cwd: source });
+  assert.equal(run("git", ["rev-parse", "platform-release^"], { cwd: source }).trim(), run("git", ["rev-parse", "release-base/platform"], { cwd: source }).trim());
+  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", "origin/platform-release", "platform-release"], { cwd: source });
+  assert.equal(ancestor.status, 0, ancestor.stderr);
   assert.equal(run("git", ["rev-list", "--count", "release-base/live..live-release"], { cwd: source }).trim(), "1");
 });
