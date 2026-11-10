@@ -1,3 +1,11 @@
+## 2026-11-10 canvas generation polling ReferenceError fixed (ready for Old deployment)
+
+- User report: newly created local canvas node returns `node is not define` when generating.
+- Root cause: `platform.ui.parts/part-06.js` `pollWorkflowTask(nodeId, taskId)` called `workflowThrowIfCancelled(node.id)` although no `node` variable exists in that function. Submission succeeded, then the first polling loop threw a browser `ReferenceError`.
+- Fix: use the `nodeId` parameter for both cancellation checks. No API, billing, refund, database, session, or generation behavior changed.
+- Added regression coverage in `test/workflow-canvases.test.js`; workflow canvas suite passes 33/33; syntax and `git diff --check` pass.
+- Publish scope: `platform.ui.parts/part-06.js`, `test/workflow-canvases.test.js`, this state entry only. Do not stage unrelated untracked canvas/test artifacts.
+
 ## 2026-11-10 video-tool scan scope deployed and database health verified (deployed Old)
 
 - Commit/release: source `c9fa45b` / `platform-release` `59a5d781e0681b58a2ad8f74c36a21fa39b72694`; pushed with exact lease from `77ab988`, deployed Old only via `scripts/deploy_local.sh --site old`. Live untouched at `bf1e01a`.

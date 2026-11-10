@@ -304,9 +304,9 @@ function workflowHandleExecutionError(error = {}, nodeId = state.workflowActiveN
 async function pollWorkflowTask(nodeId = "", taskId = "", kind = "video") {
   let lastRecord = null;
   for (let attempt = 0; attempt < 150; attempt += 1) {
-    workflowThrowIfCancelled(node.id);
+    workflowThrowIfCancelled(nodeId);
     await new Promise((resolve) => setTimeout(resolve, attempt ? 4000 : 1200));
-    workflowThrowIfCancelled(node.id);
+    workflowThrowIfCancelled(nodeId);
     const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
     const record = payload.record || payload.generation || null;
     if (!record?.taskId) continue;

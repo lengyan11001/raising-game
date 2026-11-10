@@ -865,3 +865,12 @@ test("workflow project summary uses the last content-bearing node as its thumbna
   assert.equal(videoOnly.thumbnailUrl, "");
   assert.equal(videoOnly.thumbnailVideoUrl, "https://cdn.example/video.mp4");
 });
+
+test("workflow task polling never references an undefined node", () => {
+  const part = read("platform.ui.parts/part-06.js");
+  const poll = extractFunction(part, "pollWorkflowTask");
+
+  assert.match(poll, /workflowThrowIfCancelled\(nodeId\)/);
+  assert.doesNotMatch(poll, /workflowThrowIfCancelled\(node\.id\)/);
+  assert.doesNotMatch(poll, /\bnode\.id\b/);
+});
