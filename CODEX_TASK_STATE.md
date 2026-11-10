@@ -1,3 +1,13 @@
+## 2026-11-10 video-tool scan scope deployed and database health verified (deployed Old)
+
+- Commit/release: source `c9fa45b` / `platform-release` `59a5d781e0681b58a2ad8f74c36a21fa39b72694`; pushed with exact lease from `77ab988`, deployed Old only via `scripts/deploy_local.sh --site old`. Live untouched at `bf1e01a`.
+- Deployed fix scopes four video-tool job runners to `readGenerationJobDb(userId)` so they no longer load all `app_user_assets` rows.
+- Post-deploy: service active, `NRestarts=0`, health 200. Connections observed `1 active / 8 idle`, lock waiters 0, active queries over 30s 0, idle-in-transaction over 30s 0. No matching app/database error or PostgreSQL slow-log entries in the post-restart window.
+- Remaining `app_user_assets` statements observed after deploys are all user-scoped (`WHERE user_id = $1`) and use `app_user_assets_user_created_idx`; the broad `SELECT * FROM app_user_assets ORDER BY created_at DESC` snapshot was absent after restart.
+- Production DB baseline: size 724MB, cache hit 88.76%, deadlocks 0, 4 vCPU / 7.1GiB host, no upgrade justified now. Settings active: max_connections 100, shared_buffers 128MB, work_mem 16MB, maintenance_work_mem 384MB, idle-in-transaction timeout 30s, lock timeout 5s, slow log threshold 1s.
+- Bloat is currently low except `app_workflow_canvases` 16.8% dead tuples; autovacuum thresholds already tuned for workflow canvases. No forced session cleanup: 950 sessions, 0 expired; wallet last-hour pending 0 while 704 old pending remain intentionally outside the scan window.
+- Residual risk: `readAppDbFromTables()` remains for legacy callers that genuinely need a full snapshot; do not globally replace it without verifying charge/refund/media semantics. Monitor for broad asset snapshots as traffic exercises remaining routes.
+
 ## 2026-11-10 video-tool asset scan scope fix (ready for Old deployment)
 
 - Production inspection found residual active queries: `SELECT * FROM app_user_assets ORDER BY created_at DESC` from legacy full snapshots, including video-tool job runners.
@@ -6,6 +16,15 @@
 - Publish scope: `server.parts/part-23.js`, `test/generation-db-scope.test.js`, and this state entry only. Do not stage unrelated untracked canvas/test artifacts.
 
 ## 2026-11-10 wallet one-hour production verification (verified Old)
+
+## 2026-11-10 result preview dialog actions fixed and deployed to Old
+
+- User reported that the video preview opened from Result did not respond to Download or Close.
+- Replaced the implicit dialog form close with an explicit `previewCloseBtn` handler and replaced the cross-origin `<a download>` action with an explicit button.
+- `playPreview()` now accepts the current generation record. Result and history preview actions store that record and download through the existing fresh-signature `downloadGenerationRecord()` path; non-record gallery previews retain a direct fallback.
+- Focused verification: 43/43 tests pass across `mobile-tool-ux`, `advanced-result-refresh`, `platform-refresh-performance`, and `download-signing`; syntax and `git diff --check` pass.
+- Source commit `d9f8230`, platform release `a19b76b`; deployed with `scripts/deploy_local.sh --site old`. Live release remains `bf1e01a` and was not deployed.
+- Production HTML contains the new explicit controls and `/api/health` returns `{"ok":true}`. Headless production check confirmed download state binds the active record and Close transitions the dialog to closed with `returnValue=cancel`.
 
 - User requested wallet scanning limited to the most recent 30-60 minutes instead of all history.
 - Production `123vips.com` is running `raising-game-demo` at `77ab98873eecba0c7f7917e57d5c06bf2dab6f7d`; service active and `/api/health` returns `{"ok":true}`.
