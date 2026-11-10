@@ -1150,10 +1150,12 @@ function advancedRegenerationRecordIsComplete(record = {}) {
   const ratioValue = value(submitted.ratio, submitted.aspect_ratio, record.ratio, params.ratio, params.aspect_ratio, params.aspectRatio);
   const resolutionValue = value(submitted.resolution, record.resolution, params.resolution, params.resolution_name, params.resolutionName);
   const durationValue = value(submitted.duration, record.duration, params.duration, params.durationSeconds, params.duration_seconds);
-  // Image generation records have no duration. Require it only for video so a
-  // valid img-* detail is not treated as a partial poll snapshot.
-  if (!hasValue(ratioValue) || !hasValue(resolutionValue)) return false;
-  if (!advancedRegenerationRecordIsImage(record) && !hasValue(durationValue)) return false;
+  // Image generation records have no duration, and text/reference image
+  // providers such as Seedream 5 store only a resolution (no aspect ratio).
+  // Video records still require the full visible snapshot.
+  const imageRecord = advancedRegenerationRecordIsImage(record);
+  if (!hasValue(resolutionValue)) return false;
+  if (!imageRecord && (!hasValue(ratioValue) || !hasValue(durationValue))) return false;
   // If media was submitted, every submitted media channel must still be
   // present. This catches truncated detail/list payloads before they clear the
   // current form or restore only a subset of references.
@@ -2054,7 +2056,16 @@ async function openAssetFrameDialog(asset = {}) {
 function useAssetInAdvanced(asset = {}, action = "use") {
   if (!asset) return;
   if (!state.user) return openLogin();
-  state.advancedCreateKind = action === "modify" ? "image" : "video";
+  if (action === "modify") {
+    openAssetModifyDialog(asset).catch((error) => {
+      if (els.advancedNote) {
+        els.advancedNote.textContent = error.message || String(error);
+        els.advancedNote.classList.add("is-error");
+      }
+    });
+    return;
+  }
+  state.advancedCreateKind = "video";
   state.advancedCreateMode = action === "modify"
     ? "image-edit"
     : action === "replace"

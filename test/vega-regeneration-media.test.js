@@ -1018,10 +1018,39 @@ return { advancedRegenerationRecordIsComplete };`,
   };
   assert.equal(runtime.advancedRegenerationRecordIsComplete(imageRecord), true);
   assert.equal(runtime.advancedRegenerationRecordIsComplete({
+    taskId: "img-20261110224714-e648ed",
+    kind: "advanced-image",
+    source: "advanced-seedream5-image",
+    provider: "seedream5-image",
+    model: "ep-20260721175949-xw978",
+    status: "failed",
+    prompt: "五官发型参考 @Image 2，身材参考 @Image 1",
+    resolution: "2K",
+    params: {
+      provider: "seedream5-image",
+      createKind: "custom",
+      createMode: "custom",
+      resolution: "2K",
+      size: "2K",
+      seedreamTier: "pro",
+      referenceImageCount: 2,
+    },
+    userAssetIds: ["asset-1794321962587-4a2d4b0f", "asset-1794322001742-c165c694"],
+    imageUrls: [
+      "/assets/user-uploads/user-1781623567712-81394c0d/asset-1794321962587-4a2d4b0f.png",
+      "/assets/user-uploads/user-1781623567712-81394c0d/asset-1794322001742-c165c694.png",
+    ],
+  }), true);
+  assert.equal(runtime.advancedRegenerationRecordIsComplete({
     ...imageRecord,
     resolution: "",
     params: { ...imageRecord.params, resolution: "" },
   }), false);
+  assert.equal(runtime.advancedRegenerationRecordIsComplete({
+    ...imageRecord,
+    ratio: "",
+    params: { ...imageRecord.params, ratio: "" },
+  }), true);
   assert.equal(runtime.advancedRegenerationRecordIsComplete({
     taskId: "vid-without-duration",
     kind: "video",
