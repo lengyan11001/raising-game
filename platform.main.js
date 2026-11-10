@@ -1433,10 +1433,8 @@ document.querySelectorAll("[data-analytics-event]").forEach((element) => {
     }
   });
 });
-els.supportNavBtn?.addEventListener("click", (event) => {
-  event.stopPropagation();
-  toggleNotificationPanel("nav");
-});
+els.supportFab?.addEventListener("click", openSupportDialog);
+els.supportNavBtn?.addEventListener("click", openSupportDialog);
 els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
 els.supportCloseBtn?.addEventListener("click", () => els.supportDialog?.close());
 els.supportRefreshBtn?.addEventListener("click", () => {
@@ -1466,6 +1464,10 @@ els.notificationBellBtn?.addEventListener("click", (event) => {
   event.stopPropagation();
   toggleNotificationPanel();
 });
+els.mobileNotificationBellBtn?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleNotificationPanel();
+});
 els.notificationReadAllBtn?.addEventListener("click", markAllNotificationsRead);
 els.notificationSupportEntry?.addEventListener("click", () => {
   closeNotificationPanel();
@@ -1481,7 +1483,7 @@ els.notificationDetailClose?.addEventListener("click", () => els.notificationDet
 els.notificationDetailOk?.addEventListener("click", () => els.notificationDetailDialog?.close());
 document.addEventListener("click", (event) => {
   if (els.notificationPanel?.hidden) return;
-  if (els.notificationPanel.contains(event.target) || els.notificationBellBtn?.contains(event.target) || els.supportNavBtn?.contains(event.target)) return;
+  if (els.notificationPanel.contains(event.target) || els.notificationBellBtn?.contains(event.target) || els.mobileNotificationBellBtn?.contains(event.target)) return;
   closeNotificationPanel();
 });
 els.mobileDrawerTopupBtn?.addEventListener("click", () => {

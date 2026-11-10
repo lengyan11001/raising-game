@@ -1041,8 +1041,6 @@ async function ensureSchemaInner() {
     );
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_ticket_created_idx ON app_support_ticket_messages (ticket_id, created_at ASC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_ticket_sender_created_idx ON app_support_ticket_messages (ticket_id, sender_type, created_at ASC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_sender_ticket_created_idx ON app_support_ticket_messages (sender_type, ticket_id, created_at ASC);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_system_notifications (
       id TEXT PRIMARY KEY,
@@ -5309,34 +5307,17 @@ const SUPPORT_TICKET_SELECT = `
   SELECT t.*,
     u.username,
     COALESCE(NULLIF(u.payload->>'email',''), t.email) AS user_email,
-    COALESCE(ms.message_count, 0)::int AS message_count,
-    COALESCE(ms.user_unread_count, 0)::int AS user_unread_count,
-    COALESCE(ms.admin_unread_count, 0)::int AS admin_unread_count,
-    COALESCE(lm.last_message, '') AS last_message,
-    COALESCE(lm.last_sender_type, '') AS last_sender_type
+    (SELECT COUNT(*)::int FROM app_support_ticket_messages tm WHERE tm.ticket_id = t.id) AS message_count,
+    (SELECT COUNT(*)::int FROM app_support_ticket_messages tm
+      WHERE tm.ticket_id = t.id AND tm.sender_type = 'admin'
+        AND (t.user_last_read_at IS NULL OR tm.created_at > t.user_last_read_at)) AS user_unread_count,
+    (SELECT COUNT(*)::int FROM app_support_ticket_messages tm
+      WHERE tm.ticket_id = t.id AND tm.sender_type = 'user'
+        AND (t.admin_last_read_at IS NULL OR tm.created_at > t.admin_last_read_at)) AS admin_unread_count,
+    COALESCE((SELECT tm.body FROM app_support_ticket_messages tm WHERE tm.ticket_id = t.id ORDER BY tm.created_at DESC LIMIT 1), '') AS last_message,
+    COALESCE((SELECT tm.sender_type FROM app_support_ticket_messages tm WHERE tm.ticket_id = t.id ORDER BY tm.created_at DESC LIMIT 1), '') AS last_sender_type
   FROM app_support_tickets t
   LEFT JOIN app_users u ON u.id = t.user_id
-  LEFT JOIN LATERAL (
-    SELECT
-      COUNT(*)::int AS message_count,
-      COUNT(*) FILTER (
-        WHERE tm.sender_type = 'admin'
-          AND (t.user_last_read_at IS NULL OR tm.created_at > t.user_last_read_at)
-      )::int AS user_unread_count,
-      COUNT(*) FILTER (
-        WHERE tm.sender_type = 'user'
-          AND (t.admin_last_read_at IS NULL OR tm.created_at > t.admin_last_read_at)
-      )::int AS admin_unread_count
-    FROM app_support_ticket_messages tm
-    WHERE tm.ticket_id = t.id
-  ) ms ON TRUE
-  LEFT JOIN LATERAL (
-    SELECT tm.body AS last_message, tm.sender_type AS last_sender_type
-    FROM app_support_ticket_messages tm
-    WHERE tm.ticket_id = t.id
-    ORDER BY tm.created_at DESC, tm.id DESC
-    LIMIT 1
-  ) lm ON TRUE
 `;
 
 async function createSupportTicketInDb({ id = "", userId = "", tenantId = "main", email = "", subject = "", source = "", context = {}, createdAt = "", message = null } = {}) {
@@ -5368,21 +5349,6 @@ async function createSupportTicketInDb({ id = "", userId = "", tenantId = "main"
   } finally {
     client.release();
   }
-}
-
-
-async function countUserSupportUnreadFromDb(userId = "") {
-  if (!dbEnabled()) return 0;
-  await ensureSchema();
-  const { rows } = await query(`
-    SELECT COUNT(*)::int AS unread
-    FROM app_support_ticket_messages tm
-    JOIN app_support_tickets t ON t.id = tm.ticket_id
-    WHERE t.user_id = $1
-      AND tm.sender_type = 'admin'
-      AND (t.user_last_read_at IS NULL OR tm.created_at > t.user_last_read_at)
-  `, [String(userId || "")]);
-  return Number(rows[0]?.unread || 0);
 }
 
 async function listUserSupportTicketsInDb(userId = "", limit = 30) {
@@ -5469,7 +5435,8 @@ async function markSupportTicketReadInDb({ ticketId = "", userId = "", readerTyp
     ? [String(ticketId || ""), readAt || null, hasReadAt]
     : [String(ticketId || ""), String(userId || ""), readAt || null, hasReadAt];
   const { rows } = await query(updateSql, params);
-  return rows[0] ? supportTicketFromRow(rows[0]) : null;
+  if (!rows[0]) return null;
+  return admin ? getSupportTicketForAdminFromDb(ticketId) : getSupportTicketForUserFromDb(userId, ticketId);
 }
 
 async function updateSupportTicketInDb({ ticketId = "", status = "", priority = "" } = {}) {
@@ -8640,7 +8607,6 @@ module.exports = {
   getAdminSupportMessagesPageFromDb,
   createSupportTicketInDb,
   listUserSupportTicketsInDb,
-  countUserSupportUnreadFromDb,
   getSupportTicketForUserFromDb,
   getSupportTicketForAdminFromDb,
   listSupportTicketMessagesFromDb,

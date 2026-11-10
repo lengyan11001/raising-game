@@ -8,9 +8,9 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=notification-inbox-20261110-1" />
-    <link rel="stylesheet" href="./platform.prompt-editor.css?v=notification-inbox-20261110-1" />
-    <script src="./platform.vitals.js?v=notification-inbox-20261110-1" defer></script>
+    <link rel="stylesheet" href="./platform.css?v=polling-media-20261109-1" />
+    <link rel="stylesheet" href="./platform.prompt-editor.css?v=polling-media-20261109-1" />
+    <script src="./platform.vitals.js?v=polling-media-20261109-1" defer></script>
     <script>
       (function () {
         const lang = (() => {
@@ -72,6 +72,9 @@
       <button class="eleven-eleven-entry eleven-eleven-entry-mobile" type="button" aria-label="11.11 限时活动" hidden>
         <span class="eleven-eleven-badge">11.11</span>
         <span class="eleven-eleven-mobile-time"><strong id="elevenElevenMobileCountdown">--:--:--</strong></span>
+      </button>
+      <button class="notification-bell mobile-notification-bell" id="mobileNotificationBellBtn" type="button" aria-label="系统通知" hidden>
+        <i data-lucide="bell"></i><span class="notification-dot" id="mobileNotificationDot" hidden></span>
       </button>
       <button class="topup-trigger mobile-topup-trigger" id="mobileDrawerTopupBtn" type="button">
         <i data-lucide="coins"></i>
@@ -139,9 +142,9 @@
           <i data-lucide="at-sign"></i>
           <span>X</span>
         </a>
-        <button class="side-utility-link is-support" id="supportNavBtn" type="button" aria-label="消息通知" data-analytics-event="notification_open" data-analytics-location="side_nav" aria-expanded="false">
-          <i data-lucide="bell"></i>
-          <span>消息通知</span>
+        <button class="side-utility-link is-support" id="supportNavBtn" type="button" aria-label="Support" data-analytics-event="support_open" data-analytics-location="side_nav">
+          <i data-lucide="messages-square"></i>
+          <span data-i18n="common.support">Support</span>
           <b class="nav-unread-dot" id="supportNavDot" hidden></b>
         </button>
       </nav>
@@ -196,11 +199,11 @@
           <span data-i18n="topup.buyCoins">Buy credits</span>
         </button>
         <div class="notification-center" id="notificationCenter" hidden>
-          <button class="notification-bell" id="notificationBellBtn" type="button" aria-label="系统通知" aria-expanded="false" hidden>
+          <button class="notification-bell" id="notificationBellBtn" type="button" aria-label="系统通知" aria-expanded="false">
             <i data-lucide="bell"></i>
             <span class="notification-dot" id="notificationBellDot" hidden></span>
           </button>
-          <section class="notification-panel notification-panel-from-nav" id="notificationPanel" hidden>
+          <section class="notification-panel" id="notificationPanel" hidden>
             <header class="notification-panel-head">
               <div><span class="notification-kicker">INBOX</span><strong>消息中心</strong></div>
               <button class="notification-read-all" id="notificationReadAllBtn" type="button">全部已读</button>
@@ -1112,6 +1115,12 @@
       </nav>
     </footer>
 
+    <button class="support-fab" id="supportFab" type="button" aria-label="Support">
+      <i data-lucide="messages-square"></i>
+      <span data-i18n="common.support">Support</span>
+      <b class="support-fab-dot" id="supportFabDot" hidden></b>
+    </button>
+
     <div class="video-tool-fabs" id="videoToolFabs" hidden>
       <button class="video-tool-fab is-undress" type="button" data-video-tool-action="undress">
         <i data-lucide="sparkles"></i>
@@ -1680,6 +1689,6 @@
     <script>
       window.VIPEAK_PROMPT_EDITOR_MODE = "rich";
     </script>
-    <script src="./platform.js?v=notification-inbox-20261110-1"></script>
+    <script src="./platform.js?v=polling-media-20261109-1"></script>
   </body>
 </html>

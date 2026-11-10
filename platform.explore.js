@@ -3693,10 +3693,6 @@ function notificationTimeLabel(value = "") {
   return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-function notificationCenterSkeleton() {
-  return '<div class="notification-skeleton" aria-label="正在加载消息"><span></span><span></span><span></span></div>';
-}
-
 function notificationTypeMeta(kind = "") {
   if (kind === "support") return { icon: "message-circle", label: "客服回复", tone: "support" };
   return { icon: "megaphone", label: "系统通知", tone: "system" };
@@ -3709,12 +3705,15 @@ function renderNotificationCenter(payload = {}) {
   const total = Number(payload.totalUnreadCount ?? unread + supportUnread);
   state.notificationCenter = payload;
   if (els.notificationCenter) els.notificationCenter.hidden = !state.user;
+  if (els.mobileNotificationBellBtn) els.mobileNotificationBellBtn.hidden = !state.user;
   if (els.notificationBellDot) els.notificationBellDot.hidden = unread <= 0;
+  if (els.mobileNotificationDot) els.mobileNotificationDot.hidden = total <= 0;
   if (els.notificationSupportUnread) {
     els.notificationSupportUnread.hidden = supportUnread <= 0;
     els.notificationSupportUnread.textContent = supportUnread > 99 ? "99+" : String(supportUnread);
   }
-  if (els.supportNavDot) els.supportNavDot.hidden = total <= 0;
+  if (els.supportNavDot) els.supportNavDot.hidden = supportUnread <= 0;
+  if (els.supportFabDot) els.supportFabDot.hidden = supportUnread <= 0;
   document.title = total > 0 ? `(${total > 99 ? "99+" : total}) ${state.notificationBaseTitle || document.title.replace(/^\(\d+\+?\)\s*/, "")}` : (state.notificationBaseTitle || document.title.replace(/^\(\d+\+?\)\s*/, ""));
   if (!els.notificationList) return;
   if (!state.user) {
@@ -3722,7 +3721,7 @@ function renderNotificationCenter(payload = {}) {
     return;
   }
   if (!notifications.length) {
-    els.notificationList.innerHTML = '<div class="notification-empty"><span>暂无系统通知</span><small>客服工单消息仍可从上方进入</small></div>';
+    els.notificationList.innerHTML = '<div class="notification-empty"><span>暂无新系统通知</span><small>有新公告时会显示在这里</small></div>';
     return;
   }
   els.notificationList.innerHTML = notifications.map((item) => `
@@ -3744,21 +3743,15 @@ async function loadNotificationCenter({ silent = false } = {}) {
     renderNotificationCenter({});
     return;
   }
-  if (state.notificationCenterLoading) return state.notificationCenterLoading;
-  state.notificationCenterLoading = (async () => {
-    try {
-      const payload = await requestJson("/api/system-notifications", { timeoutMs: 12_000 });
-      renderNotificationCenter(payload);
-      if (!silent && state.supportDialog?.open) renderSupportTicketList();
-    } catch (error) {
-      if (!silent && els.notificationList) {
-        els.notificationList.innerHTML = `<div class="notification-empty is-error">${escapeHtml(error.message || "消息加载失败")}</div>`;
-      }
-    } finally {
-      state.notificationCenterLoading = null;
+  try {
+    const payload = await requestJson("/api/system-notifications", { timeoutMs: 12_000 });
+    renderNotificationCenter(payload);
+    if (!silent && state.supportDialog?.open) renderSupportTicketList();
+  } catch (error) {
+    if (!silent && els.notificationList) {
+      els.notificationList.innerHTML = `<div class="notification-empty is-error">${escapeHtml(error.message || "消息加载失败")}</div>`;
     }
-  })();
-  return state.notificationCenterLoading;
+  }
 }
 
 function scheduleNotificationPoll() {
@@ -3786,20 +3779,16 @@ function syncNotificationCenter() {
 function closeNotificationPanel() {
   if (els.notificationPanel) els.notificationPanel.hidden = true;
   els.notificationBellBtn?.setAttribute("aria-expanded", "false");
-  els.supportNavBtn?.setAttribute("aria-expanded", "false");
 }
 
-function toggleNotificationPanel(source = "bell") {
+function toggleNotificationPanel() {
   if (!state.user) return openLogin();
   if (!els.notificationPanel) return;
   const willOpen = els.notificationPanel.hidden;
   els.notificationPanel.hidden = !willOpen;
-  els.notificationPanel.dataset.source = source;
-  els.notificationBellBtn?.setAttribute("aria-expanded", String(willOpen && source === "bell"));
-  els.supportNavBtn?.setAttribute("aria-expanded", String(willOpen && source === "nav"));
+  els.notificationBellBtn?.setAttribute("aria-expanded", String(willOpen));
   if (willOpen) {
-    if (els.notificationList && !state.notificationCenter?.notifications) els.notificationList.innerHTML = notificationCenterSkeleton();
-    loadNotificationCenter({ silent: false });
+    loadNotificationCenter({ silent: true });
     refreshIcons();
   }
 }

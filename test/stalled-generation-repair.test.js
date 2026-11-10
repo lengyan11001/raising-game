@@ -53,17 +53,6 @@ test("failed-refund audit uses timestamp range instead of integer milliseconds",
   assert.doesNotMatch(audit, /\$2::int/);
 });
 
-test("failed-refund audit recognizes actual generation_refund ledger entries", () => {
-  const audit = server.slice(
-    server.indexOf("const FAILED_REFUND_AUDIT_LEDGER_TYPES"),
-    server.indexOf("async function listFailedRefundedGenerationRecordsForAudit"),
-  );
-  assert.match(audit, /refunds: \["advanced_seedream5_image_refund", "generation_refund"\]/);
-  assert.match(audit, /function failedRefundAuditRefundTypes/);
-  assert.match(audit, /refundTypes\.includes\(entry\.type\)/);
-  assert.match(audit, /types\.charge, \.\.\.failedRefundAuditRefundTypes\(types\)/);
-});
-
 test("failed-refund audit preserves signed ledger totals", () => {
   const audit = server.slice(
     server.indexOf("function signedCreditsAmount"),

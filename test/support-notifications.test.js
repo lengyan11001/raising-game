@@ -102,16 +102,12 @@ test("customer support routes require authentication and admin routes require ad
   assert.match(server, /url\.pathname === "\/api\/admin\/system-notifications"[\s\S]*?handleAdminListSystemNotifications/);
 });
 
-test("platform UI exposes one left messages entry, unread dots, notification detail and ticket chat", () => {
+test("platform UI exposes bell, unread red dots, notification detail and ticket chat", () => {
   const html = read("platform.html");
   const js = read("platform.explore.js");
   const main = read("platform.main.js");
   const css = read("platform.css");
-  assert.match(html, /id="supportNavBtn"[^>]*aria-label="消息通知"/);
-  assert.match(html, /id="supportNavBtn"[\s\S]*?<span>消息通知<\/span>/);
-  assert.doesNotMatch(html, /id="supportFab"/);
-  assert.doesNotMatch(html, /id="mobileNotificationBellBtn"/);
-  assert.match(html, /id="notificationBellBtn"[^>]*hidden/);
+  assert.match(html, /id="notificationBellBtn"/);
   assert.match(html, /id="notificationPanel"/);
   assert.match(html, /id="notificationDetailDialog"/);
   assert.match(html, /id="supportMessages"/);
@@ -121,28 +117,11 @@ test("platform UI exposes one left messages entry, unread dots, notification det
   assert.match(js, /supportUnreadCount/);
   assert.match(js, /data-support-ticket-id/);
   assert.match(js, /senderType === "admin"/);
-  assert.match(main, /supportNavBtn\?\.addEventListener[\s\S]*?toggleNotificationPanel\("nav"\)/);
+  assert.match(main, /notificationBellBtn\?\.addEventListener/);
   assert.match(main, /notificationSupportEntry\?\.addEventListener/);
-  assert.match(css, /\.notification-bell\[hidden\][^{]*\{[^}]*display:\s*none/);
   assert.match(css, /\.notification-dot[^{]*\{[^}]*background:/);
   assert.match(css, /\.support-ticket-unread[^{]*\{/);
   assert.match(css, /\.support-message\.is-admin/);
-});
-
-test("notification loading avoids ticket-list unread scans and full message aggregation", () => {
-  const serverParts = fs.readdirSync(path.join(root, "server.parts"))
-    .filter((name) => name.endsWith(".js"))
-    .map((name) => read(path.join("server.parts", name)))
-    .join("\n");
-  const db = read("db.js");
-  const block = serverParts.match(/async function handleListSystemNotifications[\s\S]*?\n}/);
-  assert.ok(block, "notification endpoint should exist");
-  assert.match(block[0], /countUserSupportUnreadFromDb/);
-  assert.doesNotMatch(block[0], /listUserSupportTicketsInDb/);
-  assert.match(db, /async function countUserSupportUnreadFromDb/);
-  assert.match(db, /LEFT JOIN LATERAL \([\s\S]*?ORDER BY tm\.created_at DESC, tm\.id DESC[\s\S]*?LIMIT 1/);
-  assert.doesNotMatch(db, /ARRAY_AGG\(tm\.(body|sender_type)/);
-  assert.match(db, /app_support_ticket_messages_ticket_sender_created_idx/);
 });
 
 test("admin UI provides ticket workstation and notification configuration", () => {
@@ -165,7 +144,6 @@ test("admin UI provides ticket workstation and notification configuration", () =
   assert.match(supportBlock, /ticketPrioritySelect/);
   assert.match(supportBlock, /ticketReplyForm/);
   assert.match(supportBlock, /adminUnreadCount/);
-  assert.match(supportBlock, /querySelector\("#ticketThread"\)/);
   assert.match(supportBlock, /submit\.disabled = true/);
   assert.match(css, /\.adm-ticket-shell/);
   assert.match(css, /\.adm-ticket-bubble/);
