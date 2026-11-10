@@ -1,3 +1,12 @@
+## 2026-11-11 P0 readiness and deployment safety (ready for Old deployment)
+
+- User goal: improve single-node fault tolerance in controlled stages without disrupting production; do not confuse capacity upgrades or multiple API processes with resilience.
+- P0 scope: distinguish process liveness from dependency readiness. `/api/health` retains its existing `{"ok":true}` contract for monitors and deployment; `/api/livez` reports process liveness without DB IO; `/api/readyz` verifies PostgreSQL with bounded connection and query time and returns 503 until bootstrap is ready or when DB is unavailable.
+- Readiness state transitions: `starting -> ready -> stopping`, bootstrap failure -> `failed`; re-entering `starting` clears stale failure fields. DB readiness has a 1.5s outer timeout, a 1.5s pool/query timeout, and a 1s probe-result cache to prevent monitor amplification. Success and failure are both cached briefly, then retried.
+- Release safety: added `readiness.js` to both the platform snapshot allowlist and the Old deploy boundary. Without this, production `server.js` would require a missing file. Release tests assert that readiness ships to Platform and never enters Live.
+- Verification: readiness 14/14; combined readiness/deploy/db-import/shutdown/HTTP/auth/performance regression 77/77; `git diff --check`, JS syntax, and Python compile pass. `npm test` on clean `HEAD` and on this change both have 30 pre-existing failures (including the already-over-limit `server.parts/part-01.js` size check); no additional readiness failure appears. Deployment has not run at this record.
+- Publish scope: `readiness.js`, `test/readiness.test.js`, `db.js`, `server.parts/part-01.js`, `server.parts/part-42.js`, `server.parts/part-43.js`, `scripts/build_release_snapshot.py`, `scripts/deploy_site.py`, `test/deploy-targets.test.js`, and this state entry. Preserve all unrelated WIP.
+
 ## 2026-11-11 Regeneration tab alignment and image reference thumbnail sizing (deployed Old)
 
 - User report: clicking Regenerate on a video record while the Generate page was on the image tab restored the video data but left the image tab/model filter active. Image-generation reference thumbnails were also much larger than video reference thumbnails.

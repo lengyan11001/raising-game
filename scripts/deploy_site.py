@@ -225,6 +225,7 @@ PLATFORM_RELEASE_PATHS = (
     "platform.ui.parts/**",
     "platform.create.parts/**",
     "db.js",
+    "readiness.js",
     "package.json",
     "lib-*.js",
     "site-123vipfans.js",

@@ -51,6 +51,7 @@ PLATFORM_PATTERNS = (
     "chat.js",
     "server.js",
     "db.js",
+    "readiness.js",
     "package.json",
     "lib-*.js",
     "site-123vipfans.js",

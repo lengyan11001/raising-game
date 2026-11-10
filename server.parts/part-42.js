@@ -327,6 +327,17 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, { ok: true });
     }
 
+    if (req.method === "GET" && url.pathname === "/api/livez") {
+      return sendJson(res, 200, liveView(processReadiness));
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/readyz") {
+      const readiness = await readinessResponse(processReadiness, {
+        checkDatabase: checkDatabaseReadiness,
+      });
+      return sendJson(res, readiness.statusCode, readiness.body);
+    }
+
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/robots.txt") {
       return await handleRobotsTxt(req, res);
     }

@@ -9109,6 +9109,7 @@ module.exports = {
   getKv,
   setKv,
   getKvUpdatedAt,
+  checkDatabaseReadiness,
   migrateGenerationRecordsKvToTable,
   getGenerationRecordsFromDb,
   getStalePreSubmitGenerationRecordsFromDb,
@@ -9143,3 +9144,34 @@ module.exports = {
   insertWebVitalSamplesInDb,
   getWebVitalsSummaryFromDb,
 };
+
+async function checkDatabaseReadiness({ timeoutMs = 1500 } = {}) {
+  if (!dbEnabled()) {
+    const error = new Error("DATABASE_URL is not configured");
+    error.code = "DATABASE_UNAVAILABLE";
+    throw error;
+  }
+  const waitMs = Math.max(250, Number(timeoutMs) || 1500);
+  const pool = getPool();
+  let client;
+  let timer;
+  try {
+    const connection = pool.connect();
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(`Database readiness check timed out after ${waitMs}ms`);
+        error.code = "DATABASE_READINESS_TIMEOUT";
+        reject(error);
+      }, waitMs);
+    });
+    client = await Promise.race([connection, deadline]);
+    await client.query({
+      text: "SELECT 1",
+      query_timeout: waitMs,
+    });
+    return { ok: true };
+  } finally {
+    clearTimeout(timer);
+    client?.release();
+  }
+}

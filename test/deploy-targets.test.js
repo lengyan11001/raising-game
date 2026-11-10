@@ -266,7 +266,7 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
     "assets/chat-live/gifts/flower.svg", "assets/brand/default-avatar.jpg",
     "test/live-upload-poster-nav.test.js", "verification/live-transaction/ROLLBACK.sh",
     "platform.html", "platform.js", "admin.html", "admin.js", "chat.html",
-    "chat.js", "server.js", "db.js", "package.json", "lib-live-surface.js",
+    "chat.js", "server.js", "db.js", "readiness.js", "package.json", "lib-live-surface.js",
     "assets/ourdream/characters/one.webp", "assets/admin/one.webp",
   ];
   for (const file of files) writeFile(path.join(source, file), file);
@@ -279,12 +279,14 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
   for (const file of ["live.html", "live.css", "live.js", "downloads/vipeak-live.apk", "test/live-upload-poster-nav.test.js"]) {
     assert.equal(platformTree.includes(file), false, file);
   }
-  for (const file of ["platform.html", "admin.html", "server.js", "db.js", "package.json", "scripts/ensure_media_signing_secret.py", "ops/apply-production-tuning.sh"]) {
+  for (const file of ["platform.html", "admin.html", "server.js", "db.js", "readiness.js", "package.json", "scripts/ensure_media_signing_secret.py", "ops/apply-production-tuning.sh"]) {
     assert.equal(liveTree.includes(file), false, file);
   }
+  assert.equal(platformTree.includes("readiness.js"), true, "platform release must include server readiness dependency");
   for (const file of ["live.html", "chat-live.js", "assets/chat-live/moans/joanna.wav"]) {
     assert.equal(liveTree.includes(file), true, file);
   }
+  assert.equal(platformTree.includes("scripts/build_release_snapshot.py"), true, "platform release must include its release tooling");
   assert.equal(liveTree.some((file) => file.startsWith("scripts/")), false);
   assert.equal(run("git", ["rev-list", "--count", "release-base/platform..platform-release"], { cwd: source }).trim(), "1");
   assert.equal(run("git", ["rev-list", "--count", "release-base/live..live-release"], { cwd: source }).trim(), "1");

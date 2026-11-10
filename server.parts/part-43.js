@@ -627,8 +627,12 @@ async function verifyRequiredCatalogsInDb() {
 }
 
 async function bootstrap() {
+  markStarting(processReadiness);
   if (!dbEnabled()) {
-    throw new Error("DATABASE_URL is required. Runtime data must be stored in PostgreSQL, not JSON files.");
+    const error = new Error("DATABASE_URL is required. Runtime data must be stored in PostgreSQL, not JSON files.");
+    error.code = "DATABASE_UNAVAILABLE";
+    markFailed(processReadiness, error);
+    throw error;
   }
   const generationRecordMigration = await migrateGenerationRecordsKvToTable();
   if (generationRecordMigration?.migrated) {
@@ -658,6 +662,7 @@ async function bootstrap() {
   startChatLiveSettlementScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {
+    markReady(processReadiness);
     console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
     console.log(`Upstream mode: ${USE_GATEWAY_UPSTREAM ? "gateway" : "direct"}`);
     console.log(`Ark configured: ${ARK_API_KEY ? "yes" : "no"}`);
@@ -670,6 +675,7 @@ let gracefulShutdownStarted = false;
 async function shutdownGracefully(signal = "SIGTERM") {
   if (gracefulShutdownStarted) return;
   gracefulShutdownStarted = true;
+  markStopping(processReadiness);
   const startedAt = Date.now();
   const pendingSubmissions = beginGenerationSubmissionDrain();
   console.log("[graceful-shutdown-start]", { signal, pendingSubmissions });
@@ -701,6 +707,7 @@ process.once("SIGINT", () => shutdownGracefully("SIGINT"));
 
 if (require.main === module) {
   bootstrap().catch((error) => {
+    markFailed(processReadiness, error);
     console.error("[bootstrap] failed", error);
     process.exit(1);
   });

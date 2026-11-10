@@ -336,6 +336,7 @@ const {
   getKv,
   setKv,
   getKvUpdatedAt,
+  checkDatabaseReadiness,
   listApiSubtokensFromDb,
   getApiSubtokenFromDbByToken,
   getApiSubtokenFromDbById,
@@ -470,6 +471,17 @@ const {
   publicOriginFromRequest,
   requestOriginFromHeaders,
 } = require("./lib-http");
+const {
+  createReadinessState,
+  markReady,
+  markStarting,
+  markStopping,
+  markFailed,
+  readinessView,
+  liveView,
+  probeReadiness,
+  readinessResponse,
+} = require("./readiness");
 const ROOT = __dirname;
 const ASSETS_ROOT = path.join(ROOT, "assets");
 
@@ -665,6 +677,7 @@ const GOOGLE_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.GOOGLE
 const GOOGLE_LOGIN_CLIENT_ID = String(process.env.GOOGLE_LOGIN_CLIENT_ID || "").trim();
 const EMAIL_SMTP_CONFIG = smtpConfig();
 const EMAIL_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.EMAIL_LOGIN_ENABLED || "0").trim()) || smtpConfigured(EMAIL_SMTP_CONFIG);
+const processReadiness = createReadinessState();
 const publicConfigCache = new Map();
 const publicPlayfluxTemplatesCache = new Map();
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
