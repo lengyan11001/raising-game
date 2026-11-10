@@ -1007,6 +1007,7 @@ function renderHistory(records = []) {
         previewUrl,
         posterUrl: generationPosterUrl(record),
         ratio: record?.ratio || record?.params?.ratio || record?.params?.aspect_ratio || "16:9",
+        record,
       });
     };
     if (allowInlinePreview) {

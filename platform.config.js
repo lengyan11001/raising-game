@@ -1419,6 +1419,7 @@ const els = {
   stripeStatus: document.querySelector("#stripeStatus"),
   previewDialog: document.querySelector("#previewDialog"),
   previewTitle: document.querySelector("#previewTitle"),
+  previewCloseBtn: document.querySelector("#previewCloseBtn"),
   previewImage: document.querySelector("#previewImage"),
   previewVideo: document.querySelector("#previewVideo"),
   previewActions: document.querySelector("#previewActions"),

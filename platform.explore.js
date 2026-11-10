@@ -3647,9 +3647,12 @@ function previewRatioFromItem(item = {}) {
   return item.ratio || params.ratio || params.aspect_ratio || requestJson.ratio || requestJson.aspect_ratio || "16:9";
 }
 
-function playPreview({ title = "", previewUrl = "", posterUrl = "", ratio = "16:9" } = {}) {
+function playPreview({ title = "", previewUrl = "", posterUrl = "", ratio = "16:9", record = null } = {}) {
   if (!previewUrl || !els.previewDialog || !els.previewVideo || !els.previewImage) return;
   prepareModalOpen();
+  state.previewDownloadRecord = record || null;
+  state.previewDownloadUrl = previewUrl;
+  state.previewDownloadName = `${String(title || "explore-video").replace(/[^a-z0-9_-]+/gi, "-") || "explore-video"}.mp4`;
   document.querySelectorAll(".history-media video").forEach((video) => video.pause());
   els.previewTitle.textContent = title || t("common.preview");
   els.previewImage.hidden = true;
@@ -3663,8 +3666,8 @@ function playPreview({ title = "", previewUrl = "", posterUrl = "", ratio = "16:
   els.previewVideo.hidden = false;
   if (els.previewActions) els.previewActions.hidden = false;
   if (els.previewDownloadBtn) {
-    els.previewDownloadBtn.href = previewUrl;
-    els.previewDownloadBtn.setAttribute("download", `${String(title || "explore-video").replace(/[^a-z0-9_-]+/gi, "-") || "explore-video"}.mp4`);
+    els.previewDownloadBtn.disabled = false;
+    els.previewDownloadBtn.dataset.downloadReady = "true";
   }
   if (!els.previewDialog.open) els.previewDialog.showModal();
   els.previewVideo.load();
@@ -3683,7 +3686,13 @@ function previewImage({ title = "", imageUrl = "" } = {}) {
   els.previewImage.src = imageUrl;
   els.previewImage.hidden = false;
   if (els.previewActions) els.previewActions.hidden = true;
-  if (els.previewDownloadBtn) els.previewDownloadBtn.removeAttribute("href");
+  state.previewDownloadRecord = null;
+  state.previewDownloadUrl = "";
+  state.previewDownloadName = "";
+  if (els.previewDownloadBtn) {
+    els.previewDownloadBtn.disabled = true;
+    delete els.previewDownloadBtn.dataset.downloadReady;
+  }
   if (!els.previewDialog.open) els.previewDialog.showModal();
 }
 

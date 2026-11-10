@@ -114,8 +114,16 @@ test("mobile history opens one preview stream", () => {
   assert.match(create, /if \(allowInlinePreview\) \{[\s\S]*?addEventListener\("focus", showVideo/);
   assert.match(html, /id="previewVideo" controls playsinline preload="metadata"/);
   assert.match(explore, /document\.querySelectorAll\("\.history-media video"\)\.forEach\(\(video\) => video\.pause\(\)\)/);
-  assert.match(explore, /function playPreview\(\{ title = "", previewUrl = "", posterUrl = "", ratio = "16:9" \}/);
-  assert.match(create, /posterUrl: generationPosterUrl\(record\)/);
+  assert.match(explore, /function playPreview\(\{ title = "", previewUrl = "", posterUrl = "", ratio = "16:9", record = null \}/);
+  assert.match(create, /posterUrl: generationPosterUrl\(record\),[\s\S]*?record,/);
+});
+
+test("preview dialog close and download use explicit actions", () => {
+  assert.match(html, /id="previewCloseBtn"[^>]*type="button"/);
+  assert.match(html, /<button class="copy-btn" id="previewDownloadBtn" type="button">/);
+  assert.match(main, /els\.previewCloseBtn\?\.addEventListener\("click"[\s\S]*?previewDialog\.close\("cancel"\)/);
+  assert.match(main, /els\.previewDownloadBtn\?\.addEventListener\("click"[\s\S]*?downloadGenerationRecord\(state\.previewDownloadRecord\)/);
+  assert.match(explore, /state\.previewDownloadRecord = record \|\| null/);
 });
 
 test("history play icon stays centered after Lucide replaces its placeholder", () => {

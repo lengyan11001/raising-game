@@ -1036,6 +1036,24 @@ els.topupHeadBtn?.addEventListener("click", openTopupDialog);
 els.toolDownloadBtn?.addEventListener("click", openToolDownload);
 els.mobileToolDownloadBtn?.addEventListener("click", openToolDownload);
 els.topupQrDialog?.addEventListener("close", syncTopupAutoRefresh);
+els.previewCloseBtn?.addEventListener("click", () => {
+  if (els.previewDialog?.open) els.previewDialog.close("cancel");
+});
+els.previewDownloadBtn?.addEventListener("click", async () => {
+  const button = els.previewDownloadBtn;
+  if (!button || button.disabled || button.dataset.downloadReady !== "true") return;
+  button.disabled = true;
+  try {
+    if (state.previewDownloadRecord) {
+      const ok = await downloadGenerationRecord(state.previewDownloadRecord);
+      if (!ok) return;
+    } else if (state.previewDownloadUrl) {
+      triggerBrowserDownload(state.previewDownloadUrl, state.previewDownloadName || "vipeak-video.mp4");
+    }
+  } finally {
+    button.disabled = false;
+  }
+});
 els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;
   els.previewVideo.pause();
@@ -1414,7 +1432,13 @@ els.previewDialog?.addEventListener("close", () => {
   els.previewVideo?.removeAttribute("src");
   els.previewVideo?.load();
   if (els.previewActions) els.previewActions.hidden = true;
-  if (els.previewDownloadBtn) els.previewDownloadBtn.removeAttribute("href");
+  state.previewDownloadRecord = null;
+  state.previewDownloadUrl = "";
+  state.previewDownloadName = "";
+  if (els.previewDownloadBtn) {
+    els.previewDownloadBtn.disabled = true;
+    delete els.previewDownloadBtn.dataset.downloadReady;
+  }
 });
 function openSupportDialog(options = {}) {
   return openSupportCenter(options);

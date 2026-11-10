@@ -10971,6 +10971,9 @@ select:focus,
 }
 .preview-actions[hidden] { display: none; }
 .preview-actions .copy-btn { min-width: 150px; }
+.preview-modal .icon-btn,
+.preview-actions .copy-btn { cursor: pointer; }
+.preview-actions .copy-btn:disabled { cursor: wait; opacity: .72; }
 .advanced-workspace.is-create-auto-prompt .advanced-upload-box.has-image > span {
   justify-self: center;
   margin-top: 6px;

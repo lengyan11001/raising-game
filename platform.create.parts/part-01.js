@@ -1048,6 +1048,7 @@ function bindAdvancedResultCardEvents(card) {
           previewUrl: videoUrl,
           posterUrl: generationPosterUrl(record),
           ratio: record?.ratio || record?.params?.ratio || "16:9",
+          record,
         });
       }
     });
