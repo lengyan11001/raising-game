@@ -1,12 +1,13 @@
-## 2026-11-10 canvas generate button hotfix (deploying Old)
+## 2026-11-10 canvas generate button hotfix (deployed Old)
 
 - User report: after the previous canvas edge fix, the generate button stopped working.
 - Root cause: `workflowGenerationRunNode()` wrote `workflow.edges` without binding `workflow`, causing `ReferenceError: workflow is not defined` on click.
 - Fix: bind `const workflow = ensureWorkflowState()` before creating the result node and edge. Result remains connected only from the clicked source node to the newly created result node.
 - Regression coverage: new execution-level test runs `workflowGenerationRunNode()` in a VM, verifies no exception, verifies `reference-image -> video-source` remains and only `video-source -> video-result` is added, and verifies selection.
-- Verification: `node --check platform.ui.parts/part-06.js`; `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 34/34; `git diff --check` pending commit.
-- Known broken release: `platform-release` `8889329`; source `old-site` `3813fb3`. Live remains untouched at `bf1e01a`.
-- Publish scope: `platform.ui.parts/part-06.js`, `test/workflow-canvases.test.js`, this state entry only. Do not stage unrelated WIP.
+- Verification: syntax and `git diff --check` pass; `node --require ./test/source-compat.js --test test/workflow-canvases.test.js` passes 34/34.
+- Deployment: source `old-site` `c057b10`; platform release `1db7149`; previous broken release `8889329`. Live remains untouched at `origin/live-release` `6e5132b`.
+- Post-deploy verification: `/api/health` returned `{"ok":true}`; production `platform.ui.parts/part-06.js` contains `const workflow = ensureWorkflowState()` inside `workflowGenerationRunNode()` and the clicked-node result edge filter.
+- Publish scope: `platform.ui.parts/part-06.js`, `test/workflow-canvases.test.js`, this state entry only. Unrelated WIP remains unstaged.
 
 ## 2026-11-10 canvas generated result edge follows clicked node (ready for Old deployment)
 
