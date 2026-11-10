@@ -122,6 +122,10 @@ test("platform UI exposes one left messages entry, unread dots, notification det
   assert.match(js, /supportUnreadCount/);
   assert.match(js, /data-support-ticket-id/);
   assert.match(js, /senderType === "admin"/);
+  assert.match(js, /function positionNotificationPanelFromNav\(\)/);
+  assert.match(js, /supportNavBtn\.getBoundingClientRect\(\)/);
+  assert.match(js, /els\.notificationPanel\.style\.left =/);
+  assert.match(js, /els\.notificationPanel\.style\.top =/);
   assert.match(main, /supportNavBtn\?\.addEventListener[\s\S]*?toggleNotificationPanel\("nav"\)/);
   assert.match(main, /notificationSupportEntry\?\.addEventListener/);
   assert.match(css, /\.notification-bell\[hidden\][^{]*\{[^}]*display:\s*none/);

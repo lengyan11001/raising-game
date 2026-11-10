@@ -732,7 +732,7 @@ test("prompt editor exposes a large keyboard-accessible resize handle", () => {
 test("rich prompt editor keeps the composer outline visible around its shell", () => {
   assert.match(css, /\.advanced-prompt-input-shell \{[\s\S]*?border: 1px solid rgba\(255,255,255,\.14\);/);
   assert.match(css, /\.advanced-prompt-input-shell:focus-within \{[\s\S]*?border-color: rgba\(255,79,163,\.56\);[\s\S]*?box-shadow: 0 0 0 3px rgba\(255,79,163,\.13\);/);
-  assert.match(html, /platform\.css\?v=notification-inbox-20261110-1/);
+  assert.match(html, /platform\.css\?v=notification-inbox-20261110-2/);
 });
 
 test("prompt editor grows to show loaded generated copy and remeasures after the Generate tab is visible", () => {

@@ -14947,10 +14947,11 @@ body.wan30-launch-visible .site-head { top: 0; }
 .notification-panel[hidden] { display: none; }
 .notification-panel-from-nav {
   position: fixed;
-  top: 50%;
-  left: 246px;
+  top: auto;
   right: auto;
-  transform: translateY(-50%);
+  bottom: 18px;
+  left: 244px;
+  transform-origin: left bottom;
   width: min(430px, calc(100vw - 270px));
   max-height: min(680px, calc(100vh - 44px));
   display: flex;
@@ -14960,7 +14961,7 @@ body.wan30-launch-visible .site-head { top: 0; }
 .notification-panel-from-nav .notification-panel-head { flex: 0 0 auto; }
 .notification-panel-from-nav .notification-support-card { flex: 0 0 auto; }
 .notification-panel-from-nav:not([hidden]) { animation: notification-panel-nav-in .2s ease-out; }
-@keyframes notification-panel-nav-in { from { opacity: 0; transform: translate(-8px, -50%) scale(.985); } to { opacity: 1; transform: translate(0, -50%) scale(1); } }
+@keyframes notification-panel-nav-in { from { opacity: 0; transform: translate(-8px, 8px) scale(.985); } to { opacity: 1; transform: translate(0, 0) scale(1); } }
 @keyframes notification-panel-in { from { opacity: 0; transform: translateY(-7px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .notification-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 17px 18px 12px; }
 .notification-skeleton { display: grid; gap: 8px; padding: 10px 14px 16px; }
@@ -15138,8 +15139,7 @@ body.wan30-launch-visible .site-head { top: 0; }
   .support-messages { padding: 17px 14px 12px; }
   .support-message { max-width: 90%; }
   .support-composer { margin: 0 10px; }
-  .notification-panel,
-  .notification-panel-from-nav { position: fixed; top: 65px; right: 10px; left: 10px; width: auto; max-height: calc(100dvh - 82px); transform: none; }
+  .notification-panel-from-nav { position: fixed; top: 65px; right: 10px; bottom: auto; left: 10px !important; width: auto; max-height: calc(100dvh - 82px) !important; transform: none; }
   .notification-panel-from-nav:not([hidden]) { animation: notification-panel-in .18s ease-out; }
   .notification-detail-shell footer { align-items: flex-end; }
 }

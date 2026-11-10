@@ -3789,6 +3789,27 @@ function closeNotificationPanel() {
   els.supportNavBtn?.setAttribute("aria-expanded", "false");
 }
 
+function positionNotificationPanelFromNav() {
+  if (!els.notificationPanel || !els.supportNavBtn || els.notificationPanel.hidden) return;
+  if (window.matchMedia("(max-width: 760px)").matches) {
+    els.notificationPanel.style.removeProperty("left");
+    els.notificationPanel.style.removeProperty("top");
+    els.notificationPanel.style.removeProperty("bottom");
+    els.notificationPanel.style.removeProperty("max-height");
+    return;
+  }
+  const anchor = els.supportNavBtn.getBoundingClientRect();
+  const panel = els.notificationPanel.getBoundingClientRect();
+  const gap = 12;
+  const margin = 12;
+  const left = Math.min(window.innerWidth - panel.width - margin, Math.round(anchor.right + gap));
+  const top = Math.max(margin, Math.min(Math.round(anchor.bottom - panel.height), window.innerHeight - panel.height - margin));
+  els.notificationPanel.style.left = `${Math.max(margin, left)}px`;
+  els.notificationPanel.style.top = `${top}px`;
+  els.notificationPanel.style.bottom = "auto";
+  els.notificationPanel.style.maxHeight = `${Math.max(260, Math.min(680, window.innerHeight - margin * 2))}px`;
+}
+
 function toggleNotificationPanel(source = "bell") {
   if (!state.user) return openLogin();
   if (!els.notificationPanel) return;
@@ -3801,8 +3822,11 @@ function toggleNotificationPanel(source = "bell") {
     if (els.notificationList && !state.notificationCenter?.notifications) els.notificationList.innerHTML = notificationCenterSkeleton();
     loadNotificationCenter({ silent: false });
     refreshIcons();
+    if (source === "nav") requestAnimationFrame(positionNotificationPanelFromNav);
   }
 }
+
+window.addEventListener("resize", positionNotificationPanelFromNav);
 
 async function markNotificationRead(id = "", version = "") {
   try {
