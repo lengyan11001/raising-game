@@ -37,6 +37,10 @@ function trackAnalyticsEvent(eventName, params = {}) {
 }
 
 function setTab(tab) {
+  // Old #advanced bookmarks and cached routes now belong to Generate. Internal
+  // callers still pass "advanced" without a leading hash so regeneration can
+  // open the shared workspace while preserving its selected create mode.
+  if (String(tab || "").trim().startsWith("#") && platformHashParts(tab).tab === "advanced") tab = "custom";
   const previousTab = state.tab;
   const customAdvancedRoute = isAdvancedCustomRoute(tab);
   const hashRoute = platformHashParts(tab);
@@ -185,7 +189,7 @@ function setTab(tab) {
 }
 
 function syncMainTabState() {
-  const customActive = state.tab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
+  const customActive = state.tab === "advanced";
   document.body.classList.toggle("home-active", state.tab === "home");
   document.querySelectorAll(".top-tabs [data-tab]").forEach((button) => {
     const buttonTab = button.dataset.tab || "";

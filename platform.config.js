@@ -852,16 +852,20 @@ function initialTenantDefaultGalleryMode() {
 }
 
 function initialPlatformTab() {
-  if (window.location.hash) return normalizePlatformTab(window.location.hash);
+  const publicTab = (value) => {
+    const tab = normalizePlatformTab(value);
+    return tab === "advanced" ? "custom" : tab;
+  };
+  if (window.location.hash) return publicTab(window.location.hash);
   const searchParams = new URLSearchParams(window.location.search || "");
   const searchTab = searchParams.get("tab") || searchParams.get("view") || "";
-  if (searchTab) return normalizePlatformTab(searchTab);
+  if (searchTab) return publicTab(searchTab);
   if (bootstrapTenantFeature("toolOnly", false)) return initialTenantDefaultTab();
   const siteDefaultTab = bootstrapTenantFeatures().defaultTab;
   if (typeof siteDefaultTab === "string" && siteDefaultTab.trim()) {
-    return normalizePlatformTab(siteDefaultTab);
+    return publicTab(siteDefaultTab);
   }
-  return normalizePlatformTab(localStorage.getItem(TAB_KEY) || "");
+  return publicTab(localStorage.getItem(TAB_KEY) || "");
 }
 
 function initialGalleryMode() {

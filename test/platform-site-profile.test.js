@@ -9,6 +9,7 @@ const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8
 const tenants = fs.readFileSync(path.resolve(__dirname, "..", "lib-tenants.js"), "utf8");
 const tenantRuntime = require(path.resolve(__dirname, "..", "lib-tenants.js"));
 const config = fs.readFileSync(path.resolve(__dirname, "..", "platform.config.js"), "utf8");
+const html = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
 const ui = fs.readFileSync(path.resolve(__dirname, "..", "platform.ui.js"), "utf8");
 const create = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.js"), "utf8");
 const explore = fs.readFileSync(path.resolve(__dirname, "..", "platform.explore.js"), "utf8");
@@ -177,7 +178,7 @@ test("a non-tool host honours its explicit default tab before local storage", ()
   );
   assert.match(initialTab, /if \(bootstrapTenantFeature\("toolOnly", false\)\) return initialTenantDefaultTab\(\)/);
   assert.match(initialTab, /const siteDefaultTab = bootstrapTenantFeatures\(\)\.defaultTab/);
-  assert.match(initialTab, /return normalizePlatformTab\(siteDefaultTab\)/);
+  assert.match(initialTab, /return publicTab\(siteDefaultTab\)/);
   assert.ok(
     initialTab.indexOf("siteDefaultTab") < initialTab.indexOf("localStorage.getItem(TAB_KEY)"),
     "the explicit site default tab must win over the remembered tab",
@@ -191,11 +192,20 @@ test("gallery shortcut tabs disappear when the profile hides the gallery", () =>
   assert.match(explore, /const disabled = !galleryAllowed \|\| !isGalleryModeAllowed\(button\.dataset\.galleryShortcut \|\| ""\)/);
 });
 
+test("advanced stays available internally but its user-facing route is hidden", () => {
+  assert.match(html, /<button class="top-tab" data-tab="advanced" type="button" hidden>/);
+  assert.match(config, /return tab === "advanced" \? "custom" : tab;/);
+  assert.match(explore, /platformHashParts\(tab\)\.tab === "advanced"\) tab = "custom"/);
+  assert.match(explore, /const customActive = state\.tab === "advanced";/);
+  assert.match(ui, /element\.hidden = tab === "advanced" \|\| hiddenByToolGallery \|\| !isTabAllowed\(tab\)/);
+});
+
 test("the profile lands on its own route and can hide a nav entry without disabling the panel", () => {
   assert.match(server, /const activeNavTab = tenant\.defaultRoute === "custom" \? "custom" : profileTab/);
   assert.match(server, /\(tenant\.hiddenNavTabs \|\| \[\]\)\.forEach\(\(tab\) =>/);
   assert.match(ui, /const hiddenNavTabs = tenantListFeature\("hiddenNavTabs"\)/);
   assert.match(ui, /if \(hiddenNavTabs\.includes\(element\.dataset\.tab \|\| ""\)\) element\.hidden = true/);
+  assert.match(ui, /element\.hidden = tab === "advanced" \|\| hiddenByToolGallery \|\| !isTabAllowed\(tab\)/);
   assert.match(create, /setTab\(window\.location\.hash \|\| tenantStringFeature\("defaultRoute", ""\) \|\| state\.tab\)/);
 });
 

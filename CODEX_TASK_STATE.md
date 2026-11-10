@@ -1,3 +1,11 @@
+## 2026-11-10 hide user-facing Advanced generation entry (ready for Old deployment)
+
+- User request: remove Advanced generation from the user-facing product first.
+- Decision: hide the dedicated Advanced nav entry and route, but retain the shared internal `advanced` panel because the visible Generate tab uses the same workspace. Do not remove user sessions or the generation implementation.
+- Changed: `platform.html` hides the Advanced top-tab; `platform.ui.parts/part-01.js` forces that tab hidden after feature rendering; `platform.explore.js` maps old `#advanced` bookmarks to Generate and keeps Generate active while the shared workspace is open; `platform.config.js` maps initial `advanced` routes/defaults/local storage to `custom`.
+- Verification: `node --require ./test/source-compat.js --test test/platform-site-profile.test.js` passes 18/18; syntax and whitespace checks pass.
+- Publish scope: `platform.config.js`, `platform.html`, `platform.explore.js`, `platform.ui.parts/part-01.js`, `test/platform-site-profile.test.js`, and this state entry. Do not include unrelated WIP.
+
 ## 2026-11-10 upstream reference image timeout fix (ready for Old deployment)
 
 - User report: `img-20261110224714-e648ed` failed with `Timeout while downloading` for a signed `123vips.com/assets/user-uploads/...png` reference.

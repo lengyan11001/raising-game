@@ -893,7 +893,9 @@ function applyTenantFeatures() {
     const hiddenByToolGallery = toolOnly
       && tab === DEFAULT_PLATFORM_TAB
       && tenantDefaultGalleryMode() !== DEFAULT_GALLERY_MODE;
-    element.hidden = hiddenByToolGallery || !isTabAllowed(tab);
+    // The Advanced entry is temporarily hidden while Generate remains the
+    // canonical user-facing workspace for the same panel.
+    element.hidden = tab === "advanced" || hiddenByToolGallery || !isTabAllowed(tab);
   });
   const hiddenNavTabs = tenantListFeature("hiddenNavTabs");
   if (hiddenNavTabs.length) {
