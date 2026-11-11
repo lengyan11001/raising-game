@@ -3584,3 +3584,12 @@ CODEX_TASK_STATE.md
 - Existing admin model-card/detail/config UI and the public model dropdown are already in HEAD commit `38a8f959`; do not include unrelated WIP such as `platform.ui.parts/part-04.js`.
 - Verification: `node --require ./test/source-compat.js --test test/advanced-pricing.test.js test/tencent-vod-vega.test.js test/seedance-fast-pricing.test.js` passed 106/106; syntax and `git diff --check` passed.
 - Deployment status: pending selective commit, platform release build, and Old deployment.
+
+## 2026-11-11 Pricing visibility release and deployment-guard correction
+
+- Selective commits: `b876031b` (`Show only live models in pricing lists`) and the deployment-guard follow-up in `scripts/deploy_pull.py` / `test/deploy-targets.test.js`.
+- Release `2129c5baa8044327ffcf10c78484e4e1aeb3afc1` was built from source `b876031b1fe397385affd6579b62610e97c94036`, pushed to `origin/platform-release`, and deployed Old through `scripts/deploy_local.sh --site old`.
+- Production code is `2129c5ba`; Node restarted successfully. `https://123vips.com/api/health` and `https://live.123vipeak.com/api/health` both return 200. Live release was not pushed or deployed.
+- The deploy command exited 38 after a successful restart because the no-restart PID assertion was inverted: it ran on normal restart deployments. The condition is corrected to run the PID assertion only when `--no-restart` is active, with regression assertions in `test/deploy-targets.test.js`. The already-deployed pricing code is unaffected.
+- Public `/api/config/public` returns 77 pricing rows (detailed billing items, not a flat model list). The frontend filters `pricingVisible !== false` and groups by `modelKey` into a model selector; admin `/admin.js` does the same on its model list and renders rows in the selected model detail panel. Hidden providers include official `seedance25`, `seedance20-vega`, and `happyhorse`; `seedance25-vega` remains visible.
+- Verification: focused pricing/provider suite passed 106/106; deployment suite passed 10/10; syntax and `git diff --check` passed. Unrelated workspace WIP was not committed or deployed.
