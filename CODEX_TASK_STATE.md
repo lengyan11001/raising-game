@@ -1,11 +1,14 @@
-## 2026-11-11 Main-site CSP compatibility cleanup (in progress)
+## 2026-11-11 Main-site CSP compatibility cleanup (deployed Old only)
 
 - Scope remains `123vips.com` and `123vip.fans` only. User will perform physical-device acceptance personally.
 - Production config still supplies Google Analytics measurement ID `G-HG9K80QVKT`; GTM is active business telemetry, not dead code. Google Identity Services is also an enabled login integration.
 - Narrow CSP fix: allow only `https://www.googletagmanager.com` in `script-src` and only `https://accounts.google.com` in `style-src`. No wildcard or broad `https:` relaxation.
 - Added regression assertions in `test/site-http.test.js`; removed the CSP/GTM/GSI console-error exemptions from `scripts/check_main_site_compatibility.mjs`, so future checks fail on any console error.
 - Local verification: site-http 10/10; site-http + main-site compatibility + mobile-tool UX 26/26; affected JS syntax and `git diff --check` pass.
-- Next: publish the integration commit, confirm release snapshot boundaries, deploy Old only through `scripts/deploy_local.sh --site old`, then rerun both-domain header and browser checks before recording final deployment evidence.
+- Published `old-site` `3b46aca`; platform snapshot `49a95ca`; deployed Old only with `scripts/deploy_local.sh --site old`. Release-boundary audit passed, service started normally, and private media remained denied.
+- Post-deploy both domains: CSP headers contain exact GTM script and Google style allowlists; `/api/health`, `/api/readyz`, `/`, and `/platform.html` all return 200; config still supplies `G-HG9K80QVKT`.
+- Post-deploy cross-engine acceptance: Chromium 158, Firefox 159 and WebKit 27.2 passed 21/21 over both domains and target viewports with zero console/page errors. Evidence `/tmp/main-site-compat/prod-engines-results.json`, `/tmp/main-site-compat/csp-postdeploy.log`.
+- Live release remained untouched and Live was not deployed. Physical-device and logged-in write-flow acceptance remains with the user.
 
 ## 2026-11-11 P2 watchdog restart safeguards and isolated restart drill
 
