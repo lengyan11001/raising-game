@@ -1,3 +1,13 @@
+## 2026-11-11 Step U: no-restart deployment hardened and resilience candidate deployed Old-only
+
+- Found and fixed a deployment-safety defect before production mutation: `--no-restart` prevented `systemctl restart` but still executed `pre_restart_commands` and `post_restart_commands`. This could have run PostgreSQL migration and Nginx hardening during a code-only window. The flag now makes both command sets inert, and the entrypoint log reflects the effective restart decision.
+- Found and fixed release-ref ambiguity: the repository contains ordinary branches named `origin/platform-release` and `origin/live-release` that collide with remote-tracking names. Deployment now resolves `refs/remotes/origin/<branch>^{commit}` explicitly.
+- Focused deployment regression suite passed `10/10`; combined resilience/deploy regression passed `43/43`; syntax and whitespace checks passed.
+- Built and pushed platform release `a590fc44` from `old-site` commit `53524711`. Live release `1db5511c` was built but not pushed or deployed.
+- Old was deployed through `scripts/deploy_local.sh --site old --no-restart`. Dry-run and actual run both reported `restart=no` and `expected_commit=a590fc44...`. Production acceptance: release `a590fc44`; main PID `2690763`, `NRestarts=0`, ActiveEnterTimestamp unchanged at `2026-11-11 18:22:12 CST`; secondary PID `2708105`, `NRestarts=1`; listeners 4174/4175; public and loopback health/livez/readyz all 200; Nginx hashes unchanged; no tracked dirty files; no recent service error entries.
+- The deploy was code-only: `pre_restart_commands`, migration apply, systemd drop-in creation, service restart, and post-restart Nginx hardening were skipped as intended. Existing `/etc/systemd/system/raising-game-demo.service.d/90-generation-submit-drain.conf` remains from an earlier deployment and was not newly removed here.
+- Production traffic remains on 4174. Next safe change window: dry-run then explicitly apply `4174 primary / 4175 backup` upstream configuration, with three-file atomic rollback prepared; do not combine that with a release deploy. Redis remains optional and disabled; backup remains last.
+
 ## 2026-11-11 Step T: isolated multi-upstream drill passed; candidate ready for Old-only deployment
 
 - Production stayed on the healthy `4174` primary throughout this step. The `4175` secondary remained alive but did not carry traffic. No production Nginx file, Redis setting, scheduler, generation worker, provider call, or production database row was changed.
