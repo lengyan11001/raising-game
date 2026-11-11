@@ -72,6 +72,21 @@ test("MuleRouter webhook releases the durable claim while the local task is not 
   assert.equal(calls[1][1].claimToken, "claim-token");
 });
 
+test("a duplicate callback cannot bypass an active claim or an exhausted retry", async () => {
+  const { handler, calls } = loadWebhookHandler({
+    claimWebhookDeliveryInDb: async (args) => {
+      calls.push(["claim", args]);
+      return { claimed: false, claimToken: "", status: "claimed" };
+    },
+  });
+  const res = {};
+  await handler(request(), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.duplicate, true);
+  assert.equal(res.body.deliveryStatus, "claimed");
+  assert.deepEqual(calls.map(([name]) => name), ["claim"]);
+});
+
 test("MuleRouter webhook releases the durable claim when processing throws", async () => {
   const { handler, calls } = loadWebhookHandler({
     refreshWan27GenerationRecord: async () => { throw new Error("provider record refresh failed"); },

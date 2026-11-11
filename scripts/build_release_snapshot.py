@@ -65,6 +65,7 @@ PLATFORM_PATTERNS = (
     "assets/admin/**",
     "workflow-react/**",
     "ops/run-db-migrations.js",
+    "ops/multi-process-drill.sh",
     "ops/drill-generation-kv-migration.js",
     "ops/RESILIENCE-PLAN.md",
     "ops/REDIS-PLAN.md",

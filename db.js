@@ -120,6 +120,603 @@ async function ensureWebhookDeliveriesSchema({ client = null } = {}) {
   await run(`CREATE INDEX IF NOT EXISTS app_webhook_deliveries_recovery_idx ON app_webhook_deliveries (status, lease_until) WHERE status = 'claimed';`);
 }
 
+async function ensureRequestIdempotencySchema({ client = null } = {}) {
+  const run = async (sql, params = []) => (
+    client ? client.query(sql, params) : query(sql, params)
+  );
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_request_idempotency (
+      user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'claimed',
+      claim_token TEXT NOT NULL DEFAULT '',
+      lease_until TIMESTAMPTZ,
+      task_id TEXT NOT NULL DEFAULT '',
+      result_payload JSONB,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, action, idempotency_key)
+    );
+  `);
+  await run(`
+    ALTER TABLE app_request_idempotency
+      ADD COLUMN IF NOT EXISTS payload_hash TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'claimed',
+      ADD COLUMN IF NOT EXISTS claim_token TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS task_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS result_payload JSONB,
+      ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_request_idempotency_recovery_idx ON app_request_idempotency (status, lease_until) WHERE status = 'claimed';`);
+  await run(`CREATE INDEX IF NOT EXISTS app_request_idempotency_completed_idx ON app_request_idempotency (completed_at DESC) WHERE status = 'completed';`);
+}
+
+async function ensureGenerationSubmitJobsSchema({ client = null } = {}) {
+  const run = async (sql, params = []) => (
+    client ? client.query(sql, params) : query(sql, params)
+  );
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_generation_submit_jobs (
+      task_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'platform-template',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'queued',
+      claim_token TEXT NOT NULL DEFAULT '',
+      lease_until TIMESTAMPTZ,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 5,
+      submit_state TEXT NOT NULL DEFAULT 'pending',
+      submit_attempt_id TEXT NOT NULL DEFAULT '',
+      available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      last_error TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`
+    ALTER TABLE app_generation_submit_jobs
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'platform-template',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'queued',
+      ADD COLUMN IF NOT EXISTS claim_token TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 5,
+      ADD COLUMN IF NOT EXISTS submit_state TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS submit_attempt_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_ready_idx ON app_generation_submit_jobs (status, available_at, created_at) WHERE status IN ('queued', 'retry');`);
+  await run(`CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_lease_idx ON app_generation_submit_jobs (status, lease_until) WHERE status = 'processing';`);
+  await run(`CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_unknown_idx ON app_generation_submit_jobs (updated_at DESC) WHERE status = 'unknown';`);
+}
+
+function generationSubmitJobFromRow(row = {}) {
+  if (!row) return null;
+  return {
+    taskId: String(row.task_id || ""),
+    userId: String(row.user_id || ""),
+    kind: String(row.kind || "platform-template"),
+    payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+    status: String(row.status || "queued"),
+    claimToken: String(row.claim_token || ""),
+    leaseUntil: row.lease_until || null,
+    attempts: Number(row.attempts || 0),
+    maxAttempts: Number(row.max_attempts || 5),
+    submitState: String(row.submit_state || "pending"),
+    submitAttemptId: String(row.submit_attempt_id || ""),
+    availableAt: row.available_at || null,
+    startedAt: row.started_at || null,
+    completedAt: row.completed_at || null,
+    lastError: String(row.last_error || ""),
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+async function enqueueGenerationSubmitJobInDb(taskId = "", {
+  userId = "",
+  kind = "platform-template",
+  payload = {},
+  maxAttempts = 5,
+  client = null,
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim().slice(0, 240);
+  if (!id) throw new Error("Generation submit job taskId is required.");
+  if (!client) await ensureSchema();
+  const run = client ? client.query.bind(client) : query;
+  const attempts = Math.max(1, Math.min(20, Math.trunc(Number(maxAttempts) || 5)));
+  const { rows } = await run(
+    `INSERT INTO app_generation_submit_jobs(
+       task_id, user_id, kind, payload, status, claim_token, lease_until,
+       attempts, max_attempts, submit_state, submit_attempt_id, available_at,
+       started_at, completed_at, last_error, created_at, updated_at
+     )
+     VALUES ($1, $2, $3, $4::jsonb, 'queued', '', NULL, 0, $5, 'pending', '', NOW(), NULL, NULL, '', NOW(), NOW())
+     ON CONFLICT (task_id) DO NOTHING
+     RETURNING *`,
+    [id, String(userId || "").slice(0, 240), String(kind || "platform-template").slice(0, 120), JSON.stringify(payload && typeof payload === "object" ? payload : {}), attempts],
+  );
+  if (rows.length === 1) return { inserted: true, job: generationSubmitJobFromRow(rows[0]) };
+  const existing = await run(`SELECT * FROM app_generation_submit_jobs WHERE task_id = $1`, [id]);
+  return { inserted: false, job: generationSubmitJobFromRow(existing.rows[0]) };
+}
+
+async function claimNextGenerationSubmitJobsInDb({
+  limit = 1,
+  leaseMs = 2 * 60 * 1000,
+  claimToken = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  await ensureSchema();
+  const count = Math.max(1, Math.min(20, Math.trunc(Number(limit) || 1)));
+  const lease = Math.max(5_000, Math.min(30 * 60 * 1000, Math.trunc(Number(leaseMs) || 2 * 60 * 1000)));
+  const token = String(claimToken || crypto.randomUUID()).trim().slice(0, 120);
+  if (!token) throw new Error("Generation submit job claimToken is required.");
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    /*
+     * A durable record with an upstream task id is proof that the provider
+     * accepted the request. Close the queue row before considering lease
+     * takeover so a crash between record persistence and job completion can
+     * never cause a duplicate provider submission.
+     */
+    const accepted = await client.query(
+      `UPDATE app_generation_submit_jobs jobs
+       SET status = 'completed',
+           submit_state = 'accepted',
+           claim_token = '',
+           lease_until = NULL,
+           payload = jobs.payload || jsonb_build_object('upstreamTaskId', records.payload->>'upstreamTaskId'),
+           completed_at = NOW(),
+           last_error = '',
+           updated_at = NOW()
+       FROM app_generation_records records
+       WHERE records.task_id = jobs.task_id
+         AND jobs.status IN ('queued', 'retry', 'processing')
+         AND jobs.submit_state IN ('pending', 'submitting')
+         AND COALESCE(records.payload->>'upstreamTaskId', '') <> ''
+       RETURNING jobs.*`,
+    );
+    /*
+     * Conversely, a terminal generation record is proof that this attempt has
+     * already been finalized. It must not be submitted again even if the
+     * worker died before closing the job row.
+     */
+    const rejected = await client.query(
+      `UPDATE app_generation_submit_jobs jobs
+       SET status = 'failed',
+           submit_state = 'failed',
+           claim_token = '',
+           lease_until = NULL,
+           available_at = 'infinity'::timestamptz,
+           completed_at = NOW(),
+           last_error = CASE WHEN jobs.last_error = '' THEN 'Generation record was already terminal before queue completion.' ELSE jobs.last_error END,
+           updated_at = NOW()
+       FROM app_generation_records records
+       WHERE records.task_id = jobs.task_id
+         AND jobs.status IN ('queued', 'retry', 'processing')
+         AND jobs.submit_state IN ('pending', 'submitting')
+         AND COALESCE(records.payload->>'upstreamTaskId', '') = ''
+         AND LOWER(COALESCE(records.payload->>'status', '')) IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed')
+       RETURNING jobs.*`,
+    );
+    const unknown = await client.query(
+      `UPDATE app_generation_submit_jobs
+       SET status = 'unknown',
+           submit_state = 'unknown',
+           submit_attempt_id = claim_token,
+           claim_token = '',
+           lease_until = NULL,
+           last_error = CASE WHEN last_error = '' THEN 'Worker lease expired after provider submission started; outcome requires reconciliation.' ELSE last_error END,
+           updated_at = NOW()
+       WHERE status = 'processing'
+         AND lease_until IS NOT NULL
+         AND lease_until <= NOW()
+         AND submit_state = 'submitting'
+       RETURNING *`,
+    );
+    const { rows } = await client.query(
+      `WITH candidates AS (
+         SELECT task_id
+         FROM app_generation_submit_jobs
+         WHERE (
+           (status IN ('queued', 'retry') AND available_at <= NOW())
+           OR (
+             status = 'processing'
+             AND lease_until IS NOT NULL
+             AND lease_until <= NOW()
+             AND submit_state = 'pending'
+           )
+         )
+         ORDER BY available_at ASC, created_at ASC
+         FOR UPDATE SKIP LOCKED
+         LIMIT $1
+       )
+       UPDATE app_generation_submit_jobs jobs
+       SET status = 'processing',
+           claim_token = $2,
+           lease_until = NOW() + ($3::int * INTERVAL '1 millisecond'),
+           attempts = jobs.attempts + 1,
+           submit_state = 'pending',
+           submit_attempt_id = $2,
+           started_at = NOW(),
+           completed_at = NULL,
+           last_error = '',
+           updated_at = NOW()
+       FROM candidates
+       WHERE jobs.task_id = candidates.task_id
+       RETURNING jobs.*`,
+      [count, token, lease],
+    );
+    await client.query("COMMIT");
+    return {
+      claimToken: token,
+      leaseUntil: rows[0]?.lease_until || null,
+      jobs: rows.map(generationSubmitJobFromRow),
+      unknownJobs: unknown.rows.map(generationSubmitJobFromRow),
+      recoveredAcceptedJobs: accepted.rows.map(generationSubmitJobFromRow),
+      recoveredFailedJobs: rejected.rows.map(generationSubmitJobFromRow),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function markGenerationSubmitJobSubmittingInDb({
+  taskId = "",
+  claimToken = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !token) throw new Error("Generation submit transition requires taskId and claimToken.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_generation_submit_jobs
+     SET submit_state = 'submitting',
+         submit_attempt_id = claim_token,
+         updated_at = NOW()
+     WHERE task_id = $1
+       AND status = 'processing'
+       AND claim_token = $2
+       AND submit_state = 'pending'
+     RETURNING *`,
+    [id, token],
+  );
+  return { marked: rows.length === 1, job: generationSubmitJobFromRow(rows[0]) };
+}
+
+async function completeGenerationSubmitJobInDb({
+  taskId = "",
+  claimToken = "",
+  upstreamTaskId = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !token) throw new Error("Generation submit completion requires taskId and claimToken.");
+  await ensureSchema();
+  const cleanUpstreamTaskId = String(upstreamTaskId || "").trim().slice(0, 240);
+  const { rows } = await query(
+    `UPDATE app_generation_submit_jobs
+     SET status = 'completed',
+         submit_state = 'accepted',
+         claim_token = '',
+         lease_until = NULL,
+         payload = CASE WHEN $3::text = '' THEN payload ELSE payload || jsonb_build_object('upstreamTaskId', $3::text) END,
+         completed_at = NOW(),
+         last_error = '',
+         updated_at = NOW()
+     WHERE task_id = $1
+       AND status = 'processing'
+       AND claim_token = $2
+       AND submit_state = 'submitting'
+     RETURNING *`,
+    [id, token, cleanUpstreamTaskId],
+  );
+  if (rows.length === 1) return { completed: true, job: generationSubmitJobFromRow(rows[0]) };
+  const existing = await query(`SELECT * FROM app_generation_submit_jobs WHERE task_id = $1`, [id]);
+  const job = generationSubmitJobFromRow(existing.rows[0]);
+  const storedUpstreamTaskId = String(job?.payload?.upstreamTaskId || "").trim();
+  const alreadyCompleted = job?.status === "completed"
+    && job?.submitState === "accepted"
+    && (!cleanUpstreamTaskId || !storedUpstreamTaskId || storedUpstreamTaskId === cleanUpstreamTaskId);
+  return { completed: alreadyCompleted, alreadyCompleted, job };
+}
+
+async function retryGenerationSubmitJobInDb({
+  taskId = "",
+  claimToken = "",
+  error = "",
+  retryAfterMs = 60_000,
+  safeToRetry = false,
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !token) throw new Error("Generation submit retry requires taskId and claimToken.");
+  await ensureSchema();
+  const delay = Math.max(1_000, Math.min(24 * 60 * 60 * 1000, Math.trunc(Number(retryAfterMs) || 60_000)));
+  const { rows } = await query(
+    `UPDATE app_generation_submit_jobs
+     SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'retry' END,
+         submit_state = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
+         claim_token = '',
+         lease_until = NULL,
+         available_at = CASE WHEN attempts >= max_attempts THEN 'infinity'::timestamptz ELSE NOW() + ($4::int * INTERVAL '1 millisecond') END,
+         completed_at = CASE WHEN attempts >= max_attempts THEN NOW() ELSE NULL END,
+         last_error = $3,
+         updated_at = NOW()
+     WHERE task_id = $1
+       AND status = 'processing'
+       AND claim_token = $2
+       AND submit_state IN ('pending', 'submitting')
+       AND ($5::boolean = true OR submit_state = 'pending')
+     RETURNING *`,
+    [id, token, String(error || "").slice(0, 2000), delay, safeToRetry === true],
+  );
+  return { retried: rows.length === 1, job: generationSubmitJobFromRow(rows[0]) };
+}
+
+async function failGenerationSubmitJobInDb({
+  taskId = "",
+  claimToken = "",
+  error = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !token) throw new Error("Generation submit failure requires taskId and claimToken.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_generation_submit_jobs
+     SET status = 'failed',
+         submit_state = 'failed',
+         claim_token = '',
+         lease_until = NULL,
+         available_at = 'infinity'::timestamptz,
+         completed_at = NOW(),
+         last_error = $3,
+         updated_at = NOW()
+     WHERE task_id = $1
+       AND status = 'processing'
+       AND claim_token = $2
+       AND submit_state IN ('pending', 'submitting')
+     RETURNING *`,
+    [id, token, String(error || "").slice(0, 2000)],
+  );
+  return { failed: rows.length === 1, job: generationSubmitJobFromRow(rows[0]) };
+}
+
+async function getGenerationSubmitJobsNeedingReconciliationInDb({ limit = 20 } = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for generation submit reconciliation.");
+  await ensureSchema();
+  const count = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 20)));
+  const { rows } = await query(
+    `SELECT jobs.*, records.payload AS record_payload
+     FROM app_generation_submit_jobs jobs
+     JOIN app_generation_records records ON records.task_id = jobs.task_id
+     WHERE jobs.status = 'failed'
+       AND COALESCE(records.payload->>'upstreamTaskId', '') = ''
+       AND (
+         LOWER(COALESCE(records.payload->>'status', '')) NOT IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed')
+         OR (
+           COALESCE((records.payload->>'preDeductedCredits')::numeric, 0) > 0
+           AND LOWER(COALESCE(records.payload->>'billingStatus', '')) <> 'refunded'
+         )
+       )
+     ORDER BY jobs.updated_at ASC
+     LIMIT $1`,
+    [count],
+  );
+  return rows.map((row) => ({
+    job: generationSubmitJobFromRow(row),
+    record: row.record_payload && typeof row.record_payload === "object" ? row.record_payload : {},
+  }));
+}
+
+async function prepareGenerationSubmitInDb({
+  record = {},
+  charge = null,
+  subtoken = null,
+  job = {},
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for atomic generation preparation.");
+  const taskId = String(record?.taskId || job?.taskId || "").trim().slice(0, 240);
+  if (!taskId) throw new Error("Generation preparation taskId is required.");
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
+       VALUES ($1, $2::jsonb, COALESCE(NULLIF($2::jsonb->>'createdAt', '')::timestamptz, NOW()), NOW())
+       ON CONFLICT (task_id) DO NOTHING`,
+      [taskId, JSON.stringify({ ...record, taskId })],
+    );
+    if (charge && Number(charge.delta || 0) !== 0) {
+      const chargeId = String(charge.id || "").trim();
+      const chargeUserId = String(charge.userId || "").trim();
+      if (!chargeId || !chargeUserId) {
+        throw Object.assign(new Error("Generation preparation charge requires id and userId."), { statusCode: 400 });
+      }
+      // Lock the user first. A concurrent retry with the same ledger id must
+      // observe the committed ledger row after it acquires this lock.
+      const { rows: balances } = await client.query(
+        `SELECT * FROM app_users WHERE id = $1 FOR UPDATE`,
+        [chargeUserId],
+      );
+      const row = balances[0];
+      if (!row) throw Object.assign(new Error("User not found for billing."), { statusCode: 404 });
+      const { rows: existing } = await client.query(
+        `SELECT * FROM app_credit_ledger WHERE id = $1 FOR UPDATE`,
+        [chargeId],
+      );
+      if (!existing.length) {
+        const next = creditNumber(creditNumber(row.credits || 0) + Number(charge.delta || 0));
+        if (next < -0.000001) {
+          throw Object.assign(new Error("Not enough credits. Please top up and try again."), {
+            statusCode: 402,
+            code: "INSUFFICIENT_CREDITS",
+            credits: creditNumber(row.credits || 0),
+          });
+        }
+        const now = new Date().toISOString();
+        const meta = charge.meta && typeof charge.meta === "object" ? charge.meta : {};
+        await client.query(
+          `UPDATE app_users
+           SET credits = $2::numeric,
+               payload = COALESCE(payload, '{}'::jsonb) || jsonb_build_object('credits', $2::numeric, 'updatedAt', $3::text),
+               updated_at = $3::timestamptz
+           WHERE id = $1`,
+          [String(charge.userId || ""), next, now],
+        );
+        await client.query(
+          `INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
+           VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            chargeId,
+            chargeUserId,
+            Number(charge.delta || 0),
+            next,
+            String(charge.type || "generation_pre_deduct"),
+            JSON.stringify(meta),
+            JSON.stringify({ ...meta, id: String(charge.id || ""), userId: String(charge.userId || ""), delta: Number(charge.delta || 0), balanceAfter: next }),
+            now,
+          ],
+        );
+      }
+    }
+    if (subtoken && subtoken.tokenId && subtoken.eventKey) {
+      const { rows: tokenRows } = await client.query(
+        `SELECT * FROM app_api_subtokens WHERE id = $1 FOR UPDATE`,
+        [String(subtoken.tokenId)],
+      );
+      if (!tokenRows.length) throw Object.assign(new Error("Subtoken not found."), { statusCode: 404, code: "SUBTOKEN_NOT_FOUND" });
+      const token = normalizeApiSubtokenRecord(tokenRows[0]);
+      const { rows: usageRows } = await client.query(
+        `SELECT 1 FROM app_api_subtoken_usage WHERE token_id = $1 AND event_key = $2`,
+        [token.id, String(subtoken.eventKey)],
+      );
+      if (!usageRows.length) {
+        const amount = roundCredits(subtoken.deltaAmount || 0);
+        const count = Math.trunc(Number(subtoken.deltaCount || 0) || 0);
+        const nextAmount = Math.max(0, roundCredits(Number(token.usedAmount || 0) + amount));
+        const nextCount = Math.max(0, Math.round(Number(token.usedCount || 0) + count));
+        if (token.quotaType === "amount" && nextAmount - Number(token.quotaLimit || 0) > 0.000001) {
+          throw Object.assign(new Error("Subtoken quota exceeded."), { statusCode: 402, code: "SUBTOKEN_QUOTA_EXCEEDED" });
+        }
+        if (token.quotaType === "count" && nextCount - Number(token.quotaLimit || 0) > 0.000001) {
+          throw Object.assign(new Error("Subtoken quota exceeded."), { statusCode: 402, code: "SUBTOKEN_QUOTA_EXCEEDED" });
+        }
+        await client.query(
+          `INSERT INTO app_api_subtoken_usage(token_id, event_key, parent_user_id, delta_amount, delta_count, meta, created_at, updated_at)
+           VALUES ($1, $2, $3, $4::numeric, $5::int, $6::jsonb, NOW(), NOW())`,
+          [token.id, String(subtoken.eventKey), token.parentUserId || String(subtoken.parentUserId || ""), amount, count, JSON.stringify(subtoken.meta || {})],
+        );
+        await client.query(
+          `UPDATE app_api_subtokens SET used_amount = $2::numeric, used_count = $3::int, last_used_at = NOW(), updated_at = NOW() WHERE id = $1`,
+          [token.id, nextAmount, nextCount],
+        );
+      }
+    }
+    const queued = await enqueueGenerationSubmitJobInDb(taskId, {
+      userId: String(job.userId || record.userId || ""),
+      kind: String(job.kind || "platform-template"),
+      payload: job.payload || { taskId },
+      maxAttempts: job.maxAttempts || 5,
+      client,
+    });
+    const { rows: records } = await client.query(`SELECT payload FROM app_generation_records WHERE task_id = $1`, [taskId]);
+    await client.query("COMMIT");
+    return { taskId, record: records[0]?.payload || null, job: queued.job, jobInserted: queued.inserted };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getGenerationSubmitResumeStateInDb(taskId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim().slice(0, 240);
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT
+       records.payload AS record,
+       jobs.task_id, jobs.user_id, jobs.kind, jobs.payload, jobs.status,
+       jobs.claim_token, jobs.lease_until, jobs.attempts, jobs.max_attempts,
+       jobs.submit_state, jobs.submit_attempt_id, jobs.available_at,
+       jobs.started_at, jobs.completed_at, jobs.last_error, jobs.created_at, jobs.updated_at
+     FROM app_generation_records records
+     LEFT JOIN app_generation_submit_jobs jobs ON jobs.task_id = records.task_id
+     WHERE records.task_id = $1`,
+    [id],
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    taskId: id,
+    record: row.record || null,
+    job: row.task_id ? generationSubmitJobFromRow(row) : null,
+  };
+}
+
+async function markGenerationSubmitJobUnknownInDb({
+  taskId = "",
+  claimToken = "",
+  error = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !token) throw new Error("Generation submit unknown transition requires taskId and claimToken.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_generation_submit_jobs
+     SET status = 'unknown',
+         submit_state = 'unknown',
+         claim_token = '',
+         lease_until = NULL,
+         last_error = $3,
+         updated_at = NOW()
+     WHERE task_id = $1
+       AND status = 'processing'
+       AND claim_token = $2
+       AND submit_state = 'submitting'
+     RETURNING *`,
+    [id, token, String(error || "Provider submission outcome is unknown; manual reconciliation is required.").slice(0, 2000)],
+  );
+  return { markedUnknown: rows.length === 1, job: generationSubmitJobFromRow(rows[0]) };
+}
+
 async function ensureSchemaInner({ client = null } = {}) {
   const run = async (sql, params = []) => (
     client ? client.query(sql, params) : query(sql, params)
@@ -324,6 +921,8 @@ async function ensureSchemaInner({ client = null } = {}) {
   `);
   await run(`CREATE INDEX IF NOT EXISTS app_rate_limits_updated_idx ON app_rate_limits (updated_at);`);
   await ensureWebhookDeliveriesSchema({ client });
+  await ensureRequestIdempotencySchema({ client });
+  await ensureGenerationSubmitJobsSchema({ client });
   await run(`
     CREATE TABLE IF NOT EXISTS app_wallet_orders (
       id TEXT PRIMARY KEY,
@@ -2535,6 +3134,173 @@ async function completeWebhookDeliveryClaimInDb({ provider = "", deliveryId = ""
     [key.provider, key.deliveryId, token],
   );
   return { completed: rows.length === 1, status: rows[0]?.status || "", completedAt: rows[0]?.completed_at || null };
+}
+
+async function claimRequestIdempotencyInDb({
+  userId = "",
+  action = "",
+  idempotencyKey = "",
+  payloadHash = "",
+  claimToken = "",
+  taskId = "",
+  leaseMs = 2 * 60 * 1000,
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for request idempotency.");
+  const user = String(userId || "").trim().slice(0, 240);
+  const routeAction = String(action || "").trim().slice(0, 160);
+  const key = String(idempotencyKey || "").trim().slice(0, 240);
+  const hash = String(payloadHash || "").trim().slice(0, 128);
+  const token = String(claimToken || crypto.randomUUID()).trim().slice(0, 120);
+  const generationTaskId = String(taskId || "").trim().slice(0, 240);
+  if (!user || !routeAction || !key || !hash || !token) {
+    throw new Error("Request idempotency requires userId, action, key, payloadHash, and claimToken.");
+  }
+  await ensureSchema();
+  const lease = Math.max(5_000, Math.min(30 * 60 * 1000, Number(leaseMs) || 2 * 60 * 1000));
+  const { rows } = await query(
+    `INSERT INTO app_request_idempotency(
+       user_id, action, idempotency_key, payload_hash, status, claim_token,
+       lease_until, task_id, result_payload, attempts, last_error,
+       created_at, updated_at, completed_at
+     )
+     VALUES ($1, $2, $3, $4, 'claimed', $5, NOW() + ($6::int * INTERVAL '1 millisecond'), $7, NULL, 1, '', NOW(), NOW(), NULL)
+     ON CONFLICT (user_id, action, idempotency_key) DO UPDATE SET
+       status = 'claimed',
+       claim_token = EXCLUDED.claim_token,
+       lease_until = EXCLUDED.lease_until,
+       task_id = CASE WHEN app_request_idempotency.task_id = '' THEN EXCLUDED.task_id ELSE app_request_idempotency.task_id END,
+       result_payload = NULL,
+       attempts = app_request_idempotency.attempts + 1,
+       last_error = '',
+       updated_at = NOW(),
+       completed_at = NULL
+     WHERE app_request_idempotency.payload_hash = EXCLUDED.payload_hash
+       AND (
+         app_request_idempotency.status = 'retry'
+         OR (
+           app_request_idempotency.status = 'claimed'
+           AND COALESCE(app_request_idempotency.lease_until, app_request_idempotency.updated_at) <= NOW()
+         )
+       )
+     RETURNING user_id, action, idempotency_key, payload_hash, status, claim_token,
+               lease_until, task_id, result_payload, attempts, completed_at`,
+    [user, routeAction, key, hash, token, Math.trunc(lease), generationTaskId],
+  );
+  if (rows.length === 1) {
+    return {
+      claimed: true,
+      conflict: false,
+      claimToken: token,
+      status: "claimed",
+      taskId: String(rows[0].task_id || ""),
+      leaseUntil: rows[0].lease_until,
+      attempts: Number(rows[0].attempts || 1),
+    };
+  }
+  const { rows: currentRows } = await query(
+    `SELECT user_id, action, idempotency_key, payload_hash, status, claim_token,
+            lease_until, task_id, result_payload, attempts, last_error, completed_at
+     FROM app_request_idempotency
+     WHERE user_id = $1 AND action = $2 AND idempotency_key = $3`,
+    [user, routeAction, key],
+  );
+  const current = currentRows[0];
+  if (!current) return { claimed: false, conflict: false, status: "missing", claimToken: "", taskId: "", attempts: 0 };
+  if (String(current.payload_hash || "") !== hash) {
+    return {
+      claimed: false,
+      conflict: true,
+      status: "conflict",
+      claimToken: "",
+      taskId: String(current.task_id || ""),
+      attempts: Number(current.attempts || 0),
+    };
+  }
+  return {
+    claimed: false,
+    conflict: false,
+    status: String(current.status || "unknown"),
+    claimToken: "",
+    taskId: String(current.task_id || ""),
+    resultPayload: current.result_payload || null,
+    leaseUntil: current.lease_until || null,
+    attempts: Number(current.attempts || 0),
+    lastError: String(current.last_error || ""),
+    completedAt: current.completed_at || null,
+  };
+}
+
+async function completeRequestIdempotencyInDb({
+  userId = "",
+  action = "",
+  idempotencyKey = "",
+  claimToken = "",
+  taskId = "",
+  resultPayload = {},
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for request idempotency completion.");
+  const user = String(userId || "").trim().slice(0, 240);
+  const routeAction = String(action || "").trim().slice(0, 160);
+  const key = String(idempotencyKey || "").trim().slice(0, 240);
+  const token = String(claimToken || "").trim().slice(0, 120);
+  if (!user || !routeAction || !key || !token) throw new Error("Request idempotency completion requires user, action, key, and claimToken.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_request_idempotency
+     SET status = 'completed',
+         claim_token = '',
+         lease_until = NULL,
+         task_id = CASE WHEN $5::text <> '' THEN $5::text ELSE task_id END,
+         result_payload = $6::jsonb,
+         last_error = '',
+         completed_at = NOW(),
+         updated_at = NOW()
+     WHERE user_id = $1 AND action = $2 AND idempotency_key = $3
+       AND claim_token = $4 AND status = 'claimed'
+     RETURNING user_id, action, idempotency_key, status, task_id, result_payload, completed_at`,
+    [user, routeAction, key, token, String(taskId || "").trim().slice(0, 240), JSON.stringify(resultPayload || {})],
+  );
+  return {
+    completed: rows.length === 1,
+    status: rows[0]?.status || "",
+    taskId: String(rows[0]?.task_id || ""),
+    resultPayload: rows[0]?.result_payload || null,
+    completedAt: rows[0]?.completed_at || null,
+  };
+}
+
+async function releaseRequestIdempotencyClaimInDb({
+  userId = "",
+  action = "",
+  idempotencyKey = "",
+  claimToken = "",
+  error = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for request idempotency recovery.");
+  const user = String(userId || "").trim().slice(0, 240);
+  const routeAction = String(action || "").trim().slice(0, 160);
+  const key = String(idempotencyKey || "").trim().slice(0, 240);
+  const token = String(claimToken || "").trim().slice(0, 120);
+  if (!user || !routeAction || !key || !token) throw new Error("Request idempotency release requires user, action, key, and claimToken.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_request_idempotency
+     SET status = 'retry',
+         claim_token = '',
+         lease_until = NULL,
+         last_error = $5,
+         updated_at = NOW()
+     WHERE user_id = $1 AND action = $2 AND idempotency_key = $3
+       AND claim_token = $4 AND status = 'claimed'
+     RETURNING user_id, action, idempotency_key, status, task_id, attempts, updated_at`,
+    [user, routeAction, key, token, String(error || "").slice(0, 2000)],
+  );
+  return {
+    released: rows.length === 1,
+    status: rows[0]?.status || "",
+    taskId: String(rows[0]?.task_id || ""),
+    attempts: Number(rows[0]?.attempts || 0),
+  };
 }
 
 async function recordRiskEventInDb({ eventType = "", scopeKey = "", tenantId = DEFAULT_TENANT_ID, subject = "", ip = "", userAgent = "", metadata = {} } = {}) {
@@ -7307,6 +8073,8 @@ async function generationRecordsTableCount() {
 const SCHEMA_MIGRATION_KEYS = Object.freeze([
   "2026-11-11-schema-bootstrap-v1",
   "2026-11-11-webhook-deliveries-v1",
+  "2026-11-11-request-idempotency-v1",
+  "2026-11-11-generation-submit-jobs-v1",
 ]);
 const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
 const REQUIRED_SCHEMA_TABLES = Object.freeze([
@@ -7322,6 +8090,8 @@ const REQUIRED_SCHEMA_TABLES = Object.freeze([
   "app_user_characters",
   "app_generation_records",
   "app_webhook_deliveries",
+  "app_request_idempotency",
+  "app_generation_submit_jobs",
 ]);
 
 async function schemaMigrationStatus() {
@@ -7513,6 +8283,12 @@ async function getStalePreSubmitGenerationRecordsFromDb({ olderThanMs = 0, limit
       AND LOWER(COALESCE(payload->>'provider', '')) = ANY($1::text[])
       AND LOWER(COALESCE(payload->>'status', '')) IN ('preparing', 'submitting', 'submitted', 'running', 'processing', 'queued', 'pending')
       AND created_at <= NOW() - ($2::bigint * INTERVAL '1 millisecond')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM app_generation_submit_jobs jobs
+        WHERE jobs.task_id = app_generation_records.task_id
+          AND jobs.status IN ('queued', 'retry', 'processing', 'unknown')
+      )
     ORDER BY created_at ASC
     LIMIT $3
   `;
@@ -9290,7 +10066,7 @@ async function createApiSubtokenInDb(record) {
     VALUES (
       $1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::int,
       NULLIF($9, '')::timestamptz, NULLIF($10, '')::timestamptz, NULLIF($11, '')::timestamptz,
-      NULLIF($12, '')::timestamptz, NULLIF($13, '')::timestamptz
+      COALESCE(NULLIF($12, '')::timestamptz, NOW()), COALESCE(NULLIF($13, '')::timestamptz, NOW())
     )
     RETURNING *
   `, [
@@ -9615,6 +10391,8 @@ module.exports = {
   ensureSchema,
   ensureSchemaInner,
   ensureWebhookDeliveriesSchema,
+  ensureRequestIdempotencySchema,
+  ensureGenerationSubmitJobsSchema,
   schemaMigrationStatus,
   assertSchemaReady,
   getPool,
@@ -9858,6 +10636,19 @@ module.exports = {
   claimWebhookDeliveryInDb,
   releaseWebhookDeliveryClaimInDb,
   completeWebhookDeliveryClaimInDb,
+  claimRequestIdempotencyInDb,
+  releaseRequestIdempotencyClaimInDb,
+  completeRequestIdempotencyInDb,
+  enqueueGenerationSubmitJobInDb,
+  claimNextGenerationSubmitJobsInDb,
+  markGenerationSubmitJobSubmittingInDb,
+  completeGenerationSubmitJobInDb,
+  retryGenerationSubmitJobInDb,
+  failGenerationSubmitJobInDb,
+  getGenerationSubmitJobsNeedingReconciliationInDb,
+  prepareGenerationSubmitInDb,
+  markGenerationSubmitJobUnknownInDb,
+  getGenerationSubmitResumeStateInDb,
   getLoginFailureStateInDb,
   recordLoginFailureInDb,
   clearLoginFailuresInDb,

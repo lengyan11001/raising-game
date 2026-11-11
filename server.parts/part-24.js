@@ -776,15 +776,26 @@ async function gatewayRequest(method, pathname, body = null) {
     error.code = "GATEWAY_TOKEN_NOT_CONFIGURED";
     throw error;
   }
-  const response = await fetch(`${UPSTREAM_BASE_URL}${pathname}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${UPSTREAM_API_TOKEN}`,
-      accept: "application/json",
-      ...(body ? { "content-type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let response;
+  try {
+    response = await fetch(`${UPSTREAM_BASE_URL}${pathname}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${UPSTREAM_API_TOKEN}`,
+        accept: "application/json",
+        ...(body ? { "content-type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(180000),
+    });
+  } catch (cause) {
+    const error = new Error("Gateway upstream request timed out or could not be reached.");
+    error.statusCode = 502;
+    error.code = cause?.name === "TimeoutError" ? "GATEWAY_UPSTREAM_TIMEOUT" : "GATEWAY_UPSTREAM_FETCH_FAILED";
+    error.ambiguous = true;
+    error.cause = cause;
+    throw error;
+  }
   const text = await response.text();
   let payload = {};
   try {
@@ -797,6 +808,8 @@ async function gatewayRequest(method, pathname, body = null) {
     error.statusCode = response.status || 502;
     error.code = payload.code || "GATEWAY_UPSTREAM_FAILED";
     error.payload = payload;
+    error.providerRejected = true;
+    error.providerStatus = response.status;
     throw error;
   }
   return payload;

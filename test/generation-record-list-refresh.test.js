@@ -165,7 +165,7 @@ test("completed video records without durable media refresh even when a provider
   assert.equal(shouldRefresh({ ...base, mediaPersistenceRetryAt: new Date(Date.now() + 60_000).toISOString() }), false);
 
   const persistenceStart = server.indexOf("async function scanGenerationRecordMissingMediaPersistence(");
-  const persistenceEnd = server.indexOf("setTimeout(() => scanGenerationRecordMissingMediaPersistence", persistenceStart + 1);
+  const persistenceEnd = server.indexOf("function runGenerationRecordMediaRecoverySchedulerTick(", persistenceStart + 1);
   assert.notEqual(persistenceStart, -1);
   assert.notEqual(persistenceEnd, -1);
   const persistenceScanner = server.slice(persistenceStart, persistenceEnd);

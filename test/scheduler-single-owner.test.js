@@ -44,6 +44,17 @@ test("all background scheduler entrypoints use the PostgreSQL scheduler lease", 
   assert.doesNotMatch(schedulerParts, /setInterval\([^\n]*settleStaleChatLiveSessions\(\)/);
 });
 
+test("background scheduler registration can be disabled without affecting HTTP startup", () => {
+  const part01 = read("server.parts/part-01.js");
+  const part43 = read("server.parts/part-43.js");
+  assert.match(
+    part01,
+    /const BACKGROUND_SCHEDULERS_ENABLED = \/\^\(1\|true\|yes\|on\)\$\/i\.test\(String\(process\.env\.BACKGROUND_SCHEDULERS_ENABLED \|\| "1"\)\);/,
+  );
+  assert.match(part43, /if \(BACKGROUND_SCHEDULERS_ENABLED\) \{[\s\S]*?startWalletScanScheduler\(\);[\s\S]*?startChatLiveSettlementScheduler\(\);/);
+  assert.match(part43, /server\.listen\(PORT, "127\.0\.0\.1"/);
+});
+
 test("scheduler lease tests cover ownership takeover and release", () => {
   const leaseTest = read("test/scheduler-lease.test.js");
   assert.match(leaseTest, /cannot run one job concurrently/);

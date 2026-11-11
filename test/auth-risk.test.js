@@ -352,7 +352,7 @@ test("normal and media request bodies have separated size limits", () => {
     "server.parts/part-09.js",
     "server.parts/part-10.js",
     "server.parts/part-17.js",
-    "server.parts/part-25.js",
+    "server.parts/part-48.js",
     "server.parts/part-29.js",
     "server.parts/part-36.js",
     "server.parts/part-38.js",

@@ -1,5 +1,6 @@
 const http = require("node:http");
 const { runWithSchedulerLease } = require("./lib-scheduler-lease");
+const { executeRequestIdempotently, requestIdempotencyKey } = require("./lib-request-idempotency");
 const crypto = require("node:crypto");
 const { AsyncLocalStorage } = require("node:async_hooks");
 const fsSync = require("node:fs");
@@ -169,6 +170,9 @@ const {
   claimWebhookDeliveryInDb,
   releaseWebhookDeliveryClaimInDb,
   completeWebhookDeliveryClaimInDb,
+  claimRequestIdempotencyInDb,
+  releaseRequestIdempotencyClaimInDb,
+  completeRequestIdempotencyInDb,
   getLoginFailureStateInDb,
   recordLoginFailureInDb,
   clearLoginFailuresInDb,
@@ -369,6 +373,15 @@ const {
   getAdminDashboardStatsFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
+  prepareGenerationSubmitInDb,
+  getGenerationSubmitResumeStateInDb,
+  claimNextGenerationSubmitJobsInDb,
+  markGenerationSubmitJobSubmittingInDb,
+  completeGenerationSubmitJobInDb,
+  retryGenerationSubmitJobInDb,
+  failGenerationSubmitJobInDb,
+  getGenerationSubmitJobsNeedingReconciliationInDb,
+  markGenerationSubmitJobUnknownInDb,
   claimTelegramGenerationNotificationInDb,
   confirmTelegramGenerationNotificationInDb,
   releaseTelegramGenerationNotificationClaimInDb,
@@ -675,6 +688,7 @@ const MAINLAND_BYPASS_MAX_AGE_SECONDS = Math.max(
 );
 
 const PORT = Number(process.env.PORT || 4174);
+const BACKGROUND_SCHEDULERS_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.BACKGROUND_SCHEDULERS_ENABLED || "1"));
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 const CANONICAL_HOST_ALIASES = String(process.env.CANONICAL_HOST_ALIASES || "").trim();
 const GOOGLE_SITE_VERIFICATION = String(process.env.GOOGLE_SITE_VERIFICATION || "").trim();
@@ -889,6 +903,10 @@ const UPSTREAM_BASE_URL = (process.env.UPSTREAM_BASE_URL || "https://123vips.com
 const UPSTREAM_API_TOKEN = String(process.env.UPSTREAM_API_TOKEN || "").trim();
 const GATEWAY_PLATFORM_FALLBACK_CREDITS = Math.max(1, creditsAmount(process.env.GATEWAY_PLATFORM_FALLBACK_CREDITS || 1325));
 const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
+const GENERATION_SUBMIT_QUEUE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.GENERATION_SUBMIT_QUEUE_ENABLED || "0").trim());
+const GENERATION_SUBMIT_WORKER_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.GENERATION_SUBMIT_WORKER_ENABLED || "0").trim());
+const GENERATION_SUBMIT_WORKER_INTERVAL_MS = Math.max(1000, Number(process.env.GENERATION_SUBMIT_WORKER_INTERVAL_MS || 2000) || 2000);
+const GENERATION_SUBMIT_WORKER_BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.GENERATION_SUBMIT_WORKER_BATCH_SIZE || 1) || 1));
 const GENERATION_SUBMIT_STALE_MS = Math.max(5 * 60 * 1000, Number(process.env.GENERATION_SUBMIT_STALE_MS || 10 * 60 * 1000) || 10 * 60 * 1000);
 const GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS = Math.max(60 * 1000, Number(process.env.GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS || 60 * 1000) || 60 * 1000);
 const GENERATION_STALE_SUBMIT_SCAN_TIMEOUT_MS = Math.max(10000, Number(process.env.GENERATION_STALE_SUBMIT_SCAN_TIMEOUT_MS || 30000) || 30000);

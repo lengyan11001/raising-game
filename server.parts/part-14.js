@@ -274,7 +274,7 @@ async function ensureUserAssetVideoPoster(db, asset = {}) {
   return asset;
 }
 
-async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Upload", fileName = "", maxBytes = 8 * 1024 * 1024, durationSeconds = 0 } = {}) {
+async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Upload", fileName = "", maxBytes = 8 * 1024 * 1024, durationSeconds = 0, assetId: requestedAssetId = "" } = {}) {
   if (bytes.byteLength > maxBytes) {
     const label = mime.startsWith("image/") ? "Image" : mime.startsWith("audio/") ? "Audio" : "Media";
     const error = new Error(`${label} must be ${Math.round(maxBytes / 1024 / 1024)}MB or smaller.`);
@@ -282,7 +282,7 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     throw error;
   }
 
-  const assetId = randomId("asset");
+  const assetId = String(requestedAssetId || "").trim().slice(0, 160) || randomId("asset");
   const fallbackExt = mime.startsWith("image/") ? imageExtFromMime(mime) : documentMimeFromKnownPath(fileName) ? path.extname(fileName).toLowerCase() : ".bin";
   const storedFileName = `${assetId}${mediaExtFromMime(mime, fileName) || fallbackExt}`;
   const dir = path.join(USER_UPLOAD_DIR, user.id);
@@ -329,19 +329,23 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     deletedAt: "",
   };
   if (mime.startsWith("video/")) await attachUserAssetVideoPoster(userAsset, localPath);
-  db.userAssets.unshift(userAsset);
+  db.userAssets = [
+    userAsset,
+    ...(db.userAssets || []).filter((asset) => asset?.id !== userAsset.id),
+  ];
   if (dbEnabled()) await upsertUserAssetInDb(userAsset);
   else await writeDb(db);
   return userAsset;
 }
 
-async function createUserAssetFromDataUrl(db, user, { dataUrl, name = "Upload", fileName = "" } = {}) {
+async function createUserAssetFromDataUrl(db, user, { dataUrl, name = "Upload", fileName = "", assetId = "" } = {}) {
   const { mime, bytes } = decodeDataUrl(dataUrl);
   return createUserMediaAssetFromBytes(db, user, {
     bytes,
     mime,
     name,
     fileName,
+    assetId,
     maxBytes: IMAGE_UPLOAD_MAX_BYTES,
   });
 }

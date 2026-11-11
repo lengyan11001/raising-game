@@ -17,6 +17,16 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-11-request-idempotency-v1",
+    description: "Create durable multi-process request idempotency claims and replayable results",
+    kind: "schema",
+  }),
+  Object.freeze({
+    version: "2026-11-11-generation-submit-jobs-v1",
+    description: "Create durable generation submit jobs with fenced claims and submission-outcome states",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",
@@ -60,6 +70,82 @@ const WEBHOOK_DELIVERIES_DDL = Object.freeze([
      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;`,
   `CREATE INDEX IF NOT EXISTS app_webhook_deliveries_received_idx ON app_webhook_deliveries (received_at);`,
   `CREATE INDEX IF NOT EXISTS app_webhook_deliveries_recovery_idx ON app_webhook_deliveries (status, lease_until) WHERE status = 'claimed';`,
+]);
+
+const REQUEST_IDEMPOTENCY_DDL = Object.freeze([
+  `CREATE TABLE IF NOT EXISTS app_request_idempotency (
+     user_id TEXT NOT NULL,
+     action TEXT NOT NULL,
+     idempotency_key TEXT NOT NULL,
+     payload_hash TEXT NOT NULL,
+     status TEXT NOT NULL DEFAULT 'claimed',
+     claim_token TEXT NOT NULL DEFAULT '',
+     lease_until TIMESTAMPTZ,
+     task_id TEXT NOT NULL DEFAULT '',
+     result_payload JSONB,
+     attempts INTEGER NOT NULL DEFAULT 0,
+     last_error TEXT NOT NULL DEFAULT '',
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     completed_at TIMESTAMPTZ,
+     PRIMARY KEY (user_id, action, idempotency_key)
+   );`,
+  `ALTER TABLE app_request_idempotency
+     ADD COLUMN IF NOT EXISTS payload_hash TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'claimed',
+     ADD COLUMN IF NOT EXISTS claim_token TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS task_id TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS result_payload JSONB,
+     ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0,
+     ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;`,
+  `CREATE INDEX IF NOT EXISTS app_request_idempotency_recovery_idx ON app_request_idempotency (status, lease_until) WHERE status = 'claimed';`,
+  `CREATE INDEX IF NOT EXISTS app_request_idempotency_completed_idx ON app_request_idempotency (completed_at DESC) WHERE status = 'completed';`,
+]);
+
+const GENERATION_SUBMIT_JOBS_DDL = Object.freeze([
+  `CREATE TABLE IF NOT EXISTS app_generation_submit_jobs (
+     task_id TEXT PRIMARY KEY,
+     user_id TEXT NOT NULL DEFAULT '',
+     kind TEXT NOT NULL DEFAULT 'platform-template',
+     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+     status TEXT NOT NULL DEFAULT 'queued',
+     claim_token TEXT NOT NULL DEFAULT '',
+     lease_until TIMESTAMPTZ,
+     attempts INTEGER NOT NULL DEFAULT 0,
+     max_attempts INTEGER NOT NULL DEFAULT 5,
+     submit_state TEXT NOT NULL DEFAULT 'pending',
+     submit_attempt_id TEXT NOT NULL DEFAULT '',
+     available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     started_at TIMESTAMPTZ,
+     completed_at TIMESTAMPTZ,
+     last_error TEXT NOT NULL DEFAULT '',
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+  `ALTER TABLE app_generation_submit_jobs
+     ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'platform-template',
+     ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+     ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'queued',
+     ADD COLUMN IF NOT EXISTS claim_token TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0,
+     ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 5,
+     ADD COLUMN IF NOT EXISTS submit_state TEXT NOT NULL DEFAULT 'pending',
+     ADD COLUMN IF NOT EXISTS submit_attempt_id TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
+  `CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_ready_idx ON app_generation_submit_jobs (status, available_at, created_at) WHERE status IN ('queued', 'retry');`,
+  `CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_lease_idx ON app_generation_submit_jobs (status, lease_until) WHERE status = 'processing';`,
+  `CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_unknown_idx ON app_generation_submit_jobs (updated_at DESC) WHERE status = 'unknown';`,
 ]);
 
 async function runStatements(client, statements) {
@@ -228,6 +314,10 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
            so a restored or partially-created schema can never pass readiness
            with a missing v2 table. */
         await runStatements(schemaLockClient, WEBHOOK_DELIVERIES_DDL);
+      } else if (migration.version === "2026-11-11-request-idempotency-v1") {
+        await runStatements(schemaLockClient, REQUEST_IDEMPOTENCY_DDL);
+      } else if (migration.version === "2026-11-11-generation-submit-jobs-v1") {
+        await runStatements(schemaLockClient, GENERATION_SUBMIT_JOBS_DDL);
       } else {
         throw new Error(`Unknown schema migration: ${migration.version}`);
       }

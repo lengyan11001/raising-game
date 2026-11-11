@@ -197,21 +197,34 @@ async function apizRequest(pathname, body) {
     throw error;
   }
 
-  const response = await fetch(`${APIZ_BASE_URL}${pathname}`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${APIZ_API_KEY}`,
-      "content-type": "application/json",
-      accept: "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  let response;
+  try {
+    response = await fetch(`${APIZ_BASE_URL}${pathname}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${APIZ_API_KEY}`,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(180000),
+    });
+  } catch (cause) {
+    const error = new Error("Generation service request timed out or could not be reached.");
+    error.statusCode = 502;
+    error.code = cause?.name === "TimeoutError" ? "GENERATION_SERVICE_TIMEOUT" : "GENERATION_SERVICE_FETCH_FAILED";
+    error.ambiguous = true;
+    error.cause = cause;
+    throw error;
+  }
   const text = await response.text();
   const payload = text ? JSON.parse(text) : {};
   if (!response.ok || payload.code >= 400) {
     const error = new Error(payload.message || payload.detail || `Generation request failed: ${response.status}`);
     error.statusCode = response.status || 502;
     error.payload = payload;
+    error.providerRejected = true;
+    error.providerStatus = response.status;
     throw error;
   }
   return payload.data || payload;

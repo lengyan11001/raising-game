@@ -3137,3 +3137,26 @@ CODEX_TASK_STATE.md
 - Best-fit workloads: shared cache for public config/templates/platform HTML and short-TTL generation polling snapshots; high-frequency short-window rate limits with PostgreSQL fallback and durable audit events; cross-process idempotency keys for generation/media mutations; optional Pub/Sub invalidation or realtime presence later.
 - Keep in PostgreSQL: sessions, login failure/audit state, balances/ledger, wallet orders, generation records and queues, scheduler ownership, notification claims, support and catalog data. Do not use Redis for large media or as a second source of truth.
 - Added `ops/REDIS-PLAN.md` with R0-R5 rollout, feature flags, failure-mode requirements, acceptance gates, and rollback. No runtime code changed, no deployment or production mutation.
+
+## 2026-11-11 Verified: request idempotency + durable generation submit queue (not deployed)
+
+- Goal: make generation submission safe for retries/process death and a future multi-process rollout. PostgreSQL remains authoritative; no Redis dependency is used for business state. Production remains single-process with generation submit queue and worker feature flags off.
+- Added `app_request_idempotency` and `lib-request-idempotency.js`: keys are scoped by user+action, payload hash conflicts are rejected, active duplicates return 409, completed results replay, failures release the claim, and claim tokens fence stale workers.
+- Added `app_generation_submit_jobs` with migration tracking, queue CRUD, lease/claim fencing, crash-window recovery, atomic preparation, refund deduplication, and reconciliation scanning. The atomic preparation path creates the generation record, debit ledger entry, subtoken usage, and submit job in one PostgreSQL transaction.
+- Provider submission crash handling now preserves consistency: a stale lease whose submission outcome is not known transitions the record/job to `unknown` and records the attempt id, rather than leaving `submit_state='submitting'`. Accepted provider records are recovered as completed without duplicate submission.
+- Fixed `createApiSubtokenInDb` so omitted `created_at`/`updated_at` default to database `NOW()`; explicit timestamps remain preserved.
+- Local verification: focused regression 68/68; syntax checks for `db.js`, `test/postgres-fault-injection.js`, and shell syntax for `ops/multi-process-drill.sh`; `git diff --check` pass.
+- Real Old-host isolated PostgreSQL drill passed on disposable database `raising_game_fault_drill_20261111072305`: `POSTGRES_FAULT_INJECTION_OK webhook_claims=5 scheduler_takeover=1 request_idempotency=1 http_idempotency=1 generation_submit_queue=1 generation_submit_crash_window=1 generation_submit_atomic=1 generation_submit_refund=1 generation_submit_reconciliation=1`. The drill used uploaded candidate code plus the host's `node_modules`, not the production checkout or database.
+- Post-drill safety verification: production MainPID `2623209`, `NRestarts=0`, active/running, health 200; disposable database/role/directory counts all 0; recent service error scan 0.
+- Next gates: code review of the working diff, integration commit, release snapshot, controlled Old deployment with multi-process/Redis/generation queue remain disabled, then multi-process HTTP drill against a restored disposable snapshot. Do not enable multi-process or Redis until their separate gates pass. Preserve unrelated WIP (`platform.test-generate.css`, `test/platform-test-mode.test.js`, workflow artifacts/node_modules).
+
+## 2026-11-11 Step F pre-release: queue/idempotency review and split
+
+- Fixed `media-inputs` regression: `ensurePublicUrlForUserAsset()` merges into the persisted asset before `publicHttpUrlForUserAsset(asset)`, preserving the gateway image URL contract.
+- Corrected non-durable platform submit classification: pre-dispatch/local failures become failed and refund; only dispatched ambiguous outcomes become unknown. Regression tests assert the dispatch boundary.
+- Split the newly oversized `server.parts/part-25.js` at a function boundary into `server.parts/part-25.js` (973 lines) and `server.parts/part-48.js` (851 lines). Parts are concatenated in lexical order, and the moved request handlers still execute after their helper declarations.
+- Hardened `ops/multi-process-drill.sh`: requires explicit `DRILL_DATABASE_URL`, injects it into child processes, and rejects any URL whose resolved database name does not exactly equal `$DRILL_DB`; it never falls back to the env file's production `DATABASE_URL`.
+- Focused queue/idempotency/drain regression: 24/24 pass. Syntax and shell checks pass. Remaining `source-split` failures are pre-existing oversized parts (`part-01` first); this change does not add a new oversized part.
+- Release-focused tracked tests: 121/121 pass. Tracked full suite: 1,131 tests, 1,100 pass, 30 known pre-existing failures, 1 skipped; the newly introduced media-size regression is fixed and no new failure remains.
+- Static checks pass: affected Node syntax, `bash -n ops/multi-process-drill.sh`, Python compile, and cached/unstaged `git diff --check`. Temporary `server.parts/part-26.tmp.js` was removed.
+- Still not committed or deployed. Production remains untouched; generation queue, worker, multi-process and Redis remain disabled.

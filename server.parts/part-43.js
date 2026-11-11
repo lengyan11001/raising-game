@@ -714,18 +714,26 @@ async function bootstrap() {
       console.log("User API tokens migrated: yes");
     }
   }
-  startWalletScanScheduler();
-  startStaleSubmitGenerationRecordScheduler();
-  startActiveGenerationRecordScheduler();
-  startTelegramBotScheduler();
-  startTelegramPaymentNotificationScheduler();
-  startVideoToolJobRecoveryScheduler();
-  startVideoToolUploadCleanupScheduler();
-  startLocalMediaCleanupScheduler();
-  startMediaIngestWorkerScheduler();
-  startGenerationRecordMediaRecoveryScheduler();
-  startGenerationRecordResultAssetMediaBackfillScheduler();
-  startChatLiveSettlementScheduler();
+  /* Scheduler ownership is always PostgreSQL-leased. A replacement instance
+     may disable timers while the old instance drains, then enable them once
+     it is promoted; HTTP capacity never depends on this switch. */
+  if (BACKGROUND_SCHEDULERS_ENABLED) {
+    startWalletScanScheduler();
+    startStaleSubmitGenerationRecordScheduler();
+    startActiveGenerationRecordScheduler();
+    startTelegramBotScheduler();
+    startTelegramPaymentNotificationScheduler();
+    startVideoToolJobRecoveryScheduler();
+    startVideoToolUploadCleanupScheduler();
+    startLocalMediaCleanupScheduler();
+    startMediaIngestWorkerScheduler();
+    startGenerationRecordMediaRecoveryScheduler();
+    startGenerationRecordResultAssetMediaBackfillScheduler();
+    startChatLiveSettlementScheduler();
+  }
+  /* Durable submit workers are promotion-gated independently from generic
+     background scans. PostgreSQL leases still enforce one owner per tick. */
+  startPlatformGenerationSubmitWorker();
 
   server.listen(PORT, "127.0.0.1", () => {
     markReady(processReadiness);
@@ -742,6 +750,7 @@ async function shutdownGracefully(signal = "SIGTERM") {
   if (gracefulShutdownStarted) return;
   gracefulShutdownStarted = true;
   markStopping(processReadiness);
+  stopPlatformGenerationSubmitWorker();
   const startedAt = Date.now();
   const pendingSubmissions = beginGenerationSubmissionDrain();
   console.log("[graceful-shutdown-start]", { signal, pendingSubmissions });
