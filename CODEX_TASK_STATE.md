@@ -1,3 +1,22 @@
+## 2026-11-11 Step H pre-deploy: generation runner wiring and refund safety
+
+- Goal: fix the live generation failure first, without enabling Redis, the durable submit worker, multi-process, Telegram payment notifications, or any backup work.
+- Live baseline remains faulty commit `0d2ffec`; it was not restarted during local repairs.
+- Root cause: seven generation entrypoints passed `runXxxGenerationJob` directly to `startTrackedGenerationJob()`. The wrapper called it with `submission`, so `job` became undefined and reads such as `job.mediaMode` threw.
+- Fix: all seven entrypoints now use `(submission) => runXxxGenerationJob(job, submission)`.
+- Shutdown correctness: `startTrackedGenerationJob()` now awaits the asynchronous unexpected-error handler before releasing its submission token.
+- Refund safety:
+  - Advanced generation only auto-refunds when the failure is known to be before provider dispatch. Ambiguous post-dispatch failures retain the pre-deduction for manual reconciliation instead of risking a double loss.
+  - `providerDispatchStarted` is set immediately before each upstream submission.
+  - Failure records only claim `refunded` after the ledger write succeeded.
+  - Stale pre-submit records first write a neutral pending state, then call the real APIZ/Seedance settlement.
+  - `markPlatformGenerationSubmitFailed()` now upserts the failed record and calls APIZ settlement exactly once, avoiding an implicit settlement inside `updateGenerationRecord()`.
+- Affected task audit: `cgt-20261111162422-c48391`, user `user-1793779117336-de830695`, status `failed`, billing `refunded`, pre-deducted `375`, final `0`. Exactly one refund exists: ledger `ledger-022e02d3fe7040e92a00793a`, type `generation_refund`, amount `+375`, `balance_after=8559.2`; current balance remains `8559.200000`. Do not refund or repair this task again.
+- Local verification: 57/57 generation/media/DB/refund regression tests pass; changed Node syntax and `git diff --check` pass.
+- Earlier Old-host disposable PostgreSQL/post-deploy fault drill passed all generation submit crash-window, idempotency, atomicity, refund, and reconciliation checks. Production remained single-process and was not restarted.
+- Current status: code and tests not yet committed, release snapshot not yet built, Old not yet deployed.
+- Preserve unrelated WIP: `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, `workflow-react/node_modules`.
+
 ## 2026-11-11 Step G pre-release: shutdown reservation and multi-process drill
 
 - Goal: close the restart-time generation submission window and prove the two-process isolation drill before any Old deployment. Production remains single-process; Redis, generation submit queue/worker, Telegram payment notifications, and multi-process remain disabled.

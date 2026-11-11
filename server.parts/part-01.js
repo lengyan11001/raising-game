@@ -957,9 +957,9 @@ function startTrackedGenerationJob(label, taskId, runner, onUnexpectedError) {
   setImmediate(() => {
     Promise.resolve()
       .then(() => runner(submission))
-      .catch((error) => {
+      .catch(async (error) => {
         try {
-          onUnexpectedError?.(error);
+          await onUnexpectedError?.(error);
         } catch (handlerError) {
           console.error("[generation-job-error-handler-failed]", label, taskId, handlerError.stack || handlerError.message || handlerError);
         }

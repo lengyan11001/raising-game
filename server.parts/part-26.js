@@ -490,9 +490,94 @@ function advancedRuntimeForProvider(provider, requestParams = {}) {
 }
 
 function startAdvancedGenerationJob(job) {
-  return startTrackedGenerationJob("advanced-generation", job.taskId, runAdvancedGenerationJob, (error) => {
+  return startTrackedGenerationJob("advanced-generation", job.taskId, (submission) => runAdvancedGenerationJob(job, submission), async (error) => {
     console.error("[advanced-generation-job-failed]", job.taskId, error.stack || error.message || error);
+    // The unexpected-error path does not know whether the provider accepted
+    // work. Never refund from this outer handler; keep the pre-deduction for
+    // reconciliation instead of risking a double loss.
+    await settleAdvancedGenerationJobFailure(job, error, "advanced-unexpected-error", { refundBeforeDispatch: false });
   });
+}
+
+function advancedGenerationFailureShouldRefund({ preDeductedCredits = 0, billingStatus = "", refundBeforeDispatch = false } = {}) {
+  return Boolean(creditsAmount(preDeductedCredits) > 0
+    && String(billingStatus || "").toLowerCase() === "pre_deducted"
+    && refundBeforeDispatch);
+}
+
+async function settleAdvancedGenerationJobFailure(job = {}, error = null, reason = "advanced-failed", { refundBeforeDispatch = false } = {}) {
+  const {
+    taskId,
+    userId,
+    provider,
+    requestParams,
+    pricing,
+    cost = 0,
+    caseId,
+    caseTitle,
+  } = job;
+  if (!taskId || !userId) return null;
+  const currentRecord = await getGenerationRecord(taskId).catch(() => null);
+  const preDeducted = creditsAmount(currentRecord?.preDeductedCredits ?? cost ?? 0);
+  const currentBillingStatus = String(currentRecord?.billingStatus || "").toLowerCase();
+  const shouldRefund = advancedGenerationFailureShouldRefund({
+    preDeductedCredits: preDeducted,
+    billingStatus: currentBillingStatus,
+    refundBeforeDispatch,
+  });
+  let refunded = preDeducted <= 0 || currentBillingStatus === "refunded";
+  let refundError = null;
+  if (shouldRefund) {
+    const result = await refundCreditsWithSubtoken(currentRecord || { taskId, userId, provider }, userId, preDeducted, "generation_refund", {
+      taskId,
+      provider,
+      reason,
+      error: error?.message || "Advanced generation failed.",
+    }, { logTag: "advanced-generation" });
+    refunded = result.refunded;
+    refundError = result.error;
+  }
+  const unresolvedUpstream = preDeducted > 0 && !refunded && !shouldRefund;
+  const conservationError = unresolvedUpstream
+    ? "Automatic refund withheld because provider submission may have succeeded without a persisted upstream task id."
+    : "";
+  const errorInfo = normalizeErrorPayload(error || {});
+  try {
+    return await updateGenerationRecord(taskId, {
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || error?.message || "Advanced generation failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      failedAt: new Date().toISOString(),
+      provider: currentRecord?.provider || provider || "",
+      source: currentRecord?.source || "",
+      model: currentRecord?.model || "",
+      kind: "advanced-video",
+      params: currentRecord?.params || requestParams || {},
+      upstreamPayload: error?.upstreamPayload || null,
+      pricingEstimate: pricing,
+      preDeductedCredits: preDeducted,
+      originalPreDeductedCredits: currentRecord?.originalPreDeductedCredits ?? pricing?.originalCredits ?? preDeducted,
+      userPricingMultiplier: pricing?.userPricingMultiplier ?? currentRecord?.userPricingMultiplier ?? 1,
+      templateId: caseId || currentRecord?.templateId || "",
+      templateTitle: caseTitle || currentRecord?.templateTitle || "Advanced generation",
+      finalCredits: refunded || preDeducted <= 0
+        ? 0
+        : creditsAmount(currentRecord?.finalCredits ?? preDeducted),
+      originalFinalCredits: refunded || preDeducted <= 0
+        ? 0
+        : creditsAmount(currentRecord?.originalFinalCredits ?? pricing?.originalCredits ?? preDeducted),
+      billingStatus: refunded ? "refunded" : preDeducted <= 0 ? "free" : currentBillingStatus === "settled" ? "settled" : "pre_deducted",
+      billingError: refundError
+        ? `Refund failed: ${refundError.message || refundError}`
+        : conservationError,
+      billingSettledAt: refunded ? new Date().toISOString() : currentRecord?.billingSettledAt || "",
+    }, reason);
+  } catch (updateError) {
+    console.error("[advanced-generation-fail-update-error]", taskId, updateError.message || updateError);
+    return null;
+  }
 }
 
 async function runAdvancedGenerationJob(job = {}, submission = null) {
@@ -1034,6 +1119,7 @@ async function runAdvancedGenerationJob(job = {}, submission = null) {
 
     const config = job.config || await readAppConfig();
     let task = null;
+    let providerDispatchStarted = false;
     let aliyunUpstreamModel = "";
     if (USE_GATEWAY_UPSTREAM) {
       const gatewayBody = {
@@ -1162,6 +1248,7 @@ async function runAdvancedGenerationJob(job = {}, submission = null) {
         if (allVideos.length) gatewayBody.referenceVideoUrls = allVideos.slice(0, ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT);
         if (allAudios.length) gatewayBody.referenceAudioUrls = allAudios.slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
       }
+      providerDispatchStarted = true;
       task = await gatewaySubmitAdvancedTask(gatewayBody);
       payload = gatewayBody;
       createResponse = task.raw;
@@ -1171,6 +1258,7 @@ async function runAdvancedGenerationJob(job = {}, submission = null) {
         error.statusCode = 400;
         throw error;
       }
+      providerDispatchStarted = true;
       const submitted = await submitAliyunVideoTask({
         provider,
         capability: requestParams.videoCapability,
@@ -1193,6 +1281,7 @@ async function runAdvancedGenerationJob(job = {}, submission = null) {
       const lastFrameForSubmit = !useExternalSeedanceHttp && isPublicHttpUrl(requestParams.end_image_url)
         ? await ensureSeedanceAssetUriForPublicUrl(requestParams.end_image_url, "Image", "last-frame")
         : requestParams.end_image_url || "";
+      providerDispatchStarted = true;
       const submitted = await submitSeedanceTask({
         config,
         prompt,
@@ -1271,29 +1360,20 @@ async function runAdvancedGenerationJob(job = {}, submission = null) {
     }, "advanced-submit");
   } catch (error) {
     console.warn("[advanced-generation-job-error]", taskId, error.stack || error.message || error);
-    try {
-      await updateGenerationRecord(taskId, {
-        status: "failed",
-        awaitingUpstreamTask: false,
-        error: error.message || "Advanced generation failed.",
-        billingError: "",
-        failedAt: new Date().toISOString(),
-        provider: runtime.providerName,
-        source: runtime.recordSource,
-        model: runtime.model,
-        kind: "advanced-video",
-        params: requestParams,
-        upstreamPayload: error.upstreamPayload || payload || null,
-        pricingEstimate: pricing,
-        preDeductedCredits: cost,
-        originalPreDeductedCredits: pricing?.originalCredits ?? cost,
-        userPricingMultiplier: pricing?.userPricingMultiplier ?? 1,
-        templateId: caseId || "",
-        templateTitle: caseTitle || "Advanced generation",
-      }, "advanced-failed");
-    } catch (updateError) {
-      console.error("[advanced-generation-fail-update-error]", taskId, updateError.message || updateError);
-    }
+    const failureJob = {
+      taskId,
+      userId,
+      provider: runtime.providerName,
+      requestParams,
+      pricing,
+      cost,
+      caseId,
+      caseTitle,
+    };
+    if (error.upstreamPayload || payload) error.upstreamPayload = error.upstreamPayload || payload;
+    await settleAdvancedGenerationJobFailure(failureJob, error, "advanced-failed", {
+      refundBeforeDispatch: !providerDispatchStarted,
+    });
   } finally {
     finishGenerationSubmission(submission);
   }

@@ -103,6 +103,40 @@ test("stale pre-submit scans have bounded queries, record isolation, and diagnos
   assert.match(scan, /finally \{\s*staleSubmitScanRunning = false;/);
 });
 
+test("stale pre-submit settlement does not claim refunded before the ledger write succeeds", () => {
+  const part = fs.readFileSync(path.join(__dirname, "..", "server.parts", "part-21.js"), "utf8");
+  const settlement = part.slice(
+    part.indexOf("async function failStalePreSubmitGenerationRecord"),
+    part.indexOf("function generationListRefreshRequested"),
+  );
+  assert.match(settlement, /Billing settlement is pending/);
+  assert.doesNotMatch(settlement, /error: "Generation submission timed out[^"]*credits were refunded\."/);
+  assert.match(settlement, /await settleApizGenerationRecord\(/);
+  assert.match(settlement, /await settleSeedanceGenerationRecord\(/);
+  assert.match(settlement, /billingStatus === "refunded"/);
+  assert.match(settlement, /The pre-deducted credits were refunded\./);
+  assert.match(settlement, /The credit refund is pending manual reconciliation\./);
+  assert.match(settlement, /billingError: settledRecord\?\.billingError/);
+});
+
+test("stale pre-submit retry is terminal and cannot duplicate the refund ledger", () => {
+  const part = fs.readFileSync(path.join(__dirname, "..", "server.parts", "part-21.js"), "utf8");
+  const staleCheck = part.slice(
+    part.indexOf("function isStalePreSubmitGenerationRecord"),
+    part.indexOf("async function failStalePreSubmitGenerationRecord"),
+  );
+  assert.match(staleCheck, /isFailedStatus\(record\.status\)/);
+  const refund = fs.readFileSync(path.join(__dirname, "..", "server.parts", "part-12.js"), "utf8");
+  assert.match(refund, /stableLedgerId\(type, normalizedMeta\)/);
+  assert.match(refund, /if \(applied\?\.inserted === false\) return \{ refunded: true, error: null, duplicate: true \}/);
+  const seedance = fs.readFileSync(path.join(__dirname, "..", "server.parts", "part-25.js"), "utf8");
+  assert.match(seedance, /if \(!needsSeedanceFailureRefund\(record\)\) return record/);
+  assert.match(seedance, /const alreadyRefunded = \(db\.creditLedger \|\| \[\]\)\.some/);
+  assert.match(seedance, /billingStatus: "refunded"/);
+  const generator = fs.readFileSync(path.join(__dirname, "..", "server.parts", "part-24.js"), "utf8");
+  assert.match(generator, /if \(billingStatus === "refunded"\) return false/);
+});
+
 test("seedream failure does not claim refunded unless the refund ledger write succeeded", () => {
   const part = fs.readFileSync(path.join(__dirname, "..", "server.parts", "part-27.js"), "utf8");
   const handler = part.slice(part.indexOf("async function runSeedream5ImageGenerationJob"), part.indexOf("function startSeedream5ImageGenerationJob"));

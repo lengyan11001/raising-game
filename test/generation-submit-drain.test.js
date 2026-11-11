@@ -53,6 +53,22 @@ test("tracked generation job releases its reservation when the runner throws", a
   assert.equal(handledError?.message, "runner failed");
 });
 
+test("tracked generation job waits for an asynchronous error settlement", async () => {
+  let settlementFinished = false;
+  server.startTrackedGenerationJob(
+    "tracked-async-error-test",
+    "task-tracked-async-error",
+    async () => { throw new Error("runner failed"); },
+    async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      settlementFinished = true;
+    },
+  );
+  const result = await server.waitForGenerationSubmissionsToDrain(1000);
+  assert.equal(result.drained, true);
+  assert.equal(settlementFinished, true);
+});
+
 test("tracked generation job releases its reservation when error handling also throws", async () => {
   server.startTrackedGenerationJob(
     "tracked-handler-error-test",
@@ -112,7 +128,51 @@ test("generation entrypoints reserve synchronously before returning", () => {
     const body = source.slice(startIndex, endIndex + 2);
     assert.match(body, /return startTrackedGenerationJob\(/, `${functionName} must reserve synchronously`);
     assert.doesNotMatch(body, /setImmediate\(/, `${functionName} must not defer reservation`);
+    assert.match(body, /\(submission\) => run[A-Za-z0-9]+GenerationJob\(job, submission\)/, `${functionName} must pass both job and submission to its runner`);
   }
+});
+
+test("advanced generation failure settlement is refund-safe and uses the real task", () => {
+  const source = fs.readFileSync(path.join(root, "server.parts", "part-26.js"), "utf8");
+  const settlement = source.slice(
+    source.indexOf("async function settleAdvancedGenerationJobFailure"),
+    source.indexOf("async function runAdvancedGenerationJob"),
+  );
+  assert.match(settlement, /const currentRecord = await getGenerationRecord\(taskId\)/);
+  assert.match(settlement, /advancedGenerationFailureShouldRefund/);
+  assert.match(settlement, /refundBeforeDispatch/);
+  assert.match(settlement, /refundCreditsWithSubtoken\(currentRecord \|\| \{ taskId, userId, provider \}, userId, preDeducted, "generation_refund"/);
+  assert.match(settlement, /billingStatus: refunded \? "refunded" : preDeducted <= 0 \? "free" : currentBillingStatus === "settled" \? "settled" : "pre_deducted"/);
+  assert.match(settlement, /billingSettledAt: refunded \? new Date\(\)\.toISOString\(\) : currentRecord\?\.billingSettledAt \|\| ""/);
+  assert.match(settlement, /Automatic refund withheld because provider submission may have succeeded without a persisted upstream task id/);
+  assert.match(settlement, /params: currentRecord\?\.params \|\| requestParams \|\| \{\}/);
+
+  const runner = source.slice(
+    source.indexOf("async function runAdvancedGenerationJob"),
+    source.indexOf("function byteplusRequestId"),
+  );
+  assert.match(runner, /\[advanced-generation-job-error\]", taskId/);
+  assert.match(runner, /await settleAdvancedGenerationJobFailure\(failureJob, error, "advanced-failed", \{/);
+  assert.match(runner, /let providerDispatchStarted = false/);
+  assert.match(runner, /providerDispatchStarted = true;\s*const submitted = await submitAliyunVideoTask/);
+  assert.match(runner, /providerDispatchStarted = true;\s*task = await gatewaySubmitAdvancedTask/);
+  assert.match(runner, /providerDispatchStarted = true;\s*const submitted = await submitSeedanceTask/);
+  assert.match(runner, /refundBeforeDispatch: !providerDispatchStarted/);
+  assert.doesNotMatch(runner, /billingError: "",[\s\S]*?"advanced-failed"/);
+});
+
+test("advanced generation pre-dispatch failures may refund, but ambiguous dispatch failures may not", () => {
+  const source = fs.readFileSync(path.join(root, "server.parts", "part-26.js"), "utf8");
+  const helper = source.slice(
+    source.indexOf("function advancedGenerationFailureShouldRefund"),
+    source.indexOf("async function settleAdvancedGenerationJobFailure"),
+  );
+  assert.match(helper, /creditsAmount\(preDeductedCredits\) > 0/);
+  assert.match(helper, /String\(billingStatus \|\| ""\)\.toLowerCase\(\) === "pre_deducted"/);
+  assert.match(helper, /&& refundBeforeDispatch/);
+
+  const outer = source.slice(source.indexOf("function startAdvancedGenerationJob"), source.indexOf("function advancedGenerationFailureShouldRefund"));
+  assert.match(outer, /refundBeforeDispatch: false/);
 });
 
 test("Qwen jobs keep the submission tracked until the durable result is written", () => {
@@ -130,4 +190,17 @@ test("the shutdown drain is bounded to a finite three-minute window", () => {
   const source = fs.readFileSync(path.join(root, "server.parts", "part-43.js"), "utf8");
   assert.match(source, /GENERATION_SUBMIT_DRAIN_TIMEOUT_MS[\s\S]*?process\.env\.GENERATION_SUBMIT_DRAIN_TIMEOUT_MS \|\| 180000/);
   assert.match(source, /Math\.min\(300000/);
+});
+
+test("platform pre-submit failure upserts once and settles through the explicit APIZ path", () => {
+  const source = fs.readFileSync(path.join(root, "server.parts", "part-25.js"), "utf8");
+  const failure = source.slice(
+    source.indexOf("async function markPlatformGenerationSubmitFailed"),
+    source.indexOf("async function runPlatformGenerationJob"),
+  );
+  assert.match(failure, /const failedRecord = await upsertGenerationRecord\(\{/);
+  assert.match(failure, /return settleApizGenerationRecord\(failedRecord, \{/);
+  assert.doesNotMatch(failure, /updateGenerationRecord\(taskId/);
+  assert.doesNotMatch(failure, /upsertAndSettleGenerationRecord/);
+  assert.equal((failure.match(/settleApizGenerationRecord\(/g) || []).length, 1);
 });

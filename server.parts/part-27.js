@@ -1171,7 +1171,7 @@ async function runSeedream5ImageGenerationJob(job = {}, submission = null) {
 }
 
 function startSeedream5ImageGenerationJob(job = {}) {
-  return startTrackedGenerationJob("seedream5-image-generation", job.taskId, runSeedream5ImageGenerationJob, (error) => {
+  return startTrackedGenerationJob("seedream5-image-generation", job.taskId, (submission) => runSeedream5ImageGenerationJob(job, submission), (error) => {
     console.error("[seedream5-image-job-unhandled]", job.taskId || "", error.message || error);
   });
 }

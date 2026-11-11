@@ -292,7 +292,7 @@ async function runQwen37FlashGenerationJob(job = {}, submission = null) {
 }
 
 function startQwen37FlashGenerationJob(job = {}) {
-  return startTrackedGenerationJob("qwen37-flash-generation", job.taskId, runQwen37FlashGenerationJob, (error) => {
+  return startTrackedGenerationJob("qwen37-flash-generation", job.taskId, (submission) => runQwen37FlashGenerationJob(job, submission), (error) => {
     console.error("[qwen37-flash-job-unhandled]", job.taskId || "", error.message || error);
   });
 }
@@ -569,7 +569,7 @@ async function runQwenImage3GenerationJob(job = {}, submission = null) {
 }
 
 function startQwenImage3GenerationJob(job = {}) {
-  return startTrackedGenerationJob("qwen-image3-generation", job.taskId, runQwenImage3GenerationJob, (error) => {
+  return startTrackedGenerationJob("qwen-image3-generation", job.taskId, (submission) => runQwenImage3GenerationJob(job, submission), (error) => {
     console.error("[qwen-image3-job-unhandled]", job.taskId || "", error.message || error);
   });
 }

@@ -574,7 +574,7 @@ async function runSeedance25GenerationJob(job = {}, submission = null) {
 }
 
 function startSeedance25GenerationJob(job = {}) {
-  return startTrackedGenerationJob("seedance25-generation", job.taskId, runSeedance25GenerationJob, (error) => {
+  return startTrackedGenerationJob("seedance25-generation", job.taskId, (submission) => runSeedance25GenerationJob(job, submission), (error) => {
     console.error("[seedance25-generation-job-failed]", job.taskId, error.message || error);
   });
 }

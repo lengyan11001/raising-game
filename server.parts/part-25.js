@@ -314,7 +314,7 @@ function platformRecordKind(template = {}) {
 }
 
 function startPlatformGenerationJob(job) {
-  return startTrackedGenerationJob("platform-generation", job.taskId, runPlatformGenerationJob, (error) => {
+  return startTrackedGenerationJob("platform-generation", job.taskId, (submission) => runPlatformGenerationJob(job, submission), (error) => {
     console.error("[platform-generation-job-failed]", job.taskId, error.message || error);
   });
 }
@@ -510,7 +510,8 @@ async function markPlatformGenerationSubmitFailed(job = {}, error = null) {
        */
       return current;
     }
-    const failedRecord = await updateGenerationRecord(taskId, {
+    const failedRecord = await upsertGenerationRecord({
+      taskId,
       status: "failed",
       awaitingUpstreamTask: false,
       error: error.message || "Generation submission failed.",
@@ -533,9 +534,10 @@ async function markPlatformGenerationSubmitFailed(job = {}, error = null) {
       preDeductedCredits,
       originalPreDeductedCredits: pricingEstimate.originalCredits ?? preDeductedCredits,
       userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? 1,
-    }, "platform-failed");
+      lastUpdateReason: "platform-failed",
+    });
     if (failedRecord) {
-      await settleApizGenerationRecord(failedRecord, {
+      return settleApizGenerationRecord(failedRecord, {
         status: "failed",
         error: error.message || "Generation submission failed.",
       }, "platform-submit-failed");

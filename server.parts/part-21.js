@@ -141,18 +141,31 @@ async function failStalePreSubmitGenerationRecord(record = {}, reason = "stale-s
     taskId: record.taskId,
     status: "failed",
     awaitingUpstreamTask: false,
-    error: "Generation submission timed out before an upstream task id was returned. The pre-deducted credits were refunded.",
+    error: "Generation submission timed out before an upstream task id was returned. Billing settlement is pending.",
     failedAt: new Date().toISOString(),
     lastUpdateReason: reason,
   });
   const provider = String(failedRecord.provider || "").toLowerCase();
-  if (provider === "apiz") {
-    return settleApizGenerationRecord(failedRecord, {
+  const settledRecord = provider === "apiz"
+    ? await settleApizGenerationRecord(failedRecord, {
       status: "failed",
       error: failedRecord.error,
-    }, reason);
-  }
-  return settleSeedanceGenerationRecord(failedRecord, reason);
+    }, reason)
+    : await settleSeedanceGenerationRecord(failedRecord, reason);
+  const billingStatus = String(settledRecord?.billingStatus || failedRecord.billingStatus || "").toLowerCase();
+  const settlementError = billingStatus === "refunded"
+    ? "Generation submission timed out before an upstream task id was returned. The pre-deducted credits were refunded."
+    : creditsAmount(failedRecord.preDeductedCredits || 0) <= 0
+      ? "Generation submission timed out before an upstream task id was returned. No credit refund was required."
+      : "Generation submission timed out before an upstream task id was returned. The credit refund is pending manual reconciliation.";
+  if (settledRecord?.error === settlementError) return settledRecord;
+  return upsertGenerationRecord({
+    taskId: failedRecord.taskId,
+    error: settlementError,
+    billingStatus: settledRecord?.billingStatus || failedRecord.billingStatus || "",
+    billingError: settledRecord?.billingError || failedRecord.billingError || "",
+    lastUpdateReason: `${reason}-settled`,
+  });
 }
 
 function generationListRefreshRequested(url) {
