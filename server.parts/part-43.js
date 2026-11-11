@@ -654,7 +654,7 @@ function runTelegramBotSchedulerTick() {
 }
 
 function startTelegramBotScheduler() {
-  if (!TELEGRAM_BOT_TOKEN || !telegramBotClient.enabled) return;
+  if (!telegramGenerationNotifierEnabled()) return;
   setTimeout(() => runTelegramBotSchedulerTick(), 10000).unref?.();
   setInterval(() => runTelegramBotSchedulerTick(), TELEGRAM_BOT_NOTIFIER_INTERVAL_MS).unref?.();
 }
