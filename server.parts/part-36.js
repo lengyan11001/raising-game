@@ -586,6 +586,57 @@ function generationRecordAssetName(record = {}) {
   return String(base || "Generated video").trim().slice(0, 60) || "Generated video";
 }
 
+function generationRecordAddAssetStorageKey(record = {}, mediaUrl = "", { video = false } = {}) {
+  if (video) return String(record.storageKey || "").trim();
+  const keys = generationRecordImageStorageKeys(record);
+  const imageUrls = [...new Set([
+    ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
+    record.cdnImageUrl,
+  ].map((value) => String(value || "").trim()).filter(Boolean))];
+  const imageIndex = imageUrls.indexOf(String(mediaUrl || "").trim());
+  if (imageIndex >= 0 && keys[imageIndex]) return String(keys[imageIndex]).trim();
+  return String(record.imageStorageKey || record.storageKey || "").trim();
+}
+
+async function downloadGenerationRecordAddAssetMedia(record = {}, mediaUrl = "", {
+  video = false,
+  maxBytes,
+  label,
+} = {}) {
+  const storageKey = generationRecordAddAssetStorageKey(record, mediaUrl, { video });
+  const storage = objectStorageDownloadKey({
+    storageProvider: video ? record.storageProvider : (record.imageStorageProvider || record.storageProvider),
+    storageKey,
+    objectStorageUrl: video ? record.cdnVideoUrl : record.cdnImageUrl,
+  });
+  // Prefer the durable object key. Delivery URLs can contain an expired
+  // signature even while the object itself is healthy.
+  if (storage.provider === "oss" && storage.key && OSS_STORAGE_ENABLED) {
+    try {
+      const downloaded = await downloadOssObject({
+        key: storage.key,
+        maxBytes,
+        config: OSS,
+      });
+      return {
+        bytes: downloaded.bytes,
+        mime: String(downloaded.contentType || "").split(";")[0].trim().toLowerCase(),
+        pathname: storage.key,
+      };
+    } catch {
+      // Fall through to a freshly signed delivery URL. Keep the original
+      // source restrictions intact and never persist the short-lived URL.
+    }
+  }
+  const deliveryUrl = signedOssCdnUrlForDelivery(mediaUrl, { key: storage.key }) || mediaUrl;
+  const downloaded = await downloadRemoteFileToBuffer(deliveryUrl, { label, maxBytes });
+  return {
+    bytes: downloaded.bytes,
+    mime: downloaded.mime,
+    pathname: new URL(deliveryUrl).pathname,
+  };
+}
+
 async function bytesForGenerationRecordVideo(record = {}) {
   const localUrl = record.localVideoUrl || "";
   if (localUrl && !/^https?:\/\//i.test(localUrl)) {
@@ -620,7 +671,8 @@ async function bytesForGenerationRecordVideo(record = {}) {
       fileName: path.basename(localPath),
     };
   }
-  const downloaded = await downloadRemoteFileToBuffer(videoUrl, {
+  const downloaded = await downloadGenerationRecordAddAssetMedia(record, videoUrl, {
+    video: true,
     label: "generation video",
     maxBytes: 30 * 1024 * 1024,
   });
@@ -665,11 +717,11 @@ async function bytesForGenerationRecordImage(record = {}) {
       fileName: path.basename(localPath),
     };
   }
-  const downloaded = await downloadRemoteFileToBuffer(imageUrl, {
+  const downloaded = await downloadGenerationRecordAddAssetMedia(record, imageUrl, {
     label: "generation image",
     maxBytes: 20 * 1024 * 1024,
   });
-  const pathname = new URL(imageUrl).pathname;
+  const pathname = downloaded.pathname || new URL(imageUrl).pathname;
   const mime = downloaded.mime && downloaded.mime.startsWith("image/")
     ? downloaded.mime
     : imageMimeFromKnownPath(pathname) || "image/png";

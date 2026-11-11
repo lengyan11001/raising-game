@@ -310,3 +310,65 @@ test("public media ingest refreshes an expired OSS signature before download", a
   await createUserMediaAssetFromPublicUrl(db, user, { url: `${externalUrl}?token=keep` });
   assert.equal(downloadCalls[1], `${externalUrl}?token=keep`, "external public URLs must remain byte-for-byte unchanged");
 });
+
+test("adding a generated result prefers its durable OSS key and refreshes expired delivery URLs", async () => {
+  const ossDownloads = [];
+  const remoteDownloads = [];
+  const downloadGenerationRecordAddAssetMedia = new Function(
+    "generationRecordAddAssetStorageKey",
+    "objectStorageDownloadKey",
+    "OSS_STORAGE_ENABLED",
+    "OSS",
+    "downloadOssObject",
+    "signedOssCdnUrlForDelivery",
+    "downloadRemoteFileToBuffer",
+    `return (${extractFunction(source, "downloadGenerationRecordAddAssetMedia")});`,
+  )(
+    (record, mediaUrl, { video = false } = {}) => video
+      ? String(record.storageKey || "")
+      : String(record.cdnImageStorageKeys?.[0] || record.storageKey || ""),
+    (target) => ({
+      provider: target.storageKey ? "oss" : "",
+      key: String(target.storageKey || ""),
+    }),
+    true,
+    {},
+    async ({ key, maxBytes }) => {
+      ossDownloads.push({ key, maxBytes });
+      return { bytes: Buffer.from("durable"), contentType: "image/png" };
+    },
+    (value, { key }) => {
+      if (!key) return "";
+      const url = new URL(value);
+      url.searchParams.set("Expires", "9999999999");
+      url.searchParams.set("Signature", "fresh-signature");
+      return url.toString();
+    },
+    async (url) => {
+      remoteDownloads.push(url);
+      return { bytes: Buffer.from("remote"), mime: "image/png" };
+    },
+  );
+
+  const record = {
+    taskId: "cgt-add-asset",
+    status: "succeeded",
+    storageKey: "generated/images/result.png",
+    cdnImageUrl: "https://assets-cdn.123vips.com/generated/images/result.png?Expires=1&Signature=expired",
+  };
+  const media = await downloadGenerationRecordAddAssetMedia(record, record.cdnImageUrl, {
+    label: "generation image",
+    maxBytes: 20 * 1024 * 1024,
+  });
+  assert.equal(media.bytes.toString(), "durable");
+  assert.equal(media.mime, "image/png");
+  assert.deepEqual(ossDownloads, [{ key: "generated/images/result.png", maxBytes: 20 * 1024 * 1024 }]);
+  assert.equal(remoteDownloads.length, 0, "a healthy durable key must avoid the stored delivery URL");
+
+  const refreshed = new URL(
+    isolatedServer.signedOssCdnUrlForDelivery(record.cdnImageUrl, { key: record.storageKey }),
+  );
+  assert.equal(refreshed.hostname, "assets-cdn.123vips.com");
+  assert.notEqual(refreshed.searchParams.get("Signature"), "expired");
+  assert.ok(Number(refreshed.searchParams.get("Expires")) > Math.floor(Date.now() / 1000));
+});
