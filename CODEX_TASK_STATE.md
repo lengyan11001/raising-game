@@ -1,3 +1,11 @@
+## 2026-11-11 Step AD: add-to-assets now references durable media instead of copying it
+
+- User report: adding an existing generation result to assets was slow and appeared to store the same media again.
+- Fix commit `f4e37fb5`: successful image/video results with a durable OSS/R2 object now create one lightweight PostgreSQL asset row that references the existing object. No media bytes are downloaded or re-uploaded. Repeated and concurrent requests reuse the same deterministic asset row; legacy records with no durable object still use the copy fallback.
+- Verification: syntax and whitespace checks passed; `advanced-preparation-recovery.test.js`, `oss-storage.test.js`, and `media-url-priority.test.js` passed 23/23. The tests cover durable reference creation, existing-asset reuse with zero download/create calls, and zero byte copies.
+- Release/deploy: platform release `a00e059614426b4716a0e47e0e02d03c94145ab5` built from `old-site` `f4e37fb53709904ab5b717aba716e7716c347379` and pushed. Old was deployed only through `scripts/deploy_local.sh --site old`; migration dry-run/apply/dry-run ended `pending=0`. Service is active/running, MainPID `3059602`, `NRestarts=0`, and `https://123vips.com/api/health` returns 200. Live was not pushed or deployed. No sessions were cleared and no users were logged out.
+- Post-deploy logs since the new process started contain no add-asset errors or media-download failures. No add-to-assets request has arrived yet, so the first real request should be observed for latency and confirm the lightweight path.
+
 ## 2026-11-11 Step AC: result add-to-assets expired OSS signature fixed and deployed
 
 - User report: Result tab "加入素材" failed with `Failed to download generation image: 403`. Preview URLs were refreshed for delivery, but add-to-assets downloaded the raw stored OSS URL, whose signature had expired.
