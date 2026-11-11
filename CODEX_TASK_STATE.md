@@ -1,3 +1,12 @@
+## 2026-11-11 Canvas generation controls always expanded
+
+- User report: generation settings still collapse unless a node is selected; previews are already decoupled, so every generation node should keep its generation controls open by default.
+- Root cause: image/video generation nodes used `is-selected-only`, and CSS hid `.site-generation-controls.is-selected-only` unless the generation card was selected.
+- Fix: removed the selected-only class from image and video generation controls, removed the selection-gated CSS, and updated regression assertions to require always-visible controls.
+- Cache fence: bumped canvas asset version from `canvas-20261111-3` to `canvas-20261111-4` in `platform.js` and `platform.html`.
+- Verification: canvas rebuilt at `workflow-react/dist/canvas.js`; focused workflow canvas suite 41/41; server syntax and `git diff --check` pass.
+- Deployment status: pending commit, platform release build, Old-only deployment, and production verification. Live remains untouched.
+
 ## 2026-11-11 Canvas duplicate video preview and project thumbnail regression
 
 - User report: `炫酷方案_1777` result node `video-mwalp1po-x25w` still shows two videos in one preview node, and project-list thumbnails disappeared again.

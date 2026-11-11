@@ -379,14 +379,6 @@
   padding: 12px;
 }
 
-.site-generation-controls.is-selected-only {
-  display: none;
-}
-
-.site-generation-card.is-selected .site-generation-controls.is-selected-only {
-  display: grid;
-}
-
 .site-prompt-field textarea,
 .site-field select {
   width: 100%;

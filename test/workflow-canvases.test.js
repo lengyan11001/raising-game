@@ -559,8 +559,8 @@ test("workflow React Flow adapter owns creation, connection, and business deleti
   assert.match(layout, /type="source"[\s\S]*?position=\{Position\.Right\}/);
   assert.match(layout, /selected = false/);
   assert.match(layout, /site-generation-card\$\{selected \? ' is-selected'/);
-  assert.match(css, /\.site-generation-controls\.is-selected-only \{\s*display: none;/);
-  assert.match(css, /\.site-generation-card\.is-selected \.site-generation-controls\.is-selected-only \{\s*display: grid;/);
+  assert.doesNotMatch(css, /\.site-generation-controls\.is-selected-only/);
+  assert.match(css, /\.site-generation-controls \{\s*display: grid;/);
   assert.match(layout, /site-generation-drag-handle/);
   assert.match(ui, /function workflowAvailableNodePosition\(position = null\)/);
   assert.match(ui, /function workflowNodePositionIsFree\(candidate = \{\}/);
@@ -627,9 +627,11 @@ test("workflow generation nodes own their input media without standalone input n
   assert.match(imageNode, /SiteNodeUpload/);
   assert.match(imageNode, /accept="image\/\*"/);
   assert.match(imageNode, /selected = false/);
-  assert.match(imageNode, /site-generation-controls is-selected-only/);
+  assert.match(imageNode, /className="site-generation-controls"/);
+  assert.doesNotMatch(imageNode, /is-selected-only/);
   assert.match(videoNode, /selected = false/);
-  assert.match(videoNode, /site-generation-controls is-selected-only/);
+  assert.match(videoNode, /className="site-generation-controls"/);
+  assert.doesNotMatch(videoNode, /is-selected-only/);
   assert.match(videoNode, /accept="image\/\*,video\/\*"/);
   assert.match(ui, /function renderWorkflowImageEditor\(node = \{\}\)/);
   assert.match(ui, /function renderWorkflowVideoEditor\(node = \{\}\)/);
@@ -1120,11 +1122,11 @@ test("canvas assets and project previews are explicitly cache-busted", () => {
   const manager = read("platform.workflow-canvases.js");
   const library = read("workflow-react/src/components/workflow/WorkflowLibrary.js");
 
-  assert.match(loader, /const CANVAS_ASSET_VERSION = "canvas-20261111-3"/);
+  assert.match(loader, /const CANVAS_ASSET_VERSION = "canvas-20261111-4"/);
   assert.match(loader, /file === "workflow-react\/dist\/canvas\.js"/);
   assert.match(loader, /url\.searchParams\.set\("canvas", CANVAS_ASSET_VERSION\)/);
-  assert.match(html, /platform\.js\?v=canvas-20261111-3/);
-  assert.match(html, /platform\.css\?v=canvas-20261111-3/);
+  assert.match(html, /platform\.js\?v=canvas-20261111-4/);
+  assert.match(html, /platform\.css\?v=canvas-20261111-4/);
   assert.match(manager, /function workflowCanvasProjectPreview/);
   assert.ok(manager.indexOf('class="workflow-canvas-project-preview is-image"') < manager.indexOf('class="workflow-canvas-project-preview is-video"'));
   assert.match(library, /if \(image\) return \{ kind: 'image'/);

@@ -49,7 +49,7 @@ export function SiteImageGenerationNode({ id, selected = false }) {
           <span><i className="bi bi-stars" /> {model.label || model.id || '图片生成'}</span>
           <small>{data.status ? String(data.status) : '就绪'} · {data.ratio || model.ratio || '1:1'} · {data.resolution || model.resolution || '2K'}</small>
         </div>
-        <div className="site-generation-controls is-selected-only">
+        <div className="site-generation-controls">
           <label className="site-field site-prompt-field">
             <span>提示词</span>
             <textarea

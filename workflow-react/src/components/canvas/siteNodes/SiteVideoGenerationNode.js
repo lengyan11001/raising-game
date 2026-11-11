@@ -92,7 +92,7 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
           <span><i className="bi bi-camera-video" /> {model.label || model.id || '视频生成'}</span>
           <small>{data.status ? String(data.status) : '就绪'} · {data.ratio || model.ratio || '16:9'} · {data.duration || model.duration || 5}s</small>
         </div>
-        <div className="site-generation-controls is-selected-only">
+        <div className="site-generation-controls">
           <label className="site-field site-prompt-field">
             <span>提示词</span>
             <PromptMentionTextarea
