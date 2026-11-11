@@ -1130,3 +1130,97 @@ test("cutover verifier is read-only and checks public, service, port, and databa
   assert.match(cutoverVerifier, /pg_stat_activity/);
   assert.match(cutoverVerifier, /CUTOVER_VERIFY_/);
 });
+
+test("watchdog force-kills only the same still-unhealthy PID after restart timeout", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      const bin = path.join(dir, "bin");
+      fs.mkdirSync(bin);
+      const systemctlLog = path.join(dir, "systemctl.log");
+      writeExecutable(path.join(bin, "systemctl"), `#!/usr/bin/env bash
+printf '%s\n' "$*" >> ${JSON.stringify(systemctlLog)}
+if [[ "$1" == is-active ]]; then exit 0; fi
+if [[ "$1" == show && "$*" == *"-p MainPID"* ]]; then printf '4242\n'; exit 0; fi
+if [[ "$1" == show && "$*" == *"ExecMainStartTimestampMonotonic"* ]]; then printf '0\n'; exit 0; fi
+exit 0
+`);
+      health.fail();
+      const pending = path.join(dir, "restart.pending");
+      fs.writeFileSync(pending, `${Math.floor(Date.now() / 1000) - 30} 4242\n`);
+      const result = await invokeWatchdogAsync({
+        PATH: `${bin}:${process.env.PATH}`,
+        HEALTH_URL: health.url,
+        STATE_FILE: path.join(dir, "failures"),
+        LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: path.join(dir, "restarts"),
+        RESTART_PENDING_FILE: pending,
+        SERVICE_CHECK_ACTIVE: "1",
+        SERVICE: "raising-game-demo-test",
+        SIGKILL_AFTER_SECONDS: "15",
+        WATCHDOG_DRY_RUN: "0",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /force-kill requested .*pid=4242/);
+      assert.match(fs.readFileSync(systemctlLog, "utf8"), /kill --kill-who=main --signal=SIGKILL raising-game-demo-test/);
+    });
+  });
+});
+
+test("watchdog does not force-kill a replaced PID and clears the stale marker", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      const bin = path.join(dir, "bin");
+      fs.mkdirSync(bin);
+      const systemctlLog = path.join(dir, "systemctl.log");
+      writeExecutable(path.join(bin, "systemctl"), `#!/usr/bin/env bash
+printf '%s\n' "$*" >> ${JSON.stringify(systemctlLog)}
+if [[ "$1" == is-active ]]; then exit 0; fi
+if [[ "$1" == show && "$*" == *"-p MainPID"* ]]; then printf '5252\n'; exit 0; fi
+if [[ "$1" == show && "$*" == *"ExecMainStartTimestampMonotonic"* ]]; then printf '0\n'; exit 0; fi
+exit 0
+`);
+      health.fail();
+      const pending = path.join(dir, "restart.pending");
+      fs.writeFileSync(pending, `${Math.floor(Date.now() / 1000) - 30} 4242\n`);
+      const result = await invokeWatchdogAsync({
+        PATH: `${bin}:${process.env.PATH}`,
+        HEALTH_URL: health.url,
+        STATE_FILE: path.join(dir, "failures"),
+        LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: path.join(dir, "restarts"),
+        RESTART_PENDING_FILE: pending,
+        SERVICE_CHECK_ACTIVE: "1",
+        SERVICE: "raising-game-demo-test",
+        SIGKILL_AFTER_SECONDS: "15",
+        WATCHDOG_DRY_RUN: "0",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /force-kill skipped reason=main_pid_changed/);
+      assert.equal(fs.existsSync(pending), false);
+      assert.doesNotMatch(fs.readFileSync(systemctlLog, "utf8"), / kill /);
+    });
+  });
+});
+
+test("watchdog never force-kills in dry-run even with an expired pending marker", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      health.fail();
+      const pending = path.join(dir, "restart.pending");
+      fs.writeFileSync(pending, `${Math.floor(Date.now() / 1000) - 30} 4242\n`);
+      const result = await invokeWatchdogAsync({
+        HEALTH_URL: health.url,
+        STATE_FILE: path.join(dir, "failures"),
+        LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: path.join(dir, "restarts"),
+        RESTART_PENDING_FILE: pending,
+        FAILURE_THRESHOLD: "3",
+        SIGKILL_AFTER_SECONDS: "15",
+        WATCHDOG_DRY_RUN: "1",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.doesNotMatch(result.stderr, /force-kill (requested|dispatched)/);
+      assert.equal(fs.existsSync(pending), true);
+    });
+  });
+});
