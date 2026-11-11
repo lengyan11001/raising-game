@@ -801,7 +801,7 @@ function wan30PurchaseTableForRow(pricing = DEFAULT_ADVANCED_PRICING, row = {}) 
 
 async function adminAdvancedPricingView(config = {}) {
   const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
-  const rows = await Promise.all(ADVANCED_PRICING_ROWS.filter(adminAdvancedPricingRowVisible).map(async (row) => {
+  const rows = await Promise.all(ADVANCED_PRICING_ROWS.map(async (row) => {
     const modelKey = advancedPricingModelKey(row.provider, row);
     const modelSetting = advancedModelSetting(pricing, modelKey);
     const configuredSaleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode, row.model, row.variant, { applyDiscount: false });

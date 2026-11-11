@@ -1355,14 +1355,3 @@ const ADVANCED_PRICING_ROW_KEYS = new Set([
 ]);
 const ADVANCED_PRICING_ROWS_BY_KEY = new Map(ADVANCED_PRICING_ROWS.map((row) => [row.key, row]));
 
-const ADMIN_HIDDEN_PRICING_PROVIDERS = new Set(["wan27", "wan27-image"]);
-const ADMIN_HIDDEN_PRICING_CAPABILITIES = new Set(["wan-animate-move", "wan-animate-mix"]);
-
-function adminAdvancedPricingRowVisible(row = {}) {
-  const provider = String(row.provider || "").trim().toLowerCase();
-  const capability = String(row.capability || "").trim().toLowerCase();
-  if (ADMIN_HIDDEN_PRICING_PROVIDERS.has(provider)) return false;
-  if (ADMIN_HIDDEN_PRICING_CAPABILITIES.has(capability)) return false;
-  return true;
-}
-

@@ -3575,3 +3575,12 @@ CODEX_TASK_STATE.md
 - Post-apply acceptance: MainPID still `3028789`, `NRestarts=0`, ActiveEnterTimestamp still `2026-11-11 20:27:06 CST`; 123vips, live, 4174 and 4175 health/livez/readyz all 200; `nginx -T` confirms 4174 primary and 4175 `backup` in all three named upstreams; `nginx -t` passes; Nginx master PID remains `2485219`; no warning-or-higher service entries.
 - New hashes: `ef4f8ac5… default`, `3fad9f5d… chat`, `ac5cbf3f… live`. These are the current three-file baseline for rollback.
 - This is a tested edge configuration, not proof of full event-loop-hang tolerance. Nginx backup handling has only been validated by configuration and health checks; an isolated failover drill must be performed without killing the production Node process. Redis remains disabled; backup remains last.
+
+## 2026-11-11 Pricing lists filtered to user-visible models
+
+- Goal: Admin pricing and the public price list should only expose models currently visible on the generation page; do not render the retired/internal pricing catalog as one large list.
+- Decision: Both surfaces use `publicPricingModelVisible()` as the single visibility rule. Hidden routes (`seedance20-vega`, official `seedance25`, `happyhorse`) remain configured internally but are omitted from the admin model list and public pricing rows.
+- Changed files for this step: `server.parts/part-38.js` (remove admin-only hide list/helper), `server.parts/part-39.js` (return all rows with `pricingVisible` using the shared public rule so saves preserve hidden configs), `test/advanced-pricing.test.js`.
+- Existing admin model-card/detail/config UI and the public model dropdown are already in HEAD commit `38a8f959`; do not include unrelated WIP such as `platform.ui.parts/part-04.js`.
+- Verification: `node --require ./test/source-compat.js --test test/advanced-pricing.test.js test/tencent-vod-vega.test.js test/seedance-fast-pricing.test.js` passed 106/106; syntax and `git diff --check` passed.
+- Deployment status: pending selective commit, platform release build, and Old deployment.

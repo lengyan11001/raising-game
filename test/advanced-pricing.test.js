@@ -544,10 +544,11 @@ test("Vega 1.5 Lite bills output and reference input video separately and fails 
   );
 });
 
-test("admin pricing filters retired rows while preserving internal compatibility", () => {
-  assert.match(server, /ADMIN_HIDDEN_PRICING_PROVIDERS = new Set\(\["wan27", "wan27-image"\]\)/);
-  assert.match(server, /ADMIN_HIDDEN_PRICING_CAPABILITIES = new Set\(\["wan-animate-move", "wan-animate-mix"\]\)/);
-  assert.match(server, /ADVANCED_PRICING_ROWS\.filter\(adminAdvancedPricingRowVisible\)/);
+test("admin pricing uses the public visibility rules while preserving internal compatibility", () => {
+  assert.match(server, /const rows = await Promise\.all\(ADVANCED_PRICING_ROWS\.map\(async \(row\) => \{/);
+  assert.match(server, /pricingVisible: publicPricingModelVisible\(row\)/);
+  assert.doesNotMatch(server, /ADMIN_HIDDEN_PRICING_PROVIDERS/);
+  assert.doesNotMatch(server, /ADMIN_HIDDEN_PRICING_CAPABILITIES/);
   assert.match(server, /key: "wan27-720p"/);
   assert.match(server, /key: `aliyun-\$\{item\.capability\}-\$\{rateKey\}`/);
   assert.match(server, /providerLabel: "W3\.0"/);
