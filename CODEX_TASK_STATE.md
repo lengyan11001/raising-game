@@ -1,3 +1,13 @@
+## 2026-11-11 Resilience target architecture and Redis track integration
+
+- User direction: include Redis in the overall resilience roadmap, advance in verified increments, and design the best target architecture rather than preserving current implementation patterns.
+- The resilience plan now defines target invariants independently of the current code: disposable/interchangeable app processes; PostgreSQL as the authoritative durable store; Redis only for shared short-lived cache, short-window rate limits, cross-process idempotency, and optional event fan-out; explicit scheduler ownership, bounded retries, fault injection, rollback, and acceptance gates.
+- Added a conditional, default-off P3.5 Redis track and linked the detailed R0-R5 execution plan in `ops/REDIS-PLAN.md`. Multi-process promotion now depends on the relevant P3.5 gates. A same-host Redis is explicitly not treated as host-loss resilience.
+- Detailed R0 requires measured PostgreSQL QPS, p95 API latency, generation polling rate, rate-limit writes, and cache characteristics before any Redis behavior. Feature flags remain off. Cache-aside is first; rate-limit shadowing and cross-process idempotency come later. PostgreSQL business/security facts remain authoritative.
+- Added `ops/REDIS-PLAN.md` to the platform release snapshot allowlist and added regression assertions for the architecture and rollout boundaries.
+- Verification: `node --check test/resilience-ops.test.js`; `node --require ./test/source-compat.js --test test/resilience-ops.test.js` 12/12; `git diff --check` pass.
+- Runtime/deployment: no Redis dependency, client, environment variable, request-path behavior, schema, service, or production deployment change. Old was not redeployed for this plan-only commit; Live remains untouched and multi-process remains disabled.
+
 ## 2026-11-11 Canvas generation controls always expanded
 
 - User report: generation settings still collapse unless a node is selected; previews are already decoupled, so every generation node should keep its generation controls open by default.
