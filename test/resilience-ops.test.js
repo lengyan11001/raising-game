@@ -15,6 +15,10 @@ const watchdogScript = fs.readFileSync(path.join(root, "ops", "service-watchdog.
 const installScript = fs.readFileSync(path.join(root, "ops", "install-service-watchdog.sh"), "utf8");
 const watchdogService = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-watchdog.service"), "utf8");
 const watchdogTimer = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-watchdog.timer"), "utf8");
+const secondaryWatchdogScript = fs.readFileSync(path.join(root, "ops", "secondary-watchdog.sh"), "utf8");
+const secondaryWatchdogInstaller = fs.readFileSync(path.join(root, "ops", "install-secondary-watchdog.sh"), "utf8");
+const secondaryWatchdogService = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-watchdog-b.service"), "utf8");
+const secondaryWatchdogTimer = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-watchdog-b.timer"), "utf8");
 const plan = fs.readFileSync(path.join(root, "ops", "RESILIENCE-PLAN.md"), "utf8");
 const redisPlan = fs.readFileSync(path.join(root, "ops", "REDIS-PLAN.md"), "utf8");
 const resilienceDecision = fs.readFileSync(path.join(root, "ops", "RESILIENCE-DECISION-2026-11.md"), "utf8");
@@ -142,6 +146,10 @@ test("resilience operations are included only in the platform release snapshot",
     "ops/install-service-watchdog.sh",
     "ops/systemd/raising-game-watchdog.service",
     "ops/systemd/raising-game-watchdog.timer",
+    "ops/secondary-watchdog.sh",
+    "ops/install-secondary-watchdog.sh",
+    "ops/systemd/raising-game-watchdog-b.service",
+    "ops/systemd/raising-game-watchdog-b.timer",
     "ops/systemd/raising-game-demo-b.service",
     "ops/systemd/raising-game-demo-b.env.example",
     "ops/systemd-multi-instance-drill.sh",
@@ -388,6 +396,58 @@ exit 0
   });
 });
 
+test("secondary watchdog observes 4175 in dry-run and never shares primary state", () => {
+  assert.match(secondaryWatchdogScript, /127\.0\.0\.1:4175\/api\/livez/);
+  assert.match(secondaryWatchdogScript, /raising-game-demo-b\.service/);
+  assert.match(secondaryWatchdogScript, /WATCHDOG_DRY_RUN:-1/);
+  assert.match(secondaryWatchdogScript, /raising-game-watchdog-b\.failures/);
+  assert.match(secondaryWatchdogScript, /raising-game-watchdog-b\.lock/);
+  assert.match(secondaryWatchdogScript, /raising-game-watchdog-b\.restarts/);
+  assert.match(secondaryWatchdogScript, /raising-game-watchdog-b\.restart\.pending/);
+  assert.doesNotMatch(secondaryWatchdogScript, /4174|raising-game-demo\.service|raising-game-watchdog\.failures/);
+  assert.match(secondaryWatchdogService, /Environment=HEALTH_URL=http:\/\/127\.0\.0\.1:4175\/api\/livez/);
+  assert.match(secondaryWatchdogService, /Environment=SERVICE=raising-game-demo-b\.service/);
+  assert.match(secondaryWatchdogService, /Environment=SERVICE_CHECK_ACTIVE=1/);
+  assert.match(secondaryWatchdogService, /Environment=FAILURE_THRESHOLD=3/);
+  assert.match(secondaryWatchdogService, /secondary-watchdog\.sh/);
+  assert.doesNotMatch(secondaryWatchdogService, /4174|raising-game-demo\.service|raising-game-watchdog\.failures/);
+  assert.match(secondaryWatchdogTimer, /OnUnitActiveSec=10s/);
+  assert.match(secondaryWatchdogTimer, /Unit=raising-game-watchdog-b\.service/);
+  assert.match(secondaryWatchdogInstaller, /Environment=WATCHDOG_DRY_RUN=/);
+  assert.match(secondaryWatchdogInstaller, /WATCHDOG_DRY_RUN=1/);
+  assert.match(secondaryWatchdogInstaller, /never operates on the primary raising-game-watchdog units/);
+  assert.match(secondaryWatchdogInstaller, /primary and secondary application services were not touched/);
+  assert.doesNotMatch(secondaryWatchdogInstaller, /service=raising-game-demo\b/);
+});
+
+test("secondary watchdog dry-run reports 4175 failures without restarting it", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      health.fail();
+      const env = {
+        HEALTH_URL: health.url,
+        STATE_FILE: path.join(dir, "failures"),
+        LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: path.join(dir, "restarts"),
+        RESTART_PENDING_FILE: path.join(dir, "restart.pending"),
+        FAILURE_THRESHOLD: "1",
+        WATCHDOG_DRY_RUN: "1",
+        RESTART_COMMAND: `printf restart >> ${path.join(dir, "restart")}`,
+        SERVICE_CHECK_ACTIVE: "0",
+      };
+      const result = spawnSync(path.join(root, "ops", "secondary-watchdog.sh"), [], {
+        cwd: root,
+        env: { ...process.env, ...env },
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /dry-run would restart service=raising-game-demo-b\.service/);
+      assert.equal(fs.existsSync(path.join(dir, "restart")), false);
+      assert.equal(fs.readFileSync(path.join(dir, "failures"), "utf8").trim(), "0");
+    });
+  });
+});
+
 test("watchdog installer dry-run/active/rollback modes are isolated", () => {
   withTempDir((dir) => {
     const unitDir = path.join(dir, "units");
@@ -425,6 +485,48 @@ exit 0
     assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.service")), false);
     assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.timer")), false);
     assert.doesNotMatch(fs.readFileSync(log, "utf8"), /restart raising-game-demo/);
+  });
+});
+
+test("secondary watchdog installer modes are isolated from primary units", () => {
+  withTempDir((dir) => {
+    const unitDir = path.join(dir, "units");
+    const log = path.join(dir, "systemctl.log");
+    const fakeSystemctl = path.join(dir, "systemctl");
+    writeExecutable(fakeSystemctl, `#!/usr/bin/env bash
+printf '%s\n' "$*" >> ${JSON.stringify(log)}
+exit 0
+`);
+    const common = {
+      PATH: `${dir}:${process.env.PATH}`,
+      SYSTEMD_UNIT_DIR: unitDir,
+      SYSTEMCTL_BIN: fakeSystemctl,
+      SECONDARY_WATCHDOG_INSTALL_TEST_MODE: "1",
+      SECONDARY_WATCHDOG_START_NOW: "0",
+    };
+    const script = path.join(root, "ops", "install-secondary-watchdog.sh");
+    let result = spawnSync(script, ["--mode", "dry-run"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog-b.service")), true);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog-b.timer")), true);
+    const dropin = path.join(unitDir, "raising-game-watchdog-b.service.d", "90-mode.conf");
+    assert.match(fs.readFileSync(dropin, "utf8"), /WATCHDOG_DRY_RUN=1/);
+
+    result = spawnSync(script, ["--mode", "active"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /without --confirm-active/);
+
+    result = spawnSync(script, ["--mode", "active", "--confirm-active"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(fs.readFileSync(dropin, "utf8"), /WATCHDOG_DRY_RUN=0/);
+
+    result = spawnSync(script, ["--mode", "rollback"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog-b.service")), false);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog-b.timer")), false);
+    const commands = fs.readFileSync(log, "utf8");
+    assert.doesNotMatch(commands, /raising-game-watchdog\.(service|timer)/);
+    assert.doesNotMatch(commands, /restart raising-game-demo/);
   });
 });
 
