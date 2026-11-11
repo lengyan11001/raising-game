@@ -17,7 +17,10 @@ const watchdogService = fs.readFileSync(path.join(root, "ops", "systemd", "raisi
 const watchdogTimer = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-watchdog.timer"), "utf8");
 const plan = fs.readFileSync(path.join(root, "ops", "RESILIENCE-PLAN.md"), "utf8");
 const redisPlan = fs.readFileSync(path.join(root, "ops", "REDIS-PLAN.md"), "utf8");
+const resilienceDecision = fs.readFileSync(path.join(root, "ops", "RESILIENCE-DECISION-2026-11.md"), "utf8");
+const redisUsageMatrix = fs.readFileSync(path.join(root, "ops", "REDIS-USAGE-MATRIX.md"), "utf8");
 const multiProcessDrill = fs.readFileSync(path.join(root, "ops", "multi-process-drill.sh"), "utf8");
+const nginxDrill = fs.readFileSync(path.join(root, "ops", "nginx-multi-upstream-drill.sh"), "utf8");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -98,7 +101,11 @@ test("resilience operations are included only in the platform release snapshot",
     "baseline-metrics.js",
     "db-operational-stats.js",
     "ops/RESILIENCE-PLAN.md",
+    "ops/RESILIENCE-DECISION-2026-11.md",
     "ops/REDIS-PLAN.md",
+    "ops/REDIS-USAGE-MATRIX.md",
+    "ops/multi-process-drill.sh",
+    "ops/nginx-multi-upstream-drill.sh",
     "ops/service-watchdog.sh",
     "ops/install-service-watchdog.sh",
     "ops/systemd/raising-game-watchdog.service",
@@ -398,6 +405,26 @@ test("resilience plan makes Redis conditional and subordinate to PostgreSQL auth
   assert.match(redisPlan, /same-host Redis does not increase\s+host-level/i);
 });
 
+test("resilience decision requires measured evidence before topology promotion", () => {
+  assert.match(resilienceDecision, /Do not treat "more Node processes on the same host" as the resilience goal/i);
+  assert.match(resilienceDecision, /A measured baseline period exists; no promotion is approved from plan review alone/i);
+  assert.match(resilienceDecision, /Nginx removes an unhealthy upstream before replacement/i);
+  assert.match(resilienceDecision, /A duplicate request across different ports produces one charge and one provider submission/i);
+  assert.match(resilienceDecision, /SIGKILL of one process does not duplicate a generation charge/i);
+  assert.match(resilienceDecision, /Redis is not a prerequisite for the first two Node processes/i);
+  assert.match(resilienceDecision, /same-host Redis does not provide host-loss\s+resilience/i);
+});
+
+test("Redis usage matrix separates cache roles from authoritative financial and security facts", () => {
+  assert.match(redisUsageMatrix, /Redis remains disabled until a measured\s+need/i);
+  assert.match(redisUsageMatrix, /Keep in PostgreSQL\?/);
+  assert.match(redisUsageMatrix, /Users, sessions, balances, ledger, orders \| Yes, authoritative \| None/i);
+  assert.match(redisUsageMatrix, /Webhook claims \| Yes, authoritative \| No/i);
+  assert.match(redisUsageMatrix, /Media bytes \| No \| No/i);
+  assert.match(redisUsageMatrix, /Redis timeout\/restart\/eviction must degrade to PostgreSQL or a cache miss/i);
+  assert.match(redisUsageMatrix, /Do not use Redis advisory locks for scheduler ownership/i);
+});
+
 test("resilience plan does not promise multi-process or RPO before verification", () => {
   assert.match(plan, /Do not run multiple copies of `server\.js` yet/);
   assert.match(plan, /per-tick PostgreSQL advisory leases/);
@@ -419,4 +446,29 @@ test("multi-process drill reconciles a restored disposable schema before startin
   assert.match(multiProcessDrill, /ALTER SEQUENCE %s OWNER TO raising_game_app/);
   assert.match(multiProcessDrill, /d\.deptype IN \('a', 'i'\)/);
   assert.match(multiProcessDrill, /GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO raising_game_app;\nSQL\n/);
+});
+
+test("Nginx multi-upstream drill isolates ports, database, and provider side effects", () => {
+  assert.match(nginxDrill, /raising_game_nginx_drill_\[0-9\]\{14\}/);
+  assert.match(nginxDrill, /DRILL_CONFIRM_DISPOSABLE_DATABASE/);
+  assert.match(nginxDrill, /DRILL_DB must be restored from a populated disposable snapshot/);
+  assert.match(nginxDrill, /catalog = 'ourdream_presets'/);
+  assert.match(nginxDrill, /catalog = 'chat_live_voices' AND scope = 'realtime'/);
+  assert.match(nginxDrill, /DRILL_CATALOG_PROBE_OK/);
+  assert.match(nginxDrill, /has_schema_privilege\(current_user, 'public', 'USAGE'\)/);
+  assert.match(nginxDrill, /DRILL_SCHEMA_PRIVILEGES_OK=1/);
+  assert.match(nginxDrill, /The production port 4174 must not be used/);
+  assert.match(nginxDrill, /BACKGROUND_SCHEDULERS_ENABLED=0 GENERATION_SUBMIT_WORKER_ENABLED=0/);
+  assert.match(nginxDrill, /max_fails=1 fail_timeout=2s/);
+  assert.match(nginxDrill, /proxy_next_upstream error timeout http_502 http_503 http_504/);
+  assert.match(nginxDrill, /PEER_DRAIN_SURVIVED=1/);
+  assert.match(nginxDrill, /ROLLING_REPLACEMENT_OK=1/);
+  assert.match(nginxDrill, /SIGKILL_FAILOVER_OK=1/);
+  assert.match(nginxDrill, /NGINX_MULTI_UPSTREAM_DRILL_OK/);
+  const catalogProbe = nginxDrill.indexOf("catalog_probe=");
+  const schemaProbe = nginxDrill.indexOf("schema_privileges=");
+  const firstMigration = nginxDrill.indexOf("run-db-migrations.js --dry-run");
+  const nginxStart = nginxDrill.indexOf('"$NGINX_BIN" -p "$nginx_prefix"');
+  const appStart = nginxDrill.indexOf('http_a="$(start_app');
+  assert.ok(catalogProbe >= 0 && schemaProbe > catalogProbe && firstMigration > schemaProbe && nginxStart > firstMigration && appStart > nginxStart);
 });
