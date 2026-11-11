@@ -3560,3 +3560,10 @@ CODEX_TASK_STATE.md
 - Current production remains release `54bdee6b`, MainPID `3028789`, `NRestarts=0`, health 200 and upstream 4174 only. Do not launch a new production deployment until the unexpected restart invocation source is resolved or the new hardened path is used with a pre/post PID assertion.
 
 - Added a remote PID assertion to the hardened no-restart path: capture `MainPID` after checkout, re-read it after health verification, and exit `38` if it changed. `test/deploy-targets.test.js` remains `10/10`; Python compile and whitespace checks pass.
+
+## 2026-11-11 Step Y: hardened no-restart release accepted
+
+- Pushed platform release `587916da037008b406d9a74e5918591071e5aca2` from source `af3bbfbd` and deployed Old through `scripts/deploy_local.sh --site old --no-restart`.
+- Production acceptance after deployment: release is `587916da`; MainPID remains `3028789`; `NRestarts=0`; ActiveEnterTimestamp remains `2026-11-11 20:27:06 CST`; `https://123vips.com/api/health`, `https://live.123vipeak.com/api/health`, loopback `livez`, and loopback `readyz` all return 200. The release checkout contains the new `DEPLOY_NO_RESTART` and PID-guard code.
+- The previous unintended restart remains recorded in Step W. This deployment did not reproduce it. Continue to treat PID equality and post-deploy health as mandatory acceptance gates.
+- Current production still uses 4174 only; 4175 is alive but not in Nginx. Do not apply the backup conversion until the three-file dry-run and rollback hashes are captured.
