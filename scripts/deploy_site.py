@@ -393,7 +393,7 @@ def main() -> None:
         check=True,
     )
     expected_commit = subprocess.run(
-        ["git", "rev-parse", f"refs/remotes/origin/{target['branch']}"],
+        ["git", "rev-parse", f"refs/remotes/origin/{target['branch']}^{{commit}}"],
         cwd=repo_root,
         check=True,
         capture_output=True,

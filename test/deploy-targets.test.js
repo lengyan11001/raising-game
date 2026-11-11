@@ -71,7 +71,7 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.doesNotMatch(deployPull, /systemctl set-property/);
   assert.match(deployPull, /max\(360, args\.stop_timeout_seconds \+ 120\)/);
   assert.match(deploySite, /target\.get\("stop_timeout_seconds", 240\)/);
-  assert.match(deploySite, /git", "rev-parse", f"refs\/remotes\/origin\/\{target\['branch'\]\}"/);
+  assert.ok(deploySite.includes('f"refs/remotes/origin/{target[\'branch\']}^{{commit}}"'));
   assert.doesNotMatch(deployPull, /AutoAddPolicy/);
   assert.match(deployPull, /class PinnedHostKeyPolicy/);
   assert.match(deployPull, /--host-key-sha256/);
