@@ -16,7 +16,8 @@
 - Regression coverage: asserts that advanced asset cards no longer contain the legacy modify action or handler.
 - Verification: custom tabs plus advanced result suites pass 20/20; syntax and `git diff --check` pass.
 - Publish scope: `platform.create.parts/part-01.js`, `test/custom-media-kind-tabs.test.js`, and this state entry only. Preserve unrelated concurrent WIP.
-- Deployment: source `old-site`; platform release; deployed Old only through `scripts/deploy_local.sh --site old`; Live untouched.
+- Deployment: source `old-site` `e58907f7`; platform release `8526a995`; previous remote release `15246a34`. Deployed Old only through `scripts/deploy_local.sh --site old`; Live remains untouched.
+- Initial deploy verification briefly returned 502 on the homepage after restart, then recovered without another deploy. Final checks: home/platform assets/API all HTTP 200; production `part-01.js` contains no `data-advanced-asset-modify`.
 
 ## 2026-11-11 Resilience target architecture and Redis track integration
 
