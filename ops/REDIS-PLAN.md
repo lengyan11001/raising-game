@@ -15,6 +15,24 @@ and cache layer.
 The current repository has no Redis dependency and no `REDIS_URL` configuration. This plan is
 therefore additive and must preserve the existing PostgreSQL-only behavior when Redis is absent.
 
+## Decision rule
+
+Do not choose Redis merely to match a common architecture. Choose the simplest control that
+satisfies the measured failure mode:
+
+| Measured problem | First choice | Redis becomes justified when |
+| --- | --- | --- |
+| CPU/RAM/disk pressure | vertical capacity upgrade or query/index tuning | cache/coordination would remove repeated work more cheaply than a larger host |
+| Slow hot reads | fix query/index or use local in-process cache | multiple processes need a consistent shared cache or local cache misses materially amplify DB load |
+| Rate-limit DB row contention | keep PostgreSQL for security facts | short-window buckets have high write volume and shadow comparison proves equivalent decisions |
+| Duplicate submissions across processes | PostgreSQL idempotency/result guard | multiple interchangeable HTTP processes need fast cross-process request coordination |
+| Realtime events across processes | keep process-local until required | realtime traffic actually spans multiple processes/hosts and fan-out is measured |
+| Host/power/disk loss | off-host backup and second failure domain | never solved by same-host Redis |
+
+Default decision: no Redis. A vertical upgrade and PostgreSQL tuning are preferred while one
+process is not saturated. Same-host multi-process remains conditional on scheduler ownership,
+idempotency, and fault-injection gates; do not infer permission from CPU headroom alone.
+
 ## What should use Redis
 
 ### 1. Cross-process read cache (first useful stage)
@@ -101,6 +119,11 @@ and explicit database reads are sufficient for the first cache stage.
 - Use short TTLs plus explicit invalidation after mutations.
 - Acceptance: cache hit rate, PostgreSQL read reduction, p95 latency, and no stale balance,
   authorization, order, or generation-completion state.
+- Contract: every key has a namespace, a hard TTL, bounded value size, and an explicit
+  invalidation trigger. Never cache per-user authorization decisions without a tested revoke
+  invalidation path; never serve a stale balance or order state.
+- Failure behavior: Redis timeout/crash is a cache miss, not a request failure. If the fallback
+  database read fails too, return the normal bounded service error.
 - Rollback: disable the cache flag and let TTL keys expire; no schema migration required.
 
 ### R3 - Rate-limit shadow then primary

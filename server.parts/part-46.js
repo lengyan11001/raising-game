@@ -169,6 +169,7 @@ async function authRateLimit(req, { action = "", limit = 1, windowMs = 60_000, i
   let result;
   try {
     result = await incrementRateLimitInDb(key, { windowMs });
+    try { baselineMetrics.recordEvent("rate_limit_write"); } catch {}
   } catch (error) {
     console.error(`[auth-risk] rate limit check failed: ${error.message}`);
     return {

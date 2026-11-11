@@ -368,7 +368,13 @@ async function handleRequest(req, res) {
         redis: {
           configured: false,
           enabled: false,
-          note: "Redis is not part of the R0 baseline and is not required.",
+          workloads: {
+            cache: false,
+            rateLimit: false,
+            idempotency: false,
+            eventFanout: false,
+          },
+          note: "Redis is optional and disabled; PostgreSQL remains authoritative for all durable facts.",
         },
       }, { cacheControl: "private, no-store" });
     }

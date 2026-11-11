@@ -464,6 +464,9 @@ async function handleListGenerationRecords(req, res, url) {
 
   const refreshRequested = generationListRefreshRequested(url);
   const pollRequested = generationListPollRequested(url);
+  if (pollRequested) {
+    try { baselineMetrics.recordEvent("generation_list_poll"); } catch {}
+  }
   const refundable = ownRecords.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 50);
   const statusRefreshable = refreshRequested
     ? ownRecords

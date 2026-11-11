@@ -196,6 +196,8 @@ test("diagnostics endpoint is disabled by default, admin-only, and never Redis-d
   assert.match(block, /private, no-store/);
   assert.match(block, /redis: \{/);
   assert.match(block, /configured: false/);
+  assert.match(block, /workloads: \{/);
+  assert.match(block, /idempotency: false/);
   assert.doesNotMatch(block, /redis\.connect|createClient|REDIS_URL/);
 });
 
@@ -249,4 +251,11 @@ test("diagnostics HTTP surface is default-off and admin-protected when enabled",
     delete require.cache[require.resolve("../server.js")];
     delete require.cache[require.resolve("../server-source")];
   }
+});
+
+test("rate-limit writes and generation polling are counted without changing their paths", () => {
+  const risk = read("server.parts/part-46.js");
+  const generation = read("server.parts/part-41.js");
+  assert.match(risk, /incrementRateLimitInDb\(key, \{ windowMs \}\);[\s\S]{0,160}try \{ baselineMetrics\.recordEvent\("rate_limit_write"\); \} catch \{\}/);
+  assert.match(generation, /if \(pollRequested\) \{[\s\S]{0,100}baselineMetrics\.recordEvent\("generation_list_poll"\)/);
 });
