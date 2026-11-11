@@ -380,7 +380,8 @@ exit 0
 
 test("resilience plan does not promise multi-process or RPO before verification", () => {
   assert.match(plan, /Do not run multiple copies of `server\.js` yet/);
-  assert.match(plan, /advisory-lock leader/);
+  assert.match(plan, /per-tick PostgreSQL advisory leases/);
+  assert.match(plan, /Do not treat\s+this alone as permission to run multiple `server\.js` processes/);
   assert.match(plan, /current daily-only backup does not meet the RPO target/i);
   assert.match(plan, /off-host backup independent of both production hosts/);
 });
