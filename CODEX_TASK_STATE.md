@@ -3533,3 +3533,12 @@ CODEX_TASK_STATE.md
 - Hidden from public/admin pricing navigation: the retired `seedance20-vega` option, `seedance25` official-route pricing, and perpetually hidden HappyHorse; existing Wan/Qwen environment gates remain intact.
 - Added visible image pricing for `z-image-spicy-pro` and `qwen-image-edit-spicy`.
 - Verification used a clean tree built strictly from staged hunks: syntax checks pass, target suite `115/115`, `git diff --check` passes.
+
+## 2026-11-11 Step V: Nginx journal recovery fix validated; ready for Old-only platform release
+
+- Fixed Nginx journal recovery ordering and scope in `ops/nginx-upstream-switch.py`: recovery now runs before configuration parsing and restores only journals associated with the exact target files. Historical unrelated or stale journals are ignored, preventing an old configuration from being replayed accidentally.
+- Updated `ops/production-cutover-runbook.md` and `test/resilience-ops.test.js`. Focused resilience suite passed `35/35`; combined resilience plus deploy-target suite passed `45/45`; Python compile, `bash -n`, and `git diff --check` passed.
+- Performed a real `--apply` drill against temporary configuration copies on the production host. All three copies converted successfully to `4174 primary + 4175 backup`; `nginx -t` passed. Markers: `UPSTREAM_BACKUP_OK` x3 and `UPSTREAM_SWITCH_COMMIT_OK upstreams=3 files=3 health_urls=3`. Only `/tmp` copies changed; production Nginx files and traffic were untouched.
+- Production remains healthy and unchanged: Old release `a590fc44`; primary PID `2690763`, `NRestarts=0`; secondary PID `2708105`, `NRestarts=1`; ports 4174 and 4175 listening; Old, Live, and chat health endpoints all 200. Production upstreams still point only to 4174.
+- Latest committed state: `1f6e38a6 Constrain Nginx journal recovery to target files`. The next step is to build a new platform release from this committed `old-site`, push only platform-release, deploy Old with `--no-restart`, and verify PID/service/health/Nginx hashes. Do not combine deployment with the upstream backup conversion.
+- Risk remains explicitly bounded: the Nginx backup member handles connection failures, timeouts, and some 5xx responses, but an event-loop hang that still accepts connections is not proven tolerant until a host-level `livez` watchdog is implemented and drill-tested. Do not perform a production SIGKILL drill. Redis stays disabled; PostgreSQL remains authoritative; backup remains last.
