@@ -77,30 +77,34 @@ async function query(text, params = []) {
 async function ensureSchema() {
   if (!dbEnabled()) return;
   if (schemaPromise) return schemaPromise;
-  schemaPromise = ensureSchemaInner().catch((error) => {
+  const mode = String(process.env.DB_SCHEMA_MIGRATION_MODE || "verify").trim().toLowerCase();
+  schemaPromise = (mode === "bootstrap" ? ensureSchemaInner() : assertSchemaReady()).catch((error) => {
     schemaPromise = null;
     throw error;
   });
   return schemaPromise;
 }
 
-async function ensureSchemaInner() {
+async function ensureSchemaInner({ client = null } = {}) {
+  const run = async (sql, params = []) => (
+    client ? client.query(sql, params) : query(sql, params)
+  );
   const createUniqueIndex = async (sql) => {
     try {
-      await query(sql);
+      await run(sql);
     } catch (error) {
       if (String(error.code || "") !== "23505") throw error;
       console.warn("[db-schema] skipped unique index because existing duplicate rows need cleanup:", error.constraint || error.message);
     }
   };
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_kv (
       key TEXT PRIMARY KEY,
       value JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_catalog_entries (
       id TEXT NOT NULL,
       catalog TEXT NOT NULL,
@@ -115,7 +119,7 @@ async function ensureSchemaInner() {
       PRIMARY KEY (catalog, id)
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_catalog_entries
       ADD COLUMN IF NOT EXISTS catalog TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT '',
@@ -127,22 +131,29 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_catalog_entries_catalog_scope_order_idx ON app_catalog_entries (catalog, scope, sort_order ASC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_catalog_entries_catalog_scope_order_idx ON app_catalog_entries (catalog, scope, sort_order ASC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_runtime_settings (
       key TEXT PRIMARY KEY,
       value JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_catalog_migration_state (
       migration_key TEXT PRIMARY KEY,
       imported_count INTEGER NOT NULL DEFAULT 0,
       migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  if (client) {
+    await run(`
+      ALTER TABLE app_catalog_migration_state
+        ADD COLUMN IF NOT EXISTS imported_count INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    `);
+  }
+  await run(`
     CREATE TABLE IF NOT EXISTS app_users (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL DEFAULT 'main',
@@ -159,7 +170,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_users
       ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
       ADD COLUMN IF NOT EXISTS username TEXT NOT NULL DEFAULT '',
@@ -174,20 +185,20 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`
+  await run(`
     UPDATE app_users
     SET username = COALESCE(NULLIF(username, ''), NULLIF(payload->>'username', ''), id)
     WHERE username = '';
   `);
-  await query(`
+  await run(`
     UPDATE app_users
     SET tenant_id = COALESCE(NULLIF(tenant_id, ''), NULLIF(payload->>'tenantId', ''), NULLIF(payload->>'tenant_id', ''), 'main')
     WHERE tenant_id = '';
   `);
-  await query(`ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_username_key;`);
-  await query(`DROP INDEX IF EXISTS app_users_username_uidx;`);
-  await query(`CREATE INDEX IF NOT EXISTS app_users_created_idx ON app_users (created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_users_tenant_created_idx ON app_users (tenant_id, created_at DESC);`);
+  await run(`ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_username_key;`);
+  await run(`DROP INDEX IF EXISTS app_users_username_uidx;`);
+  await run(`CREATE INDEX IF NOT EXISTS app_users_created_idx ON app_users (created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_users_tenant_created_idx ON app_users (tenant_id, created_at DESC);`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_google_uidx ON app_users (tenant_id, (payload->>'googleId')) WHERE deleted_at IS NULL AND COALESCE(payload->>'googleId', '') <> '';`);
   // Application-level lookup prevents duplicates in the normal path. This
   // expression index closes the concurrent-login race between Google and
@@ -195,7 +206,7 @@ async function ensureSchemaInner() {
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_verified_email_uidx ON app_users (tenant_id, (LOWER(COALESCE(NULLIF(payload->>'email', ''), NULLIF(payload->>'googleEmail', ''))))) WHERE deleted_at IS NULL AND COALESCE(NULLIF(payload->>'email', ''), NULLIF(payload->>'googleEmail', '')) <> '';`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_username_uidx ON app_users (tenant_id, username) WHERE deleted_at IS NULL;`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_api_token_uidx ON app_users (api_token) WHERE api_token IS NOT NULL AND api_token <> '';`);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_email_challenges (
       challenge_key TEXT PRIMARY KEY,
       kind TEXT NOT NULL,
@@ -208,8 +219,8 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_email_challenges_expires_idx ON app_email_challenges (expires_at);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_email_challenges_expires_idx ON app_email_challenges (expires_at);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_sessions (
       token TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -220,8 +231,8 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_sessions_user_device_idx ON app_sessions (user_id, tenant_id, (payload->>'deviceId'));`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_sessions_user_device_idx ON app_sessions (user_id, tenant_id, (payload->>'deviceId'));`);
+  await run(`
     ALTER TABLE app_sessions
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
@@ -230,15 +241,15 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_sessions_expires_idx ON app_sessions (expires_at) WHERE expires_at IS NOT NULL;`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_sessions_expires_idx ON app_sessions (expires_at) WHERE expires_at IS NOT NULL;`);
+  await run(`
     UPDATE app_sessions
     SET tenant_id = COALESCE(NULLIF(tenant_id, ''), NULLIF(payload->>'tenantId', ''), NULLIF(payload->>'tenant_id', ''), 'main')
     WHERE tenant_id = '';
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_sessions_user_idx ON app_sessions (user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_sessions_tenant_user_idx ON app_sessions (tenant_id, user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_sessions_user_idx ON app_sessions (user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_sessions_tenant_user_idx ON app_sessions (tenant_id, user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_risk_events (
       id BIGSERIAL PRIMARY KEY,
       event_type TEXT NOT NULL,
@@ -251,9 +262,9 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_risk_events_lookup_idx ON app_risk_events (event_type, scope_key, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_risk_events_ip_idx ON app_risk_events (ip_hash, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_risk_events_lookup_idx ON app_risk_events (event_type, scope_key, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_risk_events_ip_idx ON app_risk_events (ip_hash, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_login_failures (
       failure_key TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL DEFAULT 'main',
@@ -266,9 +277,9 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_login_failures_username_idx ON app_login_failures (tenant_id, username, last_failed_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_login_failures_ip_idx ON app_login_failures (ip_hash, last_failed_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_login_failures_username_idx ON app_login_failures (tenant_id, username, last_failed_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_login_failures_ip_idx ON app_login_failures (ip_hash, last_failed_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_rate_limits (
       bucket_key TEXT PRIMARY KEY,
       window_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -276,8 +287,8 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_rate_limits_updated_idx ON app_rate_limits (updated_at);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_rate_limits_updated_idx ON app_rate_limits (updated_at);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_wallet_orders (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -290,7 +301,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_wallet_orders
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
@@ -301,9 +312,9 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_wallet_orders_user_created_idx ON app_wallet_orders (user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_wallet_orders_status_idx ON app_wallet_orders (status, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_wallet_orders_user_created_idx ON app_wallet_orders (user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_wallet_orders_status_idx ON app_wallet_orders (status, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_promotion_purchases (
       id BIGSERIAL PRIMARY KEY,
       campaign_id TEXT NOT NULL,
@@ -316,7 +327,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     DO $$
     DECLARE
       primary_key_name text;
@@ -343,10 +354,10 @@ async function ensureSchemaInner() {
       END IF;
     END $$;
   `);
-  await query(`CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_member_once_uidx ON app_promotion_purchases (campaign_id, user_id) WHERE sku = 'member' AND status = 'paid';`);
-  await query(`CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_order_uidx ON app_promotion_purchases (order_id) WHERE order_id <> '';`);
-  await query(`CREATE INDEX IF NOT EXISTS app_promotion_purchases_campaign_status_idx ON app_promotion_purchases (campaign_id, sku, status, reserved_until);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_promotion_purchases_user_idx ON app_promotion_purchases (user_id, campaign_id);`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_member_once_uidx ON app_promotion_purchases (campaign_id, user_id) WHERE sku = 'member' AND status = 'paid';`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_order_uidx ON app_promotion_purchases (order_id) WHERE order_id <> '';`);
+  await run(`CREATE INDEX IF NOT EXISTS app_promotion_purchases_campaign_status_idx ON app_promotion_purchases (campaign_id, sku, status, reserved_until);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_promotion_purchases_user_idx ON app_promotion_purchases (user_id, campaign_id);`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_wallet_orders_chain_tx_uidx
       ON app_wallet_orders (chain, transaction_hash)
@@ -357,7 +368,7 @@ async function ensureSchemaInner() {
       ON app_wallet_orders (paypal_order_id)
       WHERE paypal_order_id <> '';
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_referral_withdrawals (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -369,7 +380,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`ALTER TABLE app_referral_withdrawals
+  await run(`ALTER TABLE app_referral_withdrawals
     ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'processing',
     ADD COLUMN IF NOT EXISTS amount_usd NUMERIC(24, 6) NOT NULL DEFAULT 0,
@@ -377,9 +388,9 @@ async function ensureSchemaInner() {
     ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
-  await query(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_user_created_idx ON app_referral_withdrawals (user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_status_created_idx ON app_referral_withdrawals (status, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_user_created_idx ON app_referral_withdrawals (user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_status_created_idx ON app_referral_withdrawals (status, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_creator_earning_ledger (
       id TEXT PRIMARY KEY,
       creator_user_id TEXT NOT NULL DEFAULT '',
@@ -396,7 +407,7 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`ALTER TABLE app_creator_earning_ledger
+  await run(`ALTER TABLE app_creator_earning_ledger
     ADD COLUMN IF NOT EXISTS creator_user_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS viewer_user_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
@@ -409,15 +420,15 @@ async function ensureSchemaInner() {
     ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb,
     ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
-  await query(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_creator_created_idx ON app_creator_earning_ledger (creator_user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_character_created_idx ON app_creator_earning_ledger (character_id, created_at DESC);`);
-  await query(`DROP INDEX IF EXISTS app_creator_earning_session_uidx;`);
+  await run(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_creator_created_idx ON app_creator_earning_ledger (creator_user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_character_created_idx ON app_creator_earning_ledger (character_id, created_at DESC);`);
+  await run(`DROP INDEX IF EXISTS app_creator_earning_session_uidx;`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_creator_earning_session_uidx
       ON app_creator_earning_ledger (type, session_id)
       WHERE session_id <> '';
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_creator_withdrawals (
       id TEXT PRIMARY KEY,
       creator_user_id TEXT NOT NULL DEFAULT '',
@@ -435,7 +446,7 @@ async function ensureSchemaInner() {
       processed_at TIMESTAMPTZ
     );
   `);
-  await query(`ALTER TABLE app_creator_withdrawals
+  await run(`ALTER TABLE app_creator_withdrawals
     ADD COLUMN IF NOT EXISTS creator_user_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS amount_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT 'USDT-TRC20',
@@ -449,9 +460,9 @@ async function ensureSchemaInner() {
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;`);
-  await query(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_creator_created_idx ON app_creator_withdrawals (creator_user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_status_created_idx ON app_creator_withdrawals (status, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_creator_created_idx ON app_creator_withdrawals (creator_user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_status_created_idx ON app_creator_withdrawals (status, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_billing_plans (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL,
@@ -467,8 +478,8 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_billing_plans_tenant_status_idx ON app_billing_plans (tenant_id, status, updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_billing_plans_tenant_status_idx ON app_billing_plans (tenant_id, status, updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_user_subscriptions (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL,
@@ -486,12 +497,12 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_user_subscriptions_user_idx ON app_user_subscriptions (tenant_id, user_id, updated_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_user_subscriptions_user_idx ON app_user_subscriptions (tenant_id, user_id, updated_at DESC);`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_user_subscriptions_tenant_user_uidx
       ON app_user_subscriptions (tenant_id, user_id);
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_membership_activation_codes (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL DEFAULT 'main',
@@ -508,13 +519,13 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`ALTER TABLE app_membership_activation_codes ADD COLUMN IF NOT EXISTS code_value TEXT NOT NULL DEFAULT '';`);
+  await run(`ALTER TABLE app_membership_activation_codes ADD COLUMN IF NOT EXISTS code_value TEXT NOT NULL DEFAULT '';`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_membership_activation_codes_hash_uidx
       ON app_membership_activation_codes (tenant_id, code_hash);
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_membership_activation_codes_created_idx ON app_membership_activation_codes (tenant_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_membership_activation_codes_created_idx ON app_membership_activation_codes (tenant_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_membership_activation_redemptions (
       id TEXT PRIMARY KEY,
       code_id TEXT NOT NULL,
@@ -528,8 +539,8 @@ async function ensureSchemaInner() {
     CREATE UNIQUE INDEX IF NOT EXISTS app_membership_activation_redemptions_code_user_uidx
       ON app_membership_activation_redemptions (code_id, user_id);
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_membership_activation_redemptions_user_idx ON app_membership_activation_redemptions (tenant_id, user_id, redeemed_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_membership_activation_redemptions_user_idx ON app_membership_activation_redemptions (tenant_id, user_id, redeemed_at DESC);`);
+  await run(`
     INSERT INTO app_billing_plans (
       id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload
     ) VALUES (
@@ -558,7 +569,7 @@ async function ensureSchemaInner() {
       payload = app_billing_plans.payload || EXCLUDED.payload,
       updated_at = NOW();
   `);
-  await query(`
+  await run(`
     INSERT INTO app_billing_plans (id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload)
     VALUES
       ('plan-tool-chat-monthly', 'tool-chat-5vips', '月度会员', 'active', 'USD', 29.9, 'month', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources'))),
@@ -566,14 +577,14 @@ async function ensureSchemaInner() {
       ('plan-tool-chat-yearly', 'tool-chat-5vips', '年度会员', 'active', 'USD', 99.9, 'year', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources')))
     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, currency = EXCLUDED.currency, amount = EXCLUDED.amount, interval_unit = EXCLUDED.interval_unit, interval_count = EXCLUDED.interval_count, payload = app_billing_plans.payload || EXCLUDED.payload, updated_at = NOW();
   `);
-  await query(`
+  await run(`
     INSERT INTO app_billing_plans (id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload)
     VALUES ('plan-tool-chat-weekly', 'tool-chat-5vips', '周卡', 'active', 'USD', 9.9, 'week', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources')))
     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = 'active', currency = EXCLUDED.currency, amount = EXCLUDED.amount, interval_unit = EXCLUDED.interval_unit, interval_count = EXCLUDED.interval_count, payload = app_billing_plans.payload || EXCLUDED.payload, updated_at = NOW();
   `);
-  await query(`UPDATE app_billing_plans SET status = 'inactive', updated_at = NOW() WHERE id = 'plan-tool-chat-quarterly' AND tenant_id = 'tool-chat-5vips';`);
+  await run(`UPDATE app_billing_plans SET status = 'inactive', updated_at = NOW() WHERE id = 'plan-tool-chat-quarterly' AND tenant_id = 'tool-chat-5vips';`);
 
-  await query(`
+  await run(`
     INSERT INTO app_billing_plans (
       id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload
     )
@@ -602,7 +613,7 @@ async function ensureSchemaInner() {
     ]) AS tenant_id
     ON CONFLICT (id) DO NOTHING;
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_credit_ledger (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -614,7 +625,7 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_credit_ledger
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS delta NUMERIC(24, 6) NOT NULL DEFAULT 0,
@@ -624,8 +635,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_credit_ledger_user_created_idx ON app_credit_ledger (user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_credit_ledger_gift_user_created_idx ON app_credit_ledger (user_id, created_at DESC) WHERE delta < 0 AND LOWER(type) LIKE '%gift%';`);
+  await run(`CREATE INDEX IF NOT EXISTS app_credit_ledger_user_created_idx ON app_credit_ledger (user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_credit_ledger_gift_user_created_idx ON app_credit_ledger (user_id, created_at DESC) WHERE delta < 0 AND LOWER(type) LIKE '%gift%';`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_credit_ledger_order_event_uidx
       ON app_credit_ledger (type, (meta->>'orderId'))
@@ -636,7 +647,7 @@ async function ensureSchemaInner() {
       ON app_credit_ledger (type, (meta->>'taskId'))
       WHERE COALESCE(meta->>'taskId', '') <> '';
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_user_assets (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -647,7 +658,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_user_assets
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS mime TEXT NOT NULL DEFAULT '',
@@ -656,8 +667,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_user_assets_user_created_idx ON app_user_assets (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_user_assets_user_created_idx ON app_user_assets (user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_vega_media_library (
       user_id TEXT NOT NULL,
       source_url TEXT NOT NULL,
@@ -674,7 +685,7 @@ async function ensureSchemaInner() {
       PRIMARY KEY (user_id, source_url, sub_app_id)
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_vega_media_library
       ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS file_id TEXT NOT NULL DEFAULT '',
@@ -686,10 +697,10 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_vega_media_library_user_updated_idx ON app_vega_media_library (user_id, updated_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_vega_media_library_file_id_idx ON app_vega_media_library (file_id) WHERE file_id <> '';`);
-  await query(`CREATE INDEX IF NOT EXISTS app_vega_media_library_asset_id_idx ON app_vega_media_library (asset_id) WHERE asset_id <> '';`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_vega_media_library_user_updated_idx ON app_vega_media_library (user_id, updated_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_vega_media_library_file_id_idx ON app_vega_media_library (file_id) WHERE file_id <> '';`);
+  await run(`CREATE INDEX IF NOT EXISTS app_vega_media_library_asset_id_idx ON app_vega_media_library (asset_id) WHERE asset_id <> '';`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_user_characters (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -699,7 +710,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_user_characters
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -707,8 +718,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_user_characters_user_created_idx ON app_user_characters (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_user_characters_user_created_idx ON app_user_characters (user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_conversations (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -719,8 +730,8 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_conversations_user_updated_idx ON app_chat_conversations (user_id, updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_conversations_user_updated_idx ON app_chat_conversations (user_id, updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_messages (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL REFERENCES app_chat_conversations(id) ON DELETE CASCADE,
@@ -731,10 +742,10 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_conversation_created_idx ON app_chat_messages (conversation_id, created_at ASC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_conversation_created_id_idx ON app_chat_messages (user_id, conversation_id, created_at ASC, id ASC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_role_created_idx ON app_chat_messages (user_id, role, created_at);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_messages_conversation_created_idx ON app_chat_messages (conversation_id, created_at ASC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_conversation_created_id_idx ON app_chat_messages (user_id, conversation_id, created_at ASC, id ASC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_role_created_idx ON app_chat_messages (user_id, role, created_at);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_characters (
       id TEXT PRIMARY KEY,
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -745,7 +756,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_chat_live_characters
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS looks JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -755,13 +766,13 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_characters_order_idx ON app_chat_live_characters (deleted_at, sort_order ASC, created_at ASC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_characters_order_idx ON app_chat_live_characters (deleted_at, sort_order ASC, created_at ASC);`);
+  await run(`
     CREATE INDEX IF NOT EXISTS app_chat_live_characters_creator_created_idx
       ON app_chat_live_characters ((payload->>'createdByUserId'), created_at)
       WHERE deleted_at IS NULL;
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_sessions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -773,7 +784,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_chat_live_sessions
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
@@ -783,16 +794,16 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_created_idx ON app_chat_live_sessions (user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_updated_idx ON app_chat_live_sessions (user_id, updated_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_live_idx ON app_chat_live_sessions (live_id);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_created_idx ON app_chat_live_sessions (created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_created_idx ON app_chat_live_sessions (user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_updated_idx ON app_chat_live_sessions (user_id, updated_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_live_idx ON app_chat_live_sessions (live_id);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_created_idx ON app_chat_live_sessions (created_at DESC);`);
+  await run(`
     CREATE INDEX IF NOT EXISTS app_chat_live_sessions_unsettled_idx
       ON app_chat_live_sessions (updated_at ASC)
       WHERE live_id <> '' AND COALESCE(payload->>'settled', 'false') NOT IN ('true', '1');
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_free_usage (
       tenant_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -801,7 +812,7 @@ async function ensureSchemaInner() {
       PRIMARY KEY (tenant_id, user_id)
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_free_allocations (
       session_id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL,
@@ -813,8 +824,8 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_free_allocations_user_idx ON app_chat_live_free_allocations (tenant_id, user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_free_allocations_user_idx ON app_chat_live_free_allocations (tenant_id, user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_character_memories (
       user_id TEXT NOT NULL,
       character_id TEXT NOT NULL,
@@ -823,8 +834,8 @@ async function ensureSchemaInner() {
       PRIMARY KEY (user_id, character_id)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_character_memories_updated_idx ON app_chat_character_memories (updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_character_memories_updated_idx ON app_chat_character_memories (updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_character_relationships (
       user_id TEXT NOT NULL,
       character_id TEXT NOT NULL,
@@ -838,8 +849,8 @@ async function ensureSchemaInner() {
       PRIMARY KEY (user_id, character_id)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_character_relationships_user_updated_idx ON app_character_relationships (user_id, updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_character_relationships_user_updated_idx ON app_character_relationships (user_id, updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_user_guides (
       user_id TEXT NOT NULL,
       guide_key TEXT NOT NULL,
@@ -850,8 +861,8 @@ async function ensureSchemaInner() {
       PRIMARY KEY (user_id, guide_key)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_user_guides_user_updated_idx ON app_user_guides (user_id, updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_user_guides_user_updated_idx ON app_user_guides (user_id, updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_rooms (
       id TEXT PRIMARY KEY,
       character_id TEXT NOT NULL DEFAULT '',
@@ -862,16 +873,16 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`ALTER TABLE app_chat_live_rooms
+  await run(`ALTER TABLE app_chat_live_rooms
     ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
     ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE,
     ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_character_idx ON app_chat_live_rooms (character_id, enabled, status);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_updated_idx ON app_chat_live_rooms (updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_character_idx ON app_chat_live_rooms (character_id, enabled, status);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_updated_idx ON app_chat_live_rooms (updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_room_members (
       room_id TEXT NOT NULL REFERENCES app_chat_live_rooms(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL,
@@ -881,9 +892,9 @@ async function ensureSchemaInner() {
       PRIMARY KEY (room_id, user_id)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_seen_idx ON app_chat_live_room_members (room_id, last_seen_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_user_seen_idx ON app_chat_live_room_members (user_id, joined_at, last_seen_at);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_seen_idx ON app_chat_live_room_members (room_id, last_seen_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_user_seen_idx ON app_chat_live_room_members (user_id, joined_at, last_seen_at);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_room_messages (
       id TEXT PRIMARY KEY,
       room_id TEXT NOT NULL REFERENCES app_chat_live_rooms(id) ON DELETE CASCADE,
@@ -894,8 +905,8 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_messages_room_idx ON app_chat_live_room_messages (room_id, created_at ASC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_room_messages_room_idx ON app_chat_live_room_messages (room_id, created_at ASC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_user_unlocks (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -904,7 +915,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_user_unlocks
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -912,8 +923,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_user_unlocks_user_created_idx ON app_user_unlocks (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_user_unlocks_user_created_idx ON app_user_unlocks (user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_admin_home_items (
       id TEXT PRIMARY KEY,
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -922,15 +933,15 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_admin_home_items
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_admin_home_items_created_idx ON app_admin_home_items (created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_admin_home_items_created_idx ON app_admin_home_items (created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_workflow_presets (
       id TEXT PRIMARY KEY,
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -940,7 +951,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_workflow_presets
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
@@ -948,8 +959,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_workflow_presets_sort_idx ON app_workflow_presets (sort_order ASC, updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_workflow_presets_sort_idx ON app_workflow_presets (sort_order ASC, updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_workflow_canvases (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -959,7 +970,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_workflow_canvases
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '',
@@ -967,8 +978,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_workflow_canvases_user_updated_idx ON app_workflow_canvases (user_id, updated_at DESC, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_workflow_canvases_user_updated_idx ON app_workflow_canvases (user_id, updated_at DESC, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_support_messages (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -978,7 +989,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_support_messages
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -986,8 +997,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_support_messages_user_created_idx ON app_support_messages (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_support_messages_user_created_idx ON app_support_messages (user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_live_notifications (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -1001,7 +1012,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_live_notifications
       ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'system',
       ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '',
@@ -1012,8 +1023,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_live_notifications_user_pinned_idx ON app_live_notifications (user_id, pinned DESC, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_live_notifications_user_pinned_idx ON app_live_notifications (user_id, pinned DESC, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_support_tickets (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -1032,7 +1043,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_support_tickets
       ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
       ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '',
@@ -1048,9 +1059,9 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_support_tickets_user_last_idx ON app_support_tickets (user_id, last_message_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_support_tickets_status_last_idx ON app_support_tickets (status, last_message_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_support_tickets_user_last_idx ON app_support_tickets (user_id, last_message_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_support_tickets_status_last_idx ON app_support_tickets (status, last_message_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_support_ticket_messages (
       id TEXT PRIMARY KEY,
       ticket_id TEXT NOT NULL,
@@ -1062,10 +1073,10 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_ticket_created_idx ON app_support_ticket_messages (ticket_id, created_at ASC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_ticket_sender_created_idx ON app_support_ticket_messages (ticket_id, sender_type, created_at ASC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_sender_ticket_created_idx ON app_support_ticket_messages (sender_type, ticket_id, created_at ASC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_ticket_created_idx ON app_support_ticket_messages (ticket_id, created_at ASC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_ticket_sender_created_idx ON app_support_ticket_messages (ticket_id, sender_type, created_at ASC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_sender_ticket_created_idx ON app_support_ticket_messages (sender_type, ticket_id, created_at ASC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_system_notifications (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL DEFAULT 'main',
@@ -1080,7 +1091,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_system_notifications
       ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
       ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '',
@@ -1093,8 +1104,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_system_notifications_active_publish_idx ON app_system_notifications (active, publish_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_system_notifications_active_publish_idx ON app_system_notifications (active, publish_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_system_notification_reads (
       notification_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -1103,8 +1114,8 @@ async function ensureSchemaInner() {
       PRIMARY KEY (notification_id, user_id)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_system_notification_reads_user_idx ON app_system_notification_reads (user_id, read_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_system_notification_reads_user_idx ON app_system_notification_reads (user_id, read_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_live_checkins (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -1114,8 +1125,8 @@ async function ensureSchemaInner() {
       UNIQUE (user_id, checkin_date)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_live_checkins_user_created_idx ON app_live_checkins (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_live_checkins_user_created_idx ON app_live_checkins (user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_live_daily_task_claims (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -1127,8 +1138,8 @@ async function ensureSchemaInner() {
       UNIQUE (user_id, task_date, task_key)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_live_daily_task_claims_user_created_idx ON app_live_daily_task_claims (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_live_daily_task_claims_user_created_idx ON app_live_daily_task_claims (user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_generation_records (
       task_id TEXT PRIMARY KEY,
       payload JSONB NOT NULL,
@@ -1136,7 +1147,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     DO $$
     BEGIN
       IF NOT EXISTS (
@@ -1160,26 +1171,26 @@ async function ensureSchemaInner() {
     END
     $$;
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_generation_records_created_at_idx
       ON app_generation_records (created_at DESC);
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_generation_records_user_created_idx
       ON app_generation_records ((payload->>'userId'), created_at DESC);
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_generation_records_awaiting_submit_created_idx
       ON app_generation_records (created_at ASC)
       WHERE payload->>'awaitingUpstreamTask' = 'true'
         AND COALESCE(payload->>'upstreamTaskId', '') = '';
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_generation_records_advanced_download_pending_idx
       ON app_generation_records (task_id)
       WHERE payload->>'advancedDownloadStatus' IN ('preparing', 'queued', 'processing');
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_generation_records_poster_maintenance_pending_v2_idx
       ON app_generation_records (created_at DESC, updated_at DESC)
       WHERE COALESCE(payload->>'deletedAt', '') = ''
@@ -1203,7 +1214,7 @@ async function ensureSchemaInner() {
           OR COALESCE(payload->'createResponse'->'content'->>'video_url', '') <> ''
         );
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_generation_records_r2_recovery_pending_idx
       ON app_generation_records (updated_at DESC)
       WHERE COALESCE(payload->>'deletedAt', '') = ''
@@ -1227,7 +1238,7 @@ async function ensureSchemaInner() {
           )
         );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_media_ingest_jobs (
       task_id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -1247,11 +1258,11 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_media_ingest_jobs_status_available_idx
       ON app_media_ingest_jobs (status, available_at, created_at);
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_web_vitals (
       event_id TEXT PRIMARY KEY,
       hostname TEXT NOT NULL,
@@ -1266,15 +1277,15 @@ async function ensureSchemaInner() {
       CHECK (device IN ('mobile', 'desktop', 'tablet', 'unknown'))
     );
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_web_vitals_created_idx
       ON app_web_vitals (created_at DESC);
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_web_vitals_dimensions_idx
       ON app_web_vitals (hostname, page_path, device, metric, created_at DESC);
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_visitor_ips (
       ip_hash TEXT PRIMARY KEY,
       first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1282,21 +1293,21 @@ async function ensureSchemaInner() {
       visit_count BIGINT NOT NULL DEFAULT 0
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_visitor_paths (
       page_path TEXT PRIMARY KEY,
       visit_count BIGINT NOT NULL DEFAULT 0,
       last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_visitor_countries (
       country TEXT PRIMARY KEY,
       visit_count BIGINT NOT NULL DEFAULT 0,
       last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_visitor_recent (
       id BIGSERIAL PRIMARY KEY,
       page_path TEXT NOT NULL DEFAULT '',
@@ -1306,8 +1317,8 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_geo_visitor_recent_created_idx ON app_geo_visitor_recent (created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_geo_visitor_recent_created_idx ON app_geo_visitor_recent (created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_crawler_bots (
       bot TEXT PRIMARY KEY,
       visit_count BIGINT NOT NULL DEFAULT 0,
@@ -1316,14 +1327,14 @@ async function ensureSchemaInner() {
       last_user_agent TEXT NOT NULL DEFAULT ''
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_crawler_paths (
       page_path TEXT PRIMARY KEY,
       visit_count BIGINT NOT NULL DEFAULT 0,
       last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_crawler_path_bots (
       page_path TEXT NOT NULL,
       bot TEXT NOT NULL,
@@ -1332,7 +1343,7 @@ async function ensureSchemaInner() {
       PRIMARY KEY (page_path, bot)
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_crawler_recent (
       id BIGSERIAL PRIMARY KEY,
       bot TEXT NOT NULL DEFAULT '',
@@ -1342,8 +1353,8 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_geo_crawler_recent_created_idx ON app_geo_crawler_recent (created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_geo_crawler_recent_created_idx ON app_geo_crawler_recent (created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_character_daily (
       character_id TEXT NOT NULL,
       visit_date DATE NOT NULL,
@@ -1355,8 +1366,8 @@ async function ensureSchemaInner() {
       PRIMARY KEY (character_id, visit_date)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_date_idx ON app_geo_character_daily (visit_date DESC, pv DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_date_idx ON app_geo_character_daily (visit_date DESC, pv DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_character_daily_ips (
       character_id TEXT NOT NULL,
       visit_date DATE NOT NULL,
@@ -1364,8 +1375,8 @@ async function ensureSchemaInner() {
       PRIMARY KEY (character_id, visit_date, ip_hash)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_ips_date_idx ON app_geo_character_daily_ips (visit_date DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_ips_date_idx ON app_geo_character_daily_ips (visit_date DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_character_meta (
       character_id TEXT PRIMARY KEY,
       name TEXT NOT NULL DEFAULT '',
@@ -1375,8 +1386,8 @@ async function ensureSchemaInner() {
       last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`ALTER TABLE app_geo_character_meta ADD COLUMN IF NOT EXISTS uv_legacy INTEGER NOT NULL DEFAULT 0;`);
-  await query(`
+  await run(`ALTER TABLE app_geo_character_meta ADD COLUMN IF NOT EXISTS uv_legacy INTEGER NOT NULL DEFAULT 0;`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_character_recent (
       id BIGSERIAL PRIMARY KEY,
       character_id TEXT NOT NULL DEFAULT '',
@@ -1387,14 +1398,14 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_recent_created_idx ON app_geo_character_recent (created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_geo_character_recent_created_idx ON app_geo_character_recent (created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_migration_state (
       migration_key TEXT PRIMARY KEY,
       migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_api_subtokens (
       id TEXT PRIMARY KEY,
       token TEXT NOT NULL UNIQUE,
@@ -1411,7 +1422,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_api_subtoken_usage (
       id BIGSERIAL PRIMARY KEY,
       token_id TEXT NOT NULL REFERENCES app_api_subtokens(id) ON DELETE CASCADE,
@@ -1425,15 +1436,15 @@ async function ensureSchemaInner() {
       UNIQUE (token_id, event_key)
     );
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_api_subtokens_parent_created_idx
       ON app_api_subtokens (parent_user_id, created_at DESC);
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_api_subtokens_created_idx
       ON app_api_subtokens (created_at DESC);
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_api_subtoken_usage_token_created_idx
       ON app_api_subtoken_usage (token_id, created_at DESC);
   `);
@@ -7137,6 +7148,60 @@ async function generationRecordsTableCount() {
   return rows[0]?.count || 0;
 }
 
+const SCHEMA_MIGRATION_KEY = "2026-11-11-schema-bootstrap-v1";
+const REQUIRED_SCHEMA_TABLES = Object.freeze([
+  "app_kv",
+  "app_catalog_entries",
+  "app_runtime_settings",
+  "app_catalog_migration_state",
+  "app_users",
+  "app_sessions",
+  "app_wallet_orders",
+  "app_credit_ledger",
+  "app_user_assets",
+  "app_user_characters",
+  "app_generation_records",
+]);
+
+async function schemaMigrationStatus() {
+  if (!dbEnabled()) return { available: false, database: false, schemaVersion: "", requiredTables: REQUIRED_SCHEMA_TABLES, missingTables: REQUIRED_SCHEMA_TABLES, migrationApplied: false };
+  const { rows: tableRows } = await query(`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = current_schema()
+      AND table_type = 'BASE TABLE'
+      AND table_name = ANY($1::text[])
+  `, [REQUIRED_SCHEMA_TABLES]);
+  const present = new Set(tableRows.map((row) => String(row.table_name || "")));
+  const missingTables = REQUIRED_SCHEMA_TABLES.filter((table) => !present.has(table));
+  const ledgerPresent = present.has("app_catalog_migration_state");
+  let migrationApplied = false;
+  if (ledgerPresent) {
+    const { rows } = await query(`SELECT 1 FROM app_catalog_migration_state WHERE migration_key = $1 LIMIT 1`, [SCHEMA_MIGRATION_KEY]);
+    migrationApplied = rows.length > 0;
+  }
+  return {
+    available: true,
+    database: true,
+    schemaVersion: migrationApplied ? SCHEMA_MIGRATION_KEY : "",
+    requiredTables: REQUIRED_SCHEMA_TABLES,
+    missingTables,
+    migrationApplied,
+    ready: missingTables.length === 0 && migrationApplied,
+  };
+}
+
+async function assertSchemaReady() {
+  const status = await schemaMigrationStatus();
+  if (!status.ready) {
+    const error = new Error(`PostgreSQL schema is not migrated: missing tables=${status.missingTables.join(",") || "none"}; migration_ledger=${status.migrationApplied ? "present" : "missing"}. Run ops/run-db-migrations.js --apply before restart.`);
+    error.code = "DATABASE_SCHEMA_NOT_READY";
+    error.schema = status;
+    throw error;
+  }
+  return status;
+}
+
 const GENERATION_RECORDS_KV_MIGRATION_KEY = "generation_records_kv_v1";
 const GENERATION_RECORDS_KV_LOCK_TIMEOUT_MS = Math.min(
   30000,
@@ -9378,6 +9443,9 @@ module.exports = {
   normalizeTenantId,
   dbEnabled,
   ensureSchema,
+  ensureSchemaInner,
+  schemaMigrationStatus,
+  assertSchemaReady,
   getPool,
   getSchedulerPool,
   query,

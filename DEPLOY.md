@@ -154,6 +154,24 @@ Recommended flow:
 Runtime data must live in PostgreSQL through `DATABASE_URL`; do not use JSON files
 as an alternate data store or deployment target.
 
+For a release that includes schema changes, run the migration runner before restarting:
+
+```text
+node ops/run-db-migrations.js --dry-run
+node ops/run-db-migrations.js --apply
+```
+
+The runner is dry-run by default and requires an explicit `--apply`. The application
+starts in schema-verify mode; it fails readiness with `DATABASE_SCHEMA_NOT_READY`
+instead of performing schema DDL during startup. Do not set
+`DB_SCHEMA_MIGRATION_MODE=bootstrap` in production after this rollout.
+
+Keep the previous release available for rollback. Schema migrations are
+forward-compatible: rolling back the application must not undo the schema
+ledger or drop columns. If readiness is not green after restart, stop the
+rollout and roll back the application release; do not bypass readiness or
+run ad-hoc DDL against production.
+
 Production systemd must load runtime secrets and per-site settings from:
 
 ```text

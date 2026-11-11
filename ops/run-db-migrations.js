@@ -1,12 +1,39 @@
 #!/usr/bin/env node
 "use strict";
 
+const path = require("node:path");
+const ROOT = path.resolve(__dirname, "..");
+const RUNTIME_ROOT = path.resolve(process.env.DB_MIGRATION_RUNTIME_ROOT || ROOT);
+
 const MIGRATIONS = Object.freeze([
+  Object.freeze({
+    version: "2026-11-11-schema-bootstrap-v1",
+    description: "Create and upgrade the application PostgreSQL schema before service restart",
+    kind: "schema",
+  }),
   Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
+    kind: "data",
   }),
 ]);
+
+function requireMigrationRuntime() {
+  const { Client } = require(path.join(RUNTIME_ROOT, "node_modules", "pg"));
+  return {
+    createDatabaseClient(databaseUrl, connectionTimeoutMillis) {
+      return new Client({ connectionString: databaseUrl, connectionTimeoutMillis });
+    },
+    loadDatabaseModule() {
+      return require(path.join(ROOT, "db.js"));
+    },
+    async closeDatabaseModule() {
+      const db = require(path.join(ROOT, "db.js"));
+      const pools = [db.getPool?.(), db.getSchedulerPool?.()].filter(Boolean);
+      await Promise.allSettled(pools.map((pool) => pool.end()));
+    },
+  };
+}
 
 function requireDatabaseUrl(env = process.env) {
   const databaseUrl = String(env.DATABASE_URL || "").trim();
@@ -16,8 +43,8 @@ function requireDatabaseUrl(env = process.env) {
 
 async function inspectDatabase({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
   databaseUrl = String(databaseUrl || requireDatabaseUrl()).trim();
-  const { Client } = require("pg");
-  const client = new Client({ connectionString: databaseUrl, connectionTimeoutMillis: lockTimeoutMs });
+  const { createDatabaseClient } = requireMigrationRuntime();
+  const client = createDatabaseClient(databaseUrl, lockTimeoutMs);
   await client.connect();
   try {
     await client.query("SELECT set_config('lock_timeout', $1, false)", [`${Math.max(1, Math.trunc(lockTimeoutMs))}ms`]);
@@ -55,6 +82,8 @@ function parseArgs(argv = []) {
       options.help = true;
     } else if (arg.startsWith("--lock-timeout-ms=")) {
       options.lockTimeoutMs = Number(arg.slice("--lock-timeout-ms=".length));
+    } else if (arg.startsWith("--database-url=")) {
+      options.databaseUrl = arg.slice("--database-url=".length);
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
@@ -73,7 +102,7 @@ function createMigrationPlan({ completedKeys = [], lockTimeoutMs = 5000, dryRun 
     lockTimeoutMs,
     pending,
     completed: MIGRATIONS.filter((item) => completed.has(item.version)).map((item) => item.version),
-    unsupported: completed.size ? [] : [],
+    unsupported: [],
   };
 }
 
@@ -106,17 +135,91 @@ async function inspectLoadedDatabase({ lockTimeoutMs = 5000 } = {}) {
   };
 }
 
+async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
+  databaseUrl = String(databaseUrl || requireDatabaseUrl()).trim();
+  const { createDatabaseClient, loadDatabaseModule, closeDatabaseModule } = requireMigrationRuntime();
+  const applied = [];
+  let result;
+  const db = loadDatabaseModule();
+  const schemaLockClient = createDatabaseClient(databaseUrl, lockTimeoutMs);
+  await schemaLockClient.connect();
+  try {
+    await schemaLockClient.query("SELECT set_config('lock_timeout', $1, false)", [`${Math.max(1, Math.trunc(lockTimeoutMs))}ms`]);
+    await schemaLockClient.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", ["raising_game_schema_migrations_v1"]);
+    await db.ensureSchemaInner({ client: schemaLockClient });
+    const schemaMigration = MIGRATIONS.find((item) => item.kind === "schema");
+    if (schemaMigration) {
+      const prior = await schemaLockClient.query(
+        "SELECT 1 FROM app_catalog_migration_state WHERE migration_key = $1 LIMIT 1",
+        [schemaMigration.version],
+      );
+      if (!prior.rows.length) {
+        await schemaLockClient.query(
+          `INSERT INTO app_catalog_migration_state(migration_key, imported_count, migrated_at)
+           VALUES ($1, 0, NOW())
+           ON CONFLICT (migration_key) DO NOTHING`,
+          [schemaMigration.version],
+        );
+        applied.push(schemaMigration.version);
+      }
+    }
+  } finally {
+    await schemaLockClient.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", ["raising_game_schema_migrations_v1"]).catch(() => {});
+    await schemaLockClient.end();
+  }
+  const dataLockClient = createDatabaseClient(databaseUrl, lockTimeoutMs);
+  await dataLockClient.connect();
+  try {
+    for (const migration of MIGRATIONS.filter((item) => item.kind === "data")) {
+      const prior = await dataLockClient.query(
+        "SELECT 1 FROM app_catalog_migration_state WHERE migration_key = $1 LIMIT 1",
+        [migration.version],
+      );
+      if (prior.rows.length) continue;
+      if (migration.version !== "2026-11-11-generation-records-kv-v1") {
+        throw new Error(`Unknown data migration: ${migration.version}`);
+      }
+      const result = await db.migrateGenerationRecordsKvToTable();
+      if (result?.migrationKey) {
+        await dataLockClient.query(
+          `INSERT INTO app_catalog_migration_state(migration_key, imported_count, migrated_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (migration_key) DO UPDATE SET imported_count = EXCLUDED.imported_count, migrated_at = NOW()`,
+          [migration.version, Math.max(0, Number(result.migrated || 0))],
+        );
+        applied.push(migration.version);
+      } else if (result?.skipped) {
+        await dataLockClient.query(
+          `INSERT INTO app_catalog_migration_state(migration_key, imported_count, migrated_at)
+           VALUES ($1, 0, NOW())
+           ON CONFLICT (migration_key) DO UPDATE SET migrated_at = NOW()`,
+          [migration.version],
+        );
+        applied.push(migration.version);
+      } else {
+        throw new Error("Generation KV migration did not return a durable completion key.");
+      }
+    }
+    result = { ok: true, applied };
+  } finally {
+    await dataLockClient.end();
+    await closeDatabaseModule().catch((error) => {
+      process.stderr.write(`[migration-runtime-close] ${error.message || error}\n`);
+    });
+  }
+  return result;
+}
+
 async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
-    process.stdout.write("Usage: node ops/run-db-migrations.js [--dry-run|--apply] [--lock-timeout-ms=5000] [--json]\n");
+    process.stdout.write("Usage: node ops/run-db-migrations.js [--dry-run|--apply] [--json] [--lock-timeout-ms=5000]\n");
     return;
   }
-  if (!options.apply) {
-    const databaseUrl = String(process.env.DATABASE_URL || "").trim();
-    const database = databaseUrl
-      ? await inspectDatabase({ databaseUrl, lockTimeoutMs: options.lockTimeoutMs })
-      : null;
+  const databaseUrl = String(options.databaseUrl || process.env.DATABASE_URL || "").trim();
+  if (databaseUrl) process.env.DATABASE_URL = databaseUrl;
+  if (options.dryRun) {
+    const database = databaseUrl ? await inspectDatabase({ databaseUrl, lockTimeoutMs: options.lockTimeoutMs }) : null;
     const plan = createMigrationPlan({
       completedKeys: database?.completedKeys || [],
       dryRun: true,
@@ -126,7 +229,9 @@ async function main(argv = process.argv.slice(2)) {
     process.stdout.write(options.json ? `${JSON.stringify(output, null, 2)}\n` : `${renderPlan(plan)}${database ? `\ndatabase_ledger=${database.ledgerPresent ? "present" : "missing"}` : ""}\n`);
     return;
   }
-  throw new Error("Migration apply is not enabled until the migration ledger and isolated database drill are complete.");
+  if (!options.apply) throw new Error("Migration apply requires --apply.");
+  const result = await applyMigrations({ databaseUrl, lockTimeoutMs: options.lockTimeoutMs });
+  process.stdout.write(options.json ? `${JSON.stringify(result, null, 2)}\n` : `migration_mode=apply\napplied=${result.applied.join(",") || "none"}\n`);
 }
 
 if (require.main === module) {
@@ -138,6 +243,7 @@ if (require.main === module) {
 
 module.exports = {
   MIGRATIONS,
+  applyMigrations,
   createMigrationPlan,
   inspectDatabase,
   inspectLoadedDatabase,

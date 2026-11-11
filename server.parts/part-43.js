@@ -692,19 +692,27 @@ async function bootstrap() {
     markFailed(processReadiness, error);
     throw error;
   }
-  const generationRecordMigration = await migrateGenerationRecordsKvToTable();
-  if (generationRecordMigration?.migrated) {
-    console.log(`Generation records migrated to table: ${generationRecordMigration.migrated}`);
-  }
-  const geoStatsMigration = await migrateGeoStatsKvToTables();
-  if (geoStatsMigration?.migrated) {
-    console.log(`GEO stats migrated to tables: ${geoStatsMigration.migratedKeys.join(", ")}`);
+  const schemaMode = String(process.env.DB_SCHEMA_MIGRATION_MODE || "verify").trim().toLowerCase();
+  if (schemaMode === "bootstrap") {
+    const generationRecordMigration = await migrateGenerationRecordsKvToTable();
+    if (generationRecordMigration?.migrated) {
+      console.log(`Generation records migrated to table: ${generationRecordMigration.migrated}`);
+    }
+    const geoStatsMigration = await migrateGeoStatsKvToTables();
+    if (geoStatsMigration?.migrated) {
+      console.log(`GEO stats migrated to tables: ${geoStatsMigration.migratedKeys.join(", ")}`);
+    }
+  } else {
+    const schema = await assertSchemaReady();
+    console.log(`[schema-check] ${JSON.stringify({ schemaVersion: schema.schemaVersion, tables: schema.requiredTables.length })}`);
   }
   const catalogCounts = await verifyRequiredCatalogsInDb();
   console.log(`[catalog-check] ${JSON.stringify(catalogCounts)}`);
-  const apiTokensMigrated = await ensureAllUsersApiTokens();
-  if (apiTokensMigrated) {
-    console.log("User API tokens migrated: yes");
+  if (schemaMode === "bootstrap") {
+    const apiTokensMigrated = await ensureAllUsersApiTokens();
+    if (apiTokensMigrated) {
+      console.log("User API tokens migrated: yes");
+    }
   }
   startWalletScanScheduler();
   startStaleSubmitGenerationRecordScheduler();

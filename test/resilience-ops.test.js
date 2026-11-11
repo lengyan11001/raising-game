@@ -103,6 +103,7 @@ test("resilience operations are included only in the platform release snapshot",
     "ops/systemd/raising-game-watchdog.service",
     "ops/systemd/raising-game-watchdog.timer",
     "ops/verify-postgres-backup.sh",
+    "ops/run-db-migrations.js",
   ]) {
     assert.match(snapshotBuilder, new RegExp(`"${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
   }
