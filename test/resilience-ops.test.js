@@ -647,6 +647,61 @@ upstream raising_game_app_chat { server 127.0.0.1:4175; keepalive 32; }
   });
 });
 
+test("Nginx upstream recovery ignores journals for unrelated files", () => {
+  withTempDir((dir) => {
+    const file = path.join(dir, "site.conf");
+    const journalDir = path.join(dir, "journals");
+    fs.mkdirSync(journalDir);
+    const original = writeUpstreamConfig(file);
+    fs.writeFileSync(path.join(journalDir, "raising-game-nginx-switch-unrelated.json"), JSON.stringify({
+      files: [{ path: path.join(dir, "missing.conf"), original: "stale", mode: 0o644 }],
+    }));
+    const result = invokeUpstreamSwitch([
+      "--file", file,
+      "--backup", "raising_game_app=4174:4175",
+      "--health-url", "http://127.0.0.1:48080/api/health",
+    ], { NGINX_UPSTREAM_SWITCH_JOURNAL_DIR: journalDir });
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /UPSTREAM_SWITCH_RECOVERY_FAILED/);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
+    assert.ok(fs.existsSync(path.join(journalDir, "raising-game-nginx-switch-unrelated.json")));
+  });
+});
+
+test("Nginx upstream recovery restores a matching stale journal", async () => {
+  await withTempDir((dir) => {
+    const file = path.join(dir, "site.conf");
+    const journalDir = path.join(dir, "journals");
+    fs.mkdirSync(journalDir);
+    const original = writeUpstreamConfig(file, `upstream raising_game_app { server 127.0.0.1:4174; }\n`);
+    fs.writeFileSync(path.join(journalDir, "raising-game-nginx-switch-matching.json"), JSON.stringify({
+      files: [{ path: file, original, mode: 0o644 }],
+    }));
+    fs.writeFileSync(file, "upstream raising_game_app { server 127.0.0.1:9999; }\n");
+    const result = spawnSync("python3", [upstreamSwitchScript,
+      "--file", file,
+      "--backup", "raising_game_app=4174:4175",
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--nginx-bin", "/usr/bin/true",
+      "--reload-command", "/usr/bin/true",
+      "--apply",
+    ], {
+      cwd: root,
+      env: {
+        ...process.env,
+        NGINX_UPSTREAM_SWITCH_LOCK: path.join(dir, "switch.lock"),
+        NGINX_UPSTREAM_SWITCH_JOURNAL_DIR: journalDir,
+        PATH: `${dir}:${process.env.PATH}`,
+      },
+      encoding: "utf8",
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout, /UPSTREAM_SWITCH_RECOVERED/);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
+    assert.ok(!fs.existsSync(path.join(journalDir, "raising-game-nginx-switch-matching.json")));
+  });
+});
+
 test("Nginx upstream backup transaction rejects malformed or conflicting members", () => {
   withTempDir((dir) => {
     const cases = [

@@ -374,14 +374,23 @@ def restore_journal(path: Path) -> list[str]:
     return restored
 
 
-def recover_stale_journal() -> None:
-    """Restore an interrupted transaction before starting another one."""
+def recover_stale_journal(target_paths: set[Path] | None = None) -> None:
+    """Restore only interrupted transactions for the files in this request."""
     stale_limit = 3600
     journal_dir = Path(os.environ.get("NGINX_UPSTREAM_SWITCH_JOURNAL_DIR", tempfile.gettempdir()))
+    targets = {path.resolve() for path in (target_paths or set())}
     for journal in sorted(journal_dir.glob("raising-game-nginx-switch-*.json")):
         try:
             age = __import__("time").time() - journal.stat().st_mtime
             if age < 0 or age > stale_limit:
+                continue
+            payload = json.loads(journal.read_text(encoding="utf-8"))
+            journal_paths = {
+                Path(item.get("path", "")).resolve()
+                for item in payload.get("files", [])
+                if item.get("path")
+            }
+            if targets and not journal_paths.intersection(targets):
                 continue
             restored = restore_journal(journal)
             journal.unlink()
@@ -493,6 +502,15 @@ def main() -> int:
     if not args.health_url:
         raise SystemExit("provide at least one --health-url")
 
+    target_paths: set[Path] = set()
+    if args.file:
+        target_paths.add(args.file)
+    if args.file_backup:
+        target_paths.update(path for path, _backup in args.file_backup)
+    if args.file_switch:
+        target_paths.update(path for path, _switch in args.file_switch)
+    if args.apply and target_paths:
+        recover_stale_journal(target_paths)
     try:
         if args.backup:
             entries = build_backup_transaction([(args.file, backup) for backup in args.backup])
@@ -533,7 +551,6 @@ def main() -> int:
     committed = False
     restored_after_failure = False
     try:
-        recover_stale_journal()
         journal = write_journal(entries)
         for _path_text, path, _original, mode, updated in entries:
             atomic_write(path, updated, mode)

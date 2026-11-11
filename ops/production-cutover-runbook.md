@@ -197,9 +197,9 @@ separate change window both pass.
    leave all live files untouched:
    ```bash
    python3 /opt/raising-game-demo/ops/nginx-upstream-switch.py \
-     --file-backup '/etc/nginx/sites-enabled/5vips.com=raising_game_app=4175:4174' \
-     --file-backup '/etc/nginx/sites-enabled/chat.5vips.com=raising_game_app_chat=4175:4174' \
-     --file-backup '/etc/nginx/sites-enabled/live.123vipeak.com=raising_game_app_live=4175:4174' \
+     --file-backup '/etc/nginx/sites-enabled/default=raising_game_app=4174:4175' \
+     --file-backup '/etc/nginx/sites-enabled/chat.5vips.com=raising_game_app_chat=4174:4175' \
+     --file-backup '/etc/nginx/sites-enabled/live.123vipeak.com=raising_game_app_live=4174:4175' \
      --health-url https://123vips.com/api/health \
      --health-url https://chat.5vips.com/api/health \
      --health-url https://live.123vipeak.com/api/health \
