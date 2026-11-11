@@ -8442,35 +8442,134 @@ async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit
 async function getAdminDashboardStatsFromDb() {
   if (!dbEnabled()) return null;
   await ensureSchema();
-  const { rows } = await query(`
-    SELECT
-      (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL) AS users,
-      (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL AND role = 'admin') AS admins,
-      (SELECT COALESCE(SUM(credits), 0) FROM app_users WHERE deleted_at IS NULL) AS total_credits,
-      (SELECT COUNT(*)::int FROM app_user_characters WHERE deleted_at IS NULL) AS user_characters,
-      (SELECT COALESCE(SUM(
-        CASE WHEN jsonb_typeof(payload->'sceneVideos') = 'object'
-          THEN (SELECT COUNT(*) FROM jsonb_object_keys(payload->'sceneVideos'))
-          ELSE 0
-        END
-      ), 0)::int FROM app_user_characters WHERE deleted_at IS NULL) AS user_scene_videos,
-      (SELECT COUNT(*)::int FROM app_wallet_orders) AS wallet_orders,
-      (SELECT COUNT(*)::int FROM app_wallet_orders WHERE status = 'pending') AS pending_orders,
-      (SELECT COUNT(*)::int FROM app_generation_records) AS generation_records,
-      (SELECT COUNT(*)::int FROM app_sessions) AS sessions,
-      (SELECT COUNT(*)::int FROM app_user_assets WHERE deleted_at IS NULL) AS user_assets
-  `);
-  const row = rows[0] || {};
+  const [summary, generationSummary, generationStatuses, generationModels, generationProviders, recentFailures] = await Promise.all([
+    query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL) AS users,
+        (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'Asia/Bangkok') AT TIME ZONE 'Asia/Bangkok') AS users_today,
+        (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL AND created_at >= NOW() - INTERVAL '7 days') AS users_7d,
+        (SELECT COUNT(DISTINCT user_id)::int FROM app_sessions WHERE user_id <> '' AND (expires_at IS NULL OR expires_at > NOW())) AS logged_in_users,
+        (SELECT COUNT(DISTINCT payload->>'userId')::int FROM app_generation_records WHERE COALESCE(payload->>'userId', '') <> '' AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'Asia/Bangkok') AT TIME ZONE 'Asia/Bangkok') AS generating_users_today,
+        (SELECT COUNT(DISTINCT payload->>'userId')::int FROM app_generation_records WHERE COALESCE(payload->>'userId', '') <> '' AND created_at >= NOW() - INTERVAL '7 days') AS generating_users_7d,
+        (SELECT COUNT(DISTINCT user_id)::int FROM app_wallet_orders WHERE status = 'paid' AND created_at >= NOW() - INTERVAL '7 days') AS paying_users_7d,
+        (SELECT COUNT(*)::int FROM app_wallet_orders) AS wallet_orders,
+        (SELECT COUNT(*)::int FROM app_wallet_orders WHERE status = 'pending') AS pending_orders,
+        (SELECT COUNT(*)::int FROM app_user_assets WHERE deleted_at IS NULL) AS user_assets,
+        (SELECT COALESCE(SUM(credits), 0) FROM app_users WHERE deleted_at IS NULL) AS total_credits
+    `),
+    query(`
+      WITH records AS (
+        SELECT
+          LOWER(COALESCE(payload->>'status', '')) AS status,
+          LOWER(COALESCE(NULLIF(payload->>'billingStatus', ''), NULLIF(payload->'billing'->>'status', ''))) AS billing_status,
+          created_at,
+          updated_at
+        FROM app_generation_records
+      )
+      SELECT
+        COUNT(*)::int AS generation_records,
+        COUNT(*) FILTER (WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'Asia/Bangkok') AT TIME ZONE 'Asia/Bangkok')::int AS generation_today,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS generation_7d,
+        COUNT(*) FILTER (WHERE status IN ('succeeded', 'success', 'done', 'completed'))::int AS generation_succeeded,
+        COUNT(*) FILTER (WHERE status IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed', 'unknown', 'reference_failed', 'rejected'))::int AS generation_failed,
+        COUNT(*) FILTER (WHERE status IN ('queued', 'pending', 'submitted', 'running', 'processing', 'generating', 'submitting', 'preparing', 'image_uploaded'))::int AS generation_running,
+        COUNT(*) FILTER (WHERE billing_status = 'refunded' OR status = 'refunded')::int AS generation_refunded,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND status IN ('succeeded', 'success', 'done', 'completed'))::int AS succeeded_7d,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND status IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed', 'unknown', 'reference_failed', 'rejected'))::int AS failed_7d,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND (billing_status = 'refunded' OR status = 'refunded'))::int AS refunded_7d,
+        ROUND(AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) * 1000) FILTER (
+          WHERE created_at >= NOW() - INTERVAL '7 days'
+            AND status IN ('succeeded', 'success', 'done', 'completed')
+            AND updated_at >= created_at
+        ))::bigint AS avg_duration_ms_7d
+      FROM records
+    `),
+    query(`
+      SELECT LOWER(COALESCE(NULLIF(payload->>'status', ''), 'unknown')) AS status, COUNT(*)::int AS count
+      FROM app_generation_records
+      WHERE created_at >= NOW() - INTERVAL '7 days'
+      GROUP BY 1
+      ORDER BY count DESC, status ASC
+    `),
+    query(`
+      SELECT COALESCE(
+        NULLIF(payload->>'model', ''),
+        NULLIF(payload->'params'->>'model', ''),
+        NULLIF(payload->>'modelVersion', ''),
+        'unknown'
+      ) AS model, COUNT(*)::int AS count
+      FROM app_generation_records
+      WHERE created_at >= NOW() - INTERVAL '7 days'
+      GROUP BY 1
+      ORDER BY count DESC, model ASC
+      LIMIT 20
+    `),
+    query(`
+      SELECT COALESCE(
+        NULLIF(payload->>'provider', ''),
+        CASE WHEN COALESCE(payload->>'source', '') LIKE '%platform%' THEN 'apiz' ELSE 'seedance' END
+      ) AS provider, COUNT(*)::int AS count
+      FROM app_generation_records
+      WHERE created_at >= NOW() - INTERVAL '7 days'
+      GROUP BY 1
+      ORDER BY count DESC, provider ASC
+      LIMIT 20
+    `),
+    query(`
+      SELECT task_id, payload->>'userId' AS user_id, payload->>'username' AS username,
+        COALESCE(NULLIF(payload->>'model', ''), NULLIF(payload->'params'->>'model', ''), 'unknown') AS model,
+        COALESCE(NULLIF(payload->>'provider', ''), 'unknown') AS provider,
+        LOWER(COALESCE(payload->>'status', 'unknown')) AS status,
+        COALESCE(payload->>'error', '') AS error,
+        created_at,
+        updated_at
+      FROM app_generation_records
+      WHERE LOWER(COALESCE(payload->>'status', '')) IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed', 'unknown', 'reference_failed', 'rejected')
+      ORDER BY updated_at DESC
+      LIMIT 10
+    `),
+  ]);
+  const row = summary.rows[0] || {};
+  const generation = generationSummary.rows[0] || {};
+  const succeeded7d = Number(generation.succeeded_7d || 0);
+  const failed7d = Number(generation.failed_7d || 0);
   return {
     users: Number(row.users || 0),
-    admins: Number(row.admins || 0),
+    usersToday: Number(row.users_today || 0),
+    users7d: Number(row.users_7d || 0),
+    loggedInUsers: Number(row.logged_in_users || 0),
+    generatingUsersToday: Number(row.generating_users_today || 0),
+    generatingUsers7d: Number(row.generating_users_7d || 0),
+    payingUsers7d: Number(row.paying_users_7d || 0),
     totalCredits: Number(row.total_credits || 0),
-    userCharacters: Number(row.user_characters || 0),
-    userSceneVideos: Number(row.user_scene_videos || 0),
     walletOrders: Number(row.wallet_orders || 0),
     pendingOrders: Number(row.pending_orders || 0),
-    generationRecords: Number(row.generation_records || 0),
-    sessions: Number(row.sessions || 0),
+    generationRecords: Number(generation.generation_records || 0),
+    generationToday: Number(generation.generation_today || 0),
+    generation7d: Number(generation.generation_7d || 0),
+    generationSucceeded: Number(generation.generation_succeeded || 0),
+    generationFailed: Number(generation.generation_failed || 0),
+    generationRunning: Number(generation.generation_running || 0),
+    generationRefunded: Number(generation.generation_refunded || 0),
+    succeeded7d,
+    failed7d,
+    refunded7d: Number(generation.refunded_7d || 0),
+    successRate7d: succeeded7d + failed7d > 0 ? Math.round((succeeded7d / (succeeded7d + failed7d)) * 1000) / 10 : 0,
+    avgDurationMs7d: Number(generation.avg_duration_ms_7d || 0),
+    generationStatuses: generationStatuses.rows.map((item) => ({ status: String(item.status || 'unknown'), count: Number(item.count || 0) })),
+    generationModels: generationModels.rows.map((item) => ({ model: String(item.model || 'unknown'), count: Number(item.count || 0) })),
+    generationProviders: generationProviders.rows.map((item) => ({ provider: String(item.provider || 'unknown'), count: Number(item.count || 0) })),
+    recentFailures: recentFailures.rows.map((item) => ({
+      taskId: String(item.task_id || ''),
+      userId: String(item.user_id || ''),
+      username: String(item.username || ''),
+      model: String(item.model || 'unknown'),
+      provider: String(item.provider || 'unknown'),
+      status: String(item.status || 'unknown'),
+      error: String(item.error || ''),
+      createdAt: toIsoString(item.created_at),
+      updatedAt: toIsoString(item.updated_at),
+    })),
     userAssets: Number(row.user_assets || 0),
   };
 }

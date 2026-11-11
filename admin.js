@@ -201,6 +201,22 @@ function fmtDate(value) {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
 }
 
+function fmtCount(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number.toLocaleString("zh-CN") : "0";
+}
+
+function fmtDurationMs(value) {
+  const ms = Math.max(0, Number(value || 0));
+  if (!ms) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${rest}s`;
+}
+
 function fmtRelative(value) {
   if (!value) return "—";
   const t = new Date(value).getTime();
@@ -701,13 +717,15 @@ async function renderDashboard() {
   const dashboard = await api("/api/admin/dashboard");
   if (!isActiveRoute("dashboard")) return;
   const s = dashboard.stats || {};
-  const visits = dashboard.characterVisits || {};
-  const visitRows = visits.rows || [];
   const risk = dashboard.risk || {};
   const riskEvents = Array.isArray(risk.events) ? risk.events : [];
   const usersByHour = Array.isArray(risk.usersByHour) ? risk.usersByHour : [];
   const usersByChannel = Array.isArray(risk.usersByChannel) ? risk.usersByChannel : [];
   const recentUsers = Array.isArray(risk.recentUsers) ? risk.recentUsers : [];
+  const statusRows = Array.isArray(s.generationStatuses) ? s.generationStatuses : [];
+  const modelRows = Array.isArray(s.generationModels) ? s.generationModels : [];
+  const providerRows = Array.isArray(s.generationProviders) ? s.generationProviders : [];
+  const recentFailures = Array.isArray(s.recentFailures) ? s.recentFailures : [];
   const peakHour = usersByHour.reduce((best, row) => Number(row.count || 0) > Number(best?.count || 0) ? row : best, null);
   const automationEvents = riskEvents.filter((row) => /automation|failed|locked|rate_limited/.test(String(row.type || ""))).reduce((sum, row) => sum + Number(row.count || 0), 0);
 
@@ -716,60 +734,78 @@ async function renderDashboard() {
       <div class="adm-page-head">
         <div>
           <h2>仪表盘</h2>
-          <p class="adm-muted">用户、角色、充值和系统角色访问的关键指标。</p>
+          <p class="adm-muted">用户增长、活跃情况与生成任务执行情况。</p>
         </div>
         <div class="adm-page-actions">
           <button class="adm-btn adm-btn-ghost" data-act="refresh"><i data-lucide="refresh-cw"></i>刷新</button>
         </div>
       </div>
 
+      <h3 class="adm-subhead">用户数据</h3>
       <div class="adm-grid adm-grid-4">
-        ${statCard("用户总数", s.users, `${s.admins || 0} 名管理员`, "users-round", "rose")}
-        ${statCard("系统角色", s.adminCharacters, "后台创建角色数量", "user-round", "violet")}
-        ${statCard("角色 PV", visits.pv || visits.total || 0, `${visits.home || 0} 首页进入`, "eye", "mint")}
-        ${statCard("角色 UV", visits.uv || 0, "90 天哈希位图估算", "users", "amber")}
-        ${statCard("用户自定义角色", s.userCharacters, `${s.userSceneVideos || 0} 个用户场景视频`, "user-plus", "rose")}
-        ${statCard("钱包订单", s.walletOrders, `${s.pendingOrders || 0} 待确认`, "wallet", "violet")}
-        ${statCard("生成历史", s.generationRecords, "任务记录总数", "history", "mint")}
-        ${statCard("用户素材库", s.userAssets, "上传图片素材数量", "images", "amber")}
+        ${statCard("用户总数", fmtCount(s.users), "当前有效注册账号", "users-round", "rose")}
+        ${statCard("今日新增", fmtCount(s.usersToday), peakHour ? `峰值 ${fmtDate(peakHour.hour).slice(5)} · ${fmtCount(peakHour.count)} 人` : "暂无今日注册", "user-plus", "violet")}
+        ${statCard("近 7 日新增", fmtCount(s.users7d), "滚动 7 天注册账号", "user-round", "mint")}
+        ${statCard("有效登录用户", fmtCount(s.loggedInUsers), "当前未过期会话去重用户", "log-in", "amber")}
       </div>
 
       <div class="adm-grid adm-grid-4">
-        ${statCard("24h 新增用户", risk.totalUsers || 0, peakHour ? `峰值 ${fmtDate(peakHour.hour)} · ${peakHour.count} 人` : "暂无注册数据", "user-plus", "rose")}
-        ${statCard("登录失败/风控事件", automationEvents, `${risk.loginFailures || 0} 次失败记录`, "shield-alert", "amber")}
-        ${statCard("当前锁定账号", risk.lockedAccounts || 0, "登录失败达到阈值的账号/IP", "lock", "violet")}
-        ${statCard("自动注册事件", riskEvents.find((row) => row.type === "auth_automation_registration")?.count || 0, "PowerShell/curl/无 UA 等客户端", "bot", "mint")}
+        ${statCard("今日生成用户", fmtCount(s.generatingUsersToday), "今天创建过生成任务", "wand-sparkles", "rose")}
+        ${statCard("近 7 日生成用户", fmtCount(s.generatingUsers7d), "7 天内有生成行为", "activity", "violet")}
+        ${statCard("近 7 日付费用户", fmtCount(s.payingUsers7d), `${fmtCount(s.pendingOrders)} 笔订单待确认`, "badge-dollar-sign", "mint")}
+        ${statCard("用户素材库", fmtCount(s.userAssets), "当前有效上传素材", "images", "amber")}
+      </div>
+
+      <h3 class="adm-subhead adm-mt">生成任务执行</h3>
+      <div class="adm-grid adm-grid-4">
+        ${statCard("任务总数", fmtCount(s.generationRecords), `近 7 日 ${fmtCount(s.generation7d)} 条`, "history", "violet")}
+        ${statCard("今日任务", fmtCount(s.generationToday), "按任务创建时间统计", "calendar-clock", "rose")}
+        ${statCard("执行中", fmtCount(s.generationRunning), "等待、排队或处理中", "loader-circle", "amber")}
+        ${statCard("近 7 日成功率", `${Number(s.successRate7d || 0).toFixed(1)}%`, "成功 /（成功 + 失败）", "circle-check-big", "mint")}
+      </div>
+
+      <div class="adm-grid adm-grid-4">
+        ${statCard("近 7 日成功", fmtCount(s.succeeded7d), `累计成功 ${fmtCount(s.generationSucceeded)}`, "circle-check", "mint")}
+        ${statCard("近 7 日失败", fmtCount(s.failed7d), `累计失败 ${fmtCount(s.generationFailed)}`, "circle-x", "rose")}
+        ${statCard("近 7 日退款", fmtCount(s.refunded7d), `累计退款 ${fmtCount(s.generationRefunded)}`, "rotate-ccw", "amber")}
+        ${statCard("近 7 日平均耗时", fmtDurationMs(s.avgDurationMs7d), "成功任务从创建到完成", "timer", "violet")}
       </div>
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>注册与登录风控（近 24 小时）</h3>
+          <h3>用户注册与登录风控（近 24 小时）</h3>
           <div class="adm-page-actions">
             <span class="adm-badge adm-badge-muted">${escapeHtml(risk.hours || 24)}h</span>
             <button class="adm-btn adm-btn-ghost adm-btn-sm" data-act="risk-refresh"><i data-lucide="refresh-cw"></i>刷新</button>
           </div>
         </header>
         <div class="adm-card-body">
+          <div class="adm-chip-list">
+            <span class="adm-chip">24h 新增: <strong>${fmtCount(risk.totalUsers)}</strong></span>
+            <span class="adm-chip">登录失败: <strong>${fmtCount(risk.loginFailures)}</strong></span>
+            <span class="adm-chip">锁定账号: <strong>${fmtCount(risk.lockedAccounts)}</strong></span>
+            <span class="adm-chip">风控事件: <strong>${fmtCount(automationEvents)}</strong></span>
+          </div>
           ${usersByHour.length || usersByChannel.length || riskEvents.length ? `
-            <div class="adm-grid adm-grid-2">
+            <div class="adm-grid adm-grid-2 adm-mt">
               <div>
                 <h4 class="adm-subhead">按小时注册量</h4>
-                ${usersByHour.length ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>时间</th><th>注册数</th></tr></thead><tbody>${usersByHour.map((row) => `<tr><td>${fmtDate(row.hour)}</td><td><strong>${escapeHtml(row.count || 0)}</strong></td></tr>`).join("")}</tbody></table></div>` : '<div class="adm-empty"><p>暂无注册数据。</p></div>'}
+                ${usersByHour.length ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>时间</th><th>注册数</th></tr></thead><tbody>${usersByHour.map((row) => `<tr><td>${fmtDate(row.hour)}</td><td><strong>${fmtCount(row.count)}</strong></td></tr>`).join("")}</tbody></table></div>` : '<div class="adm-empty"><p>暂无注册数据。</p></div>'}
               </div>
               <div>
                 <h4 class="adm-subhead">注册渠道与风控事件</h4>
                 <div class="adm-chip-list">
-                  ${usersByChannel.map((row) => `<span class="adm-chip">${escapeHtml(row.channel || "direct")}: <strong>${escapeHtml(row.count || 0)}</strong></span>`).join("")}
-                  ${riskEvents.map((row) => `<span class="adm-chip">${escapeHtml(row.type || "event")}: <strong>${escapeHtml(row.count || 0)}</strong></span>`).join("")}
+                  ${usersByChannel.map((row) => `<span class="adm-chip">${escapeHtml(row.channel || "direct")}: <strong>${fmtCount(row.count)}</strong></span>`).join("")}
+                  ${riskEvents.map((row) => `<span class="adm-chip">${escapeHtml(row.type || "event")}: <strong>${fmtCount(row.count)}</strong></span>`).join("")}
                 </div>
               </div>
             </div>
-          ` : '<div class="adm-empty"><i data-lucide="shield-check"></i><p>暂无风控数据。</p></div>'}
+          ` : '<div class="adm-empty adm-mt"><i data-lucide="shield-check"></i><p>暂无风控数据。</p></div>'}
           ${recentUsers.length ? `
             <h4 class="adm-subhead adm-mt">最近注册账号</h4>
             <div class="adm-table-wrap">
-              <table class="adm-table"><thead><tr><th>用户名</th><th>渠道</th><th>角色</th><th>注册时间</th></tr></thead><tbody>
-                ${recentUsers.slice(0, 12).map((user) => `<tr><td class="adm-mono">${escapeHtml(user.username || "")}</td><td>${escapeHtml(user.channel || "direct")}</td><td>${escapeHtml(user.role || "user")}</td><td>${fmtDate(user.createdAt)}</td></tr>`).join("")}
+              <table class="adm-table"><thead><tr><th>用户名</th><th>渠道</th><th>注册时间</th></tr></thead><tbody>
+                ${recentUsers.slice(0, 12).map((user) => `<tr><td class="adm-mono">${escapeHtml(user.username || "")}</td><td>${escapeHtml(user.channel || "direct")}</td><td>${fmtDate(user.createdAt)}</td></tr>`).join("")}
               </tbody></table>
             </div>
           ` : ""}
@@ -778,27 +814,51 @@ async function renderDashboard() {
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>系统角色访问统计</h3>
-          <a class="adm-btn adm-btn-ghost adm-btn-sm" href="#/characters"><i data-lucide="arrow-up-right"></i>查看角色</a>
+          <h3>近 7 日任务分布</h3>
+          <span class="adm-badge adm-badge-muted">${fmtCount(s.generation7d)} 条任务</span>
         </header>
-        <div class="adm-card-body adm-table-wrap">
-          ${visitRows.length ? `
-            <table class="adm-table adm-dashboard-table">
-              <thead><tr><th>角色</th><th>PV</th><th>UV</th><th>首页进入</th><th>直接/外部</th><th>最后访问</th></tr></thead>
-              <tbody>
-                ${visitRows.map((row) => `
-                  <tr>
-                    <td><strong>${escapeHtml(row.name || row.id)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(row.id || "")}</span></td>
-                    <td>${escapeHtml(row.pv ?? row.total ?? 0)}</td>
-                    <td>${escapeHtml(row.uv || 0)}</td>
-                    <td>${escapeHtml(row.home || 0)}</td>
-                    <td>${escapeHtml(row.direct || 0)}</td>
-                    <td>${fmtRelative(row.lastSeen)}</td>
-                  </tr>`).join("")}
-              </tbody>
-            </table>` : '<div class="adm-empty"><i data-lucide="bar-chart-3"></i><p>暂无系统角色访问数据。</p></div>'}
+        <div class="adm-card-body">
+          <div class="adm-grid adm-grid-3">
+            <div>
+              <h4 class="adm-subhead">按状态</h4>
+              <div class="adm-chip-list">${statusRows.length ? statusRows.map((row) => `<span class="adm-chip">${escapeHtml(row.status || "unknown")}: <strong>${fmtCount(row.count)}</strong></span>`).join("") : '<span class="adm-muted">暂无任务</span>'}</div>
+            </div>
+            <div>
+              <h4 class="adm-subhead">按模型</h4>
+              <div class="adm-chip-list">${modelRows.length ? modelRows.map((row) => `<span class="adm-chip">${escapeHtml(shortText(row.model || "unknown", 34))}: <strong>${fmtCount(row.count)}</strong></span>`).join("") : '<span class="adm-muted">暂无任务</span>'}</div>
+            </div>
+            <div>
+              <h4 class="adm-subhead">按渠道</h4>
+              <div class="adm-chip-list">${providerRows.length ? providerRows.map((row) => `<span class="adm-chip">${escapeHtml(row.provider || "unknown")}: <strong>${fmtCount(row.count)}</strong></span>`).join("") : '<span class="adm-muted">暂无任务</span>'}</div>
+            </div>
+          </div>
         </div>
       </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>最近失败任务</h3>
+          <a class="adm-btn adm-btn-ghost adm-btn-sm" href="#/records"><i data-lucide="arrow-up-right"></i>查看生成记录</a>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          ${recentFailures.length ? `
+            <table class="adm-table adm-dashboard-table">
+              <thead><tr><th>任务</th><th>用户</th><th>模型 / 渠道</th><th>状态</th><th>错误</th><th>更新时间</th></tr></thead>
+              <tbody>
+                ${recentFailures.map((row) => `
+                  <tr>
+                    <td><code class="adm-mono" title="${escapeHtml(row.taskId || "")}">${escapeHtml(shortText(row.taskId || "-", 34))}</code><span class="adm-block adm-muted">${fmtDate(row.createdAt)}</span></td>
+                    <td><strong>${escapeHtml(row.username || row.userId || "-")}</strong><span class="adm-block adm-mono">${escapeHtml(shortText(row.userId || "", 20))}</span></td>
+                    <td>${escapeHtml(shortText(row.model || "unknown", 34))}<span class="adm-block adm-muted">${escapeHtml(row.provider || "unknown")}</span></td>
+                    <td>${statusPill(row.status)}</td>
+                    <td class="adm-record-prompt-cell" title="${escapeHtml(row.error || "")}">${escapeHtml(shortText(row.error || "-", 150))}</td>
+                    <td>${fmtRelative(row.updatedAt || row.createdAt)}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>` : '<div class="adm-empty"><i data-lucide="circle-check"></i><p>暂无失败任务。</p></div>'}
+        </div>
+      </div>
+
     </section>
   `;
   els.adminContent.querySelector('[data-act="refresh"]')?.addEventListener("click", () => routeFromHash());

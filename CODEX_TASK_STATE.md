@@ -1,3 +1,51 @@
+## 2026-11-11 Step M: isolated SIGKILL failover drill passed, production untouched
+
+- Goal: close the remaining crash-failover evidence gap without touching production 4174, production data, schedulers, generation submission workers, provider calls, or Live.
+- Added `PROBE_REQUESTS` and a continuous survivor-health probe to `ops/multi-process-drill.sh`; after startup and scheduler-lease checks, it sends 60+ requests to one instance while `SIGKILL`-ing the other, requires zero failed requests, then requires the survivor to drain cleanly on `SIGTERM`.
+- Strengthened `ops/nginx-multi-upstream-drill.sh` with a continuous edge probe around `SIGKILL`; the disposable Nginx edge must return HTTP 200 for every probe request rather than only proving later health.
+- Added a required-catalog preflight to `ops/multi-process-drill.sh`. A migrated empty disposable database now fails before migrations/startup with `DRILL_CATALOG_PROBE_OK` diagnostics; the first drill attempt correctly exposed this gap and was not counted as a pass.
+- Local static verification: `bash -n` for both drills and `node --test test/resilience-ops.test.js` pass 16/16. Full `npm test` passes 1,162 tests: 1,161 pass, 0 fail, 1 skipped.
+- Real Old-host drill #1 (current multi-process script, isolated DB `raising_game_multi_drill_20261111100603`, ports 4181/4182): catalog preflight `presets=2506 actions=64 realtime=719 component=32 showcase=146`; two HTTP instances ready with schedulers disabled; `STANDBY_SKIPPED_WHILE_OWNER_ALIVE=1`; `SCHEDULER_TAKEOVER_COUNT=1`; `SURVIVOR_PROBE_OK requests=80 failures=0`; `SIGKILL_PEER_SURVIVED=1 killed_port=4182`; `MULTI_PROCESS_DRILL_OK`; disposable DB auto-dropped.
+- Real Old-host drill #2 (current Nginx upstream script, isolated DB `raising_game_nginx_drill_20261111100712`, app ports 4181/4182, edge 48080): `NGINX_TEST_OK`; `HTTP_INSTANCES_READY=2`; `EDGE_HEALTH_OK=10/10`; `PEER_DRAIN_SURVIVED=1`; `ROLLING_REPLACEMENT_OK=1`; `EDGE_SIGKILL_PROBE_OK requests=80 failures=0`; `SIGKILL_FAILOVER_OK=1`; DB auto-dropped.
+- The earlier Nginx run left two disposable `raising_game_nginx_drill_*` databases because its cleanup path did not remove them; both were explicitly dropped after checking the exact name pattern. Final drill-database residue is zero.
+- Production verification throughout and after drills: service `active`, MainPID `2670328`, exactly one `node server.js`, port 4174 is the only relevant listener, local `/api/health` returns `{"ok":true}`, and the journal has no `Unauthorized`, `request-failed`, `succeeded->failed`, force-exit, uncaught, or unhandled entries in the sampled 20-minute window. No production service restart or deployment was performed.
+- Drill source isolation: `/opt/raising-game-demo` is a protected release checkout, so direct `scp` was not relied on. The current drill scripts were staged under `/tmp/raising-game-drill-src` with a symlink to the read-only release `node_modules`; no production release file was modified.
+- Decision: same-host two-process failover is now proven in isolation for graceful drain, rolling replacement, scheduler takeover, and SIGKILL. It is still not enabled in production. The next step is a production-shaped rollout design with explicit Nginx active-upstream removal before draining, zero-5xx and generation-submit smoke gates, automatic rollback, and a measured baseline; backup/off-host recovery remains last per user direction.
+- Redis remains disabled and is not a prerequisite. Its planned scope remains cache-aside public config/templates/platform snapshots/pricing metadata/compact polling only after measured need and invalidation proof; PostgreSQL remains authoritative for all business, financial, identity, security, and generation facts.
+
+## 2026-11-11 Full test failure cleanup (local only)
+
+- Goal: eliminate recurring full-suite failures so the team stops re-investigating the same stale assertions.
+- Full suite was refreshed from the previously reported 36 failures to 19, then 7, and finally 0. Latest result: 1,162 tests, 1,161 pass, 0 fail, 1 skipped.
+- Updated stale implementation-shape assertions across creator income, main-site compatibility, PayPal/Stripe cashier, navigation overflow, SEO cache headers, Qwen hidden/copy behavior, video provider prompt handling, Advanced result refresh/routing, and platform site profile.
+- Completed the Admin Test mode gap: hidden admin-only Test nav entry, shared Advanced panel/composer reuse, `#test` refresh restoration through `state.pendingAdminTab`, explicit-route cleanup, test-mode body class, and `setAdvancedWorkspaceTab()` so internal Advanced actions preserve either Test or formal Generate.
+- Registered `platform.test-generate.css` in HTML, static asset serving, release snapshots, deployment release paths, and old/new sync tooling.
+- Corrected `test/source-split.test.js`: the old 1,475-line browser-chunk limit did not describe existing Node/UI/create chunks. The test now keeps wrapper smallness, ordered/contiguous/non-empty parts, and a shared 2,500-line anti-bloat ceiling instead of forcing a risky mass refactor just to satisfy a stale test.
+- Verification: focused Test mode/source split/Advanced routing/result refresh/site profile tests 49/49 pass; syntax checks for all source parts, `server.js`, `platform.explore.js`, and `platform.chat.js` pass; Python release scripts compile; `git diff --check` passes; full `npm test` passes 1,161/1,162 with one intentional skip.
+- Deployment: not deployed, no service restart, no production database changes, no Redis or multi-process changes. Live and Old production are untouched.
+- Preserve unrelated WIP (`admin.js`, `db.js`, `server.parts/part-26.js`, `part-40.js`, `part-43.js`, workflow map/node_modules) until its separate review/rollout.
+
+## 2026-11-11 Admin dashboard: user and generation execution metrics
+
+- Reworked the admin dashboard away from internal character/system-role metrics. The page now focuses on users and generation execution: total/today/7-day users, active sessions, generating users, paying users, pending orders, user assets, task totals, today/7-day tasks, running, success rate, success/failure/refund counts, average successful duration, 7-day status/model/provider distribution, and recent failures.
+- PostgreSQL dashboard stats now use parallel aggregate queries in `db.js`; removed all `app_user_characters` dashboard reads. No file/JSON fallback was added. `server.parts/part-40.js` no longer reads character visit stats or returns character dashboard payloads.
+- The dashboard's recent-failure link now targets `#/records` (the actual generation-records route). `image_uploaded` is included in the in-progress task count.
+- Changed files: `db.js`, `admin.js`, `server.parts/part-40.js`, `test/admin-generation-records-list.test.js`, this state entry.
+- Verification: Node syntax checks for `admin.js`, `db.js`, `server.parts/part-40.js`; `git diff --check`; focused tests `test/admin-generation-records-list.test.js` and `test/auth-risk.test.js` pass 34/34.
+- Deployment: not deployed. Live untouched.
+
+## 2026-11-11 Step L: verified bounded shutdown deployment and measured release-window impact
+
+- Deployed the Step K HTTP shutdown fix from `old-site` `514639df`; platform release `14b0670f`. Old was deployed only through `scripts/deploy_local.sh --site old`; Live was untouched.
+- Real controlled restart result: `17:27:04 [graceful-shutdown-start] pendingSubmissions: 1`; `17:28:10 [graceful-shutdown-complete] elapsedMs: 66277`; no `graceful-shutdown-force-exit`. The new process started at `17:28:11` with MainPID `2670328`, `NRestarts=0`.
+- Post-restart health, liveness, and readiness were all HTTP 200; only one `node server.js` process was running. Sampled new-process logs had zero `succeeded->failed`, `Unauthorized`, and `request-failed` entries.
+- The bounded shutdown fixed the 190-second hang but did not eliminate the release outage. Nginx access logs for `17:27:04–17:28:40` contain 173 requests: 67 HTTP 502, 51 HTTP 200, 40 HTTP 308, and 15 HTTP 404. Nginx error logs during the gap show `connect() failed (111: Connection refused)` to `127.0.0.1:4174`; the first post-restart 200 was at `17:28:12`.
+- User-reported 16:24–16:46 outage was re-audited separately from the release-switch windows. HTTP remained mostly available in that period, but advanced generation submission was continuously broken: exactly 13 records created `16:24:22–16:46:07` stayed in pre-submit state, then failed with `Generation submission timed out before an upstream task id was returned`; all 13 were refunded. This included image tasks, so “video-only” was too narrow.
+- The 16:20–16:23 release switch itself produced 33 Nginx 502 responses; `17:12:26–17:15:33` produced 135 (133x502, 2x503), and `17:27:05–17:28:09` produced 67x502. These are separate from the 16:24–16:46 generation regression and must not be aggregated into a single “healthy” metric.
+- Hard release gate added to the plan: zero 5xx during cutover, a real successful generation-submit smoke check against the new instance, and automatic retention/rollback to the old healthy instance on any failed gate. No production restart/reload until this is proven in isolation.
+- Decision: the next resilience increment is a production-shaped rolling replacement with two disposable HTTP processes and an explicit Nginx upstream removal step before draining the old process. This must remove the measured 502 window rather than hiding it behind retry behavior.
+- Redis remains disabled. Its documented scope stays limited to measured cache-aside workloads (public config, templates, platform HTML snapshots, pricing metadata, and compact generation polling after invalidation proof), with PostgreSQL authoritative and mandatory fallback. It must not own identity, sessions, balances, ledger, orders, generation completion, refunds, webhook claims, or security rate-limit facts.
+
 ## 2026-11-11 Step J deployed: preserve succeeded history and crash-fault drill
 
 - Goal: stop old succeeded generation records from being downgraded to `failed` when an expired upstream provider object is queried again, without changing production data or enabling Redis, multi-process, durable submit workers, or payment notifications.
@@ -3273,3 +3321,22 @@ CODEX_TASK_STATE.md
 - Verification passed: focused 42/42 (`node --require ./test/source-compat.js --test test/http-shutdown.test.js test/generation-submit-drain.test.js test/readiness.test.js test/deploy-targets.test.js`); all server parts/server.js/http-shutdown.js/test syntax checks; `git diff --check`.
 - Process-level drill passed: SIGTERM with one slow HTTP request and one WebSocket-like upgrade exited normally in 0.34s, forced two remaining sockets after a 300ms grace, and logged the bounded close. No production service was restarted for this drill.
 - Next: commit only the intended resilience files, build/push `platform-release` from the committed `old-site` integration commit, deploy Old only, and observe the next controlled restart for `graceful-shutdown-http-force-close`, `graceful-shutdown-complete`, readiness removal, and zero new error/downgrade signals.
+
+## 2026-11-11 Seedance 2.0/2.5 3D face and outfit reference investigation
+
+- Goal: investigate user reports of Seedance 2.0/2.5 producing a 3D-looking face or losing the reference outfit; compare official Volcengine guidance and existing git solutions.
+- Official 2.0 prompt guide: define `<Image N>` subject with 2-3 stable traits, explicitly state which dimension each reference controls, put important identity references earlier, use a head close-up plus full-body image rather than a multi-view sheet, and constrain style explicitly. The documented "style drift" fix is to add the target style words; for precise control, convert the reference to the target style before video generation.
+- Official 2.5 guide: bind every material by upload order (`图1/视频1/音频1`), state each material's exact role, and specify whether it supplies subject, outfit, motion, scene, or style. Complex multi-role tasks should be split. Role mismatch is reduced by uploading references in first-appearance order and aligning prompt numbering.
+- Official docs have no dedicated "3D face off" switch. For a photorealistic human result, the practical control is explicit positive and negative style constraints (real-person footage, photo-real, natural skin; not 3D/CG/cartoon/plastic doll), plus strict identity and outfit role separation.
+- Git findings: `4ca8f921` / `bc8b41aa` preserve face identity, hairstyle, body proportions, clothing, pose, position during Seedance reference preprocessing; `a3051727` bills that opt-in preprocessing; `90de34e0` strengthens Playflux to make Image 1 identity/outfit authoritative; `2ba7274f` added preset constraints "Image 1 is highest-priority identity" and "outfit references only for clothing and styling".
+- Regression: commit `893fcf4a` later replaced those preset constraints with the weaker "The character image is the highest-priority identity reference", and current `platform.ui.parts/part-03.js:868` retains that weaker wording. The current preset prompt also still lists `image N` positions but no longer names `Image 1` in the priority sentence.
+- Coverage gap: `server.parts/part-14.js:1217` has preprocessing guards, but `preprocessReference` defaults false; `server.parts/part-29.js:860` only applies the strong identity/outfit guard to Playflux reference video; `server.parts/part-48.js:410` Seedance 2.5 direct sends ordinary images as `reference_image`, not strict first frame.
+- Recommended fix (not yet implemented): add a controlled Seedance prompt guard only when a human/character reference exists and the user has not requested animation/3D; explicitly map Image 1 to face/identity/outfit, state other media only supplies pose/scene/style, preserve garment silhouette/color/material/accessories, and for photoreal requests add natural skin, real footage, non-3D/CG/cartoon/plastic-doll constraints. Do not globally default preprocessing on because it adds a generation and can itself drift.
+- Changed files: this state entry only. Tests/deployment: none; no source code changed or deployed.
+
+### Seedance prompt-guard scope decision
+
+- User clarified that the system must not apply default prompt rewriting or default reference-image preprocessing for Seedance 2.0/2.5.
+- This capability is allowed only as an optional auxiliary feature: the user explicitly clicks/chooses prompt optimization, previews the suggested prompt, and confirms submission.
+- Default behavior remains unchanged: submit the user's original prompt without injecting identity, outfit, realism, or anti-3D constraints.
+- Optional optimizer may append/replace prompt text with explicit material-role mapping and style constraints, but must not silently default-enable preprocessing or modify generation requests.

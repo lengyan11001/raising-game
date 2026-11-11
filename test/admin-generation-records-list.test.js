@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const db = fs.readFileSync(path.join(__dirname, "..", "db.js"), "utf8");
-const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+const server = require("../server-source").readServerSource();
 const admin = fs.readFileSync(path.join(__dirname, "..", "admin.js"), "utf8");
 
 test("admin generation list resolves exact users before broad payload search", () => {
@@ -86,9 +86,13 @@ test("admin dashboard uses one aggregate query instead of loading the entire app
   assert.notEqual(dashboardEnd, -1);
   const querySource = db.slice(dashboardStart, dashboardEnd);
   assert.match(querySource, /FROM app_users WHERE deleted_at IS NULL/);
-  assert.match(querySource, /FROM app_user_characters WHERE deleted_at IS NULL/);
   assert.match(querySource, /FROM app_wallet_orders/);
   assert.match(querySource, /FROM app_generation_records/);
+  assert.match(querySource, /users_today/);
+  assert.match(querySource, /generation_succeeded/);
+  assert.match(querySource, /successRate7d/);
+  assert.match(querySource, /recentFailures/);
+  assert.doesNotMatch(querySource, /app_user_characters/);
 
   const handlerStart = server.indexOf("async function handleAdminDashboard");
   const handlerEnd = server.indexOf("async function handleAdminListUsers", handlerStart + 1);
@@ -96,6 +100,14 @@ test("admin dashboard uses one aggregate query instead of loading the entire app
   assert.match(handlerSource, /requireAdmin\(req, res, \{ loadDb: false \}\)/);
   assert.match(handlerSource, /getAdminDashboardStatsFromDb\(\)/);
   assert.doesNotMatch(handlerSource, /readGenerationRecords\(\)/);
+  assert.doesNotMatch(handlerSource, /adminCharacters|characterVisits|userCharacters|userSceneVideos/);
+
+  const dashboardUi = admin.slice(admin.indexOf("async function renderDashboard"), admin.indexOf("function statCard", admin.indexOf("async function renderDashboard")));
+  assert.match(dashboardUi, /用户增长、活跃情况与生成任务执行情况/);
+  assert.match(dashboardUi, /generationStatuses/);
+  assert.match(dashboardUi, /最近失败任务/);
+  assert.match(dashboardUi, /href="#\/records"/);
+  assert.doesNotMatch(dashboardUi, /系统角色访问统计|用户自定义角色|角色 PV|角色 UV/);
 });
 
 test("admin overview uses paginated database readers instead of loading all records", () => {

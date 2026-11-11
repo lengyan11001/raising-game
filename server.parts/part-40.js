@@ -789,37 +789,46 @@ async function handleAdminRiskSummary(req, res, url = new URL("http://localhost"
 async function handleAdminDashboard(req, res) {
   const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
-  const [config, characterVisitStats, dashboardStats, riskSummary] = await Promise.all([
+  const [config, dashboardStats, riskSummary] = await Promise.all([
     readAppConfig(),
-    readGeoCharacterVisitStats(),
     dbEnabled() ? getAdminDashboardStatsFromDb() : Promise.resolve(null),
     dbEnabled() ? getRiskSummaryFromDb({ sinceHours: 24 }) : Promise.resolve(null),
   ]);
-  const items = Array.isArray(config.homeVideo?.items) ? config.homeVideo.items : [];
-  const characterVisits = adminCharacterVisitDashboardStats(items, characterVisitStats);
-  const sceneBindCount = items.reduce((sum, item) => sum + Object.keys(item.sceneVideos || {}).length, 0);
   const stats = dashboardStats || {
     users: (auth.db.users || []).length,
-    admins: (auth.db.users || []).filter((u) => u.role === "admin").length,
+    usersToday: 0,
+    users7d: 0,
+    loggedInUsers: 0,
+    generatingUsersToday: 0,
+    generatingUsers7d: 0,
+    payingUsers7d: 0,
     totalCredits: (auth.db.users || []).reduce((sum, u) => sum + Number(u.credits || 0), 0),
-    userCharacters: (auth.db.userCharacters || []).length,
-    userSceneVideos: (auth.db.userCharacters || []).reduce((sum, c) => sum + Object.keys(c.sceneVideos || {}).length, 0),
     walletOrders: (auth.db.walletOrders || []).length,
     pendingOrders: (auth.db.walletOrders || []).filter((o) => o.status === "pending").length,
     generationRecords: (auth.db.generationRecords || []).length,
-    sessions: (auth.db.sessions || []).length,
+    generationToday: 0,
+    generation7d: 0,
+    generationSucceeded: 0,
+    generationFailed: 0,
+    generationRunning: 0,
+    generationRefunded: 0,
+    succeeded7d: 0,
+    failed7d: 0,
+    refunded7d: 0,
+    successRate7d: 0,
+    avgDurationMs7d: 0,
+    generationStatuses: [],
+    generationModels: [],
+    generationProviders: [],
+    recentFailures: [],
     userAssets: (auth.db.userAssets || []).length,
   };
   return sendJson(res, 200, {
     ok: true,
     stats: {
       ...stats,
-      adminCharacters: items.length,
-      sceneBindings: sceneBindCount,
-      scenes: Array.isArray(config.scenes) ? config.scenes.length : 0,
     },
     activeHomeItemId: config.homeVideo?.activeItemId || "",
-    characterVisits,
     risk: riskSummary,
   });
 }
