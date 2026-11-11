@@ -16,6 +16,8 @@ TIMER_NAME="raising-game-watchdog.timer"
 DROPIN_DIR="$UNIT_DIR/$SERVICE_NAME.d"
 DROPIN_FILE="$DROPIN_DIR/50-dry-run.conf"
 STATE_FILE="${STATE_FILE:-/run/raising-game-watchdog.failures}"
+RESTART_STATE_FILE="${RESTART_STATE_FILE:-/run/raising-game-watchdog.restarts}"
+RESTART_PENDING_FILE="${RESTART_PENDING_FILE:-/run/raising-game-watchdog.restart.pending}"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -116,7 +118,7 @@ if [[ "$MODE" == "rollback" ]]; then
   "$SYSTEMCTL_BIN" stop "$SERVICE_NAME" >/dev/null 2>&1 || true
   rm -f "$UNIT_DIR/$TIMER_NAME" "$UNIT_DIR/$SERVICE_NAME"
   rm -rf "$DROPIN_DIR"
-  rm -f "$STATE_FILE"
+  rm -f "$STATE_FILE" "$RESTART_STATE_FILE" "$RESTART_PENDING_FILE"
   "$SYSTEMCTL_BIN" daemon-reload
   "$SYSTEMCTL_BIN" reset-failed "$TIMER_NAME" "$SERVICE_NAME" >/dev/null 2>&1 || true
   log "watchdog units removed; application service was not touched"

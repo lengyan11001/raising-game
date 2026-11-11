@@ -30,6 +30,9 @@ TARGETS = {
         "runtime_root": "/opt/raising-game-demo",
         "service": "raising-game-demo",
         "health_url": "https://123vips.com/api/health",
+        # Keep a stable stop deadline in the rendered release deployer. This
+        # prevents a stuck drain from holding the service restart indefinitely.
+        "stop_timeout_seconds": 300,
         "verify_urls": (
             "https://123vips.com/",
             "https://123vips.com/live.html",

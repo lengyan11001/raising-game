@@ -27,10 +27,10 @@ function run(command, args, options = {}) {
   return result.stdout;
 }
 
-function withTempDir(fn) {
+async function withTempDir(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "raising-game-resilience-"));
   try {
-    return fn(dir);
+    return await fn(dir);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -149,6 +149,8 @@ test("watchdog requires consecutive failures, re-arms dry-run, and resets after 
         HEALTH_URL: health.url,
         STATE_FILE: state,
         LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: path.join(dir, "restarts"),
+        RESTART_PENDING_FILE: path.join(dir, "restart.pending"),
         FAILURE_THRESHOLD: "3",
         WATCHDOG_DRY_RUN: "1",
         RESTART_COMMAND: `printf restart >> ${path.join(dir, "restart")}`,
@@ -193,6 +195,8 @@ test("watchdog restarts exactly once at threshold and skips inactive services", 
         HEALTH_URL: health.url,
         STATE_FILE: state,
         LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: path.join(dir, "restarts"),
+        RESTART_PENDING_FILE: path.join(dir, "restart.pending"),
         FAILURE_THRESHOLD: "2",
         WATCHDOG_DRY_RUN: "0",
         RESTART_COMMAND: `printf restart >> ${restart}`,
@@ -204,6 +208,14 @@ test("watchdog restarts exactly once at threshold and skips inactive services", 
       assert.equal((await invokeWatchdogAsync(env)).status, 0);
       assert.equal(fs.readFileSync(restart, "utf8"), "restart");
       assert.equal(fs.readFileSync(state, "utf8").trim(), "0");
+      assert.equal(fs.readFileSync(env.RESTART_STATE_FILE, "utf8").trim().split("\n").length, 1);
+      assert.equal(fs.existsSync(env.RESTART_PENDING_FILE), true);
+
+      assert.equal((await invokeWatchdogAsync(env)).status, 0);
+      const cooldown = await invokeWatchdogAsync(env);
+      assert.equal(cooldown.status, 0, cooldown.stderr);
+      assert.match(cooldown.stderr, /restart suppressed reason=cooldown/);
+      assert.equal(fs.readFileSync(restart, "utf8"), "restart");
 
       const bin = path.join(dir, "bin");
       fs.mkdirSync(bin);
@@ -219,6 +231,109 @@ test("watchdog restarts exactly once at threshold and skips inactive services", 
       assert.equal(skipped.status, 0, skipped.stderr);
       assert.match(skipped.stderr, /service is not active/);
       assert.equal(fs.existsSync(skippedState), false);
+    });
+  });
+});
+
+test("watchdog bounds restart attempts and blocks a tight failure loop", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      const state = path.join(dir, "failures");
+      const restarts = path.join(dir, "restarts");
+      const restart = path.join(dir, "restart");
+      const env = {
+        HEALTH_URL: health.url,
+        STATE_FILE: state,
+        LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: restarts,
+        RESTART_PENDING_FILE: path.join(dir, "restart.pending"),
+        FAILURE_THRESHOLD: "1",
+        WATCHDOG_DRY_RUN: "0",
+        RESTART_COOLDOWN_SECONDS: "3600",
+        RESTART_MAX_PER_HOUR: "2",
+        RESTART_COMMAND: `printf restart >> ${restart}`,
+      };
+      health.fail();
+      let result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /restart queued/);
+      assert.equal(fs.readFileSync(restart, "utf8"), "restart");
+
+      result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /restart suppressed reason=cooldown/);
+      assert.equal(fs.readFileSync(restart, "utf8"), "restart");
+
+      fs.writeFileSync(restarts, `${Math.floor(Date.now() / 1000)}\n${Math.floor(Date.now() / 1000)}\n`);
+      result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /restart suppressed reason=hourly_limit/);
+      assert.equal(fs.readFileSync(restart, "utf8"), "restart");
+    });
+  });
+});
+
+test("watchdog records dispatch failure and backs off instead of retrying every tick", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      const state = path.join(dir, "failures");
+      const restarts = path.join(dir, "restarts");
+      const env = {
+        HEALTH_URL: health.url,
+        STATE_FILE: state,
+        LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: restarts,
+        RESTART_PENDING_FILE: path.join(dir, "restart.pending"),
+        FAILURE_THRESHOLD: "1",
+        WATCHDOG_DRY_RUN: "0",
+        RESTART_COOLDOWN_SECONDS: "3600",
+        RESTART_MAX_PER_HOUR: "3",
+        RESTART_COMMAND: "exit 7",
+      };
+      health.fail();
+      let result = await invokeWatchdogAsync(env);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /restart dispatch failed/);
+      assert.equal(fs.existsSync(restarts), true);
+      assert.equal(fs.readFileSync(state, "utf8").trim(), "0");
+
+      result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /restart suppressed reason=cooldown/);
+    });
+  });
+});
+
+test("watchdog warm-up grace avoids checking health immediately after a restart", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      const bin = path.join(dir, "bin");
+      fs.mkdirSync(bin);
+      const fakeSystemctl = path.join(bin, "systemctl");
+      writeExecutable(fakeSystemctl, `#!/usr/bin/env bash
+if [[ "$1" == is-active ]]; then exit 0; fi
+if [[ "$1" == show ]]; then printf '10000000\n'; exit 0; fi
+exit 0
+`);
+      const uptime = path.join(dir, "uptime");
+      fs.writeFileSync(uptime, "20.00 30.00\n");
+      health.fail();
+      const result = await invokeWatchdogAsync({
+        PATH: `${bin}:${process.env.PATH}`,
+        HEALTH_URL: health.url,
+        STATE_FILE: path.join(dir, "failures"),
+        LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: path.join(dir, "restarts"),
+        RESTART_PENDING_FILE: path.join(dir, "restart.pending"),
+        UPTIME_FILE: uptime,
+        SERVICE_CHECK_ACTIVE: "1",
+        SERVICE: "raising-game-demo",
+        WARMUP_SECONDS: "45",
+        WATCHDOG_DRY_RUN: "0",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /service warm-up grace/);
+      assert.equal(fs.readFileSync(path.join(dir, "failures"), "utf8").trim(), "0");
     });
   });
 });

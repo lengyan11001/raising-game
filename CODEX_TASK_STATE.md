@@ -1,3 +1,13 @@
+## 2026-11-11 P2 watchdog restart safeguards and isolated restart drill
+
+- User asked to continue phase-by-phase without impacting online business; backup work remains deferred.
+- Read-only Old audit: `raising-game-demo` was `active`, `NRestarts=0`, MainPID `2511813`; systemd uses `Restart=always`, effective `RestartSec=2`, `WatchdogUSec=0`, and had no explicit `TimeoutStopSec`. A 2026-11-11 02:05 deploy stop previously hit `graceful-shutdown-force-exit elapsedMs=190009`, so long stop/restart behavior was confirmed as a real risk.
+- Watchdog now uses `systemctl --no-block restart`, a 45-second post-start warm-up, a 60-second minimum cooldown with exponential backoff capped at 900 seconds, and a hard limit of 3 restart dispatches per rolling hour. Dispatch failure is recorded and backs off. Rollback removes failure/restart/pending state only, still without touching the app.
+- Added tests for cooldown, rolling-hour cap, dispatch failure, warm-up, and installer rollback. `test/resilience-ops.test.js`: 11/11 pass.
+- Old target now pins `stop_timeout_seconds=300`; release deployment writes a stable `TimeoutStopSec` drop-in, while app graceful shutdown remains bounded at 180 seconds plus a 10-second force-exit guard.
+- Isolated Old systemd drill used disposable `raising-game-watchdog-drill.{service,timer}`, temporary Node health server on port 47841, and test-only state. Three failures produced exactly one asynchronous restart; cooldown blocked a tight loop; warm-up suppressed a transient startup failure; recovery cleared the pending marker. Drill units and temporary files were removed. Production stayed `active`, MainPID `2511813`, `NRestarts=0`.
+- Local verification so far: resilience tests 11/11, shell syntax, Python compile, `git diff --check`. Next: commit, build platform release, deploy Old, reinstall watchdog as dry-run first, then decide active mode after post-deploy verification.
+
 ## 2026-11-11 Watchdog dry-run observation (Old)
 
 - Observation window: 02:09:14–10:22 CST (about 8h13m), Old only; no config changes during observation.

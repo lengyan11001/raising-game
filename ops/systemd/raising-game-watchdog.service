@@ -13,5 +13,11 @@ Environment=SERVICE=raising-game-demo
 Environment=SERVICE_CHECK_ACTIVE=1
 Environment=STATE_FILE=/run/raising-game-watchdog.failures
 Environment=LOCK_FILE=/run/raising-game-watchdog.lock
+Environment=WARMUP_SECONDS=45
+Environment=RESTART_COOLDOWN_SECONDS=60
+Environment=RESTART_BACKOFF_MAX_SECONDS=900
+Environment=RESTART_MAX_PER_HOUR=3
+Environment=RESTART_STATE_FILE=/run/raising-game-watchdog.restarts
+Environment=RESTART_PENDING_FILE=/run/raising-game-watchdog.restart.pending
 ExecStart=/opt/raising-game-demo/ops/service-watchdog.sh
 Nice=10

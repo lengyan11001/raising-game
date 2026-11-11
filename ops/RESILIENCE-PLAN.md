@@ -66,17 +66,24 @@ until the off-host schedule and a restore drill have both been verified.
    one `would restart` event at the threshold without restarting the application.
 3. Require three consecutive `/api/livez` failures before an actual restart; reset the counter on
    success and after one dry-run alert so observation does not repeatedly page on the same outage.
-4. Enable actual restarts only with `--mode active --confirm-active` after the dry-run observation
+4. Skip health decisions during a 45-second post-start warm-up, then use asynchronous
+   `systemctl --no-block restart` so a slow graceful drain cannot stall the watchdog itself.
+5. Enforce a 60-second minimum restart cooldown with exponential backoff up to 15 minutes, and a
+   hard limit of three dispatches per rolling hour. Dispatch failure is recorded and also backs off.
+6. Enable actual restarts only with `--mode active --confirm-active` after the dry-run observation
    window is healthy and the rollback path has been tested.
-5. Roll back with `--mode rollback`. It disables/removes only the watchdog units and never restarts
+7. Roll back with `--mode rollback`. It disables/removes only the watchdog units and never restarts
    `raising-game-demo`.
-6. Preserve Nginx-level readiness and graceful shutdown. Do not use `/api/health` as the restart
+8. Preserve Nginx-level readiness and graceful shutdown. Do not use `/api/health` as the restart
    signal because it intentionally remains a shallow liveness contract.
 
-The 2026-11-11 Old drill used isolated unit names, URL, state file, and a fake service manager.
-The timer stayed stable while healthy, produced exactly one dry-run alert after three failures,
-reset after recovery, and skipped checks when the service was inactive. Production remained
-`active` with `NRestarts=0` throughout.
+The 2026-11-11 Old dry-run drill used isolated unit names, URL, state file, and a fake service
+manager. The timer stayed stable while healthy, produced exactly one dry-run alert after three
+failures, reset after recovery, and skipped checks when the service was inactive. A second
+isolated systemd drill exercised a real asynchronous restart of a disposable local service:
+three failures dispatched exactly one restart, no duplicate loop followed, the 45-second warm-up
+window suppressed false failure checks, and post-restart recovery cleared the pending marker.
+Production remained `active` with `NRestarts=0` throughout.
 
 ### P3 - Capacity review
 
