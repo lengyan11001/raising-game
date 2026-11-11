@@ -51,6 +51,9 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deployPull, /--verify-status/);
   assert.match(deployPull, /--verify-private-media/);
   assert.match(deployPull, /--post-restart-command/);
+  assert.match(deployPull, /pre_restart_check = "true" if args\.no_restart else/);
+  assert.match(deployPull, /post_restart_check = "true" if args\.no_restart else/);
+  assert.match(deploySite, /args\.no_restart or target\.get\("requires_restart"\) is False/);
   assert.match(deploySite, /"post_restart_commands": \(\s*"\/opt\/raising-game-demo\/ops\/harden-old-nginx-private-media\.sh"/s);
   assert.match(deploySite, /91-stop-timeout\.conf/);
   assert.match(deploySite, /TimeoutStopSec=300/);

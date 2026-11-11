@@ -215,6 +215,7 @@ PLATFORM_RELEASE_PATHS = (
     "platform.html",
     "platform.css",
     "platform.prompt-editor.css",
+    "platform.test-generate.css",
     "platform*.js",
     "vendor/vipeak-prompt-editor.js",
     "admin.html",
@@ -352,7 +353,7 @@ def main() -> None:
     if target.get("runtime_root"):
         print(f"[deploy-site] runtime_root={target['runtime_root']}")
     print(f"[deploy-site] service={target['service']}")
-    print(f"[deploy-site] restart={'no' if target.get('requires_restart') is False else 'yes'}")
+    print(f"[deploy-site] restart={'no' if args.no_restart or target.get('requires_restart') is False else 'yes'}")
     print(f"[deploy-site] health_url={target['health_url']}")
     for verify_url in target.get("verify_urls", ()):
         print(f"[deploy-site] verify_url={verify_url}")

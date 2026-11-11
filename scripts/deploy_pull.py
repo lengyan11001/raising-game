@@ -493,8 +493,8 @@ if nginx -T 2>/dev/null | grep -Eq '^[[:space:]]*alias[[:space:]]+/opt/raising-g
 fi
 """
 
-    pre_restart_check = "\n".join(args.pre_restart_command) or "true"
-    post_restart_check = "\n".join(args.post_restart_command) or "true"
+    pre_restart_check = "true" if args.no_restart else ("\n".join(args.pre_restart_command) or "true")
+    post_restart_check = "true" if args.no_restart else ("\n".join(args.post_restart_command) or "true")
     stop_timeout_q = shlex.quote(str(args.stop_timeout_seconds))
     service_q = shlex.quote(args.service)
 
