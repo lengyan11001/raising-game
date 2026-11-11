@@ -3551,3 +3551,10 @@ CODEX_TASK_STATE.md
 - Added defense in depth: `scripts/deploy_site.py` now exports `DEPLOY_NO_RESTART=1` when `--no-restart` is selected, and `scripts/deploy_pull.py` promotes that environment variable to `args.no_restart = True`. This prevents a dropped child argument from silently enabling pre/post restart commands, drop-ins, or `systemctl restart`. Regression assertions added to `test/deploy-targets.test.js`; focused suite passes `10/10`.
 - Current production: release `54bdee6b`, MainPID `3028789`, `NRestarts=0`, ActiveEnterTimestamp `2026-11-11 20:27:06 CST`, 4174/4175 listening, health 200, upstreams still 4174 only. The earlier PID `2690763` is no longer valid because of the unintended restart.
 - Next: commit the guard, rebuild/push the platform release, and perform only a fully verified no-restart deployment if needed. Before any Nginx backup conversion, audit and eliminate the source of the restart-enabled invocation. Redis remains disabled; backup remains last.
+
+## 2026-11-11 Step X: hardened release built, not deployed
+
+- Built platform release `b1c4f3036c109f707b923608d0598bd31e957757` from committed source `fef925f7534c815496a718f49ba61949df7124bd` (`Harden no-restart deployment guard`). Live release `a6459656` was built locally but not pushed.
+- Ran `git push --dry-run` for `platform-release`; the output showed the prospective `54bdee6b..b1c4f303` update. A subsequent `git ls-remote` confirmed the actual remote platform ref remains `54bdee6bfeef88c0b3ab96968f8d87fd2f1c3d33`, so `b1c4f303` is not pushed and live remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`.
+- Dry-run of the Old deployment entrypoint still reports `site=old`, `restart=no`, explicit platform release boundary checks, and no migration/Nginx post-restart actions in the printed plan.
+- Current production remains release `54bdee6b`, MainPID `3028789`, `NRestarts=0`, health 200 and upstream 4174 only. Do not launch a new production deployment until the unexpected restart invocation source is resolved or the new hardened path is used with a pre/post PID assertion.
