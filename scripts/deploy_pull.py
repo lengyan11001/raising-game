@@ -297,6 +297,8 @@ def main() -> None:
     parser.add_argument("--commit", help="Require the remote checkout to be exactly this commit after deployment.")
     parser.add_argument("--no-restart", action="store_true")
     args = parser.parse_args()
+    if os.environ.get("DEPLOY_NO_RESTART") == "1":
+        args.no_restart = True
     if not PASSWORD and not SSH_KEY:
         raise SystemExit("DEPLOY_SSH_KEY or FYSHARK_SSH_PASSWORD is required.")
     if SSH_KEY and not Path(SSH_KEY).is_file():

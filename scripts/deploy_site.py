@@ -408,6 +408,10 @@ def main() -> None:
         raise SystemExit(34)
     print("[deploy-site] release_boundary=ok")
     env = os.environ.copy()
+    if args.no_restart:
+        # A second, explicit channel prevents a dropped child argument from
+        # turning a code-only deployment into a live service restart.
+        env["DEPLOY_NO_RESTART"] = "1"
     env["DEPLOY_HOST"] = target["host"]
     env["DEPLOY_USER"] = env.get("DEPLOY_USER", "root")
     if key_path:
