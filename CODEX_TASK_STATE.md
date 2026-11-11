@@ -1,3 +1,15 @@
+## 2026-11-11 Step S: Old traffic cut over to 4175
+
+- Cutover applied at UTC `2026-11-11T11:29:35Z` with one journaled cross-file transaction. Output included `UPSTREAM_SWITCH_COMMIT_OK upstreams=3 files=3 health_urls=3`.
+- All three real upstreams now point to `127.0.0.1:4175`: `raising_game_app`, `raising_game_app_chat`, `raising_game_app_live`. The unused upstream was not touched.
+- New Nginx hashes:
+  - default `383e16a100bf9bd6c17d11f21ae56a6eaf02b5ee980ed071ba349c9c53702fbb`
+  - chat.5vips.com `af6aaed3f64b4a2b3c53bb8880da3943bad33324b438bfd4002e56ab7ae11549`
+  - live.123vipeak.com `1c08365162e15dc3fbf04589185fd34891a7863d7d8aa116f523ac30497140c1`
+- Immediate post-cutover verifier: `post` 12/12 passed. Primary PID remained `2690763`, `NRestarts=0`; secondary PID remained `2708105`, `NRestarts=1`; both processes stayed alive. 4174 remains the immediate rollback target.
+- First observation sample: primary RSS 267 MB/8.1% CPU, secondary 132 MB/0.5% CPU; DB 6–7/100 connections, 0 idle transactions, 0 lock waits, 0 deadlocks; public health/livez/readyz all 200; no relevant error logs.
+- Observation window is active. Do not stop 4174, enable schedulers/workers, alter Redis, or start backup work until all 30-minute gates pass.
+
 ## 2026-11-11 Step R: cross-file switch dry-run gate passed
 
 - Published cross-file transaction update: source `e8b7234e`, platform release `d0aa77c1`; deployed Old with `--no-restart`. Live was not pushed or deployed.
