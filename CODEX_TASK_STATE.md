@@ -1,4 +1,4 @@
-## 2026-11-11 Telegram notification claims and production test-data cleanup (ready for Old deployment)
+## 2026-11-11 Telegram notification claims and production test-data cleanup (deployed Old)
 
 - Goal remains staged single-node hardening without online disruption. Multi-process remains disabled; Live is untouched; backup remains deferred to the end.
 - Restored the production `raising_game_app` password from `/etc/raising-game-demo.env` without printing it, then verified a fresh application-role connection with `SELECT 1`. `raising-game-demo` remained `active` and `/api/health` returned HTTP 200.
@@ -8,7 +8,7 @@
 - Removed three production test orders (`order-debug-1794367154140`, `order-debug-1794367194093`, `order-debug-1794367242383`) only after confirming they all belonged to test user `u`; `order-debug-*` / `release-debug-*` residue is now zero. No real order matched or was changed.
 - Verification: notification unit tests 5 pass / 1 skip; P4 scheduler-lease, single-owner, video-tool, generation DB scope, resilience, site HTTP, submit drain, and DB import scope regression 50/50; syntax and `git diff --check` pass. Service is active and health returns HTTP 200 after cleanup.
 - Publish scope: `db.js`, `server.parts/part-01.js`, `server.parts/part-13.js`, `server.parts/part-33.js`, `test/payment-telegram-notifications.test.js`, `test/telegram-notification-claim.postgres.test.js`, and this state entry only. Preserve unrelated frontend/test-mode/canvas WIP.
-- Deployment: pending committed `old-site` -> `platform-release` -> `scripts/deploy_local.sh --site old`. Live must remain untouched.
+- Deployment: source `old-site` `c8691cf2`; platform release `884df004`; deployed Old only through `scripts/deploy_local.sh --site old`. Remote HEAD/PID were `884df00` / `2571414`, `active/running`, `NRestarts=0`, with one Node process. Internal `health/livez/readyz` all returned 200; external home/platform/health returned 200 in 0.33s/0.14s/0.10s. Five-minute journal check found no Telegram, lease, scheduler-pool, uncaught, unhandled, or pool-timeout errors. Sessions `976` with `0` expired; PostgreSQL had `0` idle-in-transaction, `0` lock waiters, no query over 3s, and `0` debug-order residue. Live was not deployed or changed.
 
 ## 2026-11-11 Canvas duplicate video and project thumbnail repair (deployed Old)
 
