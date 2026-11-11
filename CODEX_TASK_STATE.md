@@ -3150,6 +3150,19 @@ CODEX_TASK_STATE.md
 - Post-drill safety verification: production MainPID `2623209`, `NRestarts=0`, active/running, health 200; disposable database/role/directory counts all 0; recent service error scan 0.
 - Next gates: code review of the working diff, integration commit, release snapshot, controlled Old deployment with multi-process/Redis/generation queue remain disabled, then multi-process HTTP drill against a restored disposable snapshot. Do not enable multi-process or Redis until their separate gates pass. Preserve unrelated WIP (`platform.test-generate.css`, `test/platform-test-mode.test.js`, workflow artifacts/node_modules).
 
+## 2026-11-11 Step F deployed: durable request idempotency and generation submit jobs
+
+- Old-only increment committed as `c7c5bcbf`, platform release `3fe5021b`; `live-release` remained `f40e7a35` and was not pushed or deployed.
+- Added PostgreSQL-backed `app_request_idempotency` and `app_generation_submit_jobs` with lease fencing and durable results. Submission queue and worker remain default-off.
+- Corrected submit outcome handling: pre-dispatch failures are failed/refunded; only dispatched ambiguous outcomes become unknown. Added regression coverage.
+- Split newly oversized `part-25.js` into `part-25.js` plus `part-48.js`, and updated the media-body test to its new location.
+- Hardened `ops/multi-process-drill.sh`: requires an explicit disposable `DRILL_DATABASE_URL`, rejects database-name mismatch, disables schedulers in HTTP drill processes, avoids the production port, and is included in the platform release.
+- Verification: release-focused tracked tests 121/121; tracked full suite 1,131 tests with 1,100 pass, 30 known pre-existing failures, 1 skipped; affected Node syntax, shell syntax, Python compile, server-source compilation, and `git diff --check` pass.
+- Deploy preflight applied `2026-11-11-request-idempotency-v1` and `2026-11-11-generation-submit-jobs-v1`; the following dry-run showed pending 0 and five completed ledger rows.
+- Post-deploy: release `3fe5021b`, service `active/running`, MainPID `2641312`, `NRestarts=0`; five consecutive health/livez/readyz rounds all returned HTTP 200. Both new tables and expected columns exist; one Node process remains; queue/worker/Redis/Telegram-payment flags are effectively unset/default-off; drill script is executable in the release.
+- Important follow-up: the old MainPID 2623209 ran for about 190s after SIGTERM and hit the deploy stop deadline, logging `graceful-shutdown-force-exit` and exiting status 1 before the new process started. No new-process error occurred, but shutdown drain semantics and restart-time submission consistency need isolated tests before further deployment or multi-process rollout.
+- Host after deploy: load `0.38/0.39/0.38`, 5.6 GiB RAM available, disk 61% used.
+
 ## 2026-11-11 Step F pre-release: queue/idempotency review and split
 
 - Fixed `media-inputs` regression: `ensurePublicUrlForUserAsset()` merges into the persisted asset before `publicHttpUrlForUserAsset(asset)`, preserving the gateway image URL contract.
