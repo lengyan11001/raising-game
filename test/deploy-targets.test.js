@@ -57,6 +57,9 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deploySite, /env\["DEPLOY_NO_RESTART"\] = "1"/);
   assert.match(deployPull, /os\.environ\.get\("DEPLOY_NO_RESTART"\) == "1"/);
   assert.match(deployPull, /args\.no_restart = True/);
+  assert.match(deployPull, /no-restart main_pid_before=/);
+  assert.match(deployPull, /no-restart PID changed:/);
+  assert.match(deployPull, /no-restart PID unchanged:/);
   assert.match(deploySite, /"post_restart_commands": \(\s*"\/opt\/raising-game-demo\/ops\/harden-old-nginx-private-media\.sh"/s);
   assert.match(deploySite, /91-stop-timeout\.conf/);
   assert.match(deploySite, /TimeoutStopSec=300/);

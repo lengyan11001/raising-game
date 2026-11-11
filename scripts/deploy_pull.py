@@ -533,6 +533,10 @@ git fetch origin {args.branch}{(" " + shlex.quote(args.audit_base)) if args.audi
 # trying to merge or fast-forward the stale local branch.
 release_target=$(git rev-parse "origin/{args.branch}")
 git checkout --detach "$release_target"
+main_pid_before=$(systemctl show {service_q} -p MainPID --value 2>/dev/null || true)
+if [ {shlex.quote('' if args.no_restart else '1')} = 1 ]; then
+  echo "no-restart main_pid_before=$main_pid_before"
+fi
 {pre_restart_check}
 if [ {shlex.quote('' if args.no_restart else '1')} = 1 ]; then
   service_name={service_q}
@@ -576,6 +580,14 @@ fi
 # Mutating post-restart actions are deliberately health-gated. A failed app
 # start must not be compounded by changing the live Nginx edge.
 {post_restart_check}
+if [ {shlex.quote('' if args.no_restart else '1')} = 1 ]; then
+  main_pid_after=$(systemctl show {service_q} -p MainPID --value 2>/dev/null || true)
+  if [ "$main_pid_before" != "$main_pid_after" ]; then
+    echo "no-restart PID changed: before=$main_pid_before after=$main_pid_after" >&2
+    exit 38
+  fi
+  echo "no-restart PID unchanged: $main_pid_after"
+fi
 {verification_check}
 {commit_check}
 """

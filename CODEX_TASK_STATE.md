@@ -3558,3 +3558,5 @@ CODEX_TASK_STATE.md
 - Ran `git push --dry-run` for `platform-release`; the output showed the prospective `54bdee6b..b1c4f303` update. A subsequent `git ls-remote` confirmed the actual remote platform ref remains `54bdee6bfeef88c0b3ab96968f8d87fd2f1c3d33`, so `b1c4f303` is not pushed and live remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`.
 - Dry-run of the Old deployment entrypoint still reports `site=old`, `restart=no`, explicit platform release boundary checks, and no migration/Nginx post-restart actions in the printed plan.
 - Current production remains release `54bdee6b`, MainPID `3028789`, `NRestarts=0`, health 200 and upstream 4174 only. Do not launch a new production deployment until the unexpected restart invocation source is resolved or the new hardened path is used with a pre/post PID assertion.
+
+- Added a remote PID assertion to the hardened no-restart path: capture `MainPID` after checkout, re-read it after health verification, and exit `38` if it changed. `test/deploy-targets.test.js` remains `10/10`; Python compile and whitespace checks pass.
