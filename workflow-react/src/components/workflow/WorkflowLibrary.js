@@ -16,9 +16,11 @@ function coverUrl(project) {
 
 function projectPreviewMedia(project) {
   const image = coverUrl(project);
-  if (image) return { kind: 'image', url: image };
   const video = project.thumbnailVideoUrl || project.thumbnail_video_url || '';
-  return video ? { kind: 'video', url: video } : null;
+  // Generated videos also carry a durable poster. Show that poster first so a
+  // slow or expired video URL cannot turn the whole project card blank.
+  if (image) return { kind: 'image', url: image, poster: '' };
+  return video ? { kind: 'video', url: video, poster: '' } : null;
 }
 
 function previewNodes(project) {
@@ -184,6 +186,7 @@ export function WorkflowLibrary({ onOpen, onCreate, createSignal = 0, className 
                             <video
                               className="InspirationCanvas-card-thumbnail-video"
                               src={preview.url}
+                              poster={preview.poster || undefined}
                               muted
                               playsInline
                               preload="metadata"

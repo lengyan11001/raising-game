@@ -496,6 +496,18 @@ function workflowCanvasDisplayTime(value = "") {
   }
 }
 
+function workflowCanvasProjectPreview(canvas = {}) {
+  const imageUrl = String(canvas.thumbnailUrl || canvas.thumbnail_url || canvas.coverUrl || canvas.cover_url || "").trim();
+  const videoUrl = String(canvas.thumbnailVideoUrl || canvas.thumbnail_video_url || "").trim();
+  if (imageUrl) {
+    return `<div class="workflow-canvas-project-preview is-image"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(canvas.name || "画布预览")}" loading="lazy" decoding="async" /></div>`;
+  }
+  if (videoUrl) {
+    return `<div class="workflow-canvas-project-preview is-video"><video src="${escapeHtml(videoUrl)}" muted playsinline preload="metadata" aria-label="${escapeHtml(canvas.name || "画布预览")}"></video><span class="workflow-canvas-project-kind"><i data-lucide="play"></i></span></div>`;
+  }
+  return `<div class="workflow-canvas-project-preview is-placeholder"><i data-lucide="frames"></i><span>${escapeHtml(String(canvas.name || "画").slice(0, 1))}</span></div>`;
+}
+
 function renderWorkflowCanvasList() {
   const loading = !state.workflowCanvasesLoaded || state.workflowCanvasesLoading;
   const canvases = state.workflowCanvases || [];
@@ -512,7 +524,7 @@ function renderWorkflowCanvasList() {
     ${state.user && !loading && !canvases.length ? `<div class="workflow-canvas-empty"><i data-lucide="layout-dashboard"></i><strong>还没有画布项目</strong><p>点击“新增项目”开始。</p></div>` : ""}
     ${canvases.length ? `<div class="workflow-canvas-grid">${canvases.map((canvas) => `
       <article class="workflow-canvas-project" data-workflow-open-canvas="${escapeHtml(canvas.id)}" tabindex="0" role="button">
-        <div class="workflow-canvas-project-preview"><i data-lucide="frames"></i><span>${escapeHtml(String(canvas.name || "画").slice(0, 1))}</span></div>
+        ${workflowCanvasProjectPreview(canvas)}
         <div class="workflow-canvas-project-copy"><strong>${escapeHtml(canvas.name)}</strong><small>${escapeHtml(workflowCanvasDisplayTime(canvas.updatedAt || canvas.createdAt) || "刚刚")}</small></div>
         <button type="button" class="workflow-canvas-project-delete" data-workflow-delete-canvas="${escapeHtml(canvas.id)}" title="删除项目" aria-label="删除 ${escapeHtml(canvas.name)}"><i data-lucide="trash-2"></i></button>
       </article>

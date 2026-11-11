@@ -1,3 +1,12 @@
+## 2026-11-11 Canvas duplicate video preview and project thumbnail regression
+
+- User report: `炫酷方案_1777` result node `video-mwalp1po-x25w` still shows two videos in one preview node, and project-list thumbnails disappeared again.
+- Production data proof: the node has one actual output `cgt-20261110192224-951456.mp4`; durable fields (`resultVideoUrl`, `resultVideoUrls`, record CDN video) point to the same file, while `providerVideoUrl` / `remoteVideoUrl` are only provider mirrors. Feeding the persisted node into `workflowNodeOwnResultVideos()` returns exactly one URL. No generated child duplicates it.
+- Root cause of repeat regression: production was serving an older platform release and an old `canvas.js` hash (`702f8458...`) that did not include commit `923755ad`. Canvas asset URLs had no independent version fence.
+- Fix: explicit canvas asset version `canvas-20261111-3`; `platform.html` shell query updated; project cards render image/poster first and video only as fallback; React project list uses the same poster-first behavior; targeted regression added.
+- Verification: `workflow-canvases.test.js` 41/41; `platform.js` / `platform.workflow-canvases.js` syntax and `git diff --check` pass; canvas rebuilt at `workflow-react/dist/canvas.js`.
+- Deployment status: pending Old deployment and production verification.
+
 ## 2026-11-11 Telegram notification claims and production test-data cleanup (deployed Old)
 
 - Goal remains staged single-node hardening without online disruption. Multi-process remains disabled; Live is untouched; backup remains deferred to the end.
