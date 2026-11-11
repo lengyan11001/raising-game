@@ -9303,6 +9303,7 @@ module.exports = {
   normalizeTenantId,
   dbEnabled,
   ensureSchema,
+  getPool,
   getSchedulerPool,
   query,
   readAppDbFromTables,

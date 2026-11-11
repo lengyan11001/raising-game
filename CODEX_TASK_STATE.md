@@ -1,3 +1,14 @@
+## 2026-11-11 R0 operational baseline implementation
+
+- Goal: implement the first resilience measurement layer before changing process count, capacity, PostgreSQL tuning, or adopting Redis.
+- Runtime changes: process-local bounded request/status/latency/in-flight/byte metrics; cache hit/miss counters for platform HTML, public config, and Playflux templates; read-only PostgreSQL `pg_stat_database` counters for the current database; admin-only `GET /api/admin/operational-baseline`.
+- Safety boundaries: `BASELINE_METRICS_ENABLED=0` by default. When disabled, request URL parsing and instrumentation closures are bypassed entirely and the diagnostics route returns 404. No Redis dependency/client, schema change, durable state move, scheduler ownership change, multi-process change, or business-data write was added.
+- The endpoint requires a browser admin session, returns `private, no-store`, reports Redis as unconfigured/disabled, and exposes only bounded route labels rather than raw URLs/query strings. PostgreSQL remains authoritative.
+- Release packaging: added `baseline-metrics.js` and `db-operational-stats.js` to the platform snapshot allowlist and regression assertions.
+- Test drift fix: `test/auth-risk.test.js` no longer pins the platform CSS asset version to a past date; it validates that a non-empty cache-busting version is present.
+- Verification: touched JS syntax checks pass; operational baseline 9/9; readiness/auth-risk/resilience 53/53; platform-refresh 11/11; security regressions 26/26; site HTTP tests pass; combined server source compiles; `git diff --check` pass. `test/source-split.test.js` still fails because `server.parts/part-01.js` was already 1,693 lines at HEAD (now 1,726), above its 1,475-line limit; split refactor remains separate technical debt.
+- Deployment: pending commit, platform release snapshot, Old-only deployment with metrics default-off, followed by health/liveness/readiness, service restart count, process count, diagnostics 404, and latency checks. Live remains untouched. Multi-process remains disabled. Backup remains deferred.
+
 ## 2026-11-11 Remove legacy Modify action from generation asset cards (deployed Old)
 
 - User report: the Modify button on image cards in the generation result/assets area still jumped to the old advanced workspace and should be removed.

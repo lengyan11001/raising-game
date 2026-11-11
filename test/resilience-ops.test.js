@@ -94,6 +94,8 @@ function invokeWatchdogAsync(env) {
 
 test("resilience operations are included only in the platform release snapshot", () => {
   for (const file of [
+    "baseline-metrics.js",
+    "db-operational-stats.js",
     "ops/RESILIENCE-PLAN.md",
     "ops/REDIS-PLAN.md",
     "ops/service-watchdog.sh",

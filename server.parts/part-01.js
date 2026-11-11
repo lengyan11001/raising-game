@@ -96,6 +96,8 @@ const {
   publicWorkflowCanvasView,
 } = require("./workflow-canvases");
 const { getOurDreamPresetLibrary } = require("./ourdream-presets");
+const { createBaselineMetrics, envFlag, normalizeRouteName } = require("./baseline-metrics");
+const { createOperationalStatsReader } = require("./db-operational-stats");
 const {
   COMPANION_LEVELS,
   INTIMACY_STAGES,
@@ -139,6 +141,8 @@ const {
   DEFAULT_TENANT_ID,
   normalizeTenantId,
   dbEnabled,
+  query,
+  getPool,
   getSchedulerPool,
   readGeoVisitorStatsFromDb,
   recordGeoVisitorVisitInDb,
@@ -687,6 +691,35 @@ const GOOGLE_LOGIN_CLIENT_ID = String(process.env.GOOGLE_LOGIN_CLIENT_ID || "").
 const EMAIL_SMTP_CONFIG = smtpConfig();
 const EMAIL_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.EMAIL_LOGIN_ENABLED || "0").trim()) || smtpConfigured(EMAIL_SMTP_CONFIG);
 const processReadiness = createReadinessState();
+const BASELINE_METRICS_ENABLED = envFlag(process.env.BASELINE_METRICS_ENABLED, false);
+const baselineMetrics = createBaselineMetrics({
+  enabled: BASELINE_METRICS_ENABLED,
+  maxRoutes: process.env.BASELINE_METRICS_MAX_ROUTES,
+  reservoirSize: process.env.BASELINE_METRICS_RESERVOIR_SIZE,
+});
+const operationalStats = createOperationalStatsReader({
+  query,
+  getPool,
+  dbEnabled,
+});
+
+function baselineRouteLabel(pathname = "") {
+  const path = String(pathname || "");
+  if (path === "/api/health" || path === "/api/livez" || path === "/api/readyz") return path;
+  if (path === "/api/config/public") return path;
+  if (path === "/api/platform/playflux-templates") return path;
+  if (path === "/api/generation-records") return path;
+  if (/^\/api\/generation-records\/[^/]+$/.test(path)) return "/api/generation-records/:id";
+  if (/^\/api\/workflow-canvases(?:\/[^/]+)?$/.test(path)) return "/api/workflow-canvases/:id";
+  if (/^\/api\/admin\//.test(path)) return "/api/admin/*";
+  if (/^\/api\/auth\//.test(path)) return "/api/auth/*";
+  if (/^\/api\/billing\//.test(path)) return "/api/billing/*";
+  if (/^\/api\/pay\//.test(path)) return "/api/pay/*";
+  if (path.startsWith("/assets/")) return "/assets/*";
+  if (path === "/" || /\.html?$/.test(path)) return "html";
+  if (path.startsWith("/api/")) return normalizeRouteName(path.split("/").slice(0, 3).join("/") || "/api/*");
+  return "static";
+}
 const publicConfigCache = new Map();
 const publicPlayfluxTemplatesCache = new Map();
 const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();

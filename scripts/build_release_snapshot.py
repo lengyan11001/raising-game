@@ -51,6 +51,8 @@ PLATFORM_PATTERNS = (
     "chat.js",
     "server.js",
     "db.js",
+    "baseline-metrics.js",
+    "db-operational-stats.js",
     "readiness.js",
     "package.json",
     "lib-*.js",

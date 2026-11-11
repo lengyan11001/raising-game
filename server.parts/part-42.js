@@ -338,6 +338,41 @@ async function handleRequest(req, res) {
       return sendJson(res, readiness.statusCode, readiness.body);
     }
 
+    if (req.method === "GET" && url.pathname === "/api/admin/operational-baseline") {
+      if (!BASELINE_METRICS_ENABLED) {
+        return sendJson(res, 404, { ok: false, code: "DIAGNOSTICS_DISABLED", message: "Operational diagnostics are disabled." });
+      }
+      const auth = await requireAdmin(req, res, { loadDb: false });
+      if (!auth) return;
+      let database = null;
+      let databaseError = "";
+      try {
+        database = await operationalStats.read();
+      } catch (error) {
+        databaseError = String(error?.code || "DATABASE_STATS_UNAVAILABLE");
+        console.warn("[operational-baseline-db-stats-failed]", error.message || error);
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        process: {
+          pid: process.pid,
+          node: process.version,
+          uptimeSeconds: Math.round(process.uptime()),
+          readiness: liveView(processReadiness),
+          memory: process.memoryUsage(),
+          cpu: process.cpuUsage(),
+        },
+        requests: baselineMetrics.snapshot(),
+        database,
+        databaseError,
+        redis: {
+          configured: false,
+          enabled: false,
+          note: "Redis is not part of the R0 baseline and is not required.",
+        },
+      }, { cacheControl: "private, no-store" });
+    }
+
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/robots.txt") {
       return await handleRobotsTxt(req, res);
     }
@@ -400,6 +435,7 @@ async function handleRequest(req, res) {
       if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
       const cacheKey = `${requestHostname(req)}:${isToolOnly ? "tool" : "main"}`;
       let publicView = !auth.user ? publicConfigCache.get(cacheKey)?.value : null;
+      if (!auth.user) baselineMetrics.recordCache("public_config", Boolean(publicView));
       if (!publicView || publicConfigCache.get(cacheKey)?.expiresAt <= Date.now()) {
         let config = await readAppConfig({ includeHomeItems });
         if (!isToolOnly) {
@@ -443,7 +479,9 @@ async function handleRequest(req, res) {
       const tenantOptions = requestTenantOptions(req);
       const cacheKey = requestHostname(req);
       const cached = publicPlayfluxTemplatesCache.get(cacheKey);
-      if (cached && cached.expiresAt > Date.now()) {
+      const templatesCacheHit = Boolean(cached && cached.expiresAt > Date.now());
+      baselineMetrics.recordCache("playflux_templates", templatesCacheHit);
+      if (templatesCacheHit) {
         return sendJson(res, 200, { ok: true, templates: cached.value }, { cacheControl: "public, max-age=300, s-maxage=300, stale-while-revalidate=600" });
       }
       const config = await readAppConfig({ includeHomeItems: false });

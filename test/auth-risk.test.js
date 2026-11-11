@@ -300,7 +300,7 @@ test("anonymous support and chat report preserve source attribution", () => {
   assert.match(support, /"security notice", "telegram", "chat report"/);
   assert.match(chat, /source: "chat report"/);
   assert.match(explore, /source: els\.supportDialog\?\.dataset\.source/);
-  assert.match(html, /platform\.css\?v=[^"]*20261110/);
+  assert.match(html, /platform\.css\?v=[^"]+/);
 });
 
 test("logout requires confirmation and expired sessions clear stale account views", () => {

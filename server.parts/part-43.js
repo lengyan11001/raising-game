@@ -1,4 +1,26 @@
 const server = http.createServer((req, res) => {
+  if (BASELINE_METRICS_ENABLED) {
+    let routePath = "";
+    try { routePath = new URL(req.url || "/", "http://localhost").pathname; } catch {}
+    const route = baselineRouteLabel(routePath);
+    const endRequest = baselineMetrics.beginRequest(route);
+    const startedAt = baselineMetrics.monoNow();
+    let recorded = false;
+    const finalize = () => {
+      if (recorded) return;
+      recorded = true;
+      endRequest();
+      baselineMetrics.recordRequest({
+        route,
+        statusCode: res.statusCode,
+        durationMs: baselineMetrics.monoNow() - startedAt,
+        bytesInBytes: Number(req.headers["content-length"] || 0),
+        bytesOutBytes: Number(res.getHeader("content-length") || 0),
+      });
+    };
+    res.once("finish", finalize);
+    res.once("close", finalize);
+  }
   requestContext.run({ auth: null, appStateWriteLocked: false }, () => {
     Promise.resolve(handleRequest(req, res)).catch((error) => {
       console.error("[request-failed]", error.message || error);
@@ -750,6 +772,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  __httpServer: server,
   pathWithin,
   safePathWithin,
   safeAssetPathFromUrl,

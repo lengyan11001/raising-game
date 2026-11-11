@@ -1159,7 +1159,9 @@ async function platformHtmlSnapshot(req) {
   const now = Date.now();
   prunePlatformHtmlSnapshotCache(now);
   const cached = platformHtmlSnapshotCache.get(key);
-  if (cached && cached.expiresAt > now) return cached.promise;
+  const cacheHit = Boolean(cached && cached.expiresAt > now);
+  baselineMetrics.recordCache("platform_html", cacheHit);
+  if (cacheHit) return cached.promise;
   const pending = renderPlatformHtmlSnapshot(req);
   const entry = { promise: pending, expiresAt: now + PLATFORM_HTML_CACHE_TTL_MS };
   platformHtmlSnapshotCache.set(key, entry);
