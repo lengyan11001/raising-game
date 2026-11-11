@@ -586,6 +586,35 @@ function generationRecordAssetName(record = {}) {
   return String(base || "Generated video").trim().slice(0, 60) || "Generated video";
 }
 
+const generationAddAssetPromises = new Map();
+
+function generationRecordAssetMatchesTask(asset = {}, taskId = "") {
+  const id = String(taskId || "").trim();
+  if (!id || !asset || asset.deletedAt) return false;
+  return String(asset.sourceGenerationTaskId || "").trim() === id
+    || String(asset.generationTaskId || "").trim() === id
+    || String(asset.modifyTaskId || "").trim() === id;
+}
+
+function findGenerationRecordAddedAsset(assets = [], userId = "", taskId = "", resultAssetId = "") {
+  const available = (Array.isArray(assets) ? assets : [])
+    .filter((asset) => asset && asset.userId === userId && !isSoftDeleted(asset));
+  const directId = String(resultAssetId || "").trim();
+  if (directId) {
+    const direct = available.find((asset) => asset.id === directId);
+    if (direct) return direct;
+  }
+  return available.find((asset) => generationRecordAssetMatchesTask(asset, taskId)) || null;
+}
+
+function generationRecordAddedAssetId(userId = "", taskId = "") {
+  const digest = crypto.createHash("sha256")
+    .update(`generation-asset:${String(userId || "").trim()}:${String(taskId || "").trim()}`)
+    .digest("hex")
+    .slice(0, 24);
+  return `asset-${digest}`;
+}
+
 function generationRecordAddAssetStorageKey(record = {}, mediaUrl = "", { video = false } = {}) {
   if (video) return String(record.storageKey || "").trim();
   const keys = generationRecordImageStorageKeys(record);
@@ -596,6 +625,87 @@ function generationRecordAddAssetStorageKey(record = {}, mediaUrl = "", { video 
   const imageIndex = imageUrls.indexOf(String(mediaUrl || "").trim());
   if (imageIndex >= 0 && keys[imageIndex]) return String(keys[imageIndex]).trim();
   return String(record.imageStorageKey || record.storageKey || "").trim();
+}
+
+function generationRecordStoragePublicUrl(storage = {}) {
+  const key = String(storage.key || "").replace(/^\/+/, "");
+  if (!key) return "";
+  const baseUrl = storage.provider === "oss" ? OSS.cdnBaseUrl : storage.provider === "r2" ? R2.publicDomain : "";
+  if (!baseUrl) return "";
+  const encodedKey = key.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  return `${String(baseUrl).replace(/\/+$/, "")}/${encodedKey}`;
+}
+
+function generationRecordReferenceAssetCandidate(record = {}, {
+  assetId = randomId("asset"),
+  now = new Date().toISOString(),
+} = {}) {
+  if (!record || generationRecordR2Expired(record)) return null;
+  const imageUrl = generationRecordImageUrl(record);
+  const videoUrl = generationRecordVideoUrl(record);
+  const isVideo = !(imageUrl && !videoUrl);
+  const mediaUrl = String(isVideo ? videoUrl : imageUrl).trim();
+  if (!mediaUrl) return null;
+  const storageKey = generationRecordAddAssetStorageKey(record, mediaUrl, { video: isVideo });
+  const storage = objectStorageDownloadKey({
+    storageProvider: isVideo ? record.storageProvider : (record.imageStorageProvider || record.storageProvider),
+    storageKey,
+    objectStorageUrl: mediaUrl,
+  });
+  if (!storage.provider || !storage.key) return null;
+  const publicMediaUrl = generationRecordStoragePublicUrl(storage) || mediaUrl;
+  const mimePath = storage.key || mediaUrl;
+  const mime = isVideo
+    ? (videoMimeFromKnownPath(mimePath) || "video/mp4")
+    : (imageMimeFromKnownPath(mimePath) || "image/png");
+  const imageStorageKeys = generationRecordImageStorageKeys(record);
+  const imageUrls = [...new Set([
+    ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
+    record.cdnImageUrl,
+  ].map((value) => String(value || "").trim()).filter(Boolean))];
+  const imageIndex = imageUrls.indexOf(mediaUrl);
+  const imageKey = !isVideo && imageIndex >= 0 ? imageStorageKeys[imageIndex] : "";
+  const providerStorageKey = imageKey || String(record.storageKey || record.imageStorageKey || "").trim();
+  const posterUrl = String(record.cdnPosterUrl || record.posterUrl || record.thumbnailUrl || "").trim();
+  const posterStorageKey = String(record.posterStorageKey || "").trim();
+  return {
+    id: assetId,
+    userId: String(record.userId || "").trim(),
+    name: generationRecordAssetName(record),
+    mime,
+    localUrl: "",
+    publicUrl: publicMediaUrl,
+    cdnUrl: publicMediaUrl,
+    objectStorageKey: storage.key,
+    storageProvider: storage.provider,
+    sizeBytes: Number(record.sizeBytes || record.fileSizeBytes || record.outputSizeBytes || 0) || 0,
+    width: Number(record.width || record.imageWidth || 0) || 0,
+    height: Number(record.height || record.imageHeight || 0) || 0,
+    durationSeconds: isVideo ? durationSecondsFromValue(firstPresent(
+      record.durationSeconds,
+      record.videoDurationSeconds,
+      record.params?.durationSeconds,
+      record.params?.duration,
+    )) : 0,
+    ...(isVideo ? {
+      imageStorageKey: "",
+    } : {
+      imageStorageKey: providerStorageKey,
+      cdnImageStorageKey: providerStorageKey,
+    }),
+    ...(isVideo ? {
+      posterUrl,
+      thumbnailUrl: posterUrl,
+      coverUrl: posterUrl,
+      posterStorageKey,
+      posterObjectStorageKey: posterStorageKey,
+    } : {}),
+    sourceGenerationTaskId: String(record.taskId || "").trim(),
+    referenceOnly: true,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: "",
+  };
 }
 
 async function downloadGenerationRecordAddAssetMedia(record = {}, mediaUrl = "", {
@@ -740,56 +850,115 @@ async function handleAddGenerationRecordToAssets(req, res, taskId) {
   if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
   if (record.resultLocked === true) return sendJson(res, 423, { ok: false, code: "RESULT_LOCKED", message: "Unlock this result first." });
   if (!isSucceededStatus(record.status)) return sendJson(res, 400, { ok: false, message: "Generation is not completed yet." });
-  const existingAssetId = String(record.resultAssetId || "").trim();
-  if (existingAssetId) {
-    const existingAsset = (auth.db.userAssets || []).find((entry) => entry.id === existingAssetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
-    if (existingAsset) {
-      const mediaFields = generationRecordResultAssetMediaFields(existingAsset);
-      const missingFields = Object.fromEntries(Object.entries(mediaFields).filter(([key, value]) => String(value || "").trim() && !String(record[key] || "").trim()));
-      if (Object.keys(missingFields).length) {
-        await updateGenerationRecord(taskId, missingFields, "history-add-asset-backfill");
+  const addAssetKey = `${auth.user.id}:${taskId}`;
+  let addAssetPromise = generationAddAssetPromises.get(addAssetKey);
+  if (!addAssetPromise) {
+    addAssetPromise = (async () => {
+      const existingAsset = findGenerationRecordAddedAsset(auth.db.userAssets, auth.user.id, taskId, record.resultAssetId);
+      if (existingAsset) {
+        const mediaFields = generationRecordResultAssetMediaFields(existingAsset);
+        const missingFields = Object.fromEntries(Object.entries(mediaFields).filter(([key, value]) => String(value || "").trim() && !String(record[key] || "").trim()));
+        const missingLink = String(record.resultAssetId || "").trim() !== existingAsset.id;
+        if (Object.keys(missingFields).length || missingLink) {
+          await updateGenerationRecord(taskId, {
+            ...missingFields,
+            resultAssetId: existingAsset.id,
+            assetAddedAt: record.assetAddedAt || existingAsset.createdAt || new Date().toISOString(),
+          }, "history-add-asset-backfill");
+        }
+        return { asset: existingAsset, alreadyAdded: true };
       }
-      return sendJson(res, 200, { ok: true, asset: publicUserAsset(existingAsset), alreadyAdded: true });
-    }
+
+      const referenceAsset = generationRecordReferenceAssetCandidate(record, {
+        assetId: generationRecordAddedAssetId(auth.user.id, taskId),
+      });
+      if (referenceAsset) {
+        referenceAsset.userId = auth.user.id;
+        const isImageRecord = !String(referenceAsset.mime || "").startsWith("video/");
+        if (isImageRecord) {
+          if (String(record.kind || "").includes("character") || String(record.source || "").includes("character")) {
+            referenceAsset.sourceCharacterId = record.characterId || "";
+            referenceAsset.characterPrompt = record.prompt || "";
+            referenceAsset.characterFinalPrompt = record.finalPrompt || record.prompt || "";
+            referenceAsset.characterModel = record.model || "";
+            referenceAsset.characterTaskId = record.upstreamTaskId || record.taskId || "";
+            referenceAsset.characterParams = record.params || null;
+          }
+          if (record.userAssetId) referenceAsset.sourceAssetId = record.userAssetId;
+          if (Array.isArray(record.userAssetIds)) referenceAsset.sourceAssetIds = record.userAssetIds;
+          if (record.prompt) referenceAsset.modifyPrompt = record.prompt;
+          if (record.model) referenceAsset.modifyModel = record.model;
+          if (record.upstreamTaskId || record.taskId) referenceAsset.modifyTaskId = record.upstreamTaskId || record.taskId;
+          if (record.params) referenceAsset.modifyParams = record.params;
+        }
+        auth.db.userAssets = [
+          referenceAsset,
+          ...(auth.db.userAssets || []).filter((entry) => entry.id !== referenceAsset.id),
+        ];
+        if (dbEnabled()) await upsertUserAssetInDb(referenceAsset);
+        else await writeDb(auth.db);
+        await updateGenerationRecord(taskId, {
+          resultAssetId: referenceAsset.id,
+          assetAddedAt: new Date().toISOString(),
+          ...generationRecordResultAssetMediaFields(referenceAsset),
+          ...(isImageRecord ? {
+            cdnImageStorageKeys: [referenceAsset.objectStorageKey],
+          } : {}),
+        }, "history-add-asset-reference");
+        return { asset: referenceAsset, alreadyAdded: false };
+      }
+
+      const isImageRecord = Boolean(generationRecordImageUrl(record)) && !generationRecordVideoUrl(record);
+      const media = isImageRecord ? await bytesForGenerationRecordImage(record) : await bytesForGenerationRecordVideo(record);
+      const fileName = media.fileName || (isImageRecord ? `${taskId}${imageExtFromMime(media.mime)}` : `${taskId}.mp4`);
+      const asset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
+        bytes: media.bytes,
+        mime: isImageRecord
+          ? (media.mime && media.mime.startsWith("image/") ? media.mime : "image/png")
+          : (media.mime && media.mime.startsWith("video/") ? media.mime : "video/mp4"),
+        name: generationRecordAssetName(record),
+        fileName,
+        maxBytes: 30 * 1024 * 1024,
+        assetId: generationRecordAddedAssetId(auth.user.id, taskId),
+      });
+      asset.sourceGenerationTaskId = taskId;
+      if (isImageRecord) {
+        if (String(record.kind || "").includes("character") || String(record.source || "").includes("character")) {
+          asset.sourceCharacterId = record.characterId || "";
+          asset.characterPrompt = record.prompt || "";
+          asset.characterFinalPrompt = record.finalPrompt || record.prompt || "";
+          asset.characterModel = record.model || "";
+          asset.characterTaskId = record.upstreamTaskId || record.taskId || "";
+          asset.characterParams = record.params || null;
+        }
+        if (record.userAssetId) asset.sourceAssetId = record.userAssetId;
+        if (Array.isArray(record.userAssetIds)) asset.sourceAssetIds = record.userAssetIds;
+        if (record.prompt) asset.modifyPrompt = record.prompt;
+        if (record.model) asset.modifyModel = record.model;
+        if (record.upstreamTaskId || record.taskId) asset.modifyTaskId = record.upstreamTaskId || record.taskId;
+        if (record.params) asset.modifyParams = record.params;
+      }
+      asset.updatedAt = new Date().toISOString();
+      auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+      if (dbEnabled()) await upsertUserAssetInDb(asset);
+      else await writeDb(auth.db);
+      await updateGenerationRecord(taskId, {
+        resultAssetId: asset.id,
+        assetAddedAt: new Date().toISOString(),
+        ...generationRecordResultAssetMediaFields(asset),
+      }, "history-add-asset");
+      return { asset, alreadyAdded: false };
+    })().finally(() => {
+      if (generationAddAssetPromises.get(addAssetKey) === addAssetPromise) generationAddAssetPromises.delete(addAssetKey);
+    });
+    generationAddAssetPromises.set(addAssetKey, addAssetPromise);
   }
-  const isImageRecord = Boolean(generationRecordImageUrl(record)) && !generationRecordVideoUrl(record);
-  const media = isImageRecord ? await bytesForGenerationRecordImage(record) : await bytesForGenerationRecordVideo(record);
-  const fileName = media.fileName || (isImageRecord ? `${taskId}${imageExtFromMime(media.mime)}` : `${taskId}.mp4`);
-  const asset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
-    bytes: media.bytes,
-    mime: isImageRecord
-      ? (media.mime && media.mime.startsWith("image/") ? media.mime : "image/png")
-      : (media.mime && media.mime.startsWith("video/") ? media.mime : "video/mp4"),
-    name: generationRecordAssetName(record),
-    fileName,
-    maxBytes: 30 * 1024 * 1024,
+  const result = await addAssetPromise;
+  return sendJson(res, 200, {
+    ok: true,
+    asset: publicUserAsset(result.asset),
+    ...(result.alreadyAdded ? { alreadyAdded: true } : {}),
   });
-  if (isImageRecord) {
-    if (String(record.kind || "").includes("character") || String(record.source || "").includes("character")) {
-      asset.sourceCharacterId = record.characterId || "";
-      asset.characterPrompt = record.prompt || "";
-      asset.characterFinalPrompt = record.finalPrompt || record.prompt || "";
-      asset.characterModel = record.model || "";
-      asset.characterTaskId = record.upstreamTaskId || record.taskId || "";
-      asset.characterParams = record.params || null;
-    }
-    if (record.userAssetId) asset.sourceAssetId = record.userAssetId;
-    if (Array.isArray(record.userAssetIds)) asset.sourceAssetIds = record.userAssetIds;
-    if (record.prompt) asset.modifyPrompt = record.prompt;
-    if (record.model) asset.modifyModel = record.model;
-    if (record.upstreamTaskId || record.taskId) asset.modifyTaskId = record.upstreamTaskId || record.taskId;
-    if (record.params) asset.modifyParams = record.params;
-    asset.updatedAt = new Date().toISOString();
-    auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
-    if (dbEnabled()) await upsertUserAssetInDb(asset);
-    else await writeDb(auth.db);
-  }
-  await updateGenerationRecord(taskId, {
-    resultAssetId: asset.id,
-    assetAddedAt: new Date().toISOString(),
-    ...generationRecordResultAssetMediaFields(asset),
-  }, "history-add-asset");
-  return sendJson(res, 200, { ok: true, asset: publicUserAsset(asset) });
 }
 
 function publicUserAsset(asset = {}) {

@@ -372,3 +372,259 @@ test("adding a generated result prefers its durable OSS key and refreshes expire
   assert.notEqual(refreshed.searchParams.get("Signature"), "expired");
   assert.ok(Number(refreshed.searchParams.get("Expires")) > Math.floor(Date.now() / 1000));
 });
+
+test("adding a durable generated result creates a metadata-only asset link", () => {
+  const generationRecordReferenceAssetCandidate = new Function(
+    "randomId",
+    "generationRecordR2Expired",
+    "generationRecordImageUrl",
+    "generationRecordVideoUrl",
+    "generationRecordAddAssetStorageKey",
+    "generationRecordImageStorageKeys",
+    "objectStorageDownloadKey",
+    "generationRecordStoragePublicUrl",
+    "OSS",
+    "R2",
+    "generationRecordAssetName",
+    "imageMimeFromKnownPath",
+    "videoMimeFromKnownPath",
+    "durationSecondsFromValue",
+    "firstPresent",
+    `return (${extractFunction(source, "generationRecordReferenceAssetCandidate")});`,
+  )(
+    () => "asset-reference",
+    () => false,
+    (record) => record.cdnImageUrl || "",
+    () => "",
+    (record) => record.storageKey || "",
+    (record) => [record.storageKey].filter(Boolean),
+    ({ storageProvider, storageKey }) => ({ provider: storageProvider, key: storageKey }),
+    (storage) => storage.provider === "oss" ? `https://assets-cdn.123vips.com/${storage.key}` : "",
+    {},
+    {},
+    (record) => record.templateTitle || "Generated image",
+    () => "image/png",
+    () => "",
+    () => 0,
+    firstPresent,
+  );
+
+  const record = {
+    taskId: "img-reference-only",
+    userId: "user-1",
+    status: "succeeded",
+    templateTitle: "Portrait",
+    cdnImageUrl: "https://assets-cdn.123vips.com/generated/images/portrait.png?Expires=1&Signature=expired",
+    imageStorageProvider: "oss",
+    storageKey: "generated/images/portrait.png",
+  };
+  const asset = generationRecordReferenceAssetCandidate(record);
+  assert.equal(asset.objectStorageKey, record.storageKey);
+  assert.equal(asset.storageProvider, "oss");
+  assert.equal(asset.sourceGenerationTaskId, record.taskId);
+  assert.equal(asset.referenceOnly, true);
+  assert.equal(asset.localUrl, "");
+});
+
+test("adding the same generation result reuses its existing asset without another copy", async () => {
+  const generationAddAssetPromises = new Map();
+  let downloadCalls = 0;
+  let createCalls = 0;
+  let updatePayload = null;
+  const record = {
+    taskId: "img-already-added",
+    userId: "user-1",
+    status: "succeeded",
+    cdnImageUrl: "https://assets-cdn.123vips.com/generated/images/portrait.png",
+    storageKey: "generated/images/portrait.png",
+  };
+  const db = {
+    userAssets: [{
+      id: "asset-existing",
+      userId: "user-1",
+      mime: "image/png",
+      objectStorageKey: "generated/images/portrait.png",
+      publicUrl: record.cdnImageUrl,
+      sourceGenerationTaskId: record.taskId,
+      createdAt: "2026-11-11T00:00:00.000Z",
+      deletedAt: "",
+    }],
+  };
+  const handleAddGenerationRecordToAssets = new Function(
+    "requireUser",
+    "readGenerationRecords",
+    "isUserVisibleGenerationRecord",
+    "isSucceededStatus",
+    "findGenerationRecordAddedAsset",
+    "generationRecordAddedAssetId",
+    "generationAddAssetPromises",
+    "generationRecordReferenceAssetCandidate",
+    "generationRecordResultAssetMediaFields",
+    "updateGenerationRecord",
+    "publicUserAsset",
+    "generationRecordImageUrl",
+    "generationRecordVideoUrl",
+    "bytesForGenerationRecordImage",
+    "bytesForGenerationRecordVideo",
+    "createUserMediaAssetFromBytes",
+    "generationRecordAssetName",
+    "imageExtFromMime",
+    "dbEnabled",
+    "upsertUserAssetInDb",
+    "writeDb",
+    "sendJson",
+    `return (${extractFunction(source, "handleAddGenerationRecordToAssets")});`,
+  )(
+    async () => ({ user: { id: "user-1" }, db }),
+    async () => [record],
+    () => true,
+    (status) => status === "succeeded",
+    (assets, userId, taskId, resultAssetId) => {
+      const direct = assets.find((asset) => asset.id === resultAssetId && asset.userId === userId);
+      return direct || assets.find((asset) => asset.userId === userId && asset.sourceGenerationTaskId === taskId) || null;
+    },
+    () => "asset-deterministic",
+    generationAddAssetPromises,
+    () => {
+      throw new Error("reference asset should not be created for an existing asset");
+    },
+    () => ({ storageKey: "generated/images/portrait.png" }),
+    async (taskId, payload) => {
+      updatePayload = { taskId, payload };
+      return { ...record, ...payload };
+    },
+    (asset) => ({ ...asset, previewUrl: asset.publicUrl }),
+    () => record.cdnImageUrl,
+    () => "",
+    async () => {
+      downloadCalls += 1;
+      return { bytes: Buffer.from("unexpected"), mime: "image/png" };
+    },
+    async () => {
+      downloadCalls += 1;
+      return { bytes: Buffer.from("unexpected"), mime: "video/mp4" };
+    },
+    async () => {
+      createCalls += 1;
+      throw new Error("must not create a second asset");
+    },
+    () => "Portrait",
+    () => ".png",
+    () => false,
+    async () => null,
+    async () => null,
+    (res, statusCode, payload) => ({ statusCode, payload }),
+  );
+
+  const response = await handleAddGenerationRecordToAssets({}, {}, record.taskId);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.alreadyAdded, true);
+  assert.equal(response.payload.asset.id, "asset-existing");
+  assert.equal(downloadCalls, 0);
+  assert.equal(createCalls, 0);
+  assert.equal(updatePayload.payload.resultAssetId, "asset-existing");
+  assert.equal(generationAddAssetPromises.size, 0);
+});
+
+test("adding a durable generated result writes one reference asset and no media copy", async () => {
+  const generationAddAssetPromises = new Map();
+  let downloadCalls = 0;
+  let createCalls = 0;
+  let savedAsset = null;
+  let updatePayload = null;
+  const record = {
+    taskId: "img-reference-add",
+    userId: "user-1",
+    status: "succeeded",
+    cdnImageUrl: "https://assets-cdn.123vips.com/generated/images/portrait.png",
+    storageKey: "generated/images/portrait.png",
+  };
+  const db = { userAssets: [] };
+  const referenceAsset = {
+    id: "asset-reference",
+    userId: "user-1",
+    mime: "image/png",
+    name: "Portrait",
+    publicUrl: record.cdnImageUrl,
+    cdnUrl: record.cdnImageUrl,
+    objectStorageKey: record.storageKey,
+    storageProvider: "oss",
+    sourceGenerationTaskId: record.taskId,
+    localUrl: "",
+    deletedAt: "",
+  };
+  const freshReferenceAsset = () => ({ ...referenceAsset });
+  const handleAddGenerationRecordToAssets = new Function(
+    "requireUser",
+    "readGenerationRecords",
+    "isUserVisibleGenerationRecord",
+    "isSucceededStatus",
+    "findGenerationRecordAddedAsset",
+    "generationRecordAddedAssetId",
+    "generationAddAssetPromises",
+    "generationRecordReferenceAssetCandidate",
+    "generationRecordResultAssetMediaFields",
+    "updateGenerationRecord",
+    "publicUserAsset",
+    "generationRecordImageUrl",
+    "generationRecordVideoUrl",
+    "bytesForGenerationRecordImage",
+    "bytesForGenerationRecordVideo",
+    "createUserMediaAssetFromBytes",
+    "generationRecordAssetName",
+    "imageExtFromMime",
+    "dbEnabled",
+    "upsertUserAssetInDb",
+    "writeDb",
+    "sendJson",
+    `return (${extractFunction(source, "handleAddGenerationRecordToAssets")});`,
+  )(
+    async () => ({ user: { id: "user-1" }, db }),
+    async () => [record],
+    () => true,
+    (status) => status === "succeeded",
+    () => null,
+    () => "asset-deterministic",
+    generationAddAssetPromises,
+    freshReferenceAsset,
+    () => ({ storageKey: record.storageKey, storageProvider: "oss" }),
+    async (taskId, payload) => {
+      updatePayload = { taskId, payload };
+      return { ...record, ...payload };
+    },
+    (asset) => ({ ...asset, previewUrl: asset.publicUrl }),
+    () => record.cdnImageUrl,
+    () => "",
+    async () => {
+      downloadCalls += 1;
+      return { bytes: Buffer.from("unexpected"), mime: "image/png" };
+    },
+    async () => {
+      downloadCalls += 1;
+      return { bytes: Buffer.from("unexpected"), mime: "video/mp4" };
+    },
+    async () => {
+      createCalls += 1;
+      throw new Error("must not copy media bytes");
+    },
+    () => "Portrait",
+    () => ".png",
+    () => true,
+    async (asset) => {
+      savedAsset = asset;
+      return asset;
+    },
+    async () => null,
+    (res, statusCode, payload) => ({ statusCode, payload }),
+  );
+
+  const response = await handleAddGenerationRecordToAssets({}, {}, record.taskId);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.asset.id, "asset-reference");
+  assert.equal(downloadCalls, 0);
+  assert.equal(createCalls, 0);
+  assert.equal(savedAsset.objectStorageKey, record.storageKey);
+  assert.equal(savedAsset.sourceGenerationTaskId, record.taskId);
+  assert.equal(updatePayload.payload.resultAssetId, "asset-reference");
+  assert.equal(generationAddAssetPromises.size, 0);
+});
