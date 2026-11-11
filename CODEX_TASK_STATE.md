@@ -1,3 +1,14 @@
+## 2026-11-11 Step H deployed and observed: Old generation fix
+
+- Commit `86aa8b80`; platform release `adffbf48`; pushed `old-site` and `platform-release`. Old deployed only through `scripts/deploy_local.sh --site old`.
+- Deploy result: release boundary and forbidden-Live checks passed; migration dry-run/apply/dry-run all `pending=0`; new service `MainPID=2656973`, `NRestarts=0`, `active/running`, only `127.0.0.1:4174`; no 4181/4182 listener.
+- Health: five consecutive `health/livez/readyz` probes returned 200 after deploy, followed by another five readyz probes, all 200.
+- Post-deploy observation: 26 generation records updated, 22 succeeded, 1 failed. No `mediaMode`, `Cannot read properties`, advanced/platform job errors, unhandled rejection, idle transaction, or lock waiter appeared.
+- The one failure was `cgt-20261111163709-0fc2ec`: pre-submit timeout, status `failed`, billing `refunded`, pre-deducted 186, final 0. Ledger contains exactly one debit `-186` and one refund `+186`; current user balance is 1093. No manual repair was performed.
+- Affected earlier task `cgt-20261111162422-c48391` remains unchanged: exactly one `+375` refund, `balance_after=8559.2`, current balance `8559.2`.
+- Three older non-terminal records remain from 2026-06-19 and 2026-11-06, all predating this deployment. They are legacy reconciliation candidates, not new failures.
+- Current status: Old is running the fixed single-process deployment. Redis, durable submit worker, multi-process, and Telegram payment notifications remain disabled. Backup work remains deferred.
+
 ## 2026-11-11 Step H pre-deploy: generation runner wiring and refund safety
 
 - Goal: fix the live generation failure first, without enabling Redis, the durable submit worker, multi-process, Telegram payment notifications, or any backup work.
