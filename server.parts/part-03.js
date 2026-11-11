@@ -617,7 +617,7 @@ async function handleGetWorkflowCanvas(req, res, canvasId = "") {
   if (!auth) return;
   const canvas = await getWorkflowCanvasFromDb({ id: canvasId, userId: auth.user.id });
   if (!canvas) return sendJson(res, 404, { ok: false, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "Workflow not found." });
-  return sendJson(res, 200, { ok: true, canvas: publicWorkflowCanvasView(canvas) });
+  return sendJson(res, 200, { ok: true, canvas: publicAssetUrlsForClient(publicWorkflowCanvasView(canvas)) });
 }
 
 async function handleUpdateWorkflowCanvas(req, res, canvasId = "") {

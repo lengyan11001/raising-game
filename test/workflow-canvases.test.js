@@ -304,6 +304,7 @@ test("workflow uploads store asset references instead of embedded media", () => 
   assert.match(server, /workflowCanvasUpdatesInFlight\.has\(updateKey\)/);
   assert.match(server, /WORKFLOW_CANVAS_UPDATE_IN_PROGRESS/);
   assert.match(server, /publicAssetUrlsForClient\(publicWorkflowCanvasSummary\(canvas\)\)/);
+  assert.match(server, /publicAssetUrlsForClient\(publicWorkflowCanvasView\(canvas\)\)/);
 });
 
 test("react canvas activation refreshes uploaded media before opening", async () => {
