@@ -1,4 +1,9 @@
+const httpShutdownGate = createHttpShutdownGate();
 const server = http.createServer((req, res) => {
+  if (httpShutdownGate.shouldReject(req)) {
+    httpShutdownGate.reject(req, res);
+    return;
+  }
   if (BASELINE_METRICS_ENABLED) {
     let routePath = "";
     try { routePath = new URL(req.url || "/", "http://localhost").pathname; } catch {}
@@ -39,6 +44,10 @@ const server = http.createServer((req, res) => {
 
 /* WebSocket upgrade: managed chat-live and merchant compute-relay channels. */
 server.on("upgrade", (req, socket, head) => {
+  if (httpShutdownGate.stopping) {
+    httpShutdownGate.rejectUpgrade(socket);
+    return;
+  }
   Promise.resolve().then(async () => {
     const requestUrl = String(req.url || "");
     if (requestUrl.startsWith("/api/embed/live/sessions/")) {
@@ -61,8 +70,11 @@ server.headersTimeout = Number(process.env.HTTP_HEADERS_TIMEOUT_MS || 70000);
 server.requestTimeout = Number(process.env.HTTP_REQUEST_TIMEOUT_MS || 180000);
 server.maxRequestsPerSocket = Number(process.env.HTTP_MAX_REQUESTS_PER_SOCKET || 1000);
 server.maxConnections = Number(process.env.HTTP_MAX_CONNECTIONS || 2000);
+const httpSocketTracker = createHttpSocketTracker(server);
 
 const GENERATION_SUBMIT_DRAIN_TIMEOUT_MS = Math.max(10000, Math.min(300000, Number(process.env.GENERATION_SUBMIT_DRAIN_TIMEOUT_MS || 180000) || 180000));
+const HTTP_SHUTDOWN_GRACE_MS = Math.max(1000, Math.min(60000, Number(process.env.HTTP_SHUTDOWN_GRACE_MS || 30000) || 30000));
+const HTTP_SHUTDOWN_SETTLE_MS = Math.max(100, Math.min(5000, Number(process.env.HTTP_SHUTDOWN_SETTLE_MS || 1000) || 1000));
 
 let staleSubmitScanRunning = false;
 
@@ -750,6 +762,7 @@ async function shutdownGracefully(signal = "SIGTERM") {
   if (gracefulShutdownStarted) return;
   gracefulShutdownStarted = true;
   markStopping(processReadiness);
+  httpShutdownGate.begin();
   stopPlatformGenerationSubmitWorker();
   const startedAt = Date.now();
   const pendingSubmissions = beginGenerationSubmissionDrain();
@@ -757,18 +770,31 @@ async function shutdownGracefully(signal = "SIGTERM") {
   const forceExitTimer = setTimeout(() => {
     console.error("[graceful-shutdown-force-exit]", { signal, elapsedMs: Date.now() - startedAt });
     process.exit(1);
-  }, GENERATION_SUBMIT_DRAIN_TIMEOUT_MS + 10000);
+  }, GENERATION_SUBMIT_DRAIN_TIMEOUT_MS + HTTP_SHUTDOWN_SETTLE_MS + 5000);
   try {
-    const serverClosed = new Promise((resolve) => server.close(resolve));
-    server.closeIdleConnections?.();
+    const serverClosed = closeHttpServerBounded(server, {
+      socketTracker: httpSocketTracker,
+      graceMs: Math.min(HTTP_SHUTDOWN_GRACE_MS, GENERATION_SUBMIT_DRAIN_TIMEOUT_MS),
+      settleMs: HTTP_SHUTDOWN_SETTLE_MS,
+    }).then((httpClose) => {
+      if (httpClose.forced) {
+        console.warn("[graceful-shutdown-http-force-close]", { signal, ...httpClose });
+      }
+      return httpClose;
+    });
     const drain = await waitForGenerationSubmissionsToDrain(GENERATION_SUBMIT_DRAIN_TIMEOUT_MS);
     if (!drain.drained) {
       console.error("[graceful-shutdown-submit-drain-timeout]", drain);
       process.exit(1);
     }
-    await serverClosed;
+    const httpClose = await serverClosed;
     clearTimeout(forceExitTimer);
-    console.log("[graceful-shutdown-complete]", { signal, elapsedMs: Date.now() - startedAt, pendingSubmissions });
+    console.log("[graceful-shutdown-complete]", {
+      signal,
+      elapsedMs: Date.now() - startedAt,
+      pendingSubmissions,
+      httpClose,
+    });
     process.exit(0);
   } catch (error) {
     clearTimeout(forceExitTimer);

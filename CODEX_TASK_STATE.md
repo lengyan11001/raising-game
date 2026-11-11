@@ -3253,3 +3253,23 @@ CODEX_TASK_STATE.md
 - Regression coverage now proves: recent succeeded/no-R2 may recover; old succeeded/no-R2 must not refresh even when `updatedAt` is recent; missing `createdAt`, durable R2, terminal persistence, and future retry states must not refresh; all three missing-resource paths preserve succeeded history.
 - Verification passed: focused suite 193/193, all `server.parts/*.js` plus `server.js` and the changed test pass `node --check`, and `git diff --check` is clean.
 - Changed only `server.parts/part-20.js`, `server.parts/part-21.js`, `test/generation-record-list-refresh.test.js`, and this state file. No production data was mutated and no deployment has been performed yet.
+
+## 2026-11-11 Incident: 16:24-16:46 advanced generation submit failures
+
+- User task `cgt-20261111163322-fed604` was not rejected by upstream and was not caused by media-library references or signed URL TTL. It never obtained an upstream task ID.
+- Deployment `0d2ffec` started Old at `16:20:14`; the old process required 190 seconds to stop and was force-exited at `16:23:25`. The restart itself produced 33 Nginx 502 responses from `16:20` through `16:23`.
+- Release `0d2ffec` had a job-argument regression: `0d2ffec:server.parts/part-26.js` passed `runAdvancedGenerationJob` directly to `startTrackedGenerationJob`, but the helper invokes `runner(submission)`. The job object was therefore replaced by the submission token, leaving `requestParams` undefined and throwing `TypeError: Cannot read properties of undefined (reading 'mediaMode')`.
+- All advanced providers using this path were affected: normal Seedance, Seedance NSFW, Seedream 5, and Wan 3.0. Thirteen records created from `16:24:22` through `16:46:07` were left in pre-submit state, then settled by stale-submit repair. All 13 were refunded; aggregate pre-deducted amount was `2750.9664` credits.
+- Exact task `cgt-20261111163322-fed604`: created and threw at `16:33:22`, remained `preparing`, and was timer-settled/refunded at `16:43:28`.
+- Fix `86aa8b80` was deployed as `adffbf4` at `16:46:48`; service restarted at `16:46:50`, and successful submissions resumed from `16:47:11`. No `reading 'mediaMode'` exception was observed after that restart.
+
+
+## 2026-11-11 Step K: bound HTTP shutdown and stop accepting business traffic while stopping
+
+- Confirmed root cause of the 190-second old-process shutdown: generation submit drain completed, but `server.close()` waited for an active polling HTTP connection; `closeIdleConnections()` did not close active connections, and only the unconditional force-exit timer ended the process.
+- Implemented a two-stage HTTP shutdown lifecycle in `http-shutdown.js`: readiness becomes `stopping`; new non-probe HTTP requests receive `503 SERVER_SHUTTING_DOWN` with `Connection: close` and `Retry-After: 5`; new WebSocket upgrades are rejected; idle connections are closed; active/upgraded sockets are force-closed after `HTTP_SHUTDOWN_GRACE_MS` (default 30000ms, clamped 1-60s). The generation drain still has its independent bounded window and settled submissions are not interrupted by the HTTP grace timer.
+- Tracked all server connections so upgraded WebSocket sockets are also destroyed at the HTTP deadline. Added `http-shutdown.js` to the platform release-profile allowlist.
+- Added `test/http-shutdown.test.js` covering idle keep-alive, busy connection force-close, WebSocket-like upgrades, 503 probe/business behavior, and idle-server closure; updated generation drain assertions for the new shutdown path.
+- Verification passed: focused 42/42 (`node --require ./test/source-compat.js --test test/http-shutdown.test.js test/generation-submit-drain.test.js test/readiness.test.js test/deploy-targets.test.js`); all server parts/server.js/http-shutdown.js/test syntax checks; `git diff --check`.
+- Process-level drill passed: SIGTERM with one slow HTTP request and one WebSocket-like upgrade exited normally in 0.34s, forced two remaining sockets after a 300ms grace, and logged the bounded close. No production service was restarted for this drill.
+- Next: commit only the intended resilience files, build/push `platform-release` from the committed `old-site` integration commit, deploy Old only, and observe the next controlled restart for `graceful-shutdown-http-force-close`, `graceful-shutdown-complete`, readiness removal, and zero new error/downgrade signals.

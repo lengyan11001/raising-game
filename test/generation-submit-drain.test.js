@@ -105,9 +105,11 @@ test("all background generation entrypoints reserve before scheduling", () => {
   const shutdown = fs.readFileSync(path.join(root, "server.parts", "part-43.js"), "utf8");
   assert.match(shutdown, /process\.once\("SIGTERM"/);
   assert.match(shutdown, /process\.once\("SIGINT"/);
-  assert.match(shutdown, /server\.close\(resolve\)/);
-  assert.match(shutdown, /server\.closeIdleConnections\?\.\(\)/);
+  assert.match(shutdown, /closeHttpServerBounded\(server/);
+  assert.match(shutdown, /httpShutdownGate\.begin\(\)/);
   assert.match(shutdown, /waitForGenerationSubmissionsToDrain\(GENERATION_SUBMIT_DRAIN_TIMEOUT_MS\)/);
+  assert.match(shutdown, /HTTP_SHUTDOWN_GRACE_MS/);
+  assert.match(shutdown, /GENERATION_SUBMIT_DRAIN_TIMEOUT_MS \+ HTTP_SHUTDOWN_SETTLE_MS \+ 5000/);
 });
 
 test("generation entrypoints reserve synchronously before returning", () => {

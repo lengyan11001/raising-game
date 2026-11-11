@@ -97,6 +97,11 @@ const {
   publicWorkflowCanvasView,
 } = require("./workflow-canvases");
 const { getOurDreamPresetLibrary } = require("./ourdream-presets");
+const {
+  closeHttpServerBounded,
+  createHttpShutdownGate,
+  createHttpSocketTracker,
+} = require("./http-shutdown");
 const { createBaselineMetrics, envFlag, normalizeRouteName } = require("./baseline-metrics");
 const { createOperationalStatsReader } = require("./db-operational-stats");
 const {

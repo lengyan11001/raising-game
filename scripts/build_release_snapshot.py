@@ -54,6 +54,7 @@ PLATFORM_PATTERNS = (
     "baseline-metrics.js",
     "db-operational-stats.js",
     "readiness.js",
+    "http-shutdown.js",
     "package.json",
     "lib-*.js",
     "site-123vipfans.js",
