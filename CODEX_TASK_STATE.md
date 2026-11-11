@@ -1,4 +1,4 @@
-## 2026-11-11 Step A deployed; Step C migration hardening ready
+## 2026-11-11 Step A + C deployed; startup historical import gated
 
 - Step A deployed Old only: source `930dc46b`, platform release `d7890854`, previous release `be4ebdd7` / `a73ad65a`. Service is active with `NRestarts=0`, health/livez/readyz 200, anonymous diagnostics 401, RSS about 188 MiB.
 - Step C local candidate now uses `hashtextextended(..., 0)` for a 64-bit transaction advisory lock and an explicit bounded `lock_timeout`. Fingerprint covers the complete normalized record content, the import and completion ledger share one transaction, and replay is a no-op.
@@ -7,7 +7,9 @@
 - Real isolated drill on the Old host passed: concurrent imports `[2,0]`, replay `0`, final records `2`, 100ms lock wait returned `55P03`, rollback left no ledger row. The temporary database was dropped and zero drill databases remain.
 - Verification: focused migration/catalog/drill 9/9 and wider operational/auth/security/catalog suite 73/73; syntax, Python compile, and `git diff --check` pass.
 - Release build scope now includes the runner and drill tests. Never publish unrelated Test-mode CSS, workflow map, or `node_modules` WIP.
-- Next: release Step C Old only, verify the durable key-prefix ledger marker, no `NRestarts`, no startup lock error, and no lock/query backlog. Then Step D separates schema migration from request startup. Telegram Unauthorized and payment notifications remain disabled; backup remains last.
+- Step C deployed Old only: source `5fa5aec6`, platform release `123689e1` (previous `d7890854`). Live was not pushed or deployed.
+- Production acceptance: `NRestarts=0`, MainPID `2596984`, health/livez/readyz 200 across repeated samples, no startup lock error/5xx in the deploy window, PostgreSQL lock waiters 0 and no active query over 3s. Ledger now has `generation_records_kv_v1:e05324a5...` with `imported_count=0` because all 165 legacy task IDs already existed. `app_generation_records` has 31,186 rows; legacy KV still has 165 unique task IDs, all represented in the table.
+- Next: Step D separates schema migration from request startup. Telegram Unauthorized and payment notifications remain disabled; backup remains last.
 
 ## 2026-11-11 Step A candidate ready: bounded latency phases
 
