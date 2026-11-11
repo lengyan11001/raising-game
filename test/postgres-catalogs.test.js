@@ -46,3 +46,26 @@ test("preset API fails clearly instead of serving a file fallback", () => {
   assert.match(server, /sendJson\(res, 503/);
   assert.match(server, /DATABASE_URL is required\. Runtime data must be stored in PostgreSQL/);
 });
+
+test("generation record KV migration is durable, transactional, and fingerprint-gated", () => {
+  const db = read("db.js");
+  const block = db.slice(
+    db.indexOf("const GENERATION_RECORDS_KV_MIGRATION_KEY"),
+    db.indexOf("async function getGenerationRecordsFromDb"),
+  );
+  assert.match(block, /createHash\("sha256"\)/);
+  assert.match(block, /canonicalJson/);
+  assert.doesNotMatch(block, /updatedAt: generationRecordUpdatedAt\(record\)/);
+  assert.match(block, /reason: "empty-source"/);
+  assert.doesNotMatch(block, /if \(!Array\.isArray\(records\) \|\| !records\.length\) \{\n    await markCatalogMigrationInDb/);
+  assert.match(block, /getCatalogMigrationStateInDb\(migrationKey\)/);
+  assert.match(block, /client\.query\("BEGIN"\)/);
+  assert.match(block, /set_config\('lock_timeout'/);
+  assert.match(block, /GENERATION_RECORDS_KV_LOCK_TIMEOUT_MS/);
+  assert.match(block, /pg_advisory_xact_lock\(hashtextextended\(\$1, 0\)\)/);
+  assert.match(block, /priorInLock\.rows\.length/);
+  assert.match(block, /INSERT INTO app_catalog_migration_state/);
+  assert.match(block, /client\.query\("COMMIT"\)/);
+  assert.match(block, /client\.query\("ROLLBACK"\)/);
+  assert.ok(block.indexOf('client.query("COMMIT")') < block.indexOf('return { migrated, existing'));
+});

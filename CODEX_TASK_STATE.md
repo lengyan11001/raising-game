@@ -1,3 +1,14 @@
+## 2026-11-11 Step A deployed; Step C migration hardening ready
+
+- Step A deployed Old only: source `930dc46b`, platform release `d7890854`, previous release `be4ebdd7` / `a73ad65a`. Service is active with `NRestarts=0`, health/livez/readyz 200, anonymous diagnostics 401, RSS about 188 MiB.
+- Step C local candidate now uses `hashtextextended(..., 0)` for a 64-bit transaction advisory lock and an explicit bounded `lock_timeout`. Fingerprint covers the complete normalized record content, the import and completion ledger share one transaction, and replay is a no-op.
+- Migration runner defaults to dry-run. `--apply` remains deliberately disabled until request-startup schema migration is separated in Step D; no production migration apply was performed.
+- Added `ops/drill-generation-kv-migration.js`. It refuses non-`raising_game_migration_drill_*` databases and supports the reviewed disposable-database drill.
+- Real isolated drill on the Old host passed: concurrent imports `[2,0]`, replay `0`, final records `2`, 100ms lock wait returned `55P03`, rollback left no ledger row. The temporary database was dropped and zero drill databases remain.
+- Verification: focused migration/catalog/drill 9/9 and wider operational/auth/security/catalog suite 73/73; syntax, Python compile, and `git diff --check` pass.
+- Release build scope now includes the runner and drill tests. Never publish unrelated Test-mode CSS, workflow map, or `node_modules` WIP.
+- Next: release Step C Old only, verify the durable key-prefix ledger marker, no `NRestarts`, no startup lock error, and no lock/query backlog. Then Step D separates schema migration from request startup. Telegram Unauthorized and payment notifications remain disabled; backup remains last.
+
 ## 2026-11-11 Step A candidate ready: bounded latency phases
 
 - Corrected global and per-route `latency.maxMs` so it is no longer always zero, and corrected `avgMs` to divide by total request count rather than the bounded reservoir sample count.

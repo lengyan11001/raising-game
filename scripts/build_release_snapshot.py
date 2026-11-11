@@ -64,6 +64,8 @@ PLATFORM_PATTERNS = (
     "assets/user-characters/**",
     "assets/admin/**",
     "workflow-react/**",
+    "ops/run-db-migrations.js",
+    "ops/drill-generation-kv-migration.js",
     "ops/RESILIENCE-PLAN.md",
     "ops/REDIS-PLAN.md",
     "ops/apply-production-tuning.sh",
@@ -74,6 +76,8 @@ PLATFORM_PATTERNS = (
     "ops/systemd/raising-game-watchdog.service",
     "ops/systemd/raising-game-watchdog.timer",
     "ops/verify-postgres-backup.sh",
+    "test/migration-runner.test.js",
+    "test/migration-drill.test.js",
 )
 LIVE_SHARED_PATHS = (
     "chat-live.js",

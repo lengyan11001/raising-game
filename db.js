@@ -1730,6 +1730,21 @@ async function getCatalogMigrationStateInDb(key = "") {
   return rows[0] || null;
 }
 
+async function listCatalogMigrationStatesInDb() {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT migration_key, imported_count, migrated_at
+    FROM app_catalog_migration_state
+    ORDER BY migration_key ASC
+  `);
+  return rows.map((row) => ({
+    migrationKey: String(row.migration_key || ""),
+    importedCount: Number(row.imported_count || 0),
+    migratedAt: row.migrated_at ? new Date(row.migrated_at).toISOString() : "",
+  }));
+}
+
 async function markCatalogMigrationInDb(key = "", importedCount = 0) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -7122,38 +7137,98 @@ async function generationRecordsTableCount() {
   return rows[0]?.count || 0;
 }
 
+const GENERATION_RECORDS_KV_MIGRATION_KEY = "generation_records_kv_v1";
+const GENERATION_RECORDS_KV_LOCK_TIMEOUT_MS = Math.min(
+  30000,
+  Math.max(100, Number(process.env.DATABASE_MIGRATION_LOCK_TIMEOUT_MS || 5000) || 5000),
+);
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function generationRecordsKvFingerprint(records = []) {
+  const valid = (Array.isArray(records) ? records : [])
+    .filter((record) => String(record?.taskId || "").trim())
+    .map((record) => ({ taskId: String(record.taskId).trim(), record }))
+    .sort((left, right) => left.taskId.localeCompare(right.taskId));
+  return crypto.createHash("sha256").update(canonicalJson(valid)).digest("hex");
+}
+
 async function migrateGenerationRecordsKvToTable() {
   if (!dbEnabled()) return { migrated: 0, skipped: true };
   await ensureSchema();
   const existing = await generationRecordsTableCount();
-  let records = await getKv("generation_records", []);
-  if (!Array.isArray(records) || !records.length) return { migrated: 0, existing };
-  let migrated = 0;
-  for (const record of records) {
-    const taskId = String(record?.taskId || "").trim();
-    if (!taskId) continue;
-    const result = await query(
-      `
-        INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
-        VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz)
-        ON CONFLICT (task_id)
-        DO UPDATE SET
-          payload = EXCLUDED.payload,
-          created_at = LEAST(app_generation_records.created_at, EXCLUDED.created_at),
-          updated_at = EXCLUDED.updated_at
-        WHERE EXCLUDED.updated_at > app_generation_records.updated_at
-        RETURNING task_id
-      `,
-      [
-        taskId,
-        JSON.stringify(record),
-        generationRecordCreatedAt(record),
-        generationRecordUpdatedAt(record),
-      ],
-    );
-    migrated += result.rowCount || 0;
+  const records = await getKv("generation_records", []);
+  if (!Array.isArray(records) || !records.length) {
+    return { migrated: 0, existing, skipped: true, reason: "empty-source" };
   }
-  return { migrated, existing };
+  const fingerprint = generationRecordsKvFingerprint(records);
+  const migrationKey = `${GENERATION_RECORDS_KV_MIGRATION_KEY}:${fingerprint}`;
+  const prior = await getCatalogMigrationStateInDb(migrationKey);
+  if (prior) return { migrated: 0, existing, skipped: true, migrationKey };
+
+  const pool = getPool();
+  const client = await pool.connect();
+  let migrated = 0;
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('lock_timeout', $1, true)", [`${GENERATION_RECORDS_KV_LOCK_TIMEOUT_MS}ms`]);
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [GENERATION_RECORDS_KV_MIGRATION_KEY]);
+    const priorInLock = await client.query(
+      `SELECT 1 FROM app_catalog_migration_state WHERE migration_key = $1 LIMIT 1`,
+      [migrationKey],
+    );
+    if (priorInLock.rows.length) {
+      await client.query("COMMIT");
+      return { migrated: 0, existing, skipped: true, migrationKey };
+    }
+    for (const record of records) {
+      const taskId = String(record?.taskId || "").trim();
+      if (!taskId) continue;
+      const result = await client.query(
+        `
+          INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
+          VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz)
+          ON CONFLICT (task_id)
+          DO UPDATE SET
+            payload = EXCLUDED.payload,
+            created_at = LEAST(app_generation_records.created_at, EXCLUDED.created_at),
+            updated_at = EXCLUDED.updated_at
+          WHERE EXCLUDED.updated_at > app_generation_records.updated_at
+          RETURNING task_id
+        `,
+        [
+          taskId,
+          JSON.stringify(record),
+          generationRecordCreatedAt(record),
+          generationRecordUpdatedAt(record),
+        ],
+      );
+      migrated += result.rowCount || 0;
+    }
+    await client.query(
+      `
+        INSERT INTO app_catalog_migration_state(migration_key, imported_count, migrated_at)
+        VALUES ($1, $2, NOW())
+        ON CONFLICT (migration_key) DO UPDATE SET
+          imported_count = EXCLUDED.imported_count,
+          migrated_at = EXCLUDED.migrated_at
+      `,
+      [migrationKey, migrated],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return { migrated, existing, skipped: false, migrationKey };
 }
 
 async function getGenerationRecordsFromDb({ limit = 500, userId = "", includeDeleted = true } = {}) {
@@ -9312,6 +9387,7 @@ module.exports = {
   countCatalogEntriesInDb,
   listCatalogEntriesFromDb,
   getCatalogMigrationStateInDb,
+  listCatalogMigrationStatesInDb,
   markCatalogMigrationInDb,
   getRuntimeSettingFromDb,
   setRuntimeSettingInDb,
