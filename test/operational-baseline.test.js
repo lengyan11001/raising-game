@@ -66,6 +66,8 @@ test("baseline metrics aggregate latency, byte, status, in-flight, cache, and ev
   metrics.recordCache("public_config", true);
   metrics.recordCache("public_config", false);
   metrics.recordEvent("rate_limit_write", 3);
+  metrics.recordTiming("user_assets:db", 12.5);
+  metrics.recordTiming("user_assets:db", 7.5);
   now += 65_000;
   const snapshot = metrics.snapshot();
   assert.equal(snapshot.requests, 4);
@@ -80,11 +82,16 @@ test("baseline metrics aggregate latency, byte, status, in-flight, cache, and ev
   assert.equal(snapshot.statuses["5xx"], 1);
   assert.equal(snapshot.latency.p50Ms, 10);
   assert.equal(snapshot.latency.p95Ms, 30);
+  assert.equal(snapshot.latency.maxMs, 30);
+  assert.equal(snapshot.latency.avgMs, 15.25);
+  assert.equal(snapshot.routes["/api/config/public"].latency.maxMs, 30);
   assert.equal(snapshot.cache.public_config.hits, 2);
   assert.equal(snapshot.cache.public_config.misses, 1);
   assert.equal(snapshot.cache.public_config.hitRate, 0.6667);
   assert.equal(snapshot.events.rate_limit_write, 3);
+  assert.deepEqual(snapshot.phases["user_assets:db"], { count: 2, avgMs: 10, maxMs: 12.5 });
   assert.equal(snapshot.routes["/api/config/public"].requests, 2);
+  assert.equal(snapshot.routes["/api/config/public"].latency.avgMs, 20);
   assert.equal(snapshot.routes["/api/config/public"].statuses["5xx"], 1);
 });
 
@@ -251,6 +258,19 @@ test("diagnostics HTTP surface is default-off and admin-protected when enabled",
     delete require.cache[require.resolve("../server.js")];
     delete require.cache[require.resolve("../server-source")];
   }
+});
+
+test("user asset diagnostics record bounded phase timings without raw identifiers", () => {
+  const source = read("server.parts/part-37.js");
+  const block = source.slice(
+    source.indexOf("async function handleListUserAssets"),
+    source.indexOf("async function handleResolveUserAssets"),
+  );
+  assert.match(block, /recordTiming\("user_assets:auth"/);
+  assert.match(block, /recordTiming\("user_assets:db"/);
+  assert.match(block, /recordTiming\("user_assets:serialize"/);
+  assert.doesNotMatch(block, /console\.(?:log|warn|error)/);
+  assert.doesNotMatch(block, /recordTiming\([^\n]*(?:auth\.user\.id|q\b)/);
 });
 
 test("rate-limit writes and generation polling are counted without changing their paths", () => {

@@ -57,9 +57,9 @@ It does not replace a verified off-host backup or a second failure domain.
 | Host or zone lost | daily dump on the same host | no independent failure domain | Dedicated encrypted off-host backup |
 | Bad deploy | release audit and rollback path | shared-process restart | Keep isolated release and staged checks |
 | One HTTP handler is slow | bounded timeouts | a single event loop can still affect all requests | Worker isolation only after scheduler ownership is fixed |
-| Shared hot reads hit every process | per-process caches | duplicated work and inconsistent cache state | Redis cache-aside with bounded TTLs |
-| Concurrent duplicate submissions | in-process maps and database guards | not equivalent across processes | Redis idempotency plus durable PostgreSQL result |
-| Redis unavailable | not applicable yet | optional dependency must not remove protection | PostgreSQL fallback or fail closed |
+| Shared hot reads hit every process | per-process caches | duplicated work and inconsistent cache state | Optional Redis cache-aside only after measured cross-process need |
+| Concurrent duplicate submissions | in-process maps and database guards | not equivalent across processes | Cross-process lease plus durable PostgreSQL result |
+| Shared coordination unavailable | PostgreSQL remains authoritative | optional dependency must not remove protection | Cache miss or controlled PostgreSQL fallback |
 
 ## Stages and gates
 
@@ -179,6 +179,112 @@ availability.
    recovery test; never make Redis a single point of failure for authoritative data.
 4. Rehearse DNS/origin failover, database promotion, and Redis recovery with measured RTO.
 5. Keep the off-host backup independent of both production hosts.
+
+## Target operating model
+
+The desired end state is a stateless HTTP tier with explicit background ownership, not a larger
+single process with more hidden responsibilities.
+
+- **Request tier:** interchangeable Node processes. Each process owns no durable business session
+  or financial fact; it can be replaced without a split-brain decision.
+- **Durable tier:** PostgreSQL is the sole source of truth for users, sessions, balances, ledger,
+  orders, generation state, and audit. No Redis or local-memory write can become authoritative.
+- **Coordination tier:** PostgreSQL advisory leases own background jobs. Redis, when justified,
+  provides bounded cache and short-lived coordination only; loss causes cache misses or a
+  controlled PostgreSQL fallback.
+- **Capacity tier:** measure CPU, memory, event-loop lag, DB pool wait, query latency, and response
+  size first. Upgrade or shard only after identifying a persistent bottleneck rather than assuming
+  that more processes equal resilience.
+- **Recovery tier:** off-host PostgreSQL recovery, a second application failure domain, and tested
+  DNS/load-balancer/origin switchover. Same-host Redis or another worker does not cover host loss.
+
+### Workload placement
+
+| Concern | Required owner | Do not use Redis for |
+| --- | --- | --- |
+| Authentication and account state | PostgreSQL | session authority or silent auth fallback |
+| Credits, payments, orders, refunds | PostgreSQL transactions plus idempotency guard | replacing durable ledger facts |
+| Generation records and completion state | PostgreSQL | only copy of task state or completion |
+| Background scans and notifications | PostgreSQL advisory lease + idempotent job | ownership without a durable lease |
+| Public config, templates, public HTML | request-local cache first, then optional shared cache | sensitive per-user data |
+| Compact polling/list snapshots | PostgreSQL reader plus short cache if measured | stale financial or authorization state |
+| Rate-limit decisions | PostgreSQL security facts; Redis optional after shadow proof | removing durable audit/fallback |
+| Cross-process request idempotency | Redis lease plus PostgreSQL durable result | accepting a submission without a durable record |
+| Realtime fan-out | process-local until multi-process is real; then shared Pub/Sub | durable message history |
+
+## Slow-path investigation: Old production sample
+
+Measured on 2026-11-11 after the controlled R0 restart:
+
+- `app_user_assets` is 61 MB, 28,277 live rows, 478 users; its per-user list query uses
+  `app_user_assets_user_created_idx` and measured about 21 ms for a 2,833-row user, not 20 seconds.
+- `app_generation_records` uses `app_generation_records_user_created_idx`; a 1,438-row user list
+  measured about 43 ms. The 310 MB payload table needs payload-size and poll-frequency control,
+  but the sampled list query is not the source of the multi-second route latency.
+- The route metric bounds at the HTTP response boundary, so SQL timing alone does not explain the
+  earlier `/api/user-assets` p95. Auth lookup, row-to-JSON serialization, multiple concurrent
+  requests, client/network effects, and cold connection establishment must be separated before
+  selecting a cache or index change.
+- PostgreSQL has 18 backends, 4 non-idle; no sampled lock wait and no recent rollback/deadlock
+  increase. The startup `55P03` is a deploy-time schema lock event, not normal steady-state load.
+
+Immediate investigation order:
+
+1. Correct global `maxMs`/average latency reporting and verify the route histogram at the response
+   boundary.
+2. Add bounded, non-secret timing buckets for auth, database read, serialization, and response write
+   on the affected routes. Do not log tokens, query strings, payloads, or user IDs.
+3. Re-run authenticated `user-assets`, generation polling, public config, platform, and promo
+   probes under controlled concurrency; compare cold and warm cache and watch DB pool wait.
+4. Reduce generation-list payloads and repeated polling work only after measuring bytes and query
+   count; do not cache a stale completion state.
+5. Treat the earlier 20-second sample as a cold-start/client outlier until it reproduces under the
+   instrumented route contract. Do not promote Redis on one route sample.
+
+## Database schema migration ownership
+
+The request process must not perform an unbounded schema migration at startup. The target is a
+separate, versioned migration runner:
+
+1. Acquire one database advisory lock for the migration generation; use a bounded lock timeout.
+2. Apply ordered DDL/DML steps in a transaction where PostgreSQL permits, and record each version
+   in a migration ledger only after success.
+3. Run the migration before replacing the application process, with a preflight plan and a dry-run
+   against a restored snapshot.
+4. Make request startup verify schema readiness, not perform the full migration itself. A missing
+   schema should make readiness fail clearly rather than trigger an unbounded lock race.
+5. Prove cold start, concurrent deploy, failed migration rollback, and rollback to the previous
+   release in an isolated environment.
+6. Keep historical KV import fingerprint-gated, transactional, and advisory-locked until the
+   separate runner is deployed.
+
+The local candidate migration change removes repeated historical import work but is not sufficient
+to call startup migration safe. It must be reviewed and released independently after the migration
+runner gate is designed.
+
+## Agreed rollout sequence
+
+This sequence is deliberately ordered so production traffic is never used as a validation
+environment.
+
+| Step | Change | Production impact | Gate before next step | Rollback |
+| --- | --- | --- | --- | --- |
+| A | Correct R0 latency/max/byte observability and add bounded phase timings | none; metrics remain opt-in | focused tests, authenticated probe, no secret fields | disable R0 flag |
+| B | Measure authenticated slow routes under controlled concurrency | read-only probes; Old only | reproduce or close the 20s sample; identify auth/DB/serialization/network share | stop probes |
+| C | Remove repeated generation KV import and codify migration readiness | Old-only candidate release after review | migration tests, cold-start/concurrent-lock drill, health checks | redeploy previous platform release |
+| D | Separate versioned schema migration from request startup | deploy-time only, no live traffic mutation | isolated restore dry-run, lock timeout, rollback and concurrent deploy proof | run previous release; schema ledger remains forward-compatible |
+| E | Reduce hot-route payload/polling work (generation lists, asset response) | Old only, feature-flagged if behavior changes | byte/p95/DB-read reduction; no stale completion or financial state | disable optimization flag |
+| F | Add external watchdog and verify graceful replacement | Old only; no code path in request | dry-run timer, isolated restart drill, production NRestarts=0 | remove timer |
+| G | Introduce optional local cache/coalescing where measurements justify it | Old only, default off | cold/warm comparison, no stale security state | flag off |
+| H | Evaluate an actual Redis instance in an isolated environment | no production dependency yet | disposable Redis fault tests, timeout/reconnect/eviction evidence | destroy isolated Redis |
+| I | Enable Redis cache-aside in shadow/canary, then rate-limit/idempotency only if gates pass | Old only, flag-controlled | R2/R3/R4 acceptance and PostgreSQL fallback proof | flag off and expire keys |
+| J | Multi-process behind Nginx with scheduler leases | Old canary only after I | scheduler ownership, duplicate-submission fault injection, rolling drain | return to one process |
+| K | Off-host backup, second failure domain, managed PostgreSQL/Redis where justified | operational work, no app traffic cutoff | restore/failover RTO evidence | retain previous host and snapshot |
+
+The first production change after observation is Step A, not a vertical resize. A larger machine
+is considered only if the measured CPU, memory, event-loop, DB-pool, or I/O gate in P3 remains
+breached after slow-path work. Multiple processes are considered only after scheduler ownership
+and idempotency are proven.
 
 ## Change discipline
 

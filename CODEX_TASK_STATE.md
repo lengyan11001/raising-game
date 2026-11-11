@@ -1,3 +1,22 @@
+## 2026-11-11 Step A candidate ready: bounded latency phases
+
+- Corrected global and per-route `latency.maxMs` so it is no longer always zero, and corrected `avgMs` to divide by total request count rather than the bounded reservoir sample count.
+- Added bounded process-local phase timings for `user_assets:auth`, `user_assets:db`, and `user_assets:serialize`. No user ID, token, query string, payload, or log line is recorded.
+- Updated `ops/RESILIENCE-PLAN.md` with the target stateless-HTTP/authoritative-PostgreSQL model, Redis workload boundaries, independent schema migration requirement, and A-to-K rollout gates.
+- Verification: targeted operational/auth/generation/security/catalog suite 62/62; syntax and `git diff --check` pass.
+- Step A only includes observability and planning. The generation KV transaction candidate in `db.js` remains separate and is not part of this release.
+
+## 2026-11-11 R0 release deployed; startup schema lock timeout observed
+
+- Released Old only: source `be4ebdd7`, platform release `a73ad65a` (previous remote `17577395`); Live was not pushed or deployed.
+- Post-deploy service is `active/running`, one real Node process, health/livez/readyz all 200, diagnostics 404 with metrics still default-off. The earlier `node_processes=2` reading was an SSH/pgrep self-match, not a second server.
+- During this deployment, the first service start exited with PostgreSQL `55P03` / `lock timeout` in `ensureSchemaInner()` while running `migrateGenerationRecordsKvToTable()`. systemd restarted it automatically; `NRestarts=1`. The restarted instance was healthy. PostgreSQL showed no residual long transaction after startup.
+- Evidence: PostgreSQL `lock_timeout=5s`, `statement_timeout=0`; `app_generation_records` is 310 MB with 31,174 rows; legacy `app_kv.generation_records` has 165 records and all 165 task IDs already exist in the table.
+- Resilience decision: do not treat more Node processes or a larger host as the fix for this startup failure. Database schema migration must be separated from request-process startup, serialized with an advisory lock, versioned/idempotent, and exercised under a cold-start plus concurrent-traffic drill.
+- Local candidate change (not deployed): generation-record KV migration now uses a content fingerprint, advisory transaction lock, transactional write, and durable `app_catalog_migration_state` marker. This removes repeated historical import work, but does not yet remove the broader startup DDL lock window.
+- Verification for candidate: focused migration/catalog tests 5/5; operational baseline + auth risk + security regressions 53/53; readiness + resilience + platform refresh 37/37; syntax and `git diff --check` pass once the test EOF formatting was corrected.
+- Still default-off: R0 metrics. Still disabled: multi-process, Telegram Unauthorized feature, Telegram payment notifications, backup work.
+
 ## 2026-11-11 R0 operational baseline implementation
 
 - Goal: implement the first resilience measurement layer before changing process count, capacity, PostgreSQL tuning, or adopting Redis.

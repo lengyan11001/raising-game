@@ -56,8 +56,11 @@ function createBaselineMetrics({
   let droppedRoutes = 0;
   const durationSamples = [];
   let durationCursor = 0;
+  let durationMaxMs = 0;
+  let durationTotalMs = 0;
   const cache = Object.create(null);
   const events = Object.create(null);
+  const phases = Object.create(null);
 
   function routeBucket(route = "") {
     const key = normalizeRouteName(route);
@@ -97,6 +100,8 @@ function createBaselineMetrics({
     bucket.statuses[cls] = (bucket.statuses[cls] || 0) + 1;
     bucket.durationTotalMs += duration;
     bucket.durationMaxMs = Math.max(bucket.durationMaxMs, duration);
+    durationTotalMs += duration;
+    durationMaxMs = Math.max(durationMaxMs, duration);
     if (bucket.durationSamples.length < sampleLimit) {
       bucket.durationSamples.push(duration);
     } else {
@@ -143,6 +148,20 @@ function createBaselineMetrics({
     events[key] = (events[key] || 0) + Math.max(0, Number(count) || 0);
   }
 
+  function recordTiming(name = "", durationMs = 0) {
+    if (!enabled) return;
+    const key = normalizeRouteName(name);
+    let item = phases[key];
+    if (!item) {
+      if (Object.keys(phases).length >= routeLimit) return;
+      item = phases[key] = { count: 0, totalMs: 0, maxMs: 0 };
+    }
+    const duration = Math.max(0, Number(durationMs) || 0);
+    item.count += 1;
+    item.totalMs += duration;
+    item.maxMs = Math.max(item.maxMs, duration);
+  }
+
   function percentile(values, p) {
     if (!values.length) return 0;
     const sorted = [...values].sort((a, b) => a - b);
@@ -152,11 +171,14 @@ function createBaselineMetrics({
 
   function p95Summary(bucket) {
     const samples = bucket?.durationSamples || [];
+    const totalMs = Number(bucket?.durationTotalMs || 0);
+    const count = Math.max(0, Number(bucket?.requests || 0));
     return {
       p50Ms: percentile(samples, 50),
       p95Ms: percentile(samples, 95),
       p99Ms: percentile(samples, 99),
       maxMs: Math.round((bucket?.durationMaxMs || 0) * 1000) / 1000,
+      avgMs: count ? Math.round((totalMs / count) * 1000) / 1000 : 0,
     };
   }
 
@@ -173,7 +195,7 @@ function createBaselineMetrics({
       bytesOut,
       droppedRoutes,
       statuses: { ...statuses },
-      latency: p95Summary({ durationSamples }),
+      latency: p95Summary({ durationSamples, durationMaxMs, durationTotalMs, requests }),
       cache: Object.fromEntries(Object.entries(cache).map(([name, item]) => {
         const total = item.hits + item.misses;
         return [name, {
@@ -183,6 +205,11 @@ function createBaselineMetrics({
         }];
       })),
       events: { ...events },
+      phases: Object.fromEntries(Object.entries(phases).map(([name, item]) => [name, {
+        count: item.count,
+        avgMs: item.count ? Math.round((item.totalMs / item.count) * 1000) / 1000 : 0,
+        maxMs: Math.round(item.maxMs * 1000) / 1000,
+      }])),
       routes: Object.fromEntries([...routes.entries()].map(([name, bucket]) => [name, {
         requests: bucket.requests,
         inFlight: bucket.inFlight,
@@ -199,6 +226,7 @@ function createBaselineMetrics({
     beginRequest,
     recordCache,
     recordEvent,
+    recordTiming,
     snapshot,
     monoNow,
   };

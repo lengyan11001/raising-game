@@ -598,16 +598,24 @@ async function handleModifyUserAssetImage(req, res, assetId) {
 }
 
 async function handleListUserAssets(req, res, url = null) {
+  const startedAt = baselineMetrics.monoNow();
   const auth = await requireUser(req, res, { loadDb: false });
+  const authMs = baselineMetrics.monoNow() - startedAt;
+  try { baselineMetrics.recordTiming("user_assets:auth", authMs); } catch {}
   if (!auth) return;
   const params = url?.searchParams || new URLSearchParams();
   const q = String(params.get("q") || "").trim().toLowerCase();
   const type = String(params.get("type") || "").trim().toLowerCase();
   const { page, limit, offset } = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 8, maxLimit: 50 });
   if (dbEnabled()) {
+    const dbStartedAt = baselineMetrics.monoNow();
     const result = await getUserAssetsPageFromDb({ userId: auth.user.id, page, limit, queryText: q, type });
+    try { baselineMetrics.recordTiming("user_assets:db", baselineMetrics.monoNow() - dbStartedAt); } catch {}
     if (result) {
-      return sendJson(res, 200, { ok: true, assets: result.assets.map(publicUserAsset).filter((asset) => !isAutoPresetReferenceAsset(asset)), page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages });
+      const serializeStartedAt = baselineMetrics.monoNow();
+      const payload = { ok: true, assets: result.assets.map(publicUserAsset).filter((asset) => !isAutoPresetReferenceAsset(asset)), page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages };
+      try { baselineMetrics.recordTiming("user_assets:serialize", baselineMetrics.monoNow() - serializeStartedAt); } catch {}
+      return sendJson(res, 200, payload);
     }
   }
   const filtered = auth.db.userAssets
