@@ -61,23 +61,62 @@ node --require ./test/source-compat.js --test test/main-site-compatibility.test.
 node --require ./test/source-compat.js --test test/advanced-custom-ui.test.js
 ```
 
+## Production read-only acceptance
+
+Install Playwright and its Firefox/WebKit engines in a temporary directory so
+they are not added to the production dependency tree:
+
+```bash
+mkdir -p /tmp/compat-playwright && cd /tmp/compat-playwright
+npm init -y
+npm install playwright
+npx playwright install firefox webkit
+```
+
+Run the repository check:
+
+```bash
+PLAYWRIGHT_MODULE=/tmp/compat-playwright/node_modules/playwright/index.mjs   node scripts/check_main_site_compatibility.mjs
+```
+
+The check targets only `123vips.com` and `123vip.fans`. It is read-only: it does
+not log in, submit a generation, open a payment, create a support ticket or save
+a workflow. Results are written to
+`/tmp/main-site-compat/prod-engines-results.json`.
+
 ## Current automated evidence
 
 - Dual-site browser matrix passed for `123vips.com` and `123vip.fans` at 320x568,
   390x844, 768x1024 (fans) and 1366x768. All cases have no horizontal page
   scroll and no blocking JavaScript exception.
+- Production read-only P0 checks passed 10/10 across both domains: mobile drawer
+  open/close, visible navigation switching, legal-dialog viewport bounds,
+  portrait-to-landscape resizing and horizontal-overflow checks. Evidence:
+  `/tmp/main-site-compat/prod-p0-readonly-results.json`.
+- Production cross-engine checks passed 21/21 with Chromium 158, Firefox 159
+  and WebKit 27.2 at the target viewport matrix. This catches engine-specific
+  layout and dialog issues but does not substitute for a physical iPhone or
+  Android device. Evidence:
+  `/tmp/main-site-compat/prod-engines-results.json`.
 - The real React workflow canvas opened on both sites at 320x568 and 390x844.
   Image-node parameters changed to 3:4 / 1K, manual save issued a PUT request to
   `/api/workflow/canvases/compat-canvas`, and the 保存请求 body contained the
   changed parameters.
 - At 320px, Back, Save and New are all at least 44px high, do not wrap, and the
   editor canvas stays fully inside the live visual viewport.
-- 浏览器自动化 uses local replay fixtures built from the two production
-  main-site HTML responses. It does not write production business data.
+- 浏览器自动化 uses read-only production checks and local replay fixtures.
+  The save verification is tested only against a local replay fixture; the
+  production script does not trigger login, generation charges, top-up payments
+  or support writes.
 
 ## Remaining manual acceptance
 
-真机验收 cannot be replaced by automation; checks for the iOS/Android software
-keyboard, iPhone Safari, Android Chrome, Samsung Internet, WeChat WebView,
-macOS Safari, Desktop Firefox, or orientation changes. These remain the final
-acceptance gate before claiming complete browser certification.
+真机验收 remains the final gate before claiming complete browser
+certification:
+
+- iPhone Safari, including software-keyboard open/close and safe-area behavior.
+- Android Chrome, Samsung Internet and WeChat WebView.
+- iPad orientation changes.
+- macOS Safari and Windows browser/display-scaling checks.
+- Logged-in write flows: generation/upload, history actions, work-flow save,
+  top-up-to-payment navigation, support tickets and notifications.

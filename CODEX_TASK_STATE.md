@@ -2911,9 +2911,11 @@ CODEX_TASK_STATE.md
   - Local dual-site replay matrix: vips 320/390/1366, fans 320/390/768/1366 all no horizontal overflow and no blocking exceptions. Evidence `/tmp/main-site-compat/dual-results.json`, `dual-check-final.log`.
   - Real React workflow CDP: both sites at 320/390 open canvas; select image node; parameters visible; change ratio to 3:4 and resolution to 1K; Save emits PUT `/api/workflow/canvases/compat-canvas` with changed values; toolbar actions 44px; no overflow/blocking exceptions. Evidence `/tmp/main-site-compat/workflow-results.json`.
   - Production Chrome matrix against the real domains: `123vips.com` 320/390/1366 and `123vip.fans` 320/390/768/1366 all document/body scrollWidth equals viewport width, no page-level horizontal overflow, no JS exceptions. Evidence `/tmp/main-site-compat/prod-browser-results.json`, `prod-browser-check.log`.
+  - Production read-only P0: 10/10 passed across both domains, covering mobile drawer open/close, visible navigation switching, legal-dialog viewport bounds, portrait/landscape resizing and horizontal overflow. Evidence `/tmp/main-site-compat/prod-p0-readonly-results.json`.
+  - Production cross-engine: Chromium 158, Firefox 159 and WebKit 27.2 passed 21/21 across the target viewport matrix, with no page-level overflow or blocking JS errors. This is engine coverage, not physical iPhone/Android certification. Evidence `/tmp/main-site-compat/prod-engines-results.json`.
 - Production verification (both domains):
   - `/api/health` and `/api/readyz` return 200 with ready/DB OK; `/` and `/platform.html` return 200.
   - Deployed HTML contains cache version `main-site-compat-20261111-1`.
   - `raising-game-demo` is `active/running`, `NRestarts=0`; startup logs show Database configured, Ark configured, upstream direct, and successful startup stale-record scan.
-- Remaining: manual real-device/browser acceptance (iPhone Safari, Android Chrome/Samsung Internet/WeChat WebView, iOS/Android software keyboard, macOS Safari, Desktop Firefox, orientation changes). Do not claim full browser certification yet.
+- Remaining: physical-device and write-flow acceptance (iPhone Safari, Android Chrome/Samsung Internet/WeChat WebView, iOS/Android software keyboard, iPad/macOS Safari, Windows scaling, login/generation/upload/history/top-up/support writes). Do not claim full browser certification yet.
 - Exclude unrelated WIP: `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, `workflow-react/node_modules`.
