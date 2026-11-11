@@ -485,6 +485,15 @@ function queueGeneratedVideoDownload(taskId, remoteVideoUrl, reason = "backgroun
 
 function adminRecordMediaAssetUrl(asset = {}, userAssetMap = new Map()) {
   const linked = asset.userAssetId ? userAssetMap.get(String(asset.userAssetId)) : null;
+  const storageKey = String(
+    linked?.objectStorageKey
+      || linked?.storageKey
+      || linked?.r2Key
+      || asset.objectStorageKey
+      || asset.storageKey
+      || asset.r2Key
+      || "",
+  ).trim();
   const candidates = [
     linked?.cdnUrl,
     linked?.publicUrl,
@@ -505,7 +514,10 @@ function adminRecordMediaAssetUrl(asset = {}, userAssetMap = new Map()) {
     asset.previewUrl,
     asset.url,
   ];
-  return candidates.map((value) => String(value || "").trim()).find((value) => /^https?:\/\//i.test(value) || value.startsWith("/")) || "";
+  return candidates
+    .map((value) => String(value || "").trim())
+    .map((value) => signedOssCdnUrlForDelivery(value, { key: storageKey }) || value)
+    .find((value) => /^https?:\/\//i.test(value) || value.startsWith("/")) || "";
 }
 
 async function enrichAdminGenerationRecordMedia(record = {}, db = null) {

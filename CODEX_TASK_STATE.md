@@ -32,7 +32,7 @@
 - The dashboard's recent-failure link now targets `#/records` (the actual generation-records route). `image_uploaded` is included in the in-progress task count.
 - Changed files: `db.js`, `admin.js`, `server.parts/part-40.js`, `test/admin-generation-records-list.test.js`, this state entry.
 - Verification: Node syntax checks for `admin.js`, `db.js`, `server.parts/part-40.js`; `git diff --check`; focused tests `test/admin-generation-records-list.test.js` and `test/auth-risk.test.js` pass 34/34.
-- Deployment: not deployed. Live untouched.
+- Deployment: Old-only deployed through `scripts/deploy_local.sh --site old`. Source `old-site` `3b62b727`; platform release `5821b1e1` (previous `14b0670f`). Production health `/api/health` returned HTTP 200 `{"ok":true}`; online `admin.js` SHA-256 matches `5821b1e1:admin.js`. Live untouched.
 
 ## 2026-11-11 Step L: verified bounded shutdown deployment and measured release-window impact
 
@@ -3329,7 +3329,7 @@ CODEX_TASK_STATE.md
 - Official 2.5 guide: bind every material by upload order (`图1/视频1/音频1`), state each material's exact role, and specify whether it supplies subject, outfit, motion, scene, or style. Complex multi-role tasks should be split. Role mismatch is reduced by uploading references in first-appearance order and aligning prompt numbering.
 - Official docs have no dedicated "3D face off" switch. For a photorealistic human result, the practical control is explicit positive and negative style constraints (real-person footage, photo-real, natural skin; not 3D/CG/cartoon/plastic doll), plus strict identity and outfit role separation.
 - Git findings: `4ca8f921` / `bc8b41aa` preserve face identity, hairstyle, body proportions, clothing, pose, position during Seedance reference preprocessing; `a3051727` bills that opt-in preprocessing; `90de34e0` strengthens Playflux to make Image 1 identity/outfit authoritative; `2ba7274f` added preset constraints "Image 1 is highest-priority identity" and "outfit references only for clothing and styling".
-- Regression: commit `893fcf4a` later replaced those preset constraints with the weaker "The character image is the highest-priority identity reference", and current `platform.ui.parts/part-03.js:868` retains that weaker wording. The current preset prompt also still lists `image N` positions but no longer names `Image 1` in the priority sentence.
+- Source split note: commit `893fcf4a` split monolithic frontend files into parts; it did not itself intentionally delete the stronger guard. The current preset wording is still weaker ("The character image is the highest-priority identity reference") rather than naming Image 1 explicitly.
 - Coverage gap: `server.parts/part-14.js:1217` has preprocessing guards, but `preprocessReference` defaults false; `server.parts/part-29.js:860` only applies the strong identity/outfit guard to Playflux reference video; `server.parts/part-48.js:410` Seedance 2.5 direct sends ordinary images as `reference_image`, not strict first frame.
 - Recommended fix (not yet implemented): add a controlled Seedance prompt guard only when a human/character reference exists and the user has not requested animation/3D; explicitly map Image 1 to face/identity/outfit, state other media only supplies pose/scene/style, preserve garment silhouette/color/material/accessories, and for photoreal requests add natural skin, real footage, non-3D/CG/cartoon/plastic-doll constraints. Do not globally default preprocessing on because it adds a generation and can itself drift.
 - Changed files: this state entry only. Tests/deployment: none; no source code changed or deployed.
@@ -3340,3 +3340,19 @@ CODEX_TASK_STATE.md
 - This capability is allowed only as an optional auxiliary feature: the user explicitly clicks/chooses prompt optimization, previews the suggested prompt, and confirms submission.
 - Default behavior remains unchanged: submit the user's original prompt without injecting identity, outfit, realism, or anti-3D constraints.
 - Optional optimizer may append/replace prompt text with explicit material-role mapping and style constraints, but must not silently default-enable preprocessing or modify generation requests.
+
+### Production sample `cgt-20261111111452-685559` diagnosis
+
+- Read-only production inspection found Seedance 2.5 `seedance-nsfw`, `omini`, 5 reference images, 9:16, 480p, 30s, succeeded; media order was Image 1 `主上格调.jpg`, Image 2 hotel room, Image 3 `丞相格调.jpg`, Image 4 face `WechatIMG138.jpeg`, Image 5 face `WechatIMG139.jpeg`.
+- Image 1 and Image 3 are 3D/CG-style white-background naked multi-view sheets. The prompt asks for photorealistic live-action/no 3D while simultaneously assigning Image 1/Image 3 as the character-body references and Image 4/Image 5 as the face references. The resulting poster/frames visibly inherit the plastic/CG material from Images 1/3.
+- The user prompt is also semantically overloaded: repeated `@Image N` bindings, conflicting identity/body/face roles, explicit no clothing plus a generic realism block. This matches Volcengine guidance to bind each material's role exactly, keep subjects concise, and avoid conflicting descriptions.
+- Adjusted the optional no-3D guard wording: it now respects the user's explicit per-image roles, treats face images as identity/face authority when supplied, and says 3D/white-background multi-view references only contribute body/action/pose/outfit information without inheriting their 3D/CG rendering material or face modeling. It no longer hardcodes Image 1 as the identity/outfit authority or adds clothing when prompt says nude.
+- Verification after wording change: `node --check platform.ui.parts/part-04.js`; advanced custom UI 43/43; related advanced/media-input suite 94/94. No commit, deployment, or production mutation.
+
+## 2026-11-11 Admin generation reference OSS re-signing
+
+- User reported `cgt-20261111111452-685559` has 2 of 5 reference images broken on the Admin generation detail page.
+- Root cause: persisted media URLs are historical OSS signatures that expired at `Expires=1794367200`; linked user-asset rows still have valid `objectStorageKey` values. The two affected keys were verified in production with fresh signatures returning HTTP 200 `image/jpeg` (36848 and 46198 bytes).
+- Fix: `adminRecordMediaAssetUrl()` now carries the linked/asset OSS key through `signedOssCdnUrlForDelivery()` before choosing the preview candidate, while keeping the existing candidate order and non-OSS URLs untouched.
+- Verification: `node --check server.parts/part-21.js`; `node --test test/admin-generation-records-list.test.js` passes 7/7; `git diff --check` passes.
+- Deployment status: pending selective commit, platform release snapshot, `platform-release` push, and Old-only deployment.

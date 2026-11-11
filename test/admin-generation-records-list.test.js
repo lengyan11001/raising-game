@@ -59,6 +59,8 @@ test("admin generation media detail preserves stable reference indexes and all m
   assert.match(mediaSource, /asset\.cdnUrl/);
   assert.match(mediaSource, /asset\.videoUrl/);
   assert.match(mediaSource, /asset\.audioUrl/);
+  assert.match(mediaSource, /signedOssCdnUrlForDelivery\(value, \{ key: storageKey \}\) \|\| value/);
+  assert.match(mediaSource, /linked\?\.objectStorageKey/);
   assert.doesNotMatch(mediaSource, /if \(!ids\.length\) return/);
 
   assert.match(admin, /function recordReferenceAudioAssets/);
