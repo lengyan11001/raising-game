@@ -4,7 +4,7 @@
 - Production `mulerouter_route` was enabled. Recent Wan2.7 image task history shows only this one `fetch failed`; neighboring tasks succeeded. The failing request therefore hit a transient server/upstream network drop rather than a user-side fault.
 - `mulerouter-aliyun.js` now normalizes network failures to `MULEROUTER_NETWORK_ERROR` (HTTP 502) instead of surfacing raw `fetch failed`. GET polling retries up to 3 attempts on transient network/HTTP failures. Generation POST retries only DNS/connect-refused/connect-timeout failures before a connection exists; ambiguous post-send failures are not retried because MuleRouter treats a new POST as a new billed generation.
 - Added focused coverage in `test/mulerouter-balance.test.js`: polling transient retry, no retry after ambiguous POST failure, and safe pre-connect POST retry. Combined targeted suite passed 35/35 with source compatibility; syntax and whitespace checks passed.
-- Deployment pending in this step until the exact integration commit and platform release are built/pushed. Do not include unrelated dirty workspace files.
+- Deployed Old only. Integration commit `089cc603`; platform release `1f6513d8` built and pushed; Live release `77669c50` was built but not pushed/deployed. Post-deploy: release `1f6513d`, MainPID `3051907`, `NRestarts=0`, health 200, no new MuleRouter/fetch errors in journal. Unrelated workspace WIP remains uncommitted.
 
 ## 2026-11-11 Step U: no-restart deployment hardened and resilience candidate deployed Old-only
 
