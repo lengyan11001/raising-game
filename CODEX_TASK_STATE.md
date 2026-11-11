@@ -1,3 +1,17 @@
+## 2026-11-11 Step I: Nginx failover drill and resilience decision
+
+- Goal: replace the unproven assumption "same-host Node processes improve resilience" with explicit promotion gates, then complete an isolated Nginx upstream failover and rolling-replacement drill without touching production.
+- Local commit `72425fd5` adds `ops/RESILIENCE-DECISION-2026-11.md`, `ops/REDIS-USAGE-MATRIX.md`, and `ops/nginx-multi-upstream-drill.sh`, plus platform-release allowlist and static tests. No runtime app code changed.
+- Decision: PostgreSQL remains authoritative for users, sessions, balances, ledger, orders, generation records, refunds, webhook claims, scheduler ownership, and idempotency. Redis is default-off and optional only for cache-aside public data, shadowed rate limits, post-fencing fast leases, and measured realtime fan-out. Same-host Redis does not provide host-loss resilience.
+- Promotion order: measured baseline, isolated Nginx failover, crash-fault drill, production-shaped rollout, capacity review, optional Redis, then off-host backup and second failure domain. Do not treat extra Node processes on the same host as the resilience endpoint.
+- Drill safety gates: disposable `raising_game_nginx_drill_YYYYMMDDHHMMSS` database only, explicit `DRILL_DATABASE_URL`, `DRILL_CONFIRM_DISPOSABLE_DATABASE=1`, ports 4181/4182/48080 only, production port 4174 forbidden, schedulers and durable submit worker disabled, disposable catalog and schema privileges probed before migrations.
+- First drill attempt stopped safely because an empty migrated database correctly failed application catalog bootstrap with `POSTGRES_CATALOG_EMPTY`; no app or Nginx process started. A second attempt stopped before app start because the restored database's app role lacked `USAGE/CREATE` on `public`; the script now rejects this condition before migrations.
+- Full drill: restored verified dump `db-20261110-0430.dump` into disposable DB `raising_game_nginx_drill_20261111085727` (67 tables; catalogs: presets 2506, actions 64, realtime voices 719, component voices 32, showcase 146), reconciled app-role privileges, and ran the drill. Migration dry-run/apply/dry-run ended at `pending=0`.
+- Drill evidence: `NGINX_TEST_OK`; two HTTP instances ready with schedulers and generation submit worker disabled; edge health 10/10; `PEER_DRAIN_SURVIVED=1 drained_port=4181`; `ROLLING_REPLACEMENT_OK=1 replacement_port=4181`; `SIGKILL_FAILOVER_OK=1 killed_port=4182`; final `NGINX_MULTI_UPSTREAM_DRILL_OK`.
+- Isolation result: temporary run root removed; temporary DB dropped; remaining temporary Nginx drill databases `0`; only production `127.0.0.1:4174` listener remains.
+- Production unchanged throughout: `raising-game-demo active/running`, MainPID `2656973`, `NRestarts=0`, health 200. No Redis, multi-process, durable submit worker, Telegram payment notification, backup restore, or deployment was enabled/performed.
+- Verification: `test/resilience-ops.test.js` 16/16 passed; `bash -n ops/nginx-multi-upstream-drill.sh` and `git diff --check` passed. Next gate is a measured production baseline, then a separate crash-fault/idempotency drill; deployment of these operations docs remains optional and still requires a dedicated release snapshot.
+
 ## 2026-11-11 Step H deployed and observed: Old generation fix
 
 - Commit `86aa8b80`; platform release `adffbf48`; pushed `old-site` and `platform-release`. Old deployed only through `scripts/deploy_local.sh --site old`.
