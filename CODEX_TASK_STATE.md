@@ -1,3 +1,19 @@
+## 2026-11-11 Step AC: result add-to-assets expired OSS signature fixed and deployed
+
+- User report: Result tab "加入素材" failed with `Failed to download generation image: 403`. Preview URLs were refreshed for delivery, but add-to-assets downloaded the raw stored OSS URL, whose signature had expired.
+- Fix commit `ba2a7876`: add-to-assets now prefers a direct download by durable OSS storage key, maps each selected image URL to its per-image `cdnImageStorageKeys`, and falls back to a freshly signed delivery URL. Short-lived signed URLs are never persisted. Video add-to-assets uses the same durable-key-first path.
+- Verification: syntax and whitespace checks passed; `advanced-preparation-recovery.test.js`, `oss-storage.test.js`, and `media-url-priority.test.js` passed 20/20. Production direct OSS reads succeeded for the reported image and sampled historical media.
+- Release/deploy: platform release `2efce2afbdbaf1322ee720c904d20574e996821c` built from `ba2a7876` and pushed. Old deployed via `scripts/deploy_local.sh --site old`; migrations were clean (`pending=0`), service active/running, `NRestarts=0`, and `https://123vips.com/api/health` returned 200. Live was not pushed or deployed. No sessions were cleared and no users were logged out.
+- Post-deploy logs since the new process started contain no new `Failed to download generation image: 403` or add-asset failures. The latest reported failures were from the previous process before deployment.
+
+## 2026-11-11 Step AB: Qwen Image Edit Spicy isolated identity-preservation test
+
+- Tested `qwen-image-edit-spicy` directly through configured Mulerouter on case `cgt-20261110085050-f6bc02`; no business API, user quota, generation record, or deployment was touched.
+- Strong-reference run tasks: Shen `98051458-a7b6-4a40-a466-2b62565a26c7`, Lin `4db23d79-322b-4652-a953-9dc10a23e75e`. Minimal-edit run tasks: Shen `75341dad-56e6-4996-b67c-2be33ebf7951`, Lin `55618b20-e392-4628-b5ca-836df06314c6`.
+- Outputs: `/tmp/f6bc02-qwen-shen-texture.png`, `/tmp/f6bc02-qwen-lin-texture.png`, `/tmp/f6bc02-qwen-shen-min-texture.png`, `/tmp/f6bc02-qwen-lin-min-texture.png`; comparisons `/tmp/f6bc02-qwen-shen-compare.jpg`, `/tmp/f6bc02-qwen-lin-compare.jpg`.
+- Conclusion: Qwen Image Edit Spicy is not suitable as an identity-lock preprocessor for these character sheets. It changes face/age toward an idol-like rendering, adds red blush, keeps a CG look, invents a large blue pattern on Shen's black cardigan, and in one run drops the Lin side-view panel. A minimal prompt reduced layout drift but not facial/identity or skin-tone drift.
+- Decision: do not use Qwen output as Seedance input for this case. Prefer original face crops plus original full-body wardrobe references directly in Seedance. Qwen may remain useful for ordinary user-invoked image editing where identity fidelity is not required, but must not be silently applied system-wide.
+
 ## 2026-11-11 Step V: MuleRouter fetch failure diagnosed; bounded network retry prepared
 
 - Inspected production task `img-20261111210825-7adf84` (`wan2.7-image-pro`). The generation record has `provider=aliyun-wan27-image`, `upstreamSource=direct`, no upstream task id / create response, `error=fetch failed`, and `billingStatus=refunded`; journal shows `[mulerouter-image-edit]` immediately before `[wan27-image-edit-background-error] ... fetch failed`. This is a server-to-MuleRouter failure, not a browser/client network error.
