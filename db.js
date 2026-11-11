@@ -8327,9 +8327,8 @@ async function getGenerationRecordsForScheduledMaintenanceFromDb({ maxAgeMs = 24
         LOWER(COALESCE(payload->>'status', '')) IN ('submitting', 'preparing', 'submitted', 'queued', 'pending', 'running', 'processing', 'generating')
         OR (
           LOWER(COALESCE(payload->>'status', '')) IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed', 'unknown')
-          AND LOWER(COALESCE(payload->>'billingStatus', '')) <> 'refunded'
+          AND LOWER(COALESCE(payload->>'billingStatus', '')) IN ('pre_deducted', 'refund_failed')
           AND COALESCE(NULLIF(payload->>'preDeductedCredits', '')::numeric, 0) > 0
-          AND COALESCE(NULLIF(payload->>'finalCredits', '')::numeric, COALESCE(NULLIF(payload->>'preDeductedCredits', '')::numeric, 0)) > 0
         )
       )
     ORDER BY created_at ASC, updated_at ASC

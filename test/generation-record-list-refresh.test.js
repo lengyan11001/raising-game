@@ -121,6 +121,59 @@ test("external API results still expose the matching provider URL first", () => 
   assert.match(source, /providerVideoUrl \|\| deliveryVideoUrl \|\| localUrl/);
 });
 
+test("terminal failed records never re-enter upstream status polling", () => {
+  const start = server.indexOf("function shouldRefreshGenerationRecord(");
+  const end = server.indexOf("function isStalePreSubmitGenerationRecord(", start + 1);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const source = server.slice(start, end);
+  const shouldRefresh = new Function(
+    "isChatCompletionGenerationRecord",
+    "needsApizFailureRefund",
+    "needsSeedanceFailureRefund",
+    "generationRecordR2Expired",
+    "isImageGenerationRecord",
+    "seedanceUsesTokenPricing",
+    "isFailedStatus",
+    "isSucceededStatus",
+    "generationRecordProviderVideoUrl",
+    "GENERATION_MEDIA_PERSISTENCE_RETRY_DELAY_MS",
+    "GENERATION_MEDIA_PERSISTENCE_MAX_AGE_MS",
+    `${source}\nreturn shouldRefreshGenerationRecord;`,
+  )(
+    () => false,
+    () => true,
+    () => true,
+    () => false,
+    () => false,
+    () => false,
+    (status) => ["failed", "error", "cancelled", "canceled", "image_failed"].includes(String(status).toLowerCase()),
+    (status) => ["succeeded", "success", "done", "completed"].includes(String(status).toLowerCase()),
+    (record) => String(record.remoteVideoUrl || ""),
+    30 * 60 * 1000,
+    24 * 60 * 60 * 1000,
+  );
+  for (const status of ["failed", "error", "cancelled", "canceled", "image_failed"]) {
+    assert.equal(shouldRefresh({
+      taskId: `terminal-${status}`,
+      status,
+      provider: "seedance",
+      upstreamTaskId: "upstream-terminal",
+      preDeductedCredits: 10,
+      finalCredits: 0,
+      billingStatus: "pre_deducted",
+    }), false);
+  }
+  assert.equal(shouldRefresh({
+    taskId: "active-running",
+    status: "running",
+    provider: "seedance",
+    upstreamTaskId: "upstream-active",
+    preDeductedCredits: 10,
+    billingStatus: "pre_deducted",
+  }), true);
+});
+
 test("completed video records without durable media only refresh inside the recovery window", () => {
   const start = server.indexOf("function shouldRefreshGenerationRecord(");
   const end = server.indexOf("function isStalePreSubmitGenerationRecord(", start + 1);

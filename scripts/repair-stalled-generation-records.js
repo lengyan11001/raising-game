@@ -24,6 +24,7 @@ function parseArgs(argv) {
     else if (arg === "--limit") args.limit = Number(argv[++index] || 0);
     else if (arg === "--task-id") args.taskIds.push(String(argv[++index] || "").trim());
     else if (arg === "--failed-refund-audit") args.mode = "failed-refund-audit";
+    else if (arg === "--failed-pre-deducted-audit") args.mode = "failed-pre-deducted-audit";
     else if (arg === "--since-days") args.sinceDays = Number(argv[++index] || 0);
     else if (arg === "--env") args.envFile = argv[++index] || "";
     else if (arg === "--help" || arg === "-h") args.help = true;
@@ -60,6 +61,7 @@ function usage() {
     "  --limit <n>           Maximum records to inspect (default: 100, max: 500)",
     "  --task-id <id>        Restrict to one task id; repeatable",
     "  --failed-refund-audit Audit records marked refunded whose refund ledger is missing",
+    "  --failed-pre-deducted-audit Audit failed pre-deducted records missing a refund ledger",
     "  --since-days <n>      Failed-refund audit lookback in days (default: 30)",
     "  --env <path>          Load DATABASE_URL and provider settings from an env file",
   ].join("\n");
@@ -78,14 +80,17 @@ async function main() {
   }
   const staleMs = Math.max(0, Number(args.staleHours || 0) * 60 * 60 * 1000);
   const server = require("../server");
+  const auditOptions = {
+    apply: args.apply,
+    limit: args.limit,
+    taskIds: args.taskIds,
+    sinceMs: Math.max(0, Number(args.sinceDays || 0) * 24 * 60 * 60 * 1000),
+  };
   const summary = args.mode === "failed-refund-audit"
-    ? await server.repairFailedRefundedGenerationRecords({
-      apply: args.apply,
-      limit: args.limit,
-      taskIds: args.taskIds,
-      sinceMs: Math.max(0, Number(args.sinceDays || 0) * 24 * 60 * 60 * 1000),
-    })
-    : await server.repairStalledGenerationRecords({
+    ? await server.repairFailedRefundedGenerationRecords(auditOptions)
+    : args.mode === "failed-pre-deducted-audit"
+      ? await server.repairFailedPreDeductedGenerationRecords(auditOptions)
+      : await server.repairStalledGenerationRecords({
       apply: args.apply,
       staleMs,
       limit: args.limit,

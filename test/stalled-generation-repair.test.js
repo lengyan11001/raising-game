@@ -147,6 +147,29 @@ test("seedream failure does not claim refunded unless the refund ledger write su
   assert.match(handler, /billingError: refundError \?/);
 });
 
+test("scheduled maintenance excludes terminal settled failures but keeps pre-deducted refund work", () => {
+  const db = fs.readFileSync(path.join(__dirname, "..", "db.js"), "utf8");
+  const maintenance = db.slice(
+    db.indexOf("async function getGenerationRecordsForScheduledMaintenanceFromDb"),
+    db.indexOf("async function getGenerationRecordsNeedingPosterMaintenanceFromDb"),
+  );
+  assert.doesNotMatch(maintenance, /COALESCE\(NULLIF\(payload->>'finalCredits', ''\)::numeric/);
+  assert.match(maintenance, /billingStatus', ''\)\) IN \('pre_deducted', 'refund_failed'\)/);
+  assert.match(maintenance, /LOWER\(COALESCE\(payload->>'status', ''\)\) IN \('submitting'/);
+});
+
+test("failed pre-deducted audit is targeted, dry-run by default, and idempotent", () => {
+  const server = require("../server-source").readServerSource();
+  assert.match(server, /async function listFailedPreDeductedGenerationRecordsForAudit/);
+  assert.match(server, /async function repairFailedPreDeductedGenerationRecords/);
+  assert.match(server, /billingStatus', ''\)\) IN \('pre_deducted', 'refund_failed'\)/);
+  assert.match(server, /function stalledGenerationRefundType[\s\S]*?failedRefundAuditRefundTypes\(auditTypes \|\| \{\}\)\[0\]/);
+  assert.match(server, /refundPreDeductedStalledGenerationRecord\(current, "failed-pre-deducted-refund-repair"\)/);
+  assert.match(script, /--failed-pre-deducted-audit/);
+  assert.match(script, /repairFailedPreDeductedGenerationRecords\(auditOptions\)/);
+  assert.match(script, /apply: false/);
+});
+
 test("failed generation paths never claim a refund before the real ledger write succeeds", () => {
   const seedance = fs.readFileSync(path.join(__dirname, "..", "server.parts", "part-15.js"), "utf8");
   const seedanceHandler = seedance.slice(seedance.indexOf("async function handleVolcengineCreateGenerationTask("), seedance.indexOf("async function handleSeedanceVideoTask"));

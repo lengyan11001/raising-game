@@ -219,9 +219,11 @@ function isStalledGenerationRecordCandidate(record = {}, staleMs = 2 * 60 * 60 *
 }
 
 function stalledGenerationRefundType(record = {}) {
-  return String(record.provider || "").toLowerCase() === "aliyun-wan27-image"
-    ? "asset_image_modify_refund"
-    : "generation_refund";
+  const provider = String(record.provider || "").toLowerCase();
+  if (provider === "aliyun-wan27-image") return "asset_image_modify_refund";
+  const auditTypes = failedRefundAuditLedgerTypes(record);
+  const auditRefundType = failedRefundAuditRefundTypes(auditTypes || {})[0] || "";
+  return auditRefundType || "generation_refund";
 }
 
 async function refundPreDeductedStalledGenerationRecord(record = {}, reason = "stalled-generation-repair", { allowSettledRefund = false } = {}) {
@@ -379,6 +381,82 @@ async function listFailedRefundedGenerationRecordsForAudit({ taskIds = [], since
     LIMIT $3
   `, [providers, sinceAt, safeLimit]);
   return rows.map((row) => row.payload).filter(Boolean);
+}
+
+async function listFailedPreDeductedGenerationRecordsForAudit({ taskIds = [], sinceMs = 30 * 24 * 60 * 60 * 1000, limit = 100 } = {}) {
+  const ids = [...new Set((Array.isArray(taskIds) ? taskIds : []).map((value) => String(value || "").trim()).filter(Boolean))];
+  if (ids.length) {
+    const records = await Promise.all(ids.map((taskId) => getGenerationRecord(taskId)));
+    return records.filter((record) => record && record.taskId);
+  }
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for failed pre-deducted refund audit.");
+  const providers = [...FAILED_REFUND_AUDIT_LEDGER_TYPES.keys()];
+  const safeLimit = Math.max(1, Math.min(500, Math.trunc(Number(limit || 100) || 100)));
+  const sinceAt = new Date(Date.now() - Math.max(0, Number(sinceMs || 0))).toISOString();
+  const { rows } = await dbQuery(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND LOWER(COALESCE(payload->>'status', '')) = 'failed'
+      AND LOWER(COALESCE(payload->>'billingStatus', '')) IN ('pre_deducted', 'refund_failed')
+      AND LOWER(COALESCE(payload->>'provider', '')) = ANY($1::text[])
+      AND COALESCE(NULLIF(payload->>'createdAt', '')::timestamptz, created_at) >= $2::timestamptz
+    ORDER BY COALESCE(NULLIF(payload->>'createdAt', '')::timestamptz, created_at) ASC
+    LIMIT $3
+  `, [providers, sinceAt, safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
+async function repairFailedPreDeductedGenerationRecords({ apply = false, taskIds = [], sinceMs = 30 * 24 * 60 * 60 * 1000, limit = 100 } = {}) {
+  const records = await listFailedPreDeductedGenerationRecordsForAudit({ taskIds, sinceMs, limit });
+  const results = [];
+  for (const record of records) {
+    const base = {
+      taskId: record.taskId,
+      userId: record.userId,
+      provider: record.provider || "",
+      status: record.status || "",
+      billingStatus: record.billingStatus || "",
+      preDeductedCredits: creditsAmount(record.preDeductedCredits || 0),
+    };
+    if (!isFailedStatus(record.status) || !["pre_deducted", "refund_failed"].includes(String(record.billingStatus || "").toLowerCase())) {
+      results.push({ ...base, action: "skipped", reason: "not-a-failed-pre-deducted-record" });
+      continue;
+    }
+    const refundType = stalledGenerationRefundType(record);
+    const alreadyRefunded = await stalledGenerationRefundExists(record, refundType);
+    base.refundAlreadyRecorded = alreadyRefunded;
+    if (!apply) {
+      results.push({ ...base, action: "refund-pending", reason: alreadyRefunded ? "refund-ledger-already-recorded" : "refund-ledger-missing", refundType, refundCredits: alreadyRefunded ? 0 : base.preDeductedCredits });
+      continue;
+    }
+    try {
+      const nextRecord = await withStalledGenerationRepairLock(record.taskId, async () => {
+        const current = await getGenerationRecord(record.taskId);
+        if (!current || !isFailedStatus(current.status) || !["pre_deducted", "refund_failed"].includes(String(current.billingStatus || "").toLowerCase())) return current;
+        return refundPreDeductedStalledGenerationRecord(current, "failed-pre-deducted-refund-repair");
+      });
+      results.push({
+        ...base,
+        action: "refunded",
+        reason: alreadyRefunded ? "refund-ledger-already-recorded" : "refund-ledger-missing",
+        refundType,
+        refundCredits: alreadyRefunded ? 0 : base.preDeductedCredits,
+        finalBillingStatus: nextRecord?.billingStatus || "",
+      });
+    } catch (error) {
+      results.push({ ...base, action: "failed-to-repair", reason: String(error.message || error).slice(0, 240) });
+    }
+  }
+  return {
+    apply: Boolean(apply),
+    mode: "failed-pre-deducted-refund-audit",
+    scanned: records.length,
+    repaired: results.filter((item) => item.action === "refunded").length,
+    skipped: results.filter((item) => item.action === "skipped").length,
+    failed: results.filter((item) => item.action === "failed-to-repair").length,
+    results,
+  };
 }
 
 async function repairFailedRefundedGenerationRecords({ apply = false, taskIds = [], sinceMs = 30 * 24 * 60 * 60 * 1000, limit = 100 } = {}) {
@@ -855,6 +933,8 @@ module.exports = {
   repairStalledGenerationRecords,
   repairFailedRefundedGenerationRecords,
   listFailedRefundedGenerationRecordsForAudit,
+  repairFailedPreDeductedGenerationRecords,
+  listFailedPreDeductedGenerationRecordsForAudit,
   listStalledGenerationRecordsForRepair,
   isStalledGenerationRecordCandidate,
   failStalledGenerationRecord,

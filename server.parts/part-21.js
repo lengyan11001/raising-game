@@ -68,6 +68,10 @@ function generationRecordMatchesQuery(record = {}, query = "") {
 
 function shouldRefreshGenerationRecord(record = {}) {
   if (isChatCompletionGenerationRecord(record)) return false;
+  const initialStatus = String(record.status || "").toLowerCase();
+  // A terminal failure must never re-enter upstream status polling. Billing
+  // repairs are handled by the dedicated refund path below.
+  if (isFailedStatus(initialStatus)) return false;
   if (needsApizFailureRefund(record)) return true;
   if (needsSeedanceFailureRefund(record)) return true;
   if (generationRecordR2Expired(record)) return false;
