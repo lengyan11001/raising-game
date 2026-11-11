@@ -16,6 +16,7 @@ const installScript = fs.readFileSync(path.join(root, "ops", "install-service-wa
 const watchdogService = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-watchdog.service"), "utf8");
 const watchdogTimer = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-watchdog.timer"), "utf8");
 const plan = fs.readFileSync(path.join(root, "ops", "RESILIENCE-PLAN.md"), "utf8");
+const redisPlan = fs.readFileSync(path.join(root, "ops", "REDIS-PLAN.md"), "utf8");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -94,6 +95,7 @@ function invokeWatchdogAsync(env) {
 test("resilience operations are included only in the platform release snapshot", () => {
   for (const file of [
     "ops/RESILIENCE-PLAN.md",
+    "ops/REDIS-PLAN.md",
     "ops/service-watchdog.sh",
     "ops/install-service-watchdog.sh",
     "ops/systemd/raising-game-watchdog.service",
@@ -376,6 +378,20 @@ exit 0
     assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.timer")), false);
     assert.doesNotMatch(fs.readFileSync(log, "utf8"), /restart raising-game-demo/);
   });
+});
+
+test("resilience plan makes Redis conditional and subordinate to PostgreSQL authority", () => {
+  assert.match(plan, /target architecture is defined independently of today's implementation/i);
+  assert.match(plan, /PostgreSQL remains the authoritative durable store/i);
+  assert.match(plan, /Redis is used only where shared, short-lived state or cache materially improves/i);
+  assert.match(plan, /P3\.5 - Redis shared-state and cache track \(conditional, default off\)/);
+  assert.match(plan, /Redis loss must cause cache misses or controlled\s+fallback, never startup failure/i);
+  assert.match(plan, /complete the relevant P3\.5 gates/i);
+  assert.match(redisPlan, /detailed execution track for P3\.5/i);
+  assert.match(redisPlan, /Do not introduce Redis as a second source of truth/i);
+  assert.match(redisPlan, /`REDIS_ENABLED`/);
+  assert.match(plan, /zero duplicate charges\/provider\s+submissions/i);
+  assert.match(redisPlan, /same-host Redis does not increase\s+host-level/i);
 });
 
 test("resilience plan does not promise multi-process or RPO before verification", () => {

@@ -63,6 +63,7 @@ PLATFORM_PATTERNS = (
     "assets/admin/**",
     "workflow-react/**",
     "ops/RESILIENCE-PLAN.md",
+    "ops/REDIS-PLAN.md",
     "ops/apply-production-tuning.sh",
     "ops/harden_old_nginx_private_media.py",
     "ops/harden-old-nginx-private-media.sh",

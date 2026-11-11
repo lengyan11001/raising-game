@@ -1,4 +1,9 @@
-# Redis adoption plan (Old / multi-process preparation)
+# Redis adoption plan (part of the resilience roadmap)
+
+This is the detailed execution track for P3.5 in `ops/RESILIENCE-PLAN.md`. The resilience plan is
+the governing sequence; this document defines Redis-specific workloads, failure contracts, and
+verification gates. Redis is a means to measured capacity and cross-process correctness, not an
+architectural requirement.
 
 ## Decision
 

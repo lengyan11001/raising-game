@@ -1,13 +1,27 @@
 # Single-node resilience plan
 
-This plan separates three different concerns that are often conflated:
+This plan separates concerns that are often conflated:
 
-1. **Capacity** - more CPU, RAM, disk, or database limits.
-2. **Process resilience** - one application process crashes or hangs.
-3. **Infrastructure resilience** - the host, disk, kernel, PostgreSQL instance, or network is lost.
+1. **Capacity** - CPU, RAM, disk, database limits, and per-process event-loop pressure.
+2. **Process resilience** - an application process crashes, hangs, or must be replaced.
+3. **State architecture** - authoritative facts, shared ephemeral state, cache, and coordination.
+4. **Infrastructure resilience** - the host, disk, kernel, PostgreSQL instance, or network is lost.
 
-A bigger server or several processes on one server improves only the first two. It does not
-replace a verified off-host database backup or a second failure domain.
+The target architecture is defined independently of today's implementation:
+
+- Application processes should be disposable and interchangeable for HTTP traffic.
+- PostgreSQL remains the authoritative durable store for business and security facts.
+- Redis is used only where shared, short-lived state or cache materially improves correctness or
+  capacity: cross-process cache, short-window rate limits, idempotency, and optional event fan-out.
+- Background work must have explicit ownership, bounded concurrency, retry limits, and takeover
+  behavior. A scheduler must not depend on being the only process by accident.
+- Every stage must have health signals, fault injection, rollback, and measured acceptance.
+
+Existing code is a migration baseline, not the design ceiling. Prefer the simplest architecture
+that meets these invariants; do not preserve a local-only implementation merely because it exists.
+
+A bigger server or several processes on one server improves only capacity and process resilience.
+It does not replace a verified off-host backup or a second failure domain.
 
 ## Current evidence (2026-11-11, Old)
 
@@ -43,6 +57,9 @@ replace a verified off-host database backup or a second failure domain.
 | Host or zone lost | daily dump on the same host | no independent failure domain | Dedicated encrypted off-host backup |
 | Bad deploy | release audit and rollback path | shared-process restart | Keep isolated release and staged checks |
 | One HTTP handler is slow | bounded timeouts | a single event loop can still affect all requests | Worker isolation only after scheduler ownership is fixed |
+| Shared hot reads hit every process | per-process caches | duplicated work and inconsistent cache state | Redis cache-aside with bounded TTLs |
+| Concurrent duplicate submissions | in-process maps and database guards | not equivalent across processes | Redis idempotency plus durable PostgreSQL result |
+| Redis unavailable | not applicable yet | optional dependency must not remove protection | PostgreSQL fallback or fail closed |
 
 ## Stages and gates
 
@@ -85,7 +102,7 @@ three failures dispatched exactly one restart, no duplicate loop followed, the 4
 window suppressed false failure checks, and post-restart recovery cleared the pending marker.
 Production remained `active` with `NRestarts=0` throughout.
 
-### P3 - Capacity review
+### P3 - Capacity and shared-state review
 
 Measure before changing the machine. Consider an upgrade only if one or more signals persists:
 
@@ -99,6 +116,39 @@ Measure before changing the machine. Consider an upgrade only if one or more sig
 A vertical upgrade is a maintenance event and must have rollback, capacity comparison, and
 post-change load evidence. It is not a substitute for backups.
 
+Redis is introduced here only if measured evidence shows shared cache, short-window rate limiting,
+cross-process idempotency, or event fan-out is the better solution. It is not a prerequisite for
+vertical capacity and is never a second source of truth. The detailed workload split, flags,
+failure contracts, and R0-R5 rollout live in `ops/REDIS-PLAN.md`; the resilience stages below are
+the governing sequence.
+
+#### P3.5 - Redis shared-state and cache track (conditional, default off)
+
+1. R0: record PostgreSQL QPS, p95 latency, per-process cache hit rates, rate-limit writes, and
+   duplicate request evidence. Add flags that default off and preserve PostgreSQL-only behavior.
+2. R1: verify locally with a disposable Redis: TTLs, namespace prefix, memory limit, timeout,
+   reconnect, redaction, and process behavior when Redis is killed mid-request.
+3. R2: enable cache-aside first for public config, templates, platform HTML, and compact
+   generation polling. Require mutation invalidation and prove no stale balance, authorization,
+   order, or completion state.
+4. R3: shadow Redis rate limiting against PostgreSQL, compare decisions, then enable Redis primary
+   with PostgreSQL fallback and durable audit events.
+5. R4: enable cross-process idempotency only with a durable PostgreSQL result; prove one provider
+   submission and one charge per client key after a process crash.
+6. R5: add Pub/Sub or shared presence only for actual multi-process realtime needs. A same-host
+   Redis does not improve host-loss resilience; managed/off-host Redis requires a second failure
+   domain and measured RTO.
+7. Rollback at every step is a flag change. Redis loss must cause cache misses or controlled
+   fallback, never startup failure or silent loss of security controls.
+
+Promotion gates for P3.5:
+
+- measured reduction in PostgreSQL reads or p95 latency, not just a configured Redis connection;
+- zero mismatches in the rate-limit shadow period;
+- zero duplicate charges/provider submissions in concurrent fault tests;
+- explicit cache invalidation and TTL evidence for every cached contract;
+- Redis outage and eviction drills pass without data loss or unauthenticated fallback.
+
 ### P4 - Same-host multi-process (conditional)
 
 Do not run multiple copies of `server.js` yet. The startup path starts many background schedulers,
@@ -111,9 +161,12 @@ Required before this stage:
 1. Scheduler single-owner is implemented through per-tick PostgreSQL advisory leases. Do not treat
    this alone as permission to run multiple `server.js` processes.
 2. Verify each job is idempotent under two simultaneous processes.
-3. Add multiple Nginx upstream ports and health-based removal.
-4. Test rolling process replacement without dropping in-flight submissions.
-5. Run a fault-injection test that kills one process while traffic continues.
+3. Complete the relevant P3.5 gates: shared cache behavior is consistent, Redis-backed rate-limit
+   fallback is proven, and request idempotency prevents duplicate submissions and charges.
+4. Add multiple Nginx upstream ports and health-based removal.
+5. Test rolling process replacement without dropping in-flight submissions.
+6. Run a fault-injection test that kills one process while traffic continues.
+7. Keep the database as the durable result source if Redis fails between claim and commit.
 
 Without those gates, same-host multi-process is more likely to duplicate work than improve
 availability.
@@ -122,8 +175,10 @@ availability.
 
 1. Put PostgreSQL in a managed service or a tested primary/standby topology.
 2. Put a second application failure domain behind an external load balancer.
-3. Rehearse DNS/origin failover and database promotion with measured RTO.
-4. Keep the off-host backup independent of both production hosts.
+3. Put shared Redis, if still required, in a managed/off-host topology with its own failure and
+   recovery test; never make Redis a single point of failure for authoritative data.
+4. Rehearse DNS/origin failover, database promotion, and Redis recovery with measured RTO.
+5. Keep the off-host backup independent of both production hosts.
 
 ## Change discipline
 
@@ -132,3 +187,5 @@ availability.
 - No direct deployment from `old-site`; use the repository release and deployment entrypoints.
 - Never put credentials, `DATABASE_URL`, or backup contents in Git or logs.
 - Every stage records commands, timings, row-count evidence, rollback, and post-change health.
+- Plans define the target invariants first; implementation choices must be justified by measured
+  evidence and the safest failure mode, not merely by the current code layout.
