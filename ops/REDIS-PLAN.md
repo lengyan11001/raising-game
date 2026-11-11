@@ -147,6 +147,59 @@ and explicit database reads are sufficient for the first cache stage.
 - Move from same-host Redis to a managed/off-host Redis only when the application itself has a
   second failure domain. Until then, Redis improves coordination and load, not host-loss recovery.
 
+## Inventory of current process-local state
+
+Use this inventory to prioritize Redis work without creating a second source of truth. The
+default is still no Redis; each item needs a measured benefit and an independent rollout.
+
+| Current local state | Location | Redis candidate | Contract and reason |
+| --- | --- | --- | --- |
+| Public config response, 30s | `server.parts/part-42.js` | R2 yes | Bounded cache-aside with explicit mutation invalidation. Safe for anonymous config only; never include user billing or authorization state. |
+| Playflux templates, 5min | `server.parts/part-42.js` | R2 yes | Read-only tenant-filtered snapshot with hard TTL and invalidation on catalog/config writes. |
+| Platform HTML snapshot, 20s | `server.parts/part-04.js` | R2 yes | Versioned key with content hash; stale data must expire quickly and a Redis miss must render normally. |
+| Public pricing / APIZ model metadata | `server.parts/part-20.js` | R2 yes | Short TTL read cache; never treat cached price as the authoritative charge until the PostgreSQL transaction revalidates it. |
+| Compact generation-list polling view | generation-list handlers | R2 later | Only after mutation-version invalidation is tested across processes. Never cache balances, refund status, or terminal ownership without invalidation. |
+| Admin dashboard aggregates | admin handlers | R2 optional | Accept a few seconds of staleness; use separate namespace and short TTL. |
+| Chat-live voice preview bytes | `server.parts/part-07.js` | no | Media bytes belong in object storage/CDN or a bounded local cache, not Redis. |
+| Provider asset-URI mappings and in-flight maps | `server.parts/part-15.js` | no by default | These are provider-specific idempotency aids. Keep them process-local until a measured duplicate-upload rate justifies a shared lease with PostgreSQL result fencing. |
+| PayPal/Airwallex access tokens | `server.parts/part-13.js`, `part-34.js` | no | Short-lived credentials should stay process-local; sharing them adds a security-sensitive dependency for little measurable gain. |
+| Embed ticket one-time-use set | `server.parts/part-10.js` | R4 only | If tickets are redeemed across multiple HTTP processes, use a Redis NX claim plus a PostgreSQL durable one-time-use record. A Redis-only set is not acceptable. |
+| Double-topup status and checkout locks | `server.parts/part-13.js` | no | Financial UI and checkout coordination must use PostgreSQL row state and constraints. Redis may only cache a display projection after invalidation is proven. |
+| Chat-live WebSocket/session maps | `server.parts/part-01.js`, `part-06.js` | R5 only | Keep process-local until realtime connections actually span processes. Pub/Sub cannot replace durable chat/session state. |
+| In-memory generation submission token set | `server.parts/part-01.js` | no | Shutdown drain is process-local by design. Cross-process duplicate protection must use PostgreSQL idempotency; Redis is only a fast lease after R4. |
+
+## Ownership and key policy
+
+- Namespace every key as `rg:<environment>:<domain>:<version>:<key>`; include tenant/host where
+  the cached value is tenant-scoped.
+- Hard TTL on every key. No unbounded keys, no raw database snapshots, no PII, credentials,
+  tokens, or signed private media URLs.
+- Cap value size; reject oversized values rather than silently bloating Redis.
+- Use cache-aside reads and explicit invalidation after successful PostgreSQL mutations. TTL is a
+  safety net, not the only invalidation mechanism.
+- Keep a PostgreSQL fallback for every cache. A Redis timeout, eviction, or restart must not turn
+  into a 5xx or an unauthenticated/allow-all decision.
+- Keep security facts independently enforceable: rate-limit/login failures, account lockouts,
+  balances, ledger entries, orders, refunds, generation completion, and idempotency results stay in
+  PostgreSQL.
+- Do not use Redis advisory-style locks for scheduler ownership while PostgreSQL session advisory
+  locks already provide automatic owner-death release.
+- Separate cache and security coordination if both are adopted; different eviction policies and
+  memory limits are required. Never let cache eviction silently delete security leases.
+
+## Rollout gates and evidence
+
+Before R2 production enablement, record baseline PostgreSQL QPS, p95 API latency, per-route cache
+hit rate, generation polling request rate, and `app_rate_limits` write volume. Acceptance is a
+measured reduction in PostgreSQL reads or p95 latency, with zero stale balance, authorization,
+order, refund, or generation-completion observations.
+
+Before R3, run Redis and PostgreSQL rate-limit decisions in shadow mode and require zero
+security-relevant mismatches. Before R4, run concurrent duplicate-submission and process-kill
+tests proving one accepted request, one charge, one provider submission, and a durable result.
+Before R5, require real multi-process realtime evidence. Same-host Redis is not host-loss
+resilience and must not be presented as such.
+
 ## Deployment constraints
 
 - Never expose Redis on the public network; bind to loopback or a private network.

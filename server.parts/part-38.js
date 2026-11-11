@@ -1,5 +1,4 @@
-async function runMyCharacterImageGenerationJob(job = {}) {
-  let submission = null;
+async function runMyCharacterImageGenerationJob(job = {}, submission = null) {
   let auth = await backgroundAuthForMyCharacterJob(job.auth || {});
   if (!auth.user) {
     throw new Error("Character image job user not found.");
@@ -19,7 +18,6 @@ async function runMyCharacterImageGenerationJob(job = {}) {
   record.updatedAt = new Date().toISOString();
   await saveUserCharacterForAuth(auth, record);
 
-  submission = beginGenerationSubmission("my-character-image-generation", job.record?.taskId || job.characterId);
   try {
     if (USE_GATEWAY_UPSTREAM) {
       const submitted = await gatewayRequest("POST", "/api/my/characters/generate-image", {
@@ -85,7 +83,6 @@ async function runMyCharacterImageGenerationJob(job = {}) {
         error: record.error || "",
         ...billingUpdates,
       }, "my-character-image-submit");
-      finishGenerationSubmission(submission);
       return;
     }
 
@@ -116,7 +113,6 @@ async function runMyCharacterImageGenerationJob(job = {}) {
       remoteImageUrl: generated.imageUrl,
       awaitingUpstreamTask: false,
     }, "my-character-image-submit");
-    finishGenerationSubmission(submission);
     const local = await downloadGeneratedCharacterSheet(taskId, generated.imageUrl);
     record.imageStatus = "succeeded";
     record.posterUrl = local.localUrl;
@@ -150,8 +146,9 @@ async function runMyCharacterImageGenerationJob(job = {}) {
       ...billingUpdates,
     }, "my-character-image-succeeded");
   } catch (error) {
-    finishGenerationSubmission(submission);
     await failMyCharacterImageGeneration(auth, record, error, "my-character-image-failed");
+  } finally {
+    finishGenerationSubmission(submission);
   }
 }
 

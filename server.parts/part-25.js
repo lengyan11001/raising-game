@@ -314,9 +314,9 @@ function platformRecordKind(template = {}) {
 }
 
 function startPlatformGenerationJob(job) {
-  setImmediate(() => runPlatformGenerationJob(job).catch((error) => {
+  return startTrackedGenerationJob("platform-generation", job.taskId, runPlatformGenerationJob, (error) => {
     console.error("[platform-generation-job-failed]", job.taskId, error.message || error);
-  }));
+  });
 }
 
 async function platformGenerationProviderTask(job = {}, { onDispatch = null } = {}) {
@@ -546,9 +546,8 @@ async function markPlatformGenerationSubmitFailed(job = {}, error = null) {
   }
 }
 
-async function runPlatformGenerationJob(job = {}) {
+async function runPlatformGenerationJob(job = {}, submission = null) {
   const { taskId } = job;
-  const submission = beginGenerationSubmission("platform-generation", taskId);
   let providerDispatched = false;
   try {
     await updateGenerationRecord(taskId, {

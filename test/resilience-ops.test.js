@@ -17,6 +17,7 @@ const watchdogService = fs.readFileSync(path.join(root, "ops", "systemd", "raisi
 const watchdogTimer = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-watchdog.timer"), "utf8");
 const plan = fs.readFileSync(path.join(root, "ops", "RESILIENCE-PLAN.md"), "utf8");
 const redisPlan = fs.readFileSync(path.join(root, "ops", "REDIS-PLAN.md"), "utf8");
+const multiProcessDrill = fs.readFileSync(path.join(root, "ops", "multi-process-drill.sh"), "utf8");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -403,4 +404,19 @@ test("resilience plan does not promise multi-process or RPO before verification"
   assert.match(plan, /Do not treat\s+this alone as permission to run multiple `server\.js` processes/);
   assert.match(plan, /current daily-only backup does not meet the RPO target/i);
   assert.match(plan, /off-host backup independent of both production hosts/);
+});
+
+test("multi-process drill reconciles a restored disposable schema before starting app processes", () => {
+  const confirmation = multiProcessDrill.indexOf("DRILL_CONFIRM_DISPOSABLE_DATABASE");
+  const firstDryRun = multiProcessDrill.indexOf("run-db-migrations.js --dry-run");
+  const apply = multiProcessDrill.indexOf("run-db-migrations.js --apply");
+  const readyDryRun = multiProcessDrill.indexOf("migrations-ready.log");
+  const start = multiProcessDrill.indexOf("start_app() {");
+  const cdAppRoot = multiProcessDrill.indexOf('cd "$APP_ROOT"');
+  assert.ok(confirmation >= 0 && cdAppRoot > confirmation && firstDryRun > cdAppRoot && apply > firstDryRun && readyDryRun > apply && start > readyDryRun);
+  assert.match(multiProcessDrill, /grep -q '\^pending=0\$'/);
+  assert.match(multiProcessDrill, /ALTER TABLE %s OWNER TO raising_game_app/);
+  assert.match(multiProcessDrill, /ALTER SEQUENCE %s OWNER TO raising_game_app/);
+  assert.match(multiProcessDrill, /d\.deptype IN \('a', 'i'\)/);
+  assert.match(multiProcessDrill, /GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO raising_game_app;\nSQL\n/);
 });

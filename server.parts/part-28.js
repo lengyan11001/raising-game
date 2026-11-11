@@ -172,7 +172,7 @@ async function settleQwen37FlashUsage({ taskId = "", userId = "", cost = 0, pric
   return { finalCost, finalPricing };
 }
 
-async function runQwen37FlashGenerationJob(job = {}) {
+async function runQwen37FlashGenerationJob(job = {}, submission = null) {
   const {
     taskId = "",
     userId = "",
@@ -188,7 +188,6 @@ async function runQwen37FlashGenerationJob(job = {}) {
   } = job;
   if (!taskId || !userId) return;
   let upstreamPayload = null;
-  const submission = beginGenerationSubmission("qwen37-flash-generation", taskId);
   try {
     await upsertGenerationRecord({ taskId, status: "running", awaitingUpstreamTask: true, error: "" });
     const imageUrls = Array.isArray(job.images) ? job.images.filter((item) => String(item || "").startsWith("data:image/")).slice(0, 4) : [];
@@ -257,9 +256,7 @@ async function runQwen37FlashGenerationJob(job = {}) {
       billingSettledAt: new Date().toISOString(),
       error: "",
     });
-    finishGenerationSubmission(submission);
   } catch (error) {
-    finishGenerationSubmission(submission);
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[language-model-error]", taskId, errorInfo.message || error.message || error);
     const currentRecord = await getGenerationRecord(taskId).catch(() => null);
@@ -289,13 +286,15 @@ async function runQwen37FlashGenerationJob(job = {}) {
       billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     });
+  } finally {
+    finishGenerationSubmission(submission);
   }
 }
 
 function startQwen37FlashGenerationJob(job = {}) {
-  setImmediate(() => runQwen37FlashGenerationJob(job).catch((error) => {
+  return startTrackedGenerationJob("qwen37-flash-generation", job.taskId, runQwen37FlashGenerationJob, (error) => {
     console.error("[qwen37-flash-job-unhandled]", job.taskId || "", error.message || error);
-  }));
+  });
 }
 
 async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
@@ -423,11 +422,10 @@ async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
   });
 }
 
-async function runQwenImage3GenerationJob(job = {}) {
+async function runQwenImage3GenerationJob(job = {}, submission = null) {
   const { taskId = "", userId = "", body = {}, bodyParams = {}, initialParams = {}, prompt = "", tier = "pro", model = "", resolution = "2K", ratio = "1:1", size = "", outputImageCount = 1, negativePrompt = "", promptExtend = true, promptExtendMode = "direct", watermark = false, seed = null, pricing = {}, cost = 0 } = job;
   if (!taskId || !userId) return;
   let upstreamPayload = null;
-  const submission = beginGenerationSubmission("qwen-image3-generation", taskId);
   try {
     const db = await readDb();
     const user = (db.users || []).find((entry) => entry.id === userId);
@@ -492,7 +490,6 @@ async function runQwenImage3GenerationJob(job = {}) {
         createResponse: submitted.raw || submitted,
         error: "",
       });
-      finishGenerationSubmission(submission);
       return;
     }
     const raw = await queueQwenImage3Submit(() => aliyunDashscopeRequest(
@@ -536,9 +533,7 @@ async function runQwenImage3GenerationJob(job = {}) {
       billingSettledAt: new Date().toISOString(),
       error: "",
     });
-    finishGenerationSubmission(submission);
   } catch (error) {
-    finishGenerationSubmission(submission);
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[qwen-image3-error]", taskId, errorInfo.message || error.message || error);
     const currentRecord = await getGenerationRecord(taskId).catch(() => null);
@@ -568,11 +563,15 @@ async function runQwenImage3GenerationJob(job = {}) {
       billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     });
+  } finally {
+    finishGenerationSubmission(submission);
   }
 }
 
 function startQwenImage3GenerationJob(job = {}) {
-  setImmediate(() => runQwenImage3GenerationJob(job).catch((error) => console.error("[qwen-image3-job-unhandled]", job.taskId || "", error.message || error)));
+  return startTrackedGenerationJob("qwen-image3-generation", job.taskId, runQwenImage3GenerationJob, (error) => {
+    console.error("[qwen-image3-job-unhandled]", job.taskId || "", error.message || error);
+  });
 }
 
 async function handleAdvancedQwenImage3Generate(req, res, context = {}) {

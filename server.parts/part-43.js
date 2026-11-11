@@ -822,6 +822,7 @@ module.exports = {
   handleAdvancedVegaGenerate,
   beginGenerationSubmission,
   finishGenerationSubmission,
+  startTrackedGenerationJob,
   beginGenerationSubmissionDrain,
   waitForGenerationSubmissionsToDrain,
   shutdownGracefully,

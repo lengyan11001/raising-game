@@ -1246,10 +1246,8 @@ async function refreshMyCharacterImageGenerationRecord(record = {}, reason = "my
 }
 
 function startMyCharacterImageGenerationJob(job = {}) {
-  setImmediate(() => {
-    runMyCharacterImageGenerationJob(job).catch((error) => {
-      console.error("[my-character-image-job-failed]", job.characterId || job.record?.id || "", error.message || error);
-    });
+  return startTrackedGenerationJob("my-character-image-generation", job.record?.taskId || job.characterId, runMyCharacterImageGenerationJob, (error) => {
+    console.error("[my-character-image-job-failed]", job.characterId || job.record?.id || "", error.message || error);
   });
 }
 

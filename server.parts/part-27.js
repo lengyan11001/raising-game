@@ -986,7 +986,7 @@ async function createSeedream5ImageDirect({
   return { raw, imageUrl, payload, upstreamReferenceAssetUris: imageAssetUris };
 }
 
-async function runSeedream5ImageGenerationJob(job = {}) {
+async function runSeedream5ImageGenerationJob(job = {}, submission = null) {
   const {
     taskId = "",
     userId = "",
@@ -1006,7 +1006,6 @@ async function runSeedream5ImageGenerationJob(job = {}) {
   if (!taskId || !userId) return;
 
   let upstreamPayload = null;
-  const submission = beginGenerationSubmission("seedream5-image-generation", taskId);
   try {
     const db = await readGenerationJobDb(userId);
     const user = (db.users || []).find((entry) => entry.id === userId);
@@ -1095,7 +1094,6 @@ async function runSeedream5ImageGenerationJob(job = {}) {
         createResponse: submitted.raw || submitted,
         error: "",
       });
-      finishGenerationSubmission(submission);
       return;
     }
 
@@ -1111,7 +1109,6 @@ async function runSeedream5ImageGenerationJob(job = {}) {
       remoteImageUrl: imageUrl,
       error: imageUrl ? "" : "Seedream 5.0 Image returned no image.",
     });
-    finishGenerationSubmission(submission);
     if (!imageUrl) {
       const error = new Error("Seedream 5.0 Image returned no image.");
       error.statusCode = 502;
@@ -1139,7 +1136,6 @@ async function runSeedream5ImageGenerationJob(job = {}) {
       error: "",
     });
   } catch (error) {
-    finishGenerationSubmission(submission);
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[seedream5-image-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
     const currentRecord = await getGenerationRecord(taskId).catch(() => null);
@@ -1169,14 +1165,14 @@ async function runSeedream5ImageGenerationJob(job = {}) {
       billingSettledAt: refunded ? new Date().toISOString() : "",
       failedAt: new Date().toISOString(),
     });
+  } finally {
+    finishGenerationSubmission(submission);
   }
 }
 
 function startSeedream5ImageGenerationJob(job = {}) {
-  setImmediate(() => {
-    runSeedream5ImageGenerationJob(job).catch((error) => {
-      console.error("[seedream5-image-job-unhandled]", job.taskId || "", error.message || error);
-    });
+  return startTrackedGenerationJob("seedream5-image-generation", job.taskId, runSeedream5ImageGenerationJob, (error) => {
+    console.error("[seedream5-image-job-unhandled]", job.taskId || "", error.message || error);
   });
 }
 

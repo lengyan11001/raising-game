@@ -407,7 +407,7 @@ async function submitArkTaskAfterAssetsReady(payload, { attempts = 12, waitMs = 
   throw new Error("Ark generation submit failed while waiting for assets.");
 }
 
-async function runSeedance25GenerationJob(job = {}) {
+async function runSeedance25GenerationJob(job = {}, submission = null) {
   const {
     taskId,
     upstreamInput: initialUpstreamInput = {},
@@ -422,7 +422,6 @@ async function runSeedance25GenerationJob(job = {}) {
   } = job;
   let upstreamInput = initialUpstreamInput;
   let mediaAssets = initialMediaAssets;
-  const submission = beginGenerationSubmission("seedance25-generation", taskId);
   const direct = normalizeAdvancedProvider(provider) === SEEDANCE25_DIRECT_PROVIDER;
   const providerLabel = direct ? SEEDANCE25_DIRECT_LABEL : "Seedance 2.5";
   const recordSource = direct ? "advanced-seedance-nsfw" : "advanced-seedance25";
@@ -547,9 +546,7 @@ async function runSeedance25GenerationJob(job = {}) {
       billingStatus: cost > 0 ? (direct ? "pre_deducted" : "settled") : "free",
       billingSettledAt: cost > 0 && !direct ? new Date().toISOString() : "",
     }, direct ? "seedance-nsfw-submit" : "seedance25-submit");
-    finishGenerationSubmission(submission);
   } catch (error) {
-    finishGenerationSubmission(submission);
     console.warn(direct ? "[seedance-nsfw-generation-job-error]" : "[seedance25-generation-job-error]", taskId, error.message || error);
     await updateGenerationRecord(taskId, {
       status: "failed",
@@ -571,14 +568,14 @@ async function runSeedance25GenerationJob(job = {}) {
       finalCredits: cost,
       originalFinalCredits: pricing?.originalCredits ?? cost,
     }, direct ? "seedance-nsfw-failed" : "seedance25-failed");
+  } finally {
+    finishGenerationSubmission(submission);
   }
 }
 
 function startSeedance25GenerationJob(job = {}) {
-  setImmediate(() => {
-    runSeedance25GenerationJob(job).catch((error) => {
-      console.error("[seedance25-generation-job-failed]", job.taskId, error.message || error);
-    });
+  return startTrackedGenerationJob("seedance25-generation", job.taskId, runSeedance25GenerationJob, (error) => {
+    console.error("[seedance25-generation-job-failed]", job.taskId, error.message || error);
   });
 }
 

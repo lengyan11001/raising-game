@@ -490,14 +490,12 @@ function advancedRuntimeForProvider(provider, requestParams = {}) {
 }
 
 function startAdvancedGenerationJob(job) {
-  setImmediate(() => {
-    runAdvancedGenerationJob(job).catch((error) => {
-      console.error("[advanced-generation-job-failed]", job.taskId, error.stack || error.message || error);
-    });
+  return startTrackedGenerationJob("advanced-generation", job.taskId, runAdvancedGenerationJob, (error) => {
+    console.error("[advanced-generation-job-failed]", job.taskId, error.stack || error.message || error);
   });
 }
 
-async function runAdvancedGenerationJob(job = {}) {
+async function runAdvancedGenerationJob(job = {}, submission = null) {
   const {
     taskId,
     userId,
@@ -522,9 +520,7 @@ async function runAdvancedGenerationJob(job = {}) {
     referenceAudioAssetIds = [],
     referenceImageAssetUris = [],
   } = job;
-  const submission = beginGenerationSubmission("advanced-generation", taskId);
   if (isVegaProvider(provider)) {
-    finishGenerationSubmission(submission);
     throw new Error("Vega generation must use handleAdvancedVegaGenerate.");
   }
   let referenceVideoAssetUris = Array.isArray(initialReferenceVideoAssetUris) ? [...initialReferenceVideoAssetUris] : [];
@@ -1273,9 +1269,7 @@ async function runAdvancedGenerationJob(job = {}) {
       pricingEstimate: pricing ? { ...pricing, model: submittedModel } : pricing,
       ...fixedBilling,
     }, "advanced-submit");
-    finishGenerationSubmission(submission);
   } catch (error) {
-    finishGenerationSubmission(submission);
     console.warn("[advanced-generation-job-error]", taskId, error.stack || error.message || error);
     try {
       await updateGenerationRecord(taskId, {
@@ -1300,6 +1294,8 @@ async function runAdvancedGenerationJob(job = {}) {
     } catch (updateError) {
       console.error("[advanced-generation-fail-update-error]", taskId, updateError.message || updateError);
     }
+  } finally {
+    finishGenerationSubmission(submission);
   }
 }
 

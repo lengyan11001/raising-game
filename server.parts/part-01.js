@@ -950,6 +950,25 @@ function finishGenerationSubmission(token) {
   }
 }
 
+function startTrackedGenerationJob(label, taskId, runner, onUnexpectedError) {
+  /* Reserve before scheduling. A SIGTERM between the database/charge write and
+     setImmediate must still wait for the runner instead of rejecting it. */
+  const submission = beginGenerationSubmission(label, taskId);
+  setImmediate(() => {
+    Promise.resolve()
+      .then(() => runner(submission))
+      .catch((error) => {
+        try {
+          onUnexpectedError?.(error);
+        } catch (handlerError) {
+          console.error("[generation-job-error-handler-failed]", label, taskId, handlerError.stack || handlerError.message || handlerError);
+        }
+      })
+      .finally(() => finishGenerationSubmission(submission));
+  });
+  return submission;
+}
+
 function beginGenerationSubmissionDrain() {
   generationSubmissionDraining = true;
   return inFlightGenerationSubmissions.size;

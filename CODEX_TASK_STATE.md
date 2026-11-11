@@ -1,3 +1,15 @@
+## 2026-11-11 Step G pre-release: shutdown reservation and multi-process drill
+
+- Goal: close the restart-time generation submission window and prove the two-process isolation drill before any Old deployment. Production remains single-process; Redis, generation submit queue/worker, Telegram payment notifications, and multi-process remain disabled.
+- Root cause: scheduler work called `setImmediate()` after a database/charge mutation but before registering its in-process drain token. A SIGTERM in that gap could let the process exit while the scheduled submission had no tracked lifecycle.
+- Fix: `startTrackedGenerationJob()` synchronously calls `beginGenerationSubmission()` before `setImmediate()` and releases the token in `finally` for completion, thrown runner, and thrown error handler. Applied to platform, advanced, Seedream 5, Qwen37 Flash, Qwen Image 3, My Character Image, and Seedance 2.5 entrypoints. Durable queue submission remains independently tracked.
+- Multi-process drill hardening: requires explicit disposable DB confirmation; runs migration dry-run, apply, dry-run, and requires `pending=0` before starting apps. Restore ownership is normalized for the disposable schema without weakening production privileges. SQL heredoc termination and CDP ownership handling are covered by `test/resilience-ops.test.js`.
+- Local verification: `resilience-ops.test.js` 13/13; tracked full suite 1,060 tests with 1,029 pass, 30 known baseline failures, 1 skipped (same failure set as deployed baseline `ea52aa9f`, no new failures); changed Node syntax, shell syntax, and `git diff --check` pass.
+- Real Old-host disposable database drill passed: `MULTI_PROCESS_DRILL_OK http_instances=2 scheduler_takeover=1`; `PEER_DRAIN_SURVIVED=1`; both HTTP processes exited cleanly after SIGTERM; ports 4181/4182 had no residual listeners; disposable DB was dropped. Production stayed `MainPID=2641312`, `NRestarts=0`, `active/running`, health 200 throughout.
+- Redis planning: `ops/REDIS-PLAN.md` now inventories current process-local caches and coordination state, classifies R2/R4/R5 candidates versus financial/security/realtime state that must stay in PostgreSQL, defines key/TTL/ownership policy, and records shadow/mismatch/fault-injection promotion gates. Redis remains default-off and is not a prerequisite for this deployment.
+- Remaining risk: ordinary non-durable provider paths still need separate ambiguous-outcome/refund fault injection when the upstream may have accepted work but no taskId was persisted. Do not mix that semantic audit into this shutdown-window patch.
+- Current status: not committed or deployed. Preserve unrelated WIP (`platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, `workflow-react/node_modules`).
+
 ## 2026-11-11 Step E deployed: durable webhook claims + scheduler ownership
 
 - Goal: make external callback handling and background scheduler ownership safe for process replacement and a future multi-process rollout. Deployed Old only; Live was not pushed or deployed.

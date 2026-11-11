@@ -47,8 +47,38 @@ runuser -u postgres -- psql -X -A -t -d postgres \
     echo "Drill database must exist before the drill: $DRILL_DB" >&2
     exit 4
   }
+# The drill restores with --no-owner so the dump cannot create or alter roles.
+# Reassign the disposable database's restored objects to the same application
+# owner used by production; grants alone do not permit schema-migration DDL.
 runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -q -d "$DRILL_DB" <<'SQL'
 ALTER SCHEMA public OWNER TO raising_game_app;
+DO $$
+DECLARE
+  item record;
+BEGIN
+  FOR item IN
+    SELECT c.oid::regclass AS object_name
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+  LOOP
+    EXECUTE format('ALTER TABLE %s OWNER TO raising_game_app', item.object_name);
+  END LOOP;
+  -- Serial/identity sequences follow their owning table. Changing a linked
+  -- sequence directly is rejected by PostgreSQL.
+  FOR item IN
+    SELECT c.oid::regclass AS object_name
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind = 'S'
+      AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype IN ('a', 'i'))
+  LOOP
+    EXECUTE format('ALTER SEQUENCE %s OWNER TO raising_game_app', item.object_name);
+  END LOOP;
+END
+$$;
 GRANT USAGE, CREATE ON SCHEMA public TO raising_game_app;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO raising_game_app;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO raising_game_app;
@@ -109,6 +139,21 @@ if [[ "$DRILL_DB_RESOLVED" != "$DRILL_DB" ]]; then
   echo "DRILL_DATABASE_URL must target DRILL_DB exactly ($DRILL_DB), got: ${DRILL_DB_RESOLVED:-<empty>}" >&2
   exit 4
 fi
+if [[ "${DRILL_CONFIRM_DISPOSABLE_DATABASE:-}" != "1" ]]; then
+  echo "DRILL_CONFIRM_DISPOSABLE_DATABASE=1 is required before schema migration." >&2
+  exit 4
+fi
+cd "$APP_ROOT"
+# Restored histories can carry data without a trusted migration ledger. The
+# readiness gate intentionally refuses to start then; reconcile the disposable
+# copy first and inspect it before any application process is launched.
+DATABASE_URL="$DRILL_DATABASE_URL" node ops/run-db-migrations.js --dry-run
+DATABASE_URL="$DRILL_DATABASE_URL" node ops/run-db-migrations.js --apply
+DATABASE_URL="$DRILL_DATABASE_URL" node ops/run-db-migrations.js --dry-run | tee "$RUN_ROOT/migrations-ready.log"
+if ! grep -q '^pending=0$' "$RUN_ROOT/migrations-ready.log"; then
+  echo "Disposable drill database still has pending migrations." >&2
+  exit 4
+fi
 
 start_app() {
   local port="$1"
@@ -149,7 +194,6 @@ wait_exit() {
   return 0
 }
 
-cd "$APP_ROOT"
 http_a="$(start_app "$PORT_A" "$logs/http-a.log")"
 http_b="$(start_app "$PORT_B" "$logs/http-b.log")"
 wait_http "$PORT_A" "$http_a" || { cat "$logs/http-a.log" >&2; echo "HTTP A failed readiness" >&2; exit 5; }
