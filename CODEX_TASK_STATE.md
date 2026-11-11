@@ -1,3 +1,14 @@
+## 2026-11-11 Step R: cross-file switch dry-run gate passed
+
+- Published cross-file transaction update: source `e8b7234e`, platform release `d0aa77c1`; deployed Old with `--no-restart`. Live was not pushed or deployed.
+- Post-deploy state before traffic switch: primary PID `2690763`, `NRestarts=0`; secondary PID `2708105`, `NRestarts=1`; release `d0aa77c1`.
+- Nginx baseline hashes:
+  - default `1676ac1400013c86c90ab29f93ff11b39ab152ca1132ec01e7287ca8dca1b3ba`
+  - chat.5vips.com `b20803df957261b74346ea89ddf1e58a83aedbde02d302f23d6a6f0c5f8ec114`
+  - live.123vipeak.com `1a2d00acd0615500a288af1a905414778dca71c29280c2463e6063522ebb8494`
+- Three-file dry-run emitted the three expected 4174→4175 plans and changed=1 for each file. All three hashes were unchanged after the dry-run.
+- Read-only verifier `pre` 12/12 and `candidate` 13/13 passed again. The cutover gate is cleared; 4174 remains the immediate rollback target.
+
 ## 2026-11-11 Step Q: published resilience ops and cross-file Nginx transaction
 
 - Committed resilience work as `82a2697b` and built/pushed platform release `14894eb6`. Old was deployed with `scripts/deploy_local.sh --site old --no-restart`; Live was not pushed or deployed.
