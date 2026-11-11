@@ -52,6 +52,8 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deployPull, /--verify-private-media/);
   assert.match(deployPull, /--post-restart-command/);
   assert.match(deploySite, /"post_restart_commands": \(\s*"\/opt\/raising-game-demo\/ops\/harden-old-nginx-private-media\.sh"/s);
+  assert.match(deploySite, /91-stop-timeout\.conf/);
+  assert.match(deploySite, /TimeoutStopSec=300/);
   for (const assetPrefix of ["user-uploads", "admin/voice-preview", "user-characters", "generated/characters/apiz", "generated/panoramas"]) {
     assert.match(deployPull, new RegExp(`private_probe /assets/${assetPrefix.replace("/", "\\/")}/`));
   }

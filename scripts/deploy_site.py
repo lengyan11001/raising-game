@@ -80,6 +80,7 @@ TARGETS = {
         ),
         "pre_restart_commands": (
             "/usr/bin/python3 /opt/raising-game-demo/scripts/ensure_media_signing_secret.py --env-file /etc/raising-game-demo.env",
+            "install -d -m 0755 /etc/systemd/system/raising-game-demo.service.d && printf '[Service]\nTimeoutStopSec=300\n' > /etc/systemd/system/raising-game-demo.service.d/91-stop-timeout.conf && systemctl daemon-reload",
         ),
         # Nginx must keep serving public/admin media directly while every
         # private prefix is authorized by the newly restarted Node process.

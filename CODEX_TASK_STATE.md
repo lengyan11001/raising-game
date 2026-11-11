@@ -6,7 +6,10 @@
 - Added tests for cooldown, rolling-hour cap, dispatch failure, warm-up, and installer rollback. `test/resilience-ops.test.js`: 11/11 pass.
 - Old target now pins `stop_timeout_seconds=300`; release deployment writes a stable `TimeoutStopSec` drop-in, while app graceful shutdown remains bounded at 180 seconds plus a 10-second force-exit guard.
 - Isolated Old systemd drill used disposable `raising-game-watchdog-drill.{service,timer}`, temporary Node health server on port 47841, and test-only state. Three failures produced exactly one asynchronous restart; cooldown blocked a tight loop; warm-up suppressed a transient startup failure; recovery cleared the pending marker. Drill units and temporary files were removed. Production stayed `active`, MainPID `2511813`, `NRestarts=0`.
-- Local verification so far: resilience tests 11/11, shell syntax, Python compile, `git diff --check`. Next: commit, build platform release, deploy Old, reinstall watchdog as dry-run first, then decide active mode after post-deploy verification.
+- Initial deploy of commit `08e9163` / platform release `027fa50` completed through `scripts/deploy_local.sh --site old`; health, readiness, private-media denial, and main/live isolation checks passed. App MainPID `2552727`, `NRestarts=0`.
+- Post-deploy audit found the deployer's temporary `90-generation-submit-drain.conf` is removed after success, so no persistent effective `TimeoutStopSec` remained. Added an idempotent Old pre-restart installer for `91-stop-timeout.conf` with `TimeoutStopSec=300`, covered by `deploy-targets` tests.
+- Watchdog was reinstalled as dry-run on Old after the first deploy. New unit parameters are present, the timer is active, the first ticks log `service warm-up grace`, failure state is `0`, and the app stayed `active` with `NRestarts=0`.
+- Local verification: resilience 11/11, deploy-targets 9/9, shell syntax, Python compile, `git diff --check`. Next: commit the persistent stop-timeout fix, rebuild/push `platform-release`, redeploy Old, verify `systemctl show ... TimeoutStopSec=5min`, then decide on controlled active watchdog mode.
 
 ## 2026-11-11 Watchdog dry-run observation (Old)
 
