@@ -1,3 +1,16 @@
+## 2026-11-11 Step J deployed: preserve succeeded history and crash-fault drill
+
+- Goal: stop old succeeded generation records from being downgraded to `failed` when an expired upstream provider object is queried again, without changing production data or enabling Redis, multi-process, durable submit workers, or payment notifications.
+- Root cause confirmed from Old logs: `cgt-20261104165705-43a7f7` and another four-day-old success were still eligible for upstream re-query because poster recovery refreshed `updatedAt`; a missing provider resource then wrote `status=failed`.
+- Fix released from `old-site` `3cbb2f37`; platform release `6d8e36bb` (previous `adffbf48`). Old only was deployed through `scripts/deploy_local.sh --site old`; Live was not pushed or deployed.
+- Implementation: succeeded video recovery without durable R2 is gated by original `createdAt` within the existing 24-hour persistence window; missing `createdAt` disables automatic recovery; Vega/VOD, Wan, and generic missing-upstream paths preserve an already-succeeded record and billing, set `mediaPersistenceTerminalAt`, and record only query diagnostics.
+- Verification: focused suite 193/193; syntax for all server parts plus `server.js` and the changed test; `git diff --check`; release snapshot contains only the intended resilience docs and generation-record fix files, with no Live changes or unrelated WIP.
+- Deploy acceptance: release `6d8e36b`; migrations dry-run/apply/dry-run `pending=0` with 5 completed versions; service `active/running`, MainPID `2665714`, `NRestarts=0`; health/readyz/livez all 200; one Node process; private media anonymous access remains 404; no Telegram `Unauthorized` entries after startup.
+- The last downgrade occurred on the pre-deploy process at `17:15:34`, one second before replacement (`cgt-20261104171358-9e0d9b`); it is not evidence against the new code. From the new process start onward there were zero failed status transitions in the sampled window.
+- Isolated PostgreSQL crash-fault drill re-run on disposable `raising_game_fault_drill_20261111091738`: migrations 5/5, `POSTGRES_FAULT_INJECTION_OK` with webhook claims, scheduler takeover, request/HTTP idempotency, submit queue, crash-window recovery, atomic charge, refund idempotency, and reconciliation all passing. Temporary DB and role were cleaned automatically; production was untouched.
+- Capacity baseline: 4 vCPU, load ~0.40-0.53, ~5.8 GiB available RAM, root disk 71%, PostgreSQL 14/100 connections with 0 idle-in-transaction and 0 lock waiters, 60-minute generation volume 73 (49 succeeded, 18 failed). This does not justify a vertical upgrade or multiple production Node processes yet.
+- Decision: keep Old single-process while continuing read-only observation. Next resilience gate is a production-shaped two-instance drill with measured benefit and Nginx health removal; Redis remains optional and off. Backup/off-host recovery remains last per user direction.
+
 ## 2026-11-11 Step I: Nginx failover drill and resilience decision
 
 - Goal: replace the unproven assumption "same-host Node processes improve resilience" with explicit promotion gates, then complete an isolated Nginx upstream failover and rolling-replacement drill without touching production.
