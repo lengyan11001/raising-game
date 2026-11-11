@@ -303,6 +303,7 @@ test("workflow uploads store asset references instead of embedded media", () => 
   assert.match(server, /canvas: publicWorkflowCanvasSummary\(canvas\)/);
   assert.match(server, /workflowCanvasUpdatesInFlight\.has\(updateKey\)/);
   assert.match(server, /WORKFLOW_CANVAS_UPDATE_IN_PROGRESS/);
+  assert.match(server, /publicAssetUrlsForClient\(publicWorkflowCanvasSummary\(canvas\)\)/);
 });
 
 test("react canvas activation refreshes uploaded media before opening", async () => {
@@ -834,7 +835,7 @@ test("workflow generations create a selected same-type node without replacing pr
   assert.match(ui, /window\.workflowNodeOwnResultVideos = workflowNodeOwnResultVideos/);
   assert.match(ui, /const uploadSource = data\.source === "upload"/);
   assert.match(ui, /const uploadSource = data\.source === "upload"/);
-  assert.match(ui, /\.\.\.\(!uploadSource \? recordVideos : \[\]\)/);
+  assert.match(ui, /const durableVideos = workflowUniqueMediaUrls\(durable\)/);
   assert.match(ui, /\.\.\.\(!uploadSource \? record : \[\]\)/);
   assert.doesNotMatch(imageNode, /workflowNodeOwnResultImages|GenerationResultMedia/);
   assert.doesNotMatch(videoNode, /workflowNodeOwnResultVideos|GenerationResultMedia/);
@@ -913,6 +914,56 @@ test("result nodes render each generated media file once across mirrored URL fie
       "https://media.example.com/generated/second.png",
     ],
   );
+});
+
+test("video result previews ignore composed input clips and prefer the durable result", () => {
+  const source = read("platform.ui.parts/part-05.js");
+  const runtime = new Function(`
+    const generationVideoUrl = (record = {}) => record.cdnVideoUrl || record.videoUrl || "";
+    ${extractFunction(source, "workflowUniqueMediaUrls")}
+    ${extractFunction(source, "workflowNodeOwnResultVideos")}
+    return { workflowNodeOwnResultVideos };
+  `)();
+  assert.deepEqual(
+    Array.from(runtime.workflowNodeOwnResultVideos({
+      type: "videoResult",
+      data: {
+        resultVideoUrl: "https://cdn.example/final.mp4",
+        resultVideoUrls: ["https://cdn.example/final.mp4"],
+        videoUrls: ["https://cdn.example/clip-1.mp4", "https://cdn.example/clip-2.mp4"],
+        record: {
+          cdnVideoUrl: "https://cdn.example/final.mp4?Signature=one",
+          providerVideoUrl: "https://provider.example.com/temporary-final.mp4",
+          videoUrls: ["https://cdn.example/clip-1.mp4", "https://cdn.example/clip-2.mp4"],
+        },
+      },
+    })),
+    ["https://cdn.example/final.mp4?Signature=one"],
+  );
+
+  assert.deepEqual(
+    Array.from(runtime.workflowNodeOwnResultVideos({
+      type: "videoResult",
+      data: {
+        resultVideoUrl: "https://cdn.example/final.mp4",
+        record: {
+          providerVideoUrl: "https://provider.example.com/temporary-final.mp4",
+          videoUrls: ["https://cdn.example/clip-1.mp4"],
+        },
+      },
+    })),
+    ["https://cdn.example/final.mp4"],
+  );
+});
+
+test("react video result node uses the same durable-first result contract", () => {
+  const node = read("workflow-react/src/components/canvas/siteNodes/SiteVideoResultNode.js");
+  assert.match(node, /function uniqueResultVideos/);
+  assert.match(node, /const durable = \[/);
+  assert.match(node, /record\.cdnVideoUrl/);
+  assert.match(node, /const durableUrls = uniqueResultVideos\(durable\)/);
+  assert.match(node, /const directUrls = uniqueResultVideos\(direct\)/);
+  assert.doesNotMatch(node, /\.\.\.\(data\.videoUrls \|\| \[\]\)/);
 });
 
 test("inline workflow dialogs use an explicit async confirm handler", () => {
@@ -1028,6 +1079,38 @@ test("workflow project summary uses the last content-bearing node as its thumbna
   });
   assert.equal(videoOnly.thumbnailUrl, "");
   assert.equal(videoOnly.thumbnailVideoUrl, "https://cdn.example/video.mp4");
+
+  const durableMirror = publicWorkflowCanvasSummary({
+    id: "canvas-durable-mirror",
+    workflow: {
+      nodes: [{
+        id: "video",
+        data: {
+          resultVideoUrl: "https://cdn.example/final.mp4?Signature=durable",
+          resultVideoUrls: ["https://cdn.example/final.mp4?Signature=durable"],
+          record: { cdnVideoUrl: "https://cdn.example/final.mp4?Signature=record" },
+        },
+      }],
+    },
+  });
+  assert.equal(durableMirror.thumbnailVideoUrl, "https://cdn.example/final.mp4?Signature=record");
+
+  const composedVideo = publicWorkflowCanvasSummary({
+    id: "canvas-composed-video",
+    workflow: {
+      nodes: [{
+        id: "output",
+        type: "output",
+        data: {
+          resultVideoUrl: "https://cdn.example/final.mp4",
+          posterUrl: "https://cdn.example/final-poster.jpg",
+          videoUrls: ["https://cdn.example/clip-1.mp4", "https://cdn.example/clip-2.mp4"],
+        },
+      }],
+    },
+  });
+  assert.equal(composedVideo.thumbnailUrl, "https://cdn.example/final-poster.jpg");
+  assert.equal(composedVideo.thumbnailVideoUrl, "https://cdn.example/final.mp4");
 });
 
 test("workflow task polling never references an undefined node", () => {

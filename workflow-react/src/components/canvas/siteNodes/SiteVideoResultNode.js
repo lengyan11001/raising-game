@@ -3,12 +3,45 @@ import { NodeLayout } from '../nodes/NodeLayout';
 import { useSiteNode } from './useSiteNode';
 import { GenerationResultMedia } from './GenerationResultMedia';
 
+function uniqueResultVideos(values = []) {
+  const seen = new Set();
+  return values.map((value) => String(value || '').trim()).filter((value) => {
+    if (!value) return false;
+    let key = value;
+    try {
+      key = new URL(value, 'https://canvas.local').pathname || value;
+    } catch {
+      key = value.split(/[?#]/, 1)[0];
+    }
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function resultVideos(node = {}, nodeId = '') {
   const sourceNode = (typeof window.workflowNodeById === 'function' && window.workflowNodeById(nodeId)) || node;
   if (!sourceNode?.data) return [];
   if (typeof window.workflowNodeOwnResultVideos === 'function') return window.workflowNodeOwnResultVideos(sourceNode);
   const data = sourceNode.data || {};
-  return [...new Set([...(data.resultVideoUrls || []), ...(data.videoUrls || []), data.resultVideoUrl, data.videoUrl].filter(Boolean))];
+  const record = data.record || {};
+  const direct = [...(data.resultVideoUrls || []), data.resultVideoUrl];
+  const durable = [...(record.cdnVideoUrls || []), record.cdnVideoUrl, record.localVideoUrl];
+  const provider = [
+    ...(record.remoteVideoUrls || []),
+    ...(record.providerVideoUrls || []),
+    record.remoteVideoUrl,
+    record.providerVideoUrl,
+    record.upstreamVideoUrl,
+    record.videoUrl,
+    data.videoUrl,
+  ];
+  // `videoUrls` on a composed result are input clips. Never render them as outputs.
+  const durableUrls = uniqueResultVideos(durable);
+  if (durableUrls.length) return durableUrls;
+  const directUrls = uniqueResultVideos(direct);
+  if (directUrls.length) return directUrls;
+  return uniqueResultVideos(provider);
 }
 
 export function SiteVideoResultNode({ id, selected = false }) {

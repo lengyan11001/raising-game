@@ -1,3 +1,14 @@
+## 2026-11-11 Canvas duplicate video and project thumbnail repair (ready for Old deployment)
+
+- User report: the latest canvas video still showed two visible videos in one preview node, and project-list thumbnails stopped rendering.
+- PostgreSQL evidence: canvas `workflow-1794297669486-e23b46e3` result node `video-mwalp1po-x25w` has one durable CDN video and one provider/TOS mirror for the same generation. The old UI unioned both, producing two previews even though only one output existed.
+- Video fix: both the shared legacy renderer and React `SiteVideoResultNode` now prefer durable `cdnVideoUrl` / `cdnVideoUrls` / `localVideoUrl`; they only fall back to direct/provider URLs when no durable result exists. `videoUrls` from composed records is never treated as an output list. Mirrored URLs still deduplicate by pathname.
+- Thumbnail root causes: the bridge previously stripped `thumbnailUrl` / `thumbnailVideoUrl` / `previewNodes`, and persisted signed thumbnail URLs can expire. The bridge now preserves all three fields, and the server canvas-list endpoint re-runs `publicAssetUrlsForClient()` on each summary to mint fresh delivery signatures.
+- Source changed: `platform.ui.parts/part-05.js`, `workflow-react/src/components/canvas/siteNodes/SiteVideoResultNode.js`, `workflow-react/dist/canvas.js`, `workflow-canvases.js`, `platform.workflow-canvases.js`, `server.parts/part-03.js`, `test/workflow-canvases.test.js`.
+- Verification: workflow canvas suite passes 40/40; changed JS syntax checks pass; `git diff --check` passes.
+- Publish scope: only the files above plus this state entry. Preserve unrelated WIP (`db.js`, scheduler files, payment tests, test-mode files, source map, node_modules).
+- Deployment: pending committed `old-site` -> `platform-release` -> `scripts/deploy_local.sh --site old`. Live must remain untouched.
+
 ## 2026-11-11 P4 scheduler single-owner and video-tool recovery (deployed Old)
 
 - Goal remains staged single-node hardening with no online disruption. Live is untouched; backup remains deferred to the end.

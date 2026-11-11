@@ -564,7 +564,10 @@ async function ensureUserWorkflowCanvases(userId = "") {
 }
 
 function workflowCanvasListView(canvases = []) {
-  return (Array.isArray(canvases) ? canvases : []).map(publicWorkflowCanvasSummary);
+  // Canvas summaries are persisted snapshots. Their thumbnail fields can hold
+  // OSS/CDN signatures that expire, so mint delivery URLs again at list time.
+  return (Array.isArray(canvases) ? canvases : [])
+    .map((canvas) => publicAssetUrlsForClient(publicWorkflowCanvasSummary(canvas)));
 }
 
 function sendWorkflowCanvasValidationError(res, error) {

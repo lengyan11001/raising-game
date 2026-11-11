@@ -80,28 +80,33 @@ function workflowGeneratedResultChildren(node = {}) {
 function workflowNodeOwnResultVideos(node = {}) {
   const data = node?.data || {};
   const uploadSource = data.source === "upload";
-  const direct = Array.isArray(data.resultVideoUrls) ? data.resultVideoUrls : [];
-  const taskVideos = Array.isArray(data.videoUrls) ? data.videoUrls : [];
   const record = data.record || {};
-  const recordVideos = [
+  const direct = [
+    ...(Array.isArray(data.resultVideoUrls) ? data.resultVideoUrls : []),
+    data.resultVideoUrl,
+  ];
+  // `videoUrls` on a composed output is the list of input clips, not the
+  // rendered result. It must never become an extra preview window.
+  const durable = [
     ...(Array.isArray(record.cdnVideoUrls) ? record.cdnVideoUrls : []),
+    record.cdnVideoUrl,
+    record.localVideoUrl,
+  ];
+  const provider = [
     ...(Array.isArray(record.videoUrls) ? record.videoUrls : []),
     ...(Array.isArray(record.resultVideoUrls) ? record.resultVideoUrls : []),
+    record.remoteVideoUrl,
+    record.providerVideoUrl,
+    record.upstreamVideoUrl,
+    record.videoUrl,
+    typeof generationVideoUrl === "function" ? generationVideoUrl(record) : "",
   ];
-  const single = [
-    data.resultVideoUrl,
-    data.videoUrl,
-    ...(!uploadSource ? [
-      record.cdnVideoUrl,
-      record.remoteVideoUrl,
-      record.providerVideoUrl,
-      record.upstreamVideoUrl,
-      record.videoUrl,
-      record.localVideoUrl,
-      typeof generationVideoUrl === "function" ? generationVideoUrl(record) : "",
-    ] : []),
-  ];
-  return workflowUniqueMediaUrls([...direct, ...taskVideos, ...(!uploadSource ? recordVideos : []), ...single]);
+  if (uploadSource) return workflowUniqueMediaUrls(direct);
+  const durableVideos = workflowUniqueMediaUrls(durable);
+  if (durableVideos.length) return durableVideos;
+  const directVideos = workflowUniqueMediaUrls(direct);
+  if (directVideos.length) return directVideos;
+  return workflowUniqueMediaUrls(provider);
 }
 
 function workflowNodeResultVideos(node = {}) {
@@ -122,9 +127,12 @@ function workflowUniqueMediaUrls(values = []) {
     if (!value) return false;
     let key = value;
     try {
-      key = new URL(value, "https://canvas.local").pathname;
+      // The same generated asset can be exposed through the app origin, a
+      // durable media domain, and a signed provider alias. Its pathname is the
+      // stable identity, even when the hostname changes.
+      key = new URL(value, "https://canvas.local").pathname || value;
     } catch {
-      key = value;
+      key = value.split(/[?#]/, 1)[0];
     }
     if (seen.has(key)) return false;
     seen.add(key);

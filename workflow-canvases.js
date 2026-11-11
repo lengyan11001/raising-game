@@ -160,7 +160,34 @@ function workflowThumbnailValues(value) {
 function workflowNodeThumbnail(node = {}) {
   const data = node.data && typeof node.data === "object" ? node.data : {};
   const record = data.record && typeof data.record === "object" ? data.record : {};
-  const imageUrl = [
+  const latestFirst = (values) => workflowThumbnailValues(values).reverse()[0] || "";
+  const posterUrl = latestFirst([
+    data.thumbnailUrl,
+    data.coverUrl,
+    data.posterUrl,
+    data.lastFrameUrl,
+    record.thumbnailUrl,
+    record.coverUrl,
+    record.cdnPosterUrl,
+    record.posterUrl,
+    record.localPosterUrl,
+  ]);
+  const videoUrl = latestFirst([
+    data.resultVideoUrl,
+    data.videoUrl,
+    data.resultVideoUrls,
+    record.cdnVideoUrl,
+    record.localVideoUrl,
+    record.resultVideoUrl,
+    record.resultVideoUrls,
+    record.remoteVideoUrl,
+    record.providerVideoUrl,
+    record.upstreamVideoUrl,
+    record.videoUrl,
+  ]);
+  if (videoUrl) return { kind: "video", url: videoUrl, posterUrl };
+
+  const imageUrl = latestFirst([
     data.posterUrl,
     data.thumbnailUrl,
     data.coverUrl,
@@ -171,6 +198,7 @@ function workflowNodeThumbnail(node = {}) {
     data.imageUrl,
     data.resultImageUrls,
     data.imageUrls,
+    record.cdnPosterUrl,
     record.posterUrl,
     record.thumbnailUrl,
     record.coverUrl,
@@ -182,26 +210,8 @@ function workflowNodeThumbnail(node = {}) {
     record.resultImageUrls,
     record.imageUrls,
     record.cdnImageUrls,
-  ].flatMap(workflowThumbnailValues)[0] || "";
-  if (imageUrl) return { kind: "image", url: imageUrl, posterUrl: "" };
-
-  const videoUrl = [
-    data.resultVideoUrl,
-    data.videoUrl,
-    data.resultVideoUrls,
-    data.videoUrls,
-    record.resultVideoUrl,
-    record.videoUrl,
-    record.cdnVideoUrl,
-    record.remoteVideoUrl,
-    record.providerVideoUrl,
-    record.upstreamVideoUrl,
-    record.localVideoUrl,
-    record.resultVideoUrls,
-    record.videoUrls,
-    record.cdnVideoUrls,
-  ].flatMap(workflowThumbnailValues)[0] || "";
-  return videoUrl ? { kind: "video", url: "", posterUrl: videoUrl } : null;
+  ]);
+  return imageUrl ? { kind: "image", url: imageUrl, posterUrl: "" } : null;
 }
 
 function publicWorkflowCanvasSummary(record = {}) {
@@ -225,8 +235,8 @@ function publicWorkflowCanvasSummary(record = {}) {
     createdAt: String(record.createdAt || record.created_at || "").trim(),
     updatedAt: String(record.updatedAt || record.updated_at || "").trim(),
     previewNodes,
-    thumbnailUrl: thumbnailNode?.kind === "image" ? thumbnailNode.url : "",
-    thumbnailVideoUrl: thumbnailNode?.kind === "video" ? thumbnailNode.posterUrl : "",
+    thumbnailUrl: thumbnailNode?.kind === "image" ? thumbnailNode.url : (thumbnailNode?.posterUrl || ""),
+    thumbnailVideoUrl: thumbnailNode?.kind === "video" ? thumbnailNode.url : "",
   };
 }
 

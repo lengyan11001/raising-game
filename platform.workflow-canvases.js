@@ -17,6 +17,9 @@ function workflowCanvasSummary(canvas = {}) {
     name: String(canvas.name || "Untitled workflow").trim().slice(0, 80) || "Untitled workflow",
     createdAt: String(canvas.createdAt || "").trim(),
     updatedAt: String(canvas.updatedAt || "").trim(),
+    thumbnailUrl: String(canvas.thumbnailUrl || canvas.thumbnail_url || canvas.coverUrl || canvas.cover_url || "").trim(),
+    thumbnailVideoUrl: String(canvas.thumbnailVideoUrl || canvas.thumbnail_video_url || "").trim(),
+    previewNodes: Array.isArray(canvas.previewNodes) ? canvas.previewNodes : [],
   };
 }
 
