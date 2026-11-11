@@ -152,7 +152,7 @@ or DB pool exhaustion.
 1. Switch all three upstreams back atomically:
    ```bash
    python3 /opt/raising-game-demo/ops/nginx-upstream-switch.py \
-     --file-switch '/etc/nginx/sites-enabled/default=raising_game_app=4175:4174' \
+     --file-switch '/etc/nginx/sites-enabled/5vips.com=raising_game_app=4175:4174' \
      --file-switch '/etc/nginx/sites-enabled/chat.5vips.com=raising_game_app_chat=4175:4174' \
      --file-switch '/etc/nginx/sites-enabled/live.123vipeak.com=raising_game_app_live=4175:4174' \
      --health-url https://123vips.com/api/health \
@@ -181,6 +181,58 @@ Only after the HTTP observation window passes:
    confirms one durable claim, one charge, and one provider submission.
 4. Redis remains disabled unless measured Postgres read/CPU/p95 pressure
    justifies the separate cache plan. Redis cannot own durable facts.
+
+## Optional automatic process takeover
+
+The current Nginx topology is single-active with a manual atomic rollback. Do
+not add a backup member directly on production before the isolated drill and a
+separate change window both pass.
+
+1. Install the reviewed release and run the full
+   `ops/nginx-multi-upstream-drill.sh` with a disposable populated database.
+   Require `EDGE_BACKUP_FAILOVER_PROBE_OK`, `AUTOMATIC_BACKUP_FAILOVER_OK`,
+   `AUTOMATIC_BACKUP_STOP_TAKEOVER_OK`, `PRIMARY_RECOVERY_WITHOUT_BACKUP_OK`,
+   and `BACKUP_RESTORED_OK`.
+2. Dry-run the three-file conversion first. It must change every upstream and
+   leave all live files untouched:
+   ```bash
+   python3 /opt/raising-game-demo/ops/nginx-upstream-switch.py \
+     --file-backup '/etc/nginx/sites-enabled/5vips.com=raising_game_app=4175:4174' \
+     --file-backup '/etc/nginx/sites-enabled/chat.5vips.com=raising_game_app_chat=4175:4174' \
+     --file-backup '/etc/nginx/sites-enabled/live.123vipeak.com=raising_game_app_live=4175:4174' \
+     --health-url https://123vips.com/api/health \
+     --health-url https://chat.5vips.com/api/health \
+     --health-url https://live.123vipeak.com/api/health \
+     --reload-command 'systemctl reload nginx'
+   ```
+   Require all three plans and `changed=1`, then verify every file hash is
+   unchanged. The command above is intentionally a dry-run.
+3. Apply only in a measured change window. Re-run the dry-run command with
+   `--apply`. The tool validates and reloads all three files as one journaled transaction. Keep 4174 schedulers enabled and
+   4175 schedulers disabled until durable background ownership is verified.
+   The backup member handles connection failures, timeouts, and configured
+   upstream 5xx responses; it does not prove an event-loop hang is detected.
+   Install a separate host-level watchdog for both loopback `livez` endpoints
+   before describing this topology as hang-tolerant.
+4. Prove the backup path with a controlled, short drill only after traffic and
+   error baselines are recorded. A production SIGKILL is not part of routine
+   rollout; prefer a dedicated maintenance window with immediate kill-switch
+   rollback.
+5. Roll back all three files together, then verify health and 5xx:
+   ```bash
+   python3 /opt/raising-game-demo/ops/nginx-upstream-switch.py \
+     --file-switch '/etc/nginx/sites-enabled/5vips.com=raising_game_app=4175:4174' \
+     --file-switch '/etc/nginx/sites-enabled/chat.5vips.com=raising_game_app_chat=4175:4174' \
+     --file-switch '/etc/nginx/sites-enabled/live.123vipeak.com=raising_game_app_live=4175:4174' \
+     --health-url https://123vips.com/api/health \
+     --health-url https://chat.5vips.com/api/health \
+     --health-url https://live.123vipeak.com/api/health \
+     --reload-command 'systemctl reload nginx' --apply
+   ```
+
+The backup conversion itself does not make background jobs or in-process
+generation submissions durable. Those require the PostgreSQL queue and
+worker-lease gate described above.
 
 ## Final state choices
 

@@ -1,3 +1,27 @@
+## 2026-11-11 Step T: isolated multi-upstream drill passed; candidate ready for Old-only deployment
+
+- Production stayed on the healthy `4174` primary throughout this step. The `4175` secondary remained alive but did not carry traffic. No production Nginx file, Redis setting, scheduler, generation worker, provider call, or production database row was changed.
+- `4175` had previously stopped answering health/livez/readyz for roughly three minutes while its process and port remained present, then recovered. Traffic was atomically switched back to `4174`; production was not restarted. This is evidence that a process listener alone is not a sufficient health signal, and validates keeping the primary/backup design separate from an automatic blind process restart.
+- Restored the latest disposable database successfully five times from `/var/backups/raising-game/db-20261111-0430.dump`: `RESTORE_VERIFICATION_OK=1`, 67 tables, 34–35s, zero invalid indexes/constraints/orphans. Every drill database was dropped; no production migration or cleanup was run.
+- Fixed only disposable-drill concerns: restored-schema ownership, explicit control/source ports, transaction direction, diagnostic `ERR` trap, failed-log retention, and exact compatibility with current switcher output (`UPSTREAM_SWITCH_COMMIT_OK upstreams=3 files=1 health_urls=3`). No failover assertion was loosened.
+- Full isolated Nginx drill passed:
+  - `ROLLING_REPLACEMENT_OK=1`
+  - `UPSTREAM_SWITCH_BEFORE_DRAIN_OK=1` and `UPSTREAM_SWITCH_ROLLBACK_OK=1`
+  - `UPSTREAM_TRANSACTION_SWITCH_OK=1 upstreams=3 port=4182 source_alive=1`
+  - `UPSTREAM_TRANSACTION_ROLLBACK_OK=1 upstreams=3 restored_port=4182`
+  - `EDGE_BACKUP_FAILOVER_PROBE_OK requests=80 failures=0`
+  - `AUTOMATIC_BACKUP_FAILOVER_OK=1`
+  - `AUTOMATIC_BACKUP_STOP_TAKEOVER_OK=1`
+  - `PRIMARY_RECOVERY_WITHOUT_BACKUP_OK=1`
+  - `BACKUP_RESTORED_OK=1`
+  - `EDGE_SIGKILL_PROBE_OK requests=80 failures=0`
+  - `SIGKILL_FAILOVER_OK=1`
+  - `NGINX_MULTI_UPSTREAM_DRILL_OK`
+  - `NGINX_DRILL_CLEANUP_OK=1`
+- Local verification: `node --test test/resilience-ops.test.js` passes `33/33`; Python compile, shell syntax, and `git diff --check` pass.
+- Read-only production gate before deployment: all three public `/api/health` return 200; `4174` PID `2690763` `NRestarts=0`; `4175` PID `2708105` `NRestarts=1`; both listeners present; Nginx `raising_game_app` is `127.0.0.1:4174`. Chat and live site hashes match the rollback baseline. The previously recorded default hash does not correspond to the current `/etc/nginx/sites-available/5vips.com` (currently `911b0e45…`, whose upstream is `4300`); this was recorded as a file-identity mismatch, not treated as a production failure.
+- Next stage is an Old-only deploy of these reviewed resilience files with `--no-restart`, then read-only acceptance. Do not convert production upstreams to primary/backup in this step. That needs a separate measured change window with `4174` primary and `4175` backup, dry-run first, explicit health/hash verification, and immediate rollback readiness. Backups remain last; Redis remains disabled.
+
 ## 2026-11-11 Step S: Old traffic cut over to 4175
 
 - Cutover applied at UTC `2026-11-11T11:29:35Z` with one journaled cross-file transaction. Output included `UPSTREAM_SWITCH_COMMIT_OK upstreams=3 files=3 health_urls=3`.
@@ -3477,3 +3501,17 @@ CODEX_TASK_STATE.md
 - This directly matches the user's observation: normal narrative coverage reads closer to live action, while intimate coverage degenerates into a 3D/CG romance-drama look. The trigger is the combination of (a) intimate action requiring close physical interaction, (b) close-up/face framing, (c) wet/red/blush/highlight descriptors, and (d) CG-styled identity sheets dominating character appearance.
 - The strongest common risk phrases are `近景 + 面部特写`, `最终定格在两人紧贴的脸`, `侧光强调交合处的湿润与撞击产生的细微水声反光`, `脸红`, `眼尾发红`, `完全情动`, and `8K超清/超高清细节`. These should be treated as optional-optimizer targets, not globally removed.
 - Recommended opt-in behavior: keep the user's action and dialogue, but rewrite intimate coverage to medium/medium-close shots with three-quarter faces, natural matte skin, no red-eye/blush emphasis, no wet specular highlights, and brief rather than sustained face close-ups. For this source set, prompt-only rewriting still may not fully remove the CG look (verified by `cgt-20261111191609-y6scd`), so offer optional reference normalization as a second, separately selected step.
+
+## 2026-11-11 Independent normalized-reference test: cgt-20261111194504-q0o01
+
+- User asked for one more independent test after the second output still looked like a comic face, explicitly authorizing reference normalization and server-side image models.
+- No deployment, no user API, no user generation record, no credit deduction.
+- Used overseas BytePlus ARK host `https://ark.ap-southeast.bytepluses.com/api/v3`; the initially tried China mainland ARK host rejected the configured key.
+- Seedream 5.0 Pro normalized four references: both multi-view character sheets and both polished face references. Outputs were inspected locally; faces gained real skin texture/pores and the second character retained the ear stud. The full-body sheets still retain mild game-model stiffness, so normalization is an improvement rather than a complete fix.
+- Uploaded only temporary test assets under `seedance-assets/123vips/test/normalized-20261111/`, created signed URLs, then created upstream BytePlus assets. No business user-asset rows were written.
+- Final five-image order: normalized Mosshang sheet, original hotel room, normalized Jiang sheet, normalized Mosshang face, normalized Jiang face.
+- Final prompt: 601 Chinese characters. It explicitly treats Image 4/Image 5 as highest-priority real faces, Image 1/Image 3 as pose/body only, uses medium/medium-close three-quarter profiles, removes blush/red eyes/wet glare/beauty retouching, and keeps the original action and three dialogue lines.
+- Submitted directly to `ep-20260810163546-xzn5m` with 9:16, 480p, 30s, audio on, Moderation Skip. Upstream task: `cgt-20261111194504-q0o01`.
+- Result: succeeded. Local video `/tmp/cgt-q0o01-analysis/generated.mp4`; contact sheet `/tmp/cgt-q0o01-analysis/contact.jpg`; full frames q6/q12/q18/q25.
+- Visual judgment: major improvement over `cgt-20261111191609-y6scd`. The anime/3D face is largely gone; the two characters now read as live-action short-drama actors with real skin texture. Remaining weaknesses: skin is still slightly too smooth/polished, there is mild idol-drama retouching, the camera stays in intimate close coverage for too long, and the generated action is mostly one prolonged pose. It is not yet a perfect result.
+- Product conclusion: the opt-in “realistic assist” should combine prompt/coverage rewriting plus optional character-sheet/face normalization. Normalization alone is insufficient; prompt alone was also insufficient. Keep it off by default and never auto-apply.

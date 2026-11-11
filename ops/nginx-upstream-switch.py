@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Atomically switch managed Nginx upstreams to verified replacements.
 
-This script is deliberately narrow. It edits only single server directives
-inside named upstream blocks whose current/next backends are explicitly
-passed. A transaction may span multiple Nginx files; every file is rendered and
-validated in memory before any file is replaced. A short transaction journal
-restores all files if validation, reload, or health checks fail, so production
-cannot remain on a partially switched traffic mix. It never restarts Node and
-never stops the old process; the caller drains old backends only after every
-configured edge health check returns HTTP 200.
+This script is deliberately narrow. It edits only server directives inside
+named upstream blocks whose backends are explicitly passed. It can either move
+a single active backend or add an idempotent `backup` member beside an unchanged
+primary. A transaction may span multiple Nginx files; every file is rendered
+and validated in memory before any file is replaced. A short transaction
+journal restores all files if validation, reload, or health checks fail, so
+production cannot remain on a partially switched traffic mix. It never
+restarts Node and never stops the old process; the caller drains old backends
+only after every configured edge health check returns HTTP 200.
 """
 from __future__ import annotations
 
@@ -125,6 +126,9 @@ def switch_upstreams_text(
         replacement = f"server 127.0.0.1:{next_backend};"
         edits.append((start, end, replacement))
 
+    # Preserve indentation and trailing tokens (for example `max_fails=...`)
+    # on the managed member so a one-server upstream can become primary plus
+    # backup without changing the primary's connection policy.
     rendered = text
     for start, end, replacement in sorted(edits, reverse=True):
         rendered = rendered[:start] + replacement + rendered[end:]
@@ -133,6 +137,79 @@ def switch_upstreams_text(
 
 def switch_upstream_text(text: str, name: str, current: str, next_backend: str) -> str:
     return switch_upstreams_text(text, [(name, current, next_backend)])
+
+
+def ensure_backup_upstreams_text(
+    text: str, backups: list[tuple[str, str, str]]
+) -> str:
+    """Add one Nginx backup member while keeping the primary unchanged.
+
+    The operation is idempotent: an upstream already containing exactly the
+    requested primary and backup members is accepted without modification.
+    Other server options are rejected so this cannot silently alter a tuned
+    upstream.
+    """
+    if not backups:
+        raise ValueError("at least one upstream backup is required")
+    names = [name for name, _, _ in backups]
+    if len(names) != len(set(names)):
+        raise ValueError("upstream names must be unique")
+
+    masked = _masked(text)
+    headers = list(UPSTREAM_HEADER_RE.finditer(masked))
+    edits: list[tuple[int, int, str]] = []
+    for name, primary, backup in backups:
+        matching = [header for header in headers if header.group("name") == name]
+        if len(matching) != 1:
+            raise ValueError(
+                f"expected exactly one upstream {name!r}; found {len(matching)}"
+            )
+
+        header = matching[0]
+        opening = header.end() - 1
+        closing = _matching_brace(masked, opening)
+        body_start = opening + 1
+        body_end = closing
+        masked_body = masked[body_start:body_end]
+        servers = list(SERVER_RE.finditer(masked_body))
+        expected_primary = f"127.0.0.1:{primary}"
+        expected_backup = f"127.0.0.1:{backup}"
+        parsed: list[tuple[re.Match[str], list[str]]] = []
+        for server in servers:
+            try:
+                arguments = shlex.split(server.group("args"))
+            except ValueError as error:
+                raise ValueError(f"upstream {name!r} has an unparseable server directive") from error
+            parsed.append((server, arguments))
+        primary_members = [item for item in parsed if item[1] == [expected_primary]]
+        backup_members = [item for item in parsed if item[1] == [expected_backup, "backup"]]
+        if len(parsed) == 2 and len(primary_members) == 1 and len(backup_members) == 1:
+            continue
+        if len(parsed) != 1 or len(primary_members) != 1:
+            found = [arguments for _server, arguments in parsed]
+            raise ValueError(
+                f"upstream {name!r} must be exactly {expected_primary}, or that primary "
+                f"plus {expected_backup} backup; found {found!r}"
+            )
+
+        server, _arguments = primary_members[0]
+        start = body_start + server.start()
+        end = body_start + server.end()
+        line_start = text.rfind("\n", 0, start) + 1
+        leading = text[line_start:start]
+        indent = leading if leading.strip() == "" else "    "
+        replacement = (
+            f"{text[start:end]}\n{indent}server {expected_backup} backup;"
+        )
+        edits.append((start, end, replacement))
+
+    # Preserve indentation and trailing tokens (for example `max_fails=...`)
+    # on the managed member so a one-server upstream can become primary plus
+    # backup without changing the primary's connection policy.
+    rendered = text
+    for start, end, replacement in sorted(edits, reverse=True):
+        rendered = rendered[:start] + replacement + rendered[end:]
+    return rendered
 
 
 def atomic_write(path: Path, value: str, mode: int) -> None:
@@ -186,6 +263,35 @@ def parse_file_switch(value: str) -> tuple[Path, tuple[str, str, str]]:
     return Path(path_text), parse_switch(switch_text)
 
 
+def parse_backup(value: str) -> tuple[str, str, str]:
+    match = re.fullmatch(
+        r"(?P<name>[A-Za-z0-9_.-]+)=(?P<primary>[0-9]+):(?P<backup>[0-9]+)",
+        value,
+    )
+    if not match:
+        raise argparse.ArgumentTypeError(
+            "backup must use NAME=PRIMARY_PORT:BACKUP_PORT"
+        )
+    name = match.group("name")
+    primary = match.group("primary")
+    backup = match.group("backup")
+    for port, label in ((primary, "primary"), (backup, "backup")):
+        if not 1 <= int(port) <= 65535:
+            raise argparse.ArgumentTypeError(f"invalid {label} port: {port}")
+    if primary == backup:
+        raise argparse.ArgumentTypeError("primary and backup ports must differ")
+    return name, primary, backup
+
+
+def parse_file_backup(value: str) -> tuple[Path, tuple[str, str, str]]:
+    path_text, separator, backup_text = value.partition("=")
+    if not separator or not path_text:
+        raise argparse.ArgumentTypeError(
+            "file backup must use PATH=NAME=PRIMARY_PORT:BACKUP_PORT"
+        )
+    return Path(path_text), parse_backup(backup_text)
+
+
 def build_file_transaction(
     file_switches: list[tuple[Path, tuple[str, str, str]]],
 ) -> list[tuple[str, Path, str, int, str]]:
@@ -200,6 +306,24 @@ def build_file_transaction(
     for path, switches in by_file.items():
         source = path.read_text(encoding="utf-8")
         updated = switch_upstreams_text(source, switches)
+        entries.append((str(path), path, source, path.stat().st_mode & 0o777, updated))
+    return entries
+
+
+def build_backup_transaction(
+    file_backups: list[tuple[Path, tuple[str, str, str]]],
+) -> list[tuple[str, Path, str, int, str]]:
+    by_file: dict[Path, list[tuple[str, str, str]]] = {}
+    names: list[str] = []
+    for path, backup in file_backups:
+        names.append(backup[0])
+        by_file.setdefault(Path(path), []).append(backup)
+    if len(names) != len(set(names)):
+        raise ValueError("upstream names must be unique")
+    entries: list[tuple[str, Path, str, int, str]] = []
+    for path, backups in by_file.items():
+        source = path.read_text(encoding="utf-8")
+        updated = ensure_backup_upstreams_text(source, backups)
         entries.append((str(path), path, source, path.stat().st_mode & 0o777, updated))
     return entries
 
@@ -306,6 +430,20 @@ def main() -> int:
         default=[],
         help="repeatable PATH=NAME=CURRENT_PORT:NEXT_PORT entry; all files commit together",
     )
+    parser.add_argument(
+        "--backup",
+        action="append",
+        type=parse_backup,
+        default=[],
+        help="repeatable NAME=PRIMARY_PORT:BACKUP_PORT entry on --file",
+    )
+    parser.add_argument(
+        "--file-backup",
+        action="append",
+        type=parse_file_backup,
+        default=[],
+        help="repeatable PATH=NAME=PRIMARY_PORT:BACKUP_PORT entry; all files commit together",
+    )
     parser.add_argument("--upstream", default="")
     parser.add_argument("--current-port", default="")
     parser.add_argument("--next-port", default="")
@@ -321,18 +459,32 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
 
-    switches = list(args.switch)
     legacy_values = (args.upstream, args.current_port, args.next_port)
+    explicit_modes = sum(
+        bool(value) for value in (args.switch, args.file_switch, args.backup, args.file_backup)
+    )
+    if explicit_modes > 1:
+        raise SystemExit("transaction modes cannot be combined")
+    if args.file and explicit_modes + bool(any(legacy_values)) != 1:
+        raise SystemExit("provide exactly one transaction mode")
+
+    switches = list(args.switch)
     if any(legacy_values):
         if not all(legacy_values):
             raise SystemExit(
                 "--upstream, --current-port, and --next-port must be provided together"
             )
         switches.append(parse_switch(f"{args.upstream}={args.current_port}:{args.next_port}"))
-    if args.file_switch:
+    if args.file_backup:
+        file_backups = args.file_backup
+    elif args.backup:
+        if not args.file:
+            raise SystemExit("--backup requires --file")
+        file_backups = []
+    elif args.file_switch:
         if switches or args.file:
             raise SystemExit("--file-switch cannot be combined with --file or --switch")
-    elif args.file:
+    elif args.file and (args.switch or any(legacy_values)):
         if not switches:
             raise SystemExit("provide at least one --switch NAME=CURRENT_PORT:NEXT_PORT")
         file_switches = [(args.file, switch) for switch in switches]
@@ -342,7 +494,13 @@ def main() -> int:
         raise SystemExit("provide at least one --health-url")
 
     try:
-        if args.file_switch:
+        if args.backup:
+            entries = build_backup_transaction([(args.file, backup) for backup in args.backup])
+            effective_switches = args.backup
+        elif args.file_backup:
+            entries = build_backup_transaction(args.file_backup)
+            effective_switches = [backup for _path, backup in args.file_backup]
+        elif args.file_switch:
             entries = build_file_transaction(args.file_switch)
             effective_switches = [switch for _path, switch in args.file_switch]
         else:
@@ -352,10 +510,14 @@ def main() -> int:
             effective_switches = switches
     except (OSError, ValueError) as error:
         raise SystemExit(str(error)) from None
+    backup_mode = bool(args.backup or args.file_backup)
     for name, current, next_port in effective_switches:
-        print(
-            f"UPSTREAM_SWITCH_PLAN upstream={name} from={current} to={next_port}"
-        )
+        if backup_mode:
+            print(f"UPSTREAM_BACKUP_PLAN upstream={name} primary={current} backup={next_port}")
+        else:
+            print(
+                f"UPSTREAM_SWITCH_PLAN upstream={name} from={current} to={next_port}"
+            )
     for path_text, _path, original, _mode, updated in entries:
         if original != updated:
             print(f"UPSTREAM_SWITCH_FILE path={path_text} changed=1")
@@ -402,7 +564,10 @@ def main() -> int:
             journal.unlink(missing_ok=True)
         lock.close()
     for name, _, next_port in effective_switches:
-        print(f"UPSTREAM_SWITCH_OK upstream={name} port={next_port}")
+        if backup_mode:
+            print(f"UPSTREAM_BACKUP_OK upstream={name} backup={next_port}")
+        else:
+            print(f"UPSTREAM_SWITCH_OK upstream={name} port={next_port}")
     print(
         f"UPSTREAM_SWITCH_COMMIT_OK upstreams={len(effective_switches)} "
         f"files={len(entries)} health_urls={len(args.health_url)}"

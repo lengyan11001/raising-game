@@ -52,16 +52,19 @@ function writeExecutable(file, body) {
 }
 
 function invokeUpstreamSwitch(args, env = {}) {
-  return spawnSync("python3", [upstreamSwitchScript, ...args], {
+  const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), "raising-game-switch-journal-"));
+  const result = spawnSync("python3", [upstreamSwitchScript, ...args], {
     cwd: root,
     env: {
       ...process.env,
       NGINX_UPSTREAM_SWITCH_LOCK: path.join(os.tmpdir(), `raising-game-nginx-switch-${process.pid}.lock`),
-      NGINX_UPSTREAM_SWITCH_JOURNAL_DIR: os.tmpdir(),
+      NGINX_UPSTREAM_SWITCH_JOURNAL_DIR: journalDir,
       ...env,
     },
     encoding: "utf8",
   });
+  fs.rmSync(journalDir, { recursive: true, force: true });
+  return result;
 }
 
 function writeUpstreamConfig(file, body = `upstream raising_game_app {
@@ -502,6 +505,13 @@ test("Nginx multi-upstream drill isolates ports, database, and provider side eff
   assert.match(nginxDrill, /catalog = 'ourdream_presets'/);
   assert.match(nginxDrill, /catalog = 'chat_live_voices' AND scope = 'realtime'/);
   assert.match(nginxDrill, /DRILL_CATALOG_PROBE_OK/);
+  assert.match(nginxDrill, /DRILL_APP_ROLE_READY=\$DRILL_APP_ROLE/);
+  assert.match(nginxDrill, /ALTER TABLE %s OWNER TO \$DRILL_APP_ROLE/);
+  assert.match(nginxDrill, /ALTER SEQUENCE %s OWNER TO \$DRILL_APP_ROLE/);
+  assert.match(nginxDrill, /d\.deptype IN \('a', 'i'\)/);
+  assert.match(nginxDrill, /catalog_error=.*catalog-probe\.stderr/);
+  assert.match(nginxDrill, /cat "\$catalog_error" >&2/);
+  assert.match(nginxDrill, /schema_error=.*schema-privilege-probe\.stderr/);
   assert.match(nginxDrill, /has_schema_privilege\(current_user, 'public', 'USAGE'\)/);
   assert.match(nginxDrill, /DRILL_SCHEMA_PRIVILEGES_OK=1/);
   assert.match(nginxDrill, /The production port 4174 must not be used/);
@@ -513,17 +523,28 @@ test("Nginx multi-upstream drill isolates ports, database, and provider side eff
   assert.match(nginxDrill, /PROBE_REQUESTS/);
   assert.match(nginxDrill, /EDGE_SIGKILL_PROBE_OK requests=.*failures=0/);
   assert.match(nginxDrill, /SIGKILL_FAILOVER_OK=1/);
+  assert.match(nginxDrill, /server 127\.0\.0\.1:\$PORT_B backup;/);
+  assert.match(nginxDrill, /EDGE_BACKUP_FAILOVER_PROBE_OK requests=.*failures=0/);
+  assert.match(nginxDrill, /AUTOMATIC_BACKUP_FAILOVER_OK=1/);
+  assert.match(nginxDrill, /AUTOMATIC_BACKUP_STOP_TAKEOVER_OK=1/);
+  assert.match(nginxDrill, /PRIMARY_RECOVERY_WITHOUT_BACKUP_OK=1/);
+  assert.match(nginxDrill, /BACKUP_RESTORED_OK=1/);
   assert.match(nginxDrill, /NGINX_MULTI_UPSTREAM_DRILL_OK/);
   assert.match(nginxDrill, /UPSTREAM_SWITCH_BEFORE_DRAIN_OK=1/);
   assert.match(nginxDrill, /UPSTREAM_SWITCH_ROLLBACK_OK=1/);
   assert.match(nginxDrill, /UPSTREAM_TRANSACTION_SWITCH_OK=1/);
   assert.match(nginxDrill, /UPSTREAM_TRANSACTION_ROLLBACK_OK=1/);
   assert.match(nginxDrill, /--upstream raising_game_switch_drill/);
-  assert.match(nginxDrill, /--switch "raising_game_txn_app=\$PORT_A:\$inactive_port"/);
+  assert.match(nginxDrill, /--switch "raising_game_txn_app=\$source_port:\$control_port"/);
+  assert.match(nginxDrill, /Transaction preflight failed before config switch/);
   assert.match(nginxDrill, /--health-url "http:\/\/127\.0\.0\.1:\$EDGE_PORT\/txn-chat\/health"/);
   assert.match(nginxDrill, /--health-url "http:\/\/127\.0\.0\.1:\$EDGE_PORT\/txn-chat\/definitely-not-healthy"/);
-  assert.match(nginxDrill, /UPSTREAM_SWITCH_COMMIT_OK upstreams=3 health_urls=3/);
+  assert.match(nginxDrill, /UPSTREAM_SWITCH_COMMIT_OK upstreams=3\( files=1\)\? health_urls=3/);
   assert.match(nginxDrill, /NGINX_DRILL_CLEANUP_OK=1/);
+  assert.match(nginxDrill, /NGINX_DRILL_FAILURE_LOGS_RETAINED/);
+  assert.match(nginxDrill, /NGINX_DRILL_FAILED line=\$LINENO command=\$BASH_COMMAND/);
+  assert.match(nginxDrill, /Rolling replacement died during transaction switch/);
+  assert.match(nginxDrill, /old_txn_pid="\$source_pid"/);
   assert.doesNotMatch(nginxDrill, /NGINX_DRILL_CLEANUP db=/);
   assert.match(multiProcessDrill, /MULTI_PROCESS_DRILL_CLEANUP_OK=1/);
   assert.doesNotMatch(multiProcessDrill, /MULTI_PROCESS_DRILL_CLEANUP db=/);
@@ -588,6 +609,63 @@ upstream raising_game_app_chat {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /UPSTREAM_SWITCH_PLAN upstream=raising_game_app from=4174 to=4183/);
     assert.equal(fs.readFileSync(file, "utf8"), original);
+  });
+});
+
+test("Nginx upstream backup transaction is idempotent and preserves primary plus keepalive", () => {
+  withTempDir((dir) => {
+    const file = path.join(dir, "site.conf");
+    const curl = path.join(dir, "curl");
+    writeExecutable(curl, `#!/usr/bin/env bash\nprintf '200'\n`);
+    const original = writeUpstreamConfig(file, `upstream raising_game_app {
+    server 127.0.0.1:4175;
+    keepalive 64;
+}
+upstream raising_game_app_chat { server 127.0.0.1:4175; keepalive 32; }
+`);
+    const args = [
+      "--file", file,
+      "--backup", "raising_game_app=4175:4174",
+      "--backup", "raising_game_app_chat=4175:4174",
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--nginx-bin", "/usr/bin/true",
+      "--reload-command", "/usr/bin/true",
+      "--apply",
+    ];
+    let result = invokeUpstreamSwitch(args, { PATH: `${dir}:${process.env.PATH}` });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /UPSTREAM_BACKUP_PLAN upstream=raising_game_app primary=4175 backup=4174/);
+    const updated = fs.readFileSync(file, "utf8");
+    assert.match(updated, /server 127\.0\.0\.1:4175;\n\s+server 127\.0\.0\.1:4174 backup;/);
+    assert.match(updated, /keepalive 64;/);
+    assert.match(updated, /upstream raising_game_app_chat \{ server 127\.0\.0\.1:4175;\n\s+server 127\.0\.0\.1:4174 backup; keepalive 32; \}/);
+    assert.notEqual(original, updated);
+
+    result = invokeUpstreamSwitch(args, { PATH: `${dir}:${process.env.PATH}` });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(file, "utf8"), updated);
+  });
+});
+
+test("Nginx upstream backup transaction rejects malformed or conflicting members", () => {
+  withTempDir((dir) => {
+    const cases = [
+      ["wrong primary", `upstream raising_game_app {\n    server 127.0.0.1:9999;\n}\n`, /must be exactly 127\.0\.0\.1:4175/],
+      ["extra backup", `upstream raising_game_app {\n    server 127.0.0.1:4175;\n    server 127.0.0.1:4199 backup;\n}\n`, /must be exactly 127\.0\.0\.1:4175/],
+      ["tuned primary", `upstream raising_game_app {\n    server 127.0.0.1:4175 max_fails=1;\n}\n`, /must be exactly 127\.0\.0\.1:4175/],
+    ];
+    for (const [name, body, error] of cases) {
+      const file = path.join(dir, `${name.replaceAll(" ", "-")}.conf`);
+      fs.writeFileSync(file, body);
+      const result = invokeUpstreamSwitch([
+        "--file", file,
+        "--backup", "raising_game_app=4175:4174",
+        "--health-url", "http://127.0.0.1:48080/api/health",
+      ]);
+      assert.notEqual(result.status, 0, name);
+      assert.match(result.stderr, error, name);
+      assert.equal(fs.readFileSync(file, "utf8"), body, name);
+    }
   });
 });
 
