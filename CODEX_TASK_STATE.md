@@ -9,7 +9,9 @@
 - Initial deploy of commit `08e9163` / platform release `027fa50` completed through `scripts/deploy_local.sh --site old`; health, readiness, private-media denial, and main/live isolation checks passed. App MainPID `2552727`, `NRestarts=0`.
 - Post-deploy audit found the deployer's temporary `90-generation-submit-drain.conf` is removed after success, so no persistent effective `TimeoutStopSec` remained. Added an idempotent Old pre-restart installer for `91-stop-timeout.conf` with `TimeoutStopSec=300`, covered by `deploy-targets` tests.
 - Watchdog was reinstalled as dry-run on Old after the first deploy. New unit parameters are present, the timer is active, the first ticks log `service warm-up grace`, failure state is `0`, and the app stayed `active` with `NRestarts=0`.
-- Local verification: resilience 11/11, deploy-targets 9/9, shell syntax, Python compile, `git diff --check`. Next: commit the persistent stop-timeout fix, rebuild/push `platform-release`, redeploy Old, verify `systemctl show ... TimeoutStopSec=5min`, then decide on controlled active watchdog mode.
+- Persistent stop-timeout fix committed as `4059c54`, platform release `38414b0`, deployed through the required Old wrapper. Post-deploy: release `38414b0`, app `active`, MainPID `2553656`, `NRestarts=0`, `TimeoutStopSec=5min`, health and readiness 200 internally/externally, private-media denial and main/live isolation checks pass.
+- Post-deploy watchdog remains dry-run: timer active, new environment/cooldown/warmup parameters present, state recovered to `0`, app stayed `active` with `NRestarts=0`. Capacity baseline remains healthy: 4 vCPU, load 1.14/0.83/0.58, 5.9 GiB available RAM, no swap use, disk 61%, PostgreSQL 10/100 connections.
+- Local verification: resilience 11/11, deploy-targets 9/9, shell syntax, Python compile, `git diff --check`. Next gate: switch Old watchdog to active with explicit `--confirm-active`, verify timer/logs, and keep the rollback command ready.
 
 ## 2026-11-11 Watchdog dry-run observation (Old)
 
