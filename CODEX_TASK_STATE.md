@@ -5,7 +5,9 @@
 - Root cause of repeat regression: production was serving an older platform release and an old `canvas.js` hash (`702f8458...`) that did not include commit `923755ad`. Canvas asset URLs had no independent version fence.
 - Fix: explicit canvas asset version `canvas-20261111-3`; `platform.html` shell query updated; project cards render image/poster first and video only as fallback; React project list uses the same poster-first behavior; targeted regression added.
 - Verification: `workflow-canvases.test.js` 41/41; `platform.js` / `platform.workflow-canvases.js` syntax and `git diff --check` pass; canvas rebuilt at `workflow-react/dist/canvas.js`.
-- Deployment status: pending Old deployment and production verification.
+- Deployment status: Old deployed and production verified. Source `old-site` `f3f85230`; platform release `2e379e7b`; Live untouched. Remote HEAD `2e379e7b`, `/api/health` HTTP 200.
+- Follow-up detail-load fix: `handleGetWorkflowCanvas` now runs the returned canvas through `publicAssetUrlsForClient()`. Previously the project-list endpoint refreshed signatures, but the detail endpoint returned persisted expired OSS URLs, so the video/poster APIs succeeded in the list while the canvas node video returned 403.
+- Production proof after deployment: authenticated canvas detail returns one result URL, freshly signed (`Expires=1794370500`); poster URL returns HTTP 200 `image/jpeg` 30,894 bytes; video Range request returns HTTP 206 `video/mp4`, `Content-Range: bytes 0-2047/2235843`; canvas bundle remains `canvas-20261111-3` SHA-256 `b4cc53d1356b04c49fb29be638335af94096ef9e029efd127a9560664bf53ead`. Regression suite 41/41.
 
 ## 2026-11-11 Telegram notification claims and production test-data cleanup (deployed Old)
 
