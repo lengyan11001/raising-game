@@ -447,8 +447,17 @@ fi"""
             )
         expected_check = "\n".join([*expected_checks, *unexpected_checks]) or "true"
         if expected_statuses:
+            # Edge checks can be slow immediately after a restart. Retry only
+            # transport failures; once a status is returned, a mismatch is a
+            # real assertion failure and must not be hidden by retries.
             fetch = f"""verify_body=$(mktemp)
-verify_code=$(curl -sSL --max-time 15 -o "$verify_body" -w '%{{http_code}}' {verify_url_q}) || {{ echo "Page verification failed: {verify_url}"; rm -f "$verify_body"; exit 27; }}
+verify_code=000
+for verify_attempt in 1 2 3; do
+  verify_code=$(curl -sSL --max-time 10 -o "$verify_body" -w '%{{http_code}}' {verify_url_q}) || verify_code=000
+  if [ "$verify_code" != "000" ]; then break; fi
+  if [ "$verify_attempt" -lt 3 ]; then sleep 1; fi
+done
+if [ "$verify_code" = "000" ]; then echo "Page verification failed: {verify_url}"; rm -f "$verify_body"; exit 27; fi
 {expected_status_check}"""
         else:
             fetch = f"""verify_body=$(mktemp)
