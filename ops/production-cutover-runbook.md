@@ -12,7 +12,7 @@ the measured baseline and change window are approved.
   `GENERATION_SUBMIT_QUEUE_ENABLED=0`, and
   `GENERATION_SUBMIT_WORKER_ENABLED=0`. PostgreSQL advisory leases may only be
   promoted after HTTP cutover is stable.
-- Every real traffic upstream moves in one atomic Nginx transaction. Never
+- Every real traffic upstream moves in one journaled cross-file Nginx transaction. Never
   leave `raising_game_app`, `raising_game_app_chat`, or `raising_game_app_live`
   on different releases.
 - Nginx validation, reload, every explicit health URL, and public critical
@@ -110,10 +110,9 @@ the measured baseline and change window are approved.
    not only the loopback port:
    ```bash
    python3 /opt/raising-game-demo/ops/nginx-upstream-switch.py \
-     --file /etc/nginx/sites-enabled/default \
-     --switch raising_game_app=4174:4175 \
-     --switch raising_game_app_chat=4174:4175 \
-     --switch raising_game_app_live=4174:4175 \
+     --file-switch '/etc/nginx/sites-enabled/default=raising_game_app=4174:4175' \
+     --file-switch '/etc/nginx/sites-enabled/chat.5vips.com=raising_game_app_chat=4174:4175' \
+     --file-switch '/etc/nginx/sites-enabled/live.123vipeak.com=raising_game_app_live=4174:4175' \
      --health-url https://123vips.com/api/health \
      --health-url https://chat.5vips.com/api/health \
      --health-url https://live.123vipeak.com/api/health \
@@ -153,10 +152,9 @@ or DB pool exhaustion.
 1. Switch all three upstreams back atomically:
    ```bash
    python3 /opt/raising-game-demo/ops/nginx-upstream-switch.py \
-     --file /etc/nginx/sites-enabled/default \
-     --switch raising_game_app=4175:4174 \
-     --switch raising_game_app_chat=4175:4174 \
-     --switch raising_game_app_live=4175:4174 \
+     --file-switch '/etc/nginx/sites-enabled/default=raising_game_app=4175:4174' \
+     --file-switch '/etc/nginx/sites-enabled/chat.5vips.com=raising_game_app_chat=4175:4174' \
+     --file-switch '/etc/nginx/sites-enabled/live.123vipeak.com=raising_game_app_live=4175:4174' \
      --health-url https://123vips.com/api/health \
      --health-url https://chat.5vips.com/api/health \
      --health-url https://live.123vipeak.com/api/health \

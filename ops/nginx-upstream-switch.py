@@ -3,14 +3,17 @@
 
 This script is deliberately narrow. It edits only single server directives
 inside named upstream blocks whose current/next backends are explicitly
-passed. Multiple upstreams are rendered in memory and written exactly once, so
-a production cutover cannot expose a partially switched traffic mix. It never
-restarts Node and never stops the old process; the caller drains old backends
-only after every configured edge health check returns HTTP 200.
+passed. A transaction may span multiple Nginx files; every file is rendered and
+validated in memory before any file is replaced. A short transaction journal
+restores all files if validation, reload, or health checks fail, so production
+cannot remain on a partially switched traffic mix. It never restarts Node and
+never stops the old process; the caller drains old backends only after every
+configured edge health check returns HTTP 200.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shlex
@@ -18,6 +21,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Linux production only
+    fcntl = None
 
 
 UPSTREAM_HEADER_RE = re.compile(
@@ -132,8 +140,15 @@ def atomic_write(path: Path, value: str, mode: int) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(value)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.chmod(temp_name, mode)
         os.replace(temp_name, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     except Exception:
         try:
             os.unlink(temp_name)
@@ -162,6 +177,98 @@ def require_http_200(url: str) -> None:
         )
 
 
+def parse_file_switch(value: str) -> tuple[Path, tuple[str, str, str]]:
+    path_text, separator, switch_text = value.partition("=")
+    if not separator or not path_text:
+        raise argparse.ArgumentTypeError(
+            "file switch must use PATH=NAME=CURRENT_PORT:NEXT_PORT"
+        )
+    return Path(path_text), parse_switch(switch_text)
+
+
+def build_file_transaction(
+    file_switches: list[tuple[Path, tuple[str, str, str]]],
+) -> list[tuple[str, Path, str, int, str]]:
+    by_file: dict[Path, list[tuple[str, str, str]]] = {}
+    names: list[str] = []
+    for path, switch in file_switches:
+        names.append(switch[0])
+        by_file.setdefault(Path(path), []).append(switch)
+    if len(names) != len(set(names)):
+        raise ValueError("upstream names must be unique")
+    entries: list[tuple[str, Path, str, int, str]] = []
+    for path, switches in by_file.items():
+        source = path.read_text(encoding="utf-8")
+        updated = switch_upstreams_text(source, switches)
+        entries.append((str(path), path, source, path.stat().st_mode & 0o777, updated))
+    return entries
+
+
+def acquire_transaction_lock() -> object:
+    if fcntl is None:
+        raise RuntimeError("fcntl is required for atomic Nginx transactions")
+    default_lock = "/run/nginx-upstream-switch.lock" if Path("/run").is_dir() else str(
+        Path(tempfile.gettempdir()) / "nginx-upstream-switch.lock"
+    )
+    lock_path = Path(os.environ.get("NGINX_UPSTREAM_SWITCH_LOCK", default_lock))
+    handle = open(lock_path, "a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        raise RuntimeError(f"another upstream switch is already running: {lock_path}") from None
+    return handle
+
+
+def write_journal(entries: list[tuple[str, Path, str, int, str]]) -> Path:
+    journal_dir = Path(os.environ.get("NGINX_UPSTREAM_SWITCH_JOURNAL_DIR", tempfile.gettempdir()))
+    fd, journal_name = tempfile.mkstemp(
+        prefix="raising-game-nginx-switch-", suffix=".json", dir=str(journal_dir)
+    )
+    journal = Path(journal_name)
+    payload = {
+        "files": [
+            {"path": path_text, "original": original, "mode": mode}
+            for path_text, _path, original, mode, _updated in entries
+        ]
+    }
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(journal, 0o600)
+    return journal
+
+
+def restore_journal(path: Path) -> list[str]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    restored: list[str] = []
+    for item in payload.get("files", []):
+        target = Path(item["path"])
+        atomic_write(target, item["original"], int(item["mode"]))
+        restored.append(str(target))
+    return restored
+
+
+def recover_stale_journal() -> None:
+    """Restore an interrupted transaction before starting another one."""
+    stale_limit = 3600
+    journal_dir = Path(os.environ.get("NGINX_UPSTREAM_SWITCH_JOURNAL_DIR", tempfile.gettempdir()))
+    for journal in sorted(journal_dir.glob("raising-game-nginx-switch-*.json")):
+        try:
+            age = __import__("time").time() - journal.stat().st_mtime
+            if age < 0 or age > stale_limit:
+                continue
+            restored = restore_journal(journal)
+            journal.unlink()
+            print(
+                "UPSTREAM_SWITCH_RECOVERED journal="
+                f"{journal} files={len(restored)}"
+            )
+        except Exception as error:
+            print(f"UPSTREAM_SWITCH_RECOVERY_FAILED journal={journal} error={error}", file=sys.stderr)
+
+
 def parse_switch(value: str) -> tuple[str, str, str]:
     match = re.fullmatch(
         r"(?P<name>[A-Za-z0-9_.-]+)=(?P<current>[0-9]+):(?P<next>[0-9]+)",
@@ -184,13 +291,20 @@ def parse_switch(value: str) -> tuple[str, str, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--file", required=True, type=Path)
+    parser.add_argument("--file", type=Path, default=None)
     parser.add_argument(
         "--switch",
         action="append",
         type=parse_switch,
         default=[],
         help="repeatable NAME=CURRENT_PORT:NEXT_PORT transaction entry",
+    )
+    parser.add_argument(
+        "--file-switch",
+        action="append",
+        type=parse_file_switch,
+        default=[],
+        help="repeatable PATH=NAME=CURRENT_PORT:NEXT_PORT entry; all files commit together",
     )
     parser.add_argument("--upstream", default="")
     parser.add_argument("--current-port", default="")
@@ -215,43 +329,84 @@ def main() -> int:
                 "--upstream, --current-port, and --next-port must be provided together"
             )
         switches.append(parse_switch(f"{args.upstream}={args.current_port}:{args.next_port}"))
-    if not switches:
-        raise SystemExit("provide at least one --switch NAME=CURRENT_PORT:NEXT_PORT")
+    if args.file_switch:
+        if switches or args.file:
+            raise SystemExit("--file-switch cannot be combined with --file or --switch")
+    elif args.file:
+        if not switches:
+            raise SystemExit("provide at least one --switch NAME=CURRENT_PORT:NEXT_PORT")
+        file_switches = [(args.file, switch) for switch in switches]
+    else:
+        raise SystemExit("provide --file with --switch, or one or more --file-switch entries")
     if not args.health_url:
         raise SystemExit("provide at least one --health-url")
 
-    source = args.file.read_text(encoding="utf-8")
-    updated = switch_upstreams_text(source, switches)
-    for name, current, next_port in switches:
+    try:
+        if args.file_switch:
+            entries = build_file_transaction(args.file_switch)
+            effective_switches = [switch for _path, switch in args.file_switch]
+        else:
+            source = args.file.read_text(encoding="utf-8")
+            updated = switch_upstreams_text(source, switches)
+            entries = [(str(args.file), args.file, source, args.file.stat().st_mode & 0o777, updated)]
+            effective_switches = switches
+    except (OSError, ValueError) as error:
+        raise SystemExit(str(error)) from None
+    for name, current, next_port in effective_switches:
         print(
             f"UPSTREAM_SWITCH_PLAN upstream={name} from={current} to={next_port}"
         )
+    for path_text, _path, original, _mode, updated in entries:
+        if original != updated:
+            print(f"UPSTREAM_SWITCH_FILE path={path_text} changed=1")
     if not args.apply:
         return 0
 
-    original = source
-    mode = args.file.stat().st_mode & 0o777
     test_command = shlex.split(args.nginx_test_command or f"{args.nginx_bin} -t")
     reload_command = shlex.split(args.reload_command)
     if not test_command or not reload_command:
         raise SystemExit("reload-command must not be empty")
+    lock = acquire_transaction_lock()
+    journal: Path | None = None
+    committed = False
+    restored_after_failure = False
     try:
-        atomic_write(args.file, updated, mode)
+        recover_stale_journal()
+        journal = write_journal(entries)
+        for _path_text, path, _original, mode, updated in entries:
+            atomic_write(path, updated, mode)
         run(test_command)
         run(reload_command)
         for health_url in args.health_url:
             require_http_200(health_url)
+        committed = True
     except Exception:
-        atomic_write(args.file, original, mode)
+        if journal is not None:
+            try:
+                restored = restore_journal(journal)
+                restored_after_failure = True
+                print(f"UPSTREAM_SWITCH_ROLLBACK files={len(restored)}")
+            except Exception as rollback_error:
+                print(
+                    f"UPSTREAM_SWITCH_ROLLBACK_FAILED error={rollback_error}; journal={journal}",
+                    file=sys.stderr,
+                )
         try:
             run(test_command)
             run(reload_command)
         except Exception:
             pass
         raise
-    for name, _, next_port in switches:
+    finally:
+        if journal is not None and (committed or restored_after_failure):
+            journal.unlink(missing_ok=True)
+        lock.close()
+    for name, _, next_port in effective_switches:
         print(f"UPSTREAM_SWITCH_OK upstream={name} port={next_port}")
-    print(f"UPSTREAM_SWITCH_COMMIT_OK upstreams={len(switches)} health_urls={len(args.health_url)}")
+    print(
+        f"UPSTREAM_SWITCH_COMMIT_OK upstreams={len(effective_switches)} "
+        f"files={len(entries)} health_urls={len(args.health_url)}"
+    )
     return 0
 
 

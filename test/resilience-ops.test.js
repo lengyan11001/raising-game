@@ -54,7 +54,12 @@ function writeExecutable(file, body) {
 function invokeUpstreamSwitch(args, env = {}) {
   return spawnSync("python3", [upstreamSwitchScript, ...args], {
     cwd: root,
-    env: { ...process.env, ...env },
+    env: {
+      ...process.env,
+      NGINX_UPSTREAM_SWITCH_LOCK: path.join(os.tmpdir(), `raising-game-nginx-switch-${process.pid}.lock`),
+      NGINX_UPSTREAM_SWITCH_JOURNAL_DIR: os.tmpdir(),
+      ...env,
+    },
     encoding: "utf8",
   });
 }
@@ -736,7 +741,7 @@ printf '200'
       "--apply",
     ], { PATH: `${dir}:${process.env.PATH}` });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /UPSTREAM_SWITCH_COMMIT_OK upstreams=3 health_urls=3/);
+    assert.match(result.stdout, /UPSTREAM_SWITCH_COMMIT_OK upstreams=3 files=1 health_urls=3/);
     const updated = fs.readFileSync(file, "utf8");
     assert.equal((updated.match(/server 127\.0\.0\.1:4183;/g) || []).length, 3);
     assert.match(updated, /upstream unrelated \{\n    server 127\.0\.0\.1:9000;/);
@@ -744,6 +749,109 @@ printf '200'
     assert.equal(fs.readFileSync(nginxLog, "utf8").trimEnd(), updated.trimEnd());
     assert.equal(fs.readFileSync(reloadLog, "utf8").trim(), "reload");
     assert.notEqual(original, updated);
+  });
+});
+
+test("Nginx file transaction switches upstreams across files and rolls back every file", async () => {
+  await withTempDir(async (dir) => {
+    const main = path.join(dir, "default");
+    const chat = path.join(dir, "chat.conf");
+    const live = path.join(dir, "live.conf");
+    const mainOriginal = writeUpstreamConfig(main, `upstream raising_game_app {
+    server 127.0.0.1:4174;
+    keepalive 64;
+}
+`);
+    const chatOriginal = writeUpstreamConfig(chat, `upstream raising_game_app_chat { server 127.0.0.1:4174; keepalive 32; }
+`);
+    const liveOriginal = writeUpstreamConfig(live, `upstream raising_game_app_live { server 127.0.0.1:4174; keepalive 32; }
+`);
+    const nginx = path.join(dir, "nginx");
+    const reload = path.join(dir, "reload");
+    const curl = path.join(dir, "curl");
+    const count = path.join(dir, "count");
+    writeExecutable(nginx, `#!/usr/bin/env bash
+grep -q '127.0.0.1:4183' ${JSON.stringify(main)} &&
+grep -q '127.0.0.1:4183' ${JSON.stringify(chat)} &&
+grep -q '127.0.0.1:4183' ${JSON.stringify(live)}
+`);
+    writeExecutable(reload, `#!/usr/bin/env bash
+exit 0
+`);
+    writeExecutable(curl, `#!/usr/bin/env bash
+n=0
+[[ -f ${JSON.stringify(count)} ]] && n=$(cat ${JSON.stringify(count)})
+n=$((n + 1))
+printf '%s' "$n" > ${JSON.stringify(count)}
+[[ "$n" -eq 1 ]] && printf '200' && exit 0
+printf '503'
+exit 22
+`);
+    const result = invokeUpstreamSwitch([
+      "--file-switch", `${main}=raising_game_app=4174:4183`,
+      "--file-switch", `${chat}=raising_game_app_chat=4174:4183`,
+      "--file-switch", `${live}=raising_game_app_live=4174:4183`,
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--health-url", "http://127.0.0.1:48080/chat/health",
+      "--health-url", "http://127.0.0.1:48080/live/health",
+      "--nginx-bin", nginx,
+      "--reload-command", reload,
+      "--apply",
+    ], {
+      PATH: `${dir}:${process.env.PATH}`,
+      NGINX_UPSTREAM_SWITCH_JOURNAL_DIR: dir,
+      NGINX_UPSTREAM_SWITCH_LOCK: path.join(dir, "switch.lock"),
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /HTTP 503/);
+    assert.equal(fs.readFileSync(main, "utf8"), mainOriginal);
+    assert.equal(fs.readFileSync(chat, "utf8"), chatOriginal);
+    assert.equal(fs.readFileSync(live, "utf8"), liveOriginal);
+    assert.equal(
+      fs.readdirSync(dir).some((name) => name.startsWith("raising-game-nginx-switch-") && name.endsWith(".json")),
+      false
+    );
+  });
+});
+
+test("Nginx file transaction commits all files and rejects duplicate upstream names", () => {
+  withTempDir((dir) => {
+    const main = path.join(dir, "default");
+    const chat = path.join(dir, "chat.conf");
+    writeUpstreamConfig(main, `upstream raising_game_app {
+    server 127.0.0.1:4174;
+}
+`);
+    writeUpstreamConfig(chat, `upstream raising_game_app_chat {
+    server 127.0.0.1:4174;
+}
+`);
+    const baseArgs = [
+      "--file-switch", `${main}=raising_game_app=4174:4183`,
+      "--file-switch", `${chat}=raising_game_app_chat=4174:4183`,
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--nginx-bin", path.join(dir, "nginx"),
+      "--reload-command", path.join(dir, "reload"),
+    ];
+    writeExecutable(path.join(dir, "nginx"), "#!/usr/bin/env bash\nexit 0\n");
+    writeExecutable(path.join(dir, "reload"), "#!/usr/bin/env bash\nexit 0\n");
+    writeExecutable(path.join(dir, "curl"), "#!/usr/bin/env bash\nprintf '200'\n");
+    const committed = invokeUpstreamSwitch([...baseArgs, "--apply"], {
+      PATH: `${dir}:${process.env.PATH}`,
+      NGINX_UPSTREAM_SWITCH_JOURNAL_DIR: dir,
+      NGINX_UPSTREAM_SWITCH_LOCK: path.join(dir, "switch.lock"),
+    });
+    assert.equal(committed.status, 0, committed.stderr);
+    assert.match(committed.stdout, /UPSTREAM_SWITCH_COMMIT_OK upstreams=2 files=2 health_urls=1/);
+    assert.match(fs.readFileSync(main, "utf8"), /127\.0\.0\.1:4183/);
+    assert.match(fs.readFileSync(chat, "utf8"), /127\.0\.0\.1:4183/);
+    const duplicate = invokeUpstreamSwitch([
+      "--file-switch", `${main}=raising_game_app=4183:4174`,
+      "--file-switch", `${chat}=raising_game_app=4183:4174`,
+      "--health-url", "http://127.0.0.1:48080/api/health",
+    ]);
+    assert.notEqual(duplicate.status, 0);
+    assert.match(duplicate.stderr, /upstream names must be unique/);
   });
 });
 
