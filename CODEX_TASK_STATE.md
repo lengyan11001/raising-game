@@ -1,3 +1,13 @@
+## 2026-11-11 Watchdog dry-run observation (Old)
+
+- Observation window: 02:09:14–10:22 CST (about 8h13m), Old only; no config changes during observation.
+- Watchdog timer: active, 2,701 successful runs, 0 start failures, 0 health-check failures, 0 `would restart`, 0 recoveries; failure state `0`.
+- App: `raising-game-demo` active, `NRestarts=0`, current `Result=success`, main PID stable since 02:17:35. Restart journal at 02:08 was the deploy restart and at 02:17 was a subsequent deploy checkout restart; watchdog logs did not trigger them.
+- Health: internal and external `/api/health` and `/api/readyz` returned 200. Readiness latency stayed under 0.5s in this check.
+- Capacity signals: load 0.51/0.48/0.39 on 4 vCPU; 5.5 GiB available RAM; no swap use; root disk 61% used, 19 GiB free; inode use 7%; PostgreSQL 8 of 100 connections, DB 727 MB.
+- Unrelated finding: `aegis.service` (Aliyun security agent) has been failed since 06:39 with SIGKILL; app service is unaffected but the agent should be checked separately.
+- Conclusion: dry-run watchdog is stable. Keep observation mode until a longer window confirms no false positives; do not enable real auto-restart yet. Backup work remains deferred per user request.
+
 ## 2026-11-11 P2 watchdog controlled dry-run readiness
 
 - User directed backup work to the end; P2 proceeds before any further backup/off-host work.
