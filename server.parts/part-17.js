@@ -1228,7 +1228,7 @@ function signedWan30MediaForUpstream(media = []) {
     // The OSS bucket is private. The upstream downloader receives the URL
     // directly, so sign it at the final submission boundary rather than
     // relying on display-time URL conversion elsewhere in the app.
-    const signedUrl = signedOssCdnUrlForDelivery(url);
+    const signedUrl = signedOssCdnUrlForUpstream(url);
     return signedUrl ? { ...item, url: signedUrl } : item;
   });
 }

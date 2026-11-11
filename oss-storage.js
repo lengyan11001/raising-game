@@ -129,6 +129,9 @@ function ossConfig(env = process.env) {
     concurrency: Math.max(1, Math.min(8, positiveInt(env.OSS_MULTIPART_CONCURRENCY, 3))),
     timeoutMs: Math.max(30_000, positiveInt(env.OSS_UPLOAD_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 30_000)),
     signedUrlTtlSeconds: Math.max(60, Math.min(3600, positiveInt(env.OSS_SIGNED_URL_TTL_SECONDS, 600, 60))),
+    // Upstream providers may queue a task for hours before fetching reference
+    // media. Keep this separate from user-facing delivery/download signatures.
+    upstreamSignedUrlTtlSeconds: Math.max(60, Math.min(604800, positiveInt(env.OSS_UPSTREAM_SIGNED_URL_TTL_SECONDS, 43200, 60))),
     // Keep delivery URLs stable inside a short time bucket so fast UI refreshes
     // reuse the browser/CDN cache instead of downloading the same object again.
     signedUrlBucketSeconds: Math.max(30, Math.min(300, positiveInt(env.OSS_SIGNED_URL_BUCKET_SECONDS, 300, 30))),
@@ -473,7 +476,8 @@ function attachmentDisposition(fileName = "download") {
 
 function signedMediaUrl({ key, fileName = "", contentType = "", download = false, expiresSeconds, now = Date.now(), config = ossConfig() }) {
   if (!ossConfigured(config) || !key) return "";
-  const expires = Math.max(60, Math.min(3600, Number(expiresSeconds) || config.signedUrlTtlSeconds));
+  const maxExpiresSeconds = Math.max(3600, Number(config.upstreamSignedUrlTtlSeconds) || 43200);
+  const expires = Math.max(60, Math.min(maxExpiresSeconds, Number(expiresSeconds) || config.signedUrlTtlSeconds));
   const bucketSeconds = Math.max(1, Math.min(expires, Number(config.signedUrlBucketSeconds) || 300));
   const bucketMs = bucketSeconds * 1000;
   const requestedNow = Number(now);

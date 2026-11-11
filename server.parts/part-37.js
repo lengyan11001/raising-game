@@ -165,7 +165,7 @@ async function handleWan27ImageEdit(req, res) {
     }
     const preparedAssetUrls = preparedAssets.map((asset) => {
       const value = asset.publicUrl || publicUrlForLocalAsset(asset) || "";
-      return signedOssCdnUrlForDelivery(value, {
+      return signedOssCdnUrlForUpstream(value, {
         key: asset.storageKey || asset.objectStorageKey || asset.r2Key || "",
       }) || publicHttpUrlForUpstream(value);
     });

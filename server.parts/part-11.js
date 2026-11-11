@@ -85,7 +85,7 @@ function seedanceIgnexModelForRequest(model = "", seedanceTier = "standard") {
   return kind === "fast" ? IGNEX_SEEDANCE_FAST_MODEL : IGNEX_SEEDANCE_QUALITY_MODEL;
 }
 
-function signedOssCdnUrlForDelivery(value = "", { key = "", fileName = "", download = false } = {}) {
+function signedOssCdnUrlForDelivery(value = "", { key = "", fileName = "", download = false, expiresSeconds } = {}) {
   const text = String(value || "").trim();
   if (!OSS_STORAGE_ENABLED || !text) return "";
   // A record-level storage key may belong to OSS while its display URL still
@@ -110,7 +110,15 @@ function signedOssCdnUrlForDelivery(value = "", { key = "", fileName = "", downl
     key: objectKey,
     fileName,
     download,
+    expiresSeconds,
     config: OSS,
+  });
+}
+
+function signedOssCdnUrlForUpstream(value = "", options = {}) {
+  return signedOssCdnUrlForDelivery(value, {
+    ...options,
+    expiresSeconds: OSS.upstreamSignedUrlTtlSeconds,
   });
 }
 
@@ -151,18 +159,18 @@ function publicHttpUrlForUpstream(value = "") {
   if (!text) return "";
   if (isPublicHttpUrl(text)) {
     const publicUrl = publicUrlForAssetPath(text);
-    const signedObjectUrl = signedOssCdnUrlForDelivery(text) || signedOssCdnUrlForDelivery(publicUrl);
+    const signedObjectUrl = signedOssCdnUrlForUpstream(text) || signedOssCdnUrlForUpstream(publicUrl);
     if (signedObjectUrl) return signedObjectUrl;
     // A protected application-origin URL must never be sent upstream bare.
-    const protectedLocalDelivery = localMediaDeliveryUrl(text, { absolute: true });
+    const protectedLocalDelivery = localMediaDeliveryUrlForUpstream(text, { absolute: true });
     if (protectedLocalDelivery) return protectedLocalDelivery;
     return publicUrl !== text ? publicUrl : text;
   }
   if (text.startsWith("/")) {
-    const localDeliveryUrl = localMediaDeliveryUrl(text, { absolute: true });
+    const localDeliveryUrl = localMediaDeliveryUrlForUpstream(text, { absolute: true });
     if (localDeliveryUrl) return localDeliveryUrl;
     const configured = publicUrlForAssetPath(text);
-    const signedConfigured = signedOssCdnUrlForDelivery(configured);
+    const signedConfigured = signedOssCdnUrlForUpstream(configured);
     if (signedConfigured) return signedConfigured;
     if (!configured) return `https://123vips.com/${text.replace(/^\/+/, "")}`;
     return configured;
@@ -172,7 +180,7 @@ function publicHttpUrlForUpstream(value = "") {
 
 function publicHttpUrlForUserAsset(asset = {}, fallback = "") {
   const value = asset.publicUrl || asset.localUrl || fallback || "";
-  const signed = signedOssCdnUrlForDelivery(value, {
+  const signed = signedOssCdnUrlForUpstream(value, {
     key: asset.storageKey || asset.objectStorageKey || asset.r2Key || "",
   });
   return signed || publicHttpUrlForUpstream(value);

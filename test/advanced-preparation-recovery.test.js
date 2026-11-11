@@ -85,7 +85,7 @@ const restorablePublicUrlForUserAsset = new Function(
 const ensurePublicUrlForUserAsset = new Function(
   "firstPresent",
   "isPublicHttpUrl",
-  "signedOssCdnUrlForDelivery",
+  "signedOssCdnUrlForUpstream",
   "objectStorageEnabled",
   "userAssetHasConfiguredObjectStorageMirror",
   "publicUrlForAssetPath",
@@ -99,7 +99,7 @@ const ensurePublicUrlForUserAsset = new Function(
 )(
   firstPresent,
   isPublicHttpUrl,
-  isolatedServer.signedOssCdnUrlForDelivery,
+  isolatedServer.signedOssCdnUrlForUpstream,
   () => true,
   () => true,
   () => "",

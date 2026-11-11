@@ -1,3 +1,14 @@
+## 2026-11-11 upstream media signatures extended without touching delivery TTL
+
+- Goal: prevent upstream providers from failing reference downloads after queue/delay, without changing user result previews, playback, or downloads.
+- Added `OSS_UPSTREAM_SIGNED_URL_TTL_SECONDS`, default 12 hours and capped at 7 days. Ordinary `OSS_SIGNED_URL_TTL_SECONDS` remains 600 seconds.
+- OSS upstream signer and local upstream signer are separate helpers. Only final upstream submission boundaries use them; result delivery/download and generated-media verification still use the short normal signer.
+- Covered upstream boundaries: `publicHttpUrlForUpstream`, `publicHttpUrlForUserAsset`, local asset preparation, Wan 3.0 signed media, Wan 2.7 image-edit sources, and Seedance/Vega upstream asset preparation.
+- Verification: focused signing suite 105/105; generation/media/result suite 243/243; operational/auth/result suite 163/163; syntax and `git diff --check` pass.
+- Publish scope: `.env.example`, `oss-storage.js`, `server.parts/part-02.js`, `server.parts/part-11.js`, `server.parts/part-17.js`, `server.parts/part-19.js`, `server.parts/part-37.js`, only the two intended exports in `server.parts/part-43.js`, `test/oss-storage.test.js`, `test/media-authorization.test.js`, `test/wan30-upstream-signed-media.test.js`, `test/advanced-preparation-recovery.test.js`, this state entry.
+- Excluded unrelated WIP: DB migration/bootstrap changes, Test-mode files, workflow assets/maps, `node_modules`.
+- Deployment: pending Old-only through `scripts/deploy_local.sh --site old`; Live untouched.
+
 ## 2026-11-11 Step A + C deployed; startup historical import gated
 
 - Step A deployed Old only: source `930dc46b`, platform release `d7890854`, previous release `be4ebdd7` / `a73ad65a`. Service is active with `NRestarts=0`, health/livez/readyz 200, anonymous diagnostics 401, RSS about 188 MiB.

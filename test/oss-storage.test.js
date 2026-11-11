@@ -114,6 +114,8 @@ test("OSS public and signed URLs use the configured CDN and endpoint", () => {
   const config = ossConfig(ossEnv({ OSS_FORCE_PATH_STYLE: "1" }));
   assert.equal(config.cdnRegion, "oss-ap-southeast-1");
   assert.equal(config.forcePathStyle, false);
+  assert.equal(config.signedUrlTtlSeconds, 600);
+  assert.equal(config.upstreamSignedUrlTtlSeconds, 43200);
   assert.equal(
     publicUrlForKey("generated/videos/demo.mp4", config),
     "https://assets-cdn.123vips.com/generated/videos/demo.mp4",
@@ -199,7 +201,16 @@ test("private OSS origin URLs are converted to signed CDN delivery URLs", () => 
   assert.equal(refreshed.pathname, "/assets/user-uploads/user-1/asset-1.png");
   assert.equal(refreshed.searchParams.get("OSSAccessKeyId"), "test-access-key");
   assert.notEqual(refreshed.searchParams.get("Signature"), "expired");
-  assert.ok(Number(refreshed.searchParams.get("Expires")) > 1);
+  assert.ok(Number(refreshed.searchParams.get("Expires")) > Math.floor(Date.now() / 1000) + 11 * 60 * 60);
+
+  const ordinary = new URL(isolatedServer.signedOssCdnUrlForDelivery(
+    "https://assets-cdn.123vips.com/assets/user-uploads/user-1/asset-1.png",
+  ));
+  assert.ok(Number(ordinary.searchParams.get("Expires")) <= Math.floor(Date.now() / 1000) + 3600);
+  const upstream = new URL(isolatedServer.signedOssCdnUrlForUpstream(
+    "https://assets-cdn.123vips.com/assets/user-uploads/user-1/asset-1.png",
+  ));
+  assert.ok(Number(upstream.searchParams.get("Expires")) > Math.floor(Date.now() / 1000) + 11 * 60 * 60);
 
   assert.equal(
     isolatedServer.canonicalOssStorageUrlForCache(

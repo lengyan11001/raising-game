@@ -57,9 +57,9 @@ Object.assign(process.env, {
 const isolatedServer = require("../server");
 const serverSource = readServerSource();
 const signedWan30MediaForUpstream = new Function(
-  "signedOssCdnUrlForDelivery",
+  "signedOssCdnUrlForUpstream",
   `return (${extractFunction(serverSource, "signedWan30MediaForUpstream")});`,
-)(isolatedServer.signedOssCdnUrlForDelivery);
+)(isolatedServer.signedOssCdnUrlForUpstream);
 
 test.after(() => {
   for (const [name, value] of Object.entries(previousEnv)) {

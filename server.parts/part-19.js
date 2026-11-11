@@ -945,15 +945,15 @@ function publicUrlForLocalAsset(asset = {}) {
   // Upstream providers must fetch private references from object storage/CDN,
   // never from the protected application origin. The origin path is a signed
   // fallback only when no configured object-storage mirror exists.
-  const signedObjectUrl = signedOssCdnUrlForDelivery(storedUrl, {
+  const signedObjectUrl = signedOssCdnUrlForUpstream(storedUrl, {
     key: isPublicHttpUrl(asset.wan30PublicUrl)
       ? (asset.wan30R2Key || asset.wan30StorageKey || "")
       : (asset.storageKey || asset.objectStorageKey || asset.r2Key || ""),
   });
   if (signedObjectUrl) return signedObjectUrl;
-  const directLocalDeliveryUrl = localUserUploadDeliveryUrl(asset.localUrl, { absolute: true });
+  const directLocalDeliveryUrl = localUserUploadDeliveryUrlForUpstream(asset.localUrl, { absolute: true });
   if (directLocalDeliveryUrl) return directLocalDeliveryUrl;
-  const localDeliveryUrl = localUserUploadDeliveryUrl(storedUrl, { absolute: isPublicHttpUrl(storedUrl) });
+  const localDeliveryUrl = localUserUploadDeliveryUrlForUpstream(storedUrl, { absolute: isPublicHttpUrl(storedUrl) });
   return localDeliveryUrl || storedUrl;
 }
 
@@ -1024,7 +1024,7 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
     // private-read URLs are only stable after a fresh signature, while the DB
     // must retain the unsigned canonical URL. Return a shallow copy so this
     // short-lived URL can never be persisted by a caller.
-    const signedDeliveryUrl = signedOssCdnUrlForDelivery(userAsset.publicUrl, {
+    const signedDeliveryUrl = signedOssCdnUrlForUpstream(userAsset.publicUrl, {
       key: firstPresent(userAsset.storageKey, userAsset.objectStorageKey, userAsset.r2Key, ""),
     });
     return signedDeliveryUrl ? { ...userAsset, publicUrl: signedDeliveryUrl } : userAsset;
@@ -1110,7 +1110,7 @@ function normalizeSeedreamImageSize(value) {
 async function ensurePublicUrlForUserAsset(db, userAsset) {
   const needsObjectMirror = objectStorageEnabled() && Boolean(userAsset.localUrl) && !userAssetHasConfiguredObjectStorageMirror(userAsset);
   if (isPublicHttpUrl(userAsset.publicUrl) && !needsObjectMirror) {
-    const signedDeliveryUrl = signedOssCdnUrlForDelivery(userAsset.publicUrl, {
+    const signedDeliveryUrl = signedOssCdnUrlForUpstream(userAsset.publicUrl, {
       key: firstPresent(userAsset.storageKey, userAsset.objectStorageKey, userAsset.r2Key, ""),
     });
     return signedDeliveryUrl ? { ...userAsset, publicUrl: signedDeliveryUrl } : userAsset;

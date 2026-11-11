@@ -459,6 +459,7 @@ function configuredPublicBaseUrl() {
 
 const LOCAL_MEDIA_SIGNATURE_TTL_MS = 60 * 60 * 1000;
 const LOCAL_MEDIA_SIGNATURE_BUCKET_MS = 15 * 60 * 1000;
+const LOCAL_MEDIA_UPSTREAM_SIGNATURE_TTL_MS = 12 * 60 * 60 * 1000;
 
 function stableLocalMediaExpiry(now = Date.now()) {
   return Math.floor(now / LOCAL_MEDIA_SIGNATURE_BUCKET_MS) * LOCAL_MEDIA_SIGNATURE_BUCKET_MS
@@ -582,10 +583,10 @@ function isLocalUserUploadAssetUrl(value = "") {
     && normalizedProtectedLocalMediaPath(value).startsWith("/assets/user-uploads/");
 }
 
-function localMediaDeliveryUrl(value = "", { absolute = false } = {}) {
+function localMediaDeliveryUrl(value = "", { absolute = false, expiresAt = null } = {}) {
   if (!isLocalProtectedMediaAssetUrl(value)) return "";
   const normalizedPath = normalizedProtectedLocalMediaPath(value);
-  const signed = signLocalMediaPath(normalizedPath);
+  const signed = signLocalMediaPath(normalizedPath, expiresAt);
   if (!signed) return "";
   const pathWithSignature = `${normalizedPath}?expires=${signed.expires}&signature=${encodeURIComponent(signed.signature)}`;
   if (!absolute) return pathWithSignature;
@@ -593,8 +594,19 @@ function localMediaDeliveryUrl(value = "", { absolute = false } = {}) {
   return `${base.replace(/\/+$/, "")}${pathWithSignature}`;
 }
 
+function localMediaDeliveryUrlForUpstream(value = "", { absolute = false, now = Date.now() } = {}) {
+  return localMediaDeliveryUrl(value, {
+    absolute,
+    expiresAt: Number(now) + LOCAL_MEDIA_UPSTREAM_SIGNATURE_TTL_MS,
+  });
+}
+
 function localUserUploadDeliveryUrl(value = "", options = {}) {
   return localMediaDeliveryUrl(value, options);
+}
+
+function localUserUploadDeliveryUrlForUpstream(value = "", options = {}) {
+  return localMediaDeliveryUrlForUpstream(value, options);
 }
 
 function verifyLocalMediaSignature(pathname = "", searchParams = null) {

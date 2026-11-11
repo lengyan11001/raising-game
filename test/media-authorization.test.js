@@ -209,6 +209,16 @@ test("upstream URLs sign private characters, APiz sheets, and panoramas", () => 
   assert.equal(application.publicHttpUrlForUpstream(publicCharacterPath), "https://123vips.com/assets/generated/characters/aria360/portrait.png");
 });
 
+test("upstream-only local media signatures outlive delivery signatures without changing normal previews", () => {
+  const ordinary = new URL(application.localMediaDeliveryUrl(uploadPath, { absolute: true }));
+  const upstream = new URL(application.localMediaDeliveryUrlForUpstream(uploadPath, { absolute: true }));
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  assert.ok(Number(ordinary.searchParams.get("expires")) < Number(upstream.searchParams.get("expires")) - 11 * 60 * 60);
+  assert.ok(Number(upstream.searchParams.get("expires")) > nowSeconds + 11 * 60 * 60);
+  assert.ok(Number(new URL(application.publicHttpUrlForUpstream(uploadPath)).searchParams.get("expires")) > nowSeconds + 11 * 60 * 60);
+  assert.equal(application.verifyLocalMediaSignature(uploadPath, upstream.searchParams), true);
+});
+
 test("public user assets fail closed for protected local paths without signing", () => {
   const original = process.env.MEDIA_URL_SIGNING_SECRET;
   process.env.MEDIA_URL_SIGNING_SECRET = "";
