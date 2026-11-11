@@ -3567,3 +3567,11 @@ CODEX_TASK_STATE.md
 - Production acceptance after deployment: release is `587916da`; MainPID remains `3028789`; `NRestarts=0`; ActiveEnterTimestamp remains `2026-11-11 20:27:06 CST`; `https://123vips.com/api/health`, `https://live.123vipeak.com/api/health`, loopback `livez`, and loopback `readyz` all return 200. The release checkout contains the new `DEPLOY_NO_RESTART` and PID-guard code.
 - The previous unintended restart remains recorded in Step W. This deployment did not reproduce it. Continue to treat PID equality and post-deploy health as mandatory acceptance gates.
 - Current production still uses 4174 only; 4175 is alive but not in Nginx. Do not apply the backup conversion until the three-file dry-run and rollback hashes are captured.
+
+## 2026-11-11 Step Z: production Nginx primary/backup conversion applied successfully
+
+- Baseline before apply: MainPID `3028789`, `NRestarts=0`; health/livez/readyz on both 4174 and 4175 all 200; `nginx -t` passed; original hashes were `1676ac14… default`, `b20803df… chat`, `1a2d00ac… live`.
+- Dry-run then applied `--file-backup` for exactly three files: `default=raising_game_app=4174:4175`, `chat.5vips.com=raising_game_app_chat=4174:4175`, and `live.123vipeak.com=raising_game_app_live=4174:4175`. All three reported `UPSTREAM_BACKUP_OK`; commit reported `upstreams=3 files=3 health_urls=2`.
+- Post-apply acceptance: MainPID still `3028789`, `NRestarts=0`, ActiveEnterTimestamp still `2026-11-11 20:27:06 CST`; 123vips, live, 4174 and 4175 health/livez/readyz all 200; `nginx -T` confirms 4174 primary and 4175 `backup` in all three named upstreams; `nginx -t` passes; Nginx master PID remains `2485219`; no warning-or-higher service entries.
+- New hashes: `ef4f8ac5… default`, `3fad9f5d… chat`, `ac5cbf3f… live`. These are the current three-file baseline for rollback.
+- This is a tested edge configuration, not proof of full event-loop-hang tolerance. Nginx backup handling has only been validated by configuration and health checks; an isolated failover drill must be performed without killing the production Node process. Redis remains disabled; backup remains last.
