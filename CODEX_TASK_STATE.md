@@ -5,7 +5,8 @@
 - Fix: removed the selected-only class from image and video generation controls, removed the selection-gated CSS, and updated regression assertions to require always-visible controls.
 - Cache fence: bumped canvas asset version from `canvas-20261111-3` to `canvas-20261111-4` in `platform.js` and `platform.html`.
 - Verification: canvas rebuilt at `workflow-react/dist/canvas.js`; focused workflow canvas suite 41/41; server syntax and `git diff --check` pass.
-- Deployment status: pending commit, platform release build, Old-only deployment, and production verification. Live remains untouched.
+- Deployment: source `old-site` `9fd4a4d0`; platform release/origin `15246a34`; deployed Old only through `scripts/deploy_local.sh --site old`. Live was not deployed or changed.
+- Production verification: `/api/health`, `platform.js`, and versioned canvas bundle all return HTTP 200; `platform.js` reports `CANVAS_ASSET_VERSION = "canvas-20261111-4"`; production canvas bundle SHA-256 `021e485910c8fbff83d6cae3c8102dd866a0c08170f0f9d1dc538e4602720444` and contains zero `is-selected-only` occurrences.
 
 ## 2026-11-11 Canvas duplicate video preview and project thumbnail regression
 
