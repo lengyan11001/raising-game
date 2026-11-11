@@ -35,3 +35,9 @@ test("image generation reference thumbnails keep the same compact maximum size a
   assert.match(rule, /repeat\(auto-fill, minmax\(82px, 100px\)\)/);
   assert.doesNotMatch(rule, /1fr/);
 });
+
+test("advanced generation asset cards no longer jump to the legacy modify workspace", () => {
+  const create = read("platform.create.parts/part-01.js");
+  assert.doesNotMatch(create, /data-advanced-asset-modify/);
+  assert.doesNotMatch(create, /useAssetInAdvanced\([^\n]*"modify"/);
+});

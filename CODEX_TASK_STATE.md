@@ -1,3 +1,12 @@
+## 2026-11-11 Remove legacy Modify action from generation asset cards (deployed Old)
+
+- User report: the Modify button on image cards in the generation result/assets area still jumped to the old advanced workspace and should be removed.
+- Fix: removed the `data-advanced-asset-modify` action and its `useAssetInAdvanced(..., "modify")` click handler from advanced generation asset cards. The standalone asset-library Modify dialog remains available.
+- Regression coverage: asserts that advanced asset cards no longer contain the legacy modify action or handler.
+- Verification: custom tabs plus advanced result suites pass 20/20; syntax and `git diff --check` pass.
+- Publish scope: `platform.create.parts/part-01.js`, `test/custom-media-kind-tabs.test.js`, and this state entry only. Preserve unrelated concurrent WIP.
+- Deployment: source `old-site`; platform release; deployed Old only through `scripts/deploy_local.sh --site old`; Live untouched.
+
 ## 2026-11-11 Resilience target architecture and Redis track integration
 
 - User direction: include Redis in the overall resilience roadmap, advance in verified increments, and design the best target architecture rather than preserving current implementation patterns.

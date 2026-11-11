@@ -619,7 +619,6 @@ function renderAdvancedAssets(assets) {
         </div>
         <div class="advanced-asset-actions">
           ${canAddAssetToGeneration ? `<button class="copy-btn" type="button" data-advanced-asset-add="${escapeHtml(asset.id)}">${escapeHtml(t("advanced.assetAdd"))}</button>` : ""}
-          ${!video && !audio && !document ? `<button class="ghost-button" type="button" data-advanced-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
           <button class="ghost-button danger" type="button" data-advanced-asset-delete="${escapeHtml(asset.id)}">${escapeHtml(t("assets.delete"))}</button>
         </div>
       </article>
@@ -627,9 +626,6 @@ function renderAdvancedAssets(assets) {
   }).join("");
   els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-add]").forEach((button) => {
     button.addEventListener("click", () => addAssetToAdvancedTarget(button.dataset.advancedAssetAdd || ""));
-  });
-  els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-modify]").forEach((button) => {
-    button.addEventListener("click", () => useAssetInAdvanced(list.find((asset) => asset.id === button.dataset.advancedAssetModify), "modify"));
   });
   els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-delete]").forEach((button) => {
     button.addEventListener("click", (event) => {
