@@ -3000,3 +3000,13 @@ CODEX_TASK_STATE.md
   - `raising-game-demo` is `active/running`, `NRestarts=0`; startup logs show Database configured, Ark configured, upstream direct, and successful startup stale-record scan.
 - Remaining: physical-device and write-flow acceptance (iPhone Safari, Android Chrome/Samsung Internet/WeChat WebView, iOS/Android software keyboard, iPad/macOS Safari, Windows scaling, login/generation/upload/history/top-up/support writes). Do not claim full browser certification yet.
 - Exclude unrelated WIP: `platform.test-generate.css`, `test/platform-test-mode.test.js`, `workflow-react/dist/canvas.js.map`, `workflow-react/node_modules`.
+
+## 2026-11-11 Telegram payment notification Unauthorized hotfix (pending Old deployment)
+
+- User asked which feature emits Telegram `Unauthorized` and approved disabling it first without affecting other online business.
+- Root cause: payment-success Telegram administrator notifications in `server.parts/part-13.js`; generation-task notifications are separate. The configured payment bot credentials return `8507962814: Unauthorized; 8344739789: Unauthorized`.
+- Production observation: 546 paid orders were stuck in payment-notification `retry`; the 15-second scheduler repeatedly selected the same 50 oldest/pending orders, with individual attempt counts around 2840. No evidence of payment settlement or credit impact, but it caused continuous failed Telegram API traffic.
+- Fix: new independent flag `TELEGRAM_PAYMENT_NOTIFICATIONS_ENABLED`, default off. Only payment notifications require the flag; generation notification code and scheduling remain unchanged.
+- Changed files: `server.parts/part-01.js`, `server.parts/part-13.js`, `test/payment-telegram-notifications.test.js`, this state entry.
+- Pre-deploy tests passed: notification tests 5/5 with 1 skip; Node syntax checks; `git diff --check`.
+- Deployment status: pending targeted commit, platform release snapshot/push, and Old-only deployment. Live untouched; multi-process still disabled; backup remains deferred.

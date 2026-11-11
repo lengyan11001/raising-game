@@ -96,7 +96,7 @@ function paypalCaptureFromOrder(payload = {}) {
 }
 
 function telegramPaymentNotifierEnabled() {
-  return Boolean(TELEGRAM_PAYMENT_BOT_TOKEN && TELEGRAM_PAYMENT_NOTIFY_CHAT_IDS.length);
+  return Boolean(TELEGRAM_PAYMENT_NOTIFICATIONS_ENABLED && TELEGRAM_PAYMENT_BOT_TOKEN && TELEGRAM_PAYMENT_NOTIFY_CHAT_IDS.length);
 }
 
 function telegramPaymentSiteLabel(order = {}) {

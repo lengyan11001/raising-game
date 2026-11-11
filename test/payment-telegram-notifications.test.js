@@ -15,6 +15,9 @@ test("successful PayPal and USDT settlements queue Telegram notifications", () =
 });
 
 test("payment notifications are sent per chat id and retried without duplicating successful recipients", () => {
+  assert.match(server, /TELEGRAM_PAYMENT_NOTIFICATIONS_ENABLED/);
+  assert.match(server, /TELEGRAM_PAYMENT_NOTIFICATIONS_ENABLED \|\| "0"/);
+  assert.match(server, /function telegramPaymentNotifierEnabled\(\)[\s\S]*?TELEGRAM_PAYMENT_NOTIFICATIONS_ENABLED/);
   assert.match(server, /TELEGRAM_PAYMENT_NOTIFY_CHAT_IDS/);
   assert.match(server, /telegramPaymentNotificationSentChatIds/);
   assert.match(server, /pendingChatIds = TELEGRAM_PAYMENT_NOTIFY_CHAT_IDS\.filter/);
