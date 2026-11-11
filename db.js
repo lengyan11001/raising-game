@@ -23,6 +23,7 @@ function clone(value) {
 }
 
 let pool;
+let schedulerPool;
 let schemaPromise;
 
 function getPool() {
@@ -45,6 +46,26 @@ function getPool() {
     });
   }
   return pool;
+}
+
+function getSchedulerPool() {
+  if (!dbEnabled()) return null;
+  if (!schedulerPool) {
+    schedulerPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.PGSSLMODE === "disable" ? false : undefined,
+      max: Number(process.env.PGSCHEDULER_POOL_MAX || 12),
+      idleTimeoutMillis: Number(process.env.PGSCHEDULER_POOL_IDLE_TIMEOUT_MS || 30000),
+      connectionTimeoutMillis: Number(process.env.PGSCHEDULER_POOL_CONNECTION_TIMEOUT_MS || 5000),
+      maxUses: Number(process.env.PGSCHEDULER_POOL_MAX_USES || 7500),
+    });
+    schedulerPool.on("error", (error) => {
+      const code = String(error?.code || "").trim();
+      const message = String(error?.message || error || "scheduler database connection error").trim();
+      console.error(`[db-scheduler-pool-error]${code ? ` ${code}` : ""} ${message}`);
+    });
+  }
+  return schedulerPool;
 }
 
 async function query(text, params = []) {
@@ -8906,6 +8927,7 @@ module.exports = {
   normalizeTenantId,
   dbEnabled,
   ensureSchema,
+  getSchedulerPool,
   query,
   readAppDbFromTables,
   replaceAppDbTables,

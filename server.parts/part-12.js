@@ -1317,13 +1317,20 @@ async function runWalletScanTick(reason = "timer") {
   }
 }
 
+function runWalletScanSchedulerTick(reason) {
+  return runWithSchedulerLease("wallet-chain-scan", () => runWalletScanTick(reason), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.error("[wallet-scan-lease-failed]", error.message || error),
+  });
+}
+
 function startWalletScanScheduler() {
   if (!WALLET_CHAIN_SCAN_ENABLED || walletScanTimer) return;
   walletScanTimer = setInterval(() => {
-    runWalletScanTick("timer");
+    runWalletScanSchedulerTick("timer");
   }, WALLET_CHAIN_SCAN_INTERVAL_MS);
   walletScanTimer.unref?.();
-  setTimeout(() => runWalletScanTick("startup"), 10000).unref?.();
+  setTimeout(() => runWalletScanSchedulerTick("startup"), 10000).unref?.();
 }
 
 function paypalEnabled() {

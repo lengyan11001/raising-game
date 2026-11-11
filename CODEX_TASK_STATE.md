@@ -1,3 +1,12 @@
+## 2026-11-11 P4 scheduler single-owner implementation (ready for release audit)
+
+- Added `lib-scheduler-lease.js`: each scheduled tick uses a dedicated PostgreSQL session advisory lock keyed by scheduler name. A second process skips the tick; locks release on unlock, job error, process exit, or connection loss.
+- Added a separate `getSchedulerPool()` in `db.js` (`PGSCHEDULER_POOL_MAX`, default 12) so lock sessions do not consume the HTTP business pool. No JSON or file fallback was added.
+- Covered all 18 scheduler tick names across wallet, stale/active generation, Telegram, video recovery/upload cleanup, local media/R2 expiry, media ingest, generation media recovery/persistence/poster backfill, result asset backfill, Chat Live settlement/cleanup/billing, and auth-risk cleanup. Existing in-process running guards and intervals remain unchanged.
+- Verification: `test/scheduler-lease.test.js` 5/5 and `test/scheduler-single-owner.test.js` 2/7 combined; full test suite has 37 known pre-existing failures, while the focused set `site-http + resilience-ops + db-import-scope + scheduler tests` passes 29/29.
+- Real PostgreSQL check on Old host passed: first session acquired `true`, second concurrent session acquired `false`, and after first client disconnected the second acquired `true`; no business row was written. Production stayed healthy: PID `2555235`, `NRestarts=0`, watchdog timer active, health/livez/readyz 200, load `0.46 0.81 0.74`, 5.4 GiB available RAM, disk 61%.
+- Release remains unbuilt/unpublished. Next gate: commit only scheduler scope, build a platform snapshot from `old-site`, inspect the release boundary, then deploy Old through `scripts/deploy_local.sh --site old` only after explicit go-ahead. Live remains untouched; backup remains deferred.
+
 ## 2026-11-11 Main-site CSP compatibility cleanup (deployed Old only)
 
 - Scope remains `123vips.com` and `123vip.fans` only. User will perform physical-device acceptance personally.
@@ -9,6 +18,15 @@
 - Post-deploy both domains: CSP headers contain exact GTM script and Google style allowlists; `/api/health`, `/api/readyz`, `/`, and `/platform.html` all return 200; config still supplies `G-HG9K80QVKT`.
 - Post-deploy cross-engine acceptance: Chromium 158, Firefox 159 and WebKit 27.2 passed 21/21 over both domains and target viewports with zero console/page errors. Evidence `/tmp/main-site-compat/prod-engines-results.json`, `/tmp/main-site-compat/csp-postdeploy.log`.
 - Live release remained untouched and Live was not deployed. Physical-device and logged-in write-flow acceptance remains with the user.
+
+## 2026-11-11 P2 watchdog active-mode cutover (Old, no app restart)
+
+- Pre-cutover gate on deployed release `49a95ca`: timer active, dry-run drop-in present, state `0`, app `active/running`, MainPID `2555235`, `NRestarts=0`, and internal/external health, liveness, readiness all 200.
+- Ran the deployed `ops/install-service-watchdog.sh --mode active --confirm-active` through the pinned Old SSH connection. The installer only changed `raising-game-watchdog.{service,timer}`; it did not restart `raising-game-demo`.
+- Post-cutover: timer `enabled/active` with a 10-second schedule, dry-run drop-in absent, environment no longer contains `WATCHDOG_DRY_RUN`, watchdog `Result=success`, failures state `0`, no restart/pending markers, and app still `active/running` at MainPID `2555235` with `NRestarts=0`.
+- Short active observation (through approximately 10:46 CST) had no watchdog failures or restart dispatches; all three probes stayed 200. Capacity remained comfortable: 4 vCPU, load `1.19/1.09/0.75`, 5.6 GiB available RAM, 19 GiB free disk, PostgreSQL active.
+- Rollback remains non-destructive to the app: `cd /opt/raising-game-demo && ./ops/install-service-watchdog.sh --mode rollback`.
+- Next: continue P3 capacity observation and design/test P4 scheduler single-owner semantics before any same-host multi-process deployment. Backup work remains deferred until the user explicitly returns to it.
 
 ## 2026-11-11 P2 watchdog restart safeguards and isolated restart drill
 

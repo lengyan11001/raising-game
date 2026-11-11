@@ -427,9 +427,18 @@ async function scanGenerationRecordResultAssetMediaBackfill(reason = "timer") {
   }
 }
 
+function runGenerationRecordResultAssetMediaBackfillSchedulerTick(reason) {
+  return runWithSchedulerLease("generation-result-asset-backfill", () => (
+    scanGenerationRecordResultAssetMediaBackfill(reason)
+  ), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[generation-result-asset-backfill-lease-failed]", error.message || error),
+  });
+}
+
 function startGenerationRecordResultAssetMediaBackfillScheduler() {
-  setTimeout(() => scanGenerationRecordResultAssetMediaBackfill("startup"), 15000).unref?.();
-  setInterval(() => scanGenerationRecordResultAssetMediaBackfill("timer"), 5 * 60 * 1000).unref?.();
+  setTimeout(() => runGenerationRecordResultAssetMediaBackfillSchedulerTick("startup"), 15000).unref?.();
+  setInterval(() => runGenerationRecordResultAssetMediaBackfillSchedulerTick("timer"), 5 * 60 * 1000).unref?.();
 }
 
 async function handleListGenerationRecords(req, res, url) {

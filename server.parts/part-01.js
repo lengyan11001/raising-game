@@ -1,4 +1,5 @@
 const http = require("node:http");
+const { runWithSchedulerLease } = require("./lib-scheduler-lease");
 const crypto = require("node:crypto");
 const { AsyncLocalStorage } = require("node:async_hooks");
 const fsSync = require("node:fs");
@@ -138,6 +139,7 @@ const {
   DEFAULT_TENANT_ID,
   normalizeTenantId,
   dbEnabled,
+  getSchedulerPool,
   readGeoVisitorStatsFromDb,
   recordGeoVisitorVisitInDb,
   readGeoCrawlerStatsFromDb,

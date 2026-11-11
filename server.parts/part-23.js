@@ -664,14 +664,40 @@ async function scanGenerationRecordMissingMediaPersistence(reason = "timer") {
   }
 }
 
+function runGenerationRecordMediaRecoverySchedulerTick(reason) {
+  return runWithSchedulerLease("generation-record-media-recovery", () => (
+    scanGenerationRecordMediaRecovery(reason)
+  ), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[generation-media-recovery-lease-failed]", error.message || error),
+  });
+}
+
+function runGenerationRecordMediaPersistenceSchedulerTick(reason) {
+  return runWithSchedulerLease("generation-record-media-persistence", () => (
+    scanGenerationRecordMissingMediaPersistence(reason)
+  ), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[generation-media-persistence-lease-failed]", error.message || error),
+  });
+}
+
+function runGenerationPosterBackfillSchedulerTick(reason) {
+  return runWithSchedulerLease("generation-poster-backfill", () => (
+    scanGenerationRecordMissingPosterBackfill(reason)
+  ), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[generation-poster-backfill-loop-failed]", error.message || error),
+  });
+}
+
 function startGenerationRecordMediaRecoveryScheduler() {
-  setTimeout(() => scanGenerationRecordMediaRecovery("startup"), 20000).unref?.();
-  setInterval(() => scanGenerationRecordMediaRecovery("timer"), 5 * 60 * 1000).unref?.();
-  setTimeout(() => scanGenerationRecordMissingMediaPersistence("startup"), 35000).unref?.();
-  setInterval(() => scanGenerationRecordMissingMediaPersistence("timer"), GENERATION_MEDIA_PERSISTENCE_INTERVAL_MS).unref?.();
+  setTimeout(() => runGenerationRecordMediaRecoverySchedulerTick("startup"), 20000).unref?.();
+  setInterval(() => runGenerationRecordMediaRecoverySchedulerTick("timer"), 5 * 60 * 1000).unref?.();
+  setTimeout(() => runGenerationRecordMediaPersistenceSchedulerTick("startup"), 35000).unref?.();
+  setInterval(() => runGenerationRecordMediaPersistenceSchedulerTick("timer"), GENERATION_MEDIA_PERSISTENCE_INTERVAL_MS).unref?.();
   setTimeout(function runPosterBackfill() {
-    scanGenerationRecordMissingPosterBackfill("startup")
-      .catch((error) => console.warn("[generation-poster-backfill-loop-failed]", error.message || error))
+    runGenerationPosterBackfillSchedulerTick("startup")
       .finally(() => setTimeout(runPosterBackfill, GENERATION_POSTER_BACKFILL_INTERVAL_MS).unref?.());
   }, 25000).unref?.();
 }
@@ -752,10 +778,15 @@ async function recoverVideoToolJobs(reason = "startup") {
   });
 }
 
+function runVideoToolJobRecoverySchedulerTick() {
+  return runWithSchedulerLease("video-tool-job-recovery", () => recoverVideoToolJobs("startup"), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.error("[video-tool-recovery-failed]", error.message || error),
+  });
+}
+
 function startVideoToolJobRecoveryScheduler() {
-  setTimeout(() => recoverVideoToolJobs("startup").catch((error) => {
-    console.error("[video-tool-recovery-failed]", error.message || error);
-  }), 10000).unref?.();
+  setTimeout(() => runVideoToolJobRecoverySchedulerTick(), 10000).unref?.();
 }
 
 async function cleanupStaleVideoToolUploads() {
@@ -778,9 +809,16 @@ async function cleanupStaleVideoToolUploads() {
   }
 }
 
+function runVideoToolUploadCleanupSchedulerTick() {
+  return runWithSchedulerLease("video-tool-upload-cleanup", () => cleanupStaleVideoToolUploads(), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[video-tool-upload-cleanup-lease-failed]", error.message || error),
+  });
+}
+
 function startVideoToolUploadCleanupScheduler() {
-  setTimeout(() => cleanupStaleVideoToolUploads(), 30000).unref?.();
-  setInterval(() => cleanupStaleVideoToolUploads(), 6 * 60 * 60 * 1000).unref?.();
+  setTimeout(() => runVideoToolUploadCleanupSchedulerTick(), 30000).unref?.();
+  setInterval(() => runVideoToolUploadCleanupSchedulerTick(), 6 * 60 * 60 * 1000).unref?.();
 }
 
 async function cleanupStaleLocalMedia() {
@@ -832,56 +870,103 @@ async function expireGeneratedR2Objects() {
   }
 }
 
+function runLocalMediaCleanupSchedulerTick() {
+  return runWithSchedulerLease("local-media-cleanup", () => cleanupStaleLocalMedia(), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[local-media-cleanup-lease-failed]", error.message || error),
+  });
+}
+
+function runGeneratedR2ExpirySchedulerTick() {
+  return runWithSchedulerLease("generated-r2-expiry", () => expireGeneratedR2Objects(), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[generated-r2-expiry-lease-failed]", error.message || error),
+  });
+}
+
 function startLocalMediaCleanupScheduler() {
-  setTimeout(() => cleanupStaleLocalMedia(), 30000).unref?.();
-  setInterval(() => cleanupStaleLocalMedia(), 5 * 60 * 1000).unref?.();
-  setTimeout(() => expireGeneratedR2Objects().catch(() => {}), 60000).unref?.();
-  setInterval(() => expireGeneratedR2Objects().catch(() => {}), 60 * 60 * 1000).unref?.();
+  setTimeout(() => runLocalMediaCleanupSchedulerTick(), 30000).unref?.();
+  setInterval(() => runLocalMediaCleanupSchedulerTick(), 5 * 60 * 1000).unref?.();
+  setTimeout(() => runGeneratedR2ExpirySchedulerTick(), 60000).unref?.();
+  setInterval(() => runGeneratedR2ExpirySchedulerTick(), 60 * 60 * 1000).unref?.();
+}
+
+function runMediaIngestWorkerSchedulerTick() {
+  return runWithSchedulerLease("media-ingest-worker", () => scanMediaIngestQueue(), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[media-ingest-worker-lease-failed]", error.message || error),
+  });
 }
 
 function startMediaIngestWorkerScheduler() {
-  setTimeout(() => scanMediaIngestQueue(), 5000).unref?.();
-  setInterval(() => scanMediaIngestQueue(), 15 * 1000).unref?.();
+  setTimeout(() => runMediaIngestWorkerSchedulerTick(), 5000).unref?.();
+  setInterval(() => runMediaIngestWorkerSchedulerTick(), 15 * 1000).unref?.();
+}
+
+function runChatLiveStaleSettlementSchedulerTick() {
+  return runWithSchedulerLease("chat-live-stale-settlement", () => settleStaleChatLiveSessions(), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[chat-live-stale-settlement-lease-failed]", error.message || error),
+  });
+}
+
+function runChatLiveOrphanCleanupSchedulerTick() {
+  return runWithSchedulerLease("chat-live-orphan-cleanup", () => cleanupOrphanedChatLiveFreeAllocations(), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[chat-live-orphan-cleanup-lease-failed]", error.message || error),
+  });
+}
+
+function runAuthRiskCleanupSchedulerTick() {
+  return runWithSchedulerLease("auth-risk-cleanup", async () => {
+    if (!dbEnabled()) return;
+    const cleaned = await cleanupAuthRiskDataInDb();
+    if (cleaned.rateLimits || cleaned.riskEvents || cleaned.loginFailures) console.log("[auth-risk-cleanup]", cleaned);
+  }, {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.error(`[auth-risk-cleanup] ${error.message}`),
+  });
+}
+
+async function monitorUnsettledChatLiveSessions() {
+  const sessions = await listUnsettledChatLiveSessionsInDb({ limit: 30, minAgeSeconds: 5 }).catch(() => []);
+  const active = [];
+  for (const session of sessions) {
+    if (!session || session.settled === true || !session.liveId) continue;
+    const terminalStatus = normalizeChatLiveUpstreamStatus(session.upstreamStatus || session.status);
+    const storedSeconds = Number(session.upstreamBilledSeconds);
+    const hasTerminalEvidence = chatLiveUpstreamIsTerminal(terminalStatus)
+      && Number.isFinite(storedSeconds)
+      && storedSeconds >= 0;
+    if (hasTerminalEvidence) {
+      settleChatLiveSessionById(session.id).catch(() => null);
+    } else {
+      active.push(session);
+    }
+  }
+  await Promise.all(active.map((item) => monitorChatLiveSession(item).catch(() => null)));
+}
+
+function runChatLiveBillingSchedulerTick() {
+  return runWithSchedulerLease("chat-live-billing-monitor", () => monitorUnsettledChatLiveSessions(), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[chat-live-billing-monitor-lease-failed]", error.message || error),
+  });
 }
 
 function startChatLiveSettlementScheduler() {
-  setTimeout(() => settleStaleChatLiveSessions().catch(() => {}), 45000).unref?.();
-  setInterval(() => settleStaleChatLiveSessions().catch(() => {}), 60000).unref?.();
-  setTimeout(() => cleanupOrphanedChatLiveFreeAllocations().catch(() => {}), 90000).unref?.();
-  setInterval(() => cleanupOrphanedChatLiveFreeAllocations().catch(() => {}), 10 * 60 * 1000).unref?.();
-  setInterval(async () => {
-    if (!dbEnabled()) return;
-    try {
-      const cleaned = await cleanupAuthRiskDataInDb();
-      if (cleaned.rateLimits || cleaned.riskEvents || cleaned.loginFailures) console.log("[auth-risk-cleanup]", cleaned);
-    } catch (error) {
-      console.error(`[auth-risk-cleanup] ${error.message}`);
-    }
-  }, 6 * 60 * 60 * 1000).unref?.();
+  setTimeout(() => runChatLiveStaleSettlementSchedulerTick(), 45000).unref?.();
+  setInterval(() => runChatLiveStaleSettlementSchedulerTick(), 60000).unref?.();
+  setTimeout(() => runChatLiveOrphanCleanupSchedulerTick(), 90000).unref?.();
+  setInterval(() => runChatLiveOrphanCleanupSchedulerTick(), 10 * 60 * 1000).unref?.();
+  setInterval(() => runAuthRiskCleanupSchedulerTick(), 6 * 60 * 60 * 1000).unref?.();
   /*
    * Query only genuinely unsettled rows. Scanning the latest 100 sessions
    * every five seconds repeatedly polled already-ended calls and starved the
    * Node event loop. Stored terminal evidence is settled without another Vidu
    * request, while active calls continue to renew prepaid coverage each tick.
    */
-  setInterval(async () => {
-    const sessions = await listUnsettledChatLiveSessionsInDb({ limit: 30, minAgeSeconds: 5 }).catch(() => []);
-    const active = [];
-    for (const session of sessions) {
-      if (!session || session.settled === true || !session.liveId) continue;
-      const terminalStatus = normalizeChatLiveUpstreamStatus(session.upstreamStatus || session.status);
-      const storedSeconds = Number(session.upstreamBilledSeconds);
-      const hasTerminalEvidence = chatLiveUpstreamIsTerminal(terminalStatus)
-        && Number.isFinite(storedSeconds)
-        && storedSeconds >= 0;
-      if (hasTerminalEvidence) {
-        settleChatLiveSessionById(session.id).catch(() => null);
-      } else {
-        active.push(session);
-      }
-    }
-    await Promise.all(active.map((item) => monitorChatLiveSession(item).catch(() => null)));
-  }, CHAT_LIVE_BILLING_TICK_MS).unref?.();
+  setInterval(() => runChatLiveBillingSchedulerTick(), CHAT_LIVE_BILLING_TICK_MS).unref?.();
 }
 
 async function handleVideoToolGenerate(req, res) {

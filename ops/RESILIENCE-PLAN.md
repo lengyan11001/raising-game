@@ -108,8 +108,8 @@ single-owner.
 
 Required before this stage:
 
-1. Split HTTP serving from background workers, or add a tested PostgreSQL advisory-lock leader for
-   every scheduler.
+1. Scheduler single-owner is implemented through per-tick PostgreSQL advisory leases. Do not treat
+   this alone as permission to run multiple `server.js` processes.
 2. Verify each job is idempotent under two simultaneous processes.
 3. Add multiple Nginx upstream ports and health-based removal.
 4. Test rolling process replacement without dropping in-flight submissions.

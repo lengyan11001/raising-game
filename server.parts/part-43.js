@@ -111,9 +111,18 @@ async function scanStalePreSubmitGenerationRecords(reason = "timer") {
   }
 }
 
+function runStaleSubmitGenerationRecordSchedulerTick(reason) {
+  return runWithSchedulerLease("stale-submit-generation-records", () => (
+    scanStalePreSubmitGenerationRecords(reason)
+  ), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[stale-submit-generation-record-lease-failed]", error.message || error),
+  });
+}
+
 function startStaleSubmitGenerationRecordScheduler() {
-  setTimeout(() => scanStalePreSubmitGenerationRecords("startup"), 5000).unref?.();
-  setInterval(() => scanStalePreSubmitGenerationRecords("timer"), GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS).unref?.();
+  setTimeout(() => runStaleSubmitGenerationRecordSchedulerTick("startup"), 5000).unref?.();
+  setInterval(() => runStaleSubmitGenerationRecordSchedulerTick("timer"), GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS).unref?.();
 }
 
 let activeGenerationScanRunning = false;
@@ -587,21 +596,48 @@ async function scanActiveGenerationRecords(reason = "timer") {
   }
 }
 
+function runActiveGenerationRecordSchedulerTick(reason) {
+  return runWithSchedulerLease("active-generation-records", () => (
+    scanActiveGenerationRecords(reason)
+  ), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[active-generation-record-lease-failed]", error.message || error),
+  });
+}
+
 function startActiveGenerationRecordScheduler() {
-  setTimeout(() => scanActiveGenerationRecords("startup"), 15000).unref?.();
-  setInterval(() => scanActiveGenerationRecords("timer"), GENERATION_ACTIVE_SCAN_INTERVAL_MS).unref?.();
+  setTimeout(() => runActiveGenerationRecordSchedulerTick("startup"), 15000).unref?.();
+  setInterval(() => runActiveGenerationRecordSchedulerTick("timer"), GENERATION_ACTIVE_SCAN_INTERVAL_MS).unref?.();
+}
+
+function runTelegramBotSchedulerTick() {
+  return runWithSchedulerLease("telegram-generation-notifications", () => (
+    scanTelegramGenerationNotifications()
+  ), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[telegram-generation-notification-lease-failed]", error.message || error),
+  });
 }
 
 function startTelegramBotScheduler() {
   if (!TELEGRAM_BOT_TOKEN || !telegramBotClient.enabled) return;
-  setTimeout(() => scanTelegramGenerationNotifications(), 10000).unref?.();
-  setInterval(() => scanTelegramGenerationNotifications(), TELEGRAM_BOT_NOTIFIER_INTERVAL_MS).unref?.();
+  setTimeout(() => runTelegramBotSchedulerTick(), 10000).unref?.();
+  setInterval(() => runTelegramBotSchedulerTick(), TELEGRAM_BOT_NOTIFIER_INTERVAL_MS).unref?.();
+}
+
+function runTelegramPaymentNotificationSchedulerTick() {
+  return runWithSchedulerLease("telegram-payment-notifications", () => (
+    scanTelegramPaymentNotifications()
+  ), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[telegram-payment-notification-lease-failed]", error.message || error),
+  });
 }
 
 function startTelegramPaymentNotificationScheduler() {
   if (!telegramPaymentNotifierEnabled()) return;
-  setTimeout(() => scanTelegramPaymentNotifications(), 5000).unref?.();
-  setInterval(() => scanTelegramPaymentNotifications(), TELEGRAM_PAYMENT_NOTIFIER_INTERVAL_MS).unref?.();
+  setTimeout(() => runTelegramPaymentNotificationSchedulerTick(), 5000).unref?.();
+  setInterval(() => runTelegramPaymentNotificationSchedulerTick(), TELEGRAM_PAYMENT_NOTIFIER_INTERVAL_MS).unref?.();
 }
 
 const REQUIRED_CATALOGS = Object.freeze([
