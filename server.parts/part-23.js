@@ -503,6 +503,11 @@ async function runVideoToolUndressVideoLegacy(job) {
 const activeVideoToolJobIds = new Set();
 const videoToolJobQueue = [];
 const VIDEO_TOOL_JOB_CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.VIDEO_TOOL_JOB_CONCURRENCY || 2) || 2));
+const VIDEO_TOOL_JOB_RECOVERY_INTERVAL_MS = Math.max(
+  15000,
+  Number(process.env.VIDEO_TOOL_JOB_RECOVERY_INTERVAL_MS || 60 * 1000) || 60 * 1000,
+);
+const VIDEO_TOOL_JOB_LEASE_NAMESPACE = "raising-game-video-tool-job:";
 let videoToolJobActive = 0;
 let videoToolJobDrainScheduled = false;
 
@@ -715,10 +720,30 @@ function drainVideoToolJobQueue() {
   while (videoToolJobActive < VIDEO_TOOL_JOB_CONCURRENCY && videoToolJobQueue.length) {
     const job = videoToolJobQueue.shift();
     videoToolJobActive += 1;
-    Promise.resolve().then(() => videoToolRunnerForJob(job)(job)).catch(async (error) => {
-      console.error("[video-tool-job-failed]", job.taskId, error.message || error);
+    let leaseSkipped = false;
+    /*
+     * Hold a per-task PostgreSQL session lease for the whole execution. The
+     * in-process set only prevents one process from duplicating its own work;
+     * this lease is what prevents two application processes from running the
+     * same recovered task at the same time. If this process dies, PostgreSQL
+     * releases the lease and the periodic recovery scan re-enqueues the still
+     * pending record for the standby process.
+     */
+    runWithSchedulerLease(`task:${job.taskId}`, () => videoToolRunnerForJob(job)(job), {
+      connect: () => getSchedulerPool().connect(),
+      namespace: VIDEO_TOOL_JOB_LEASE_NAMESPACE,
+      onSkipped: () => {
+        leaseSkipped = true;
+        console.log("[video-tool-job-lease-held]", { taskId: job.taskId, action: job.action });
+      },
+      onError: (error) => {
+        console.error("[video-tool-job-failed]", job.taskId, error.message || error);
+        return error;
+      },
+    }).then(async (result) => {
+      if (leaseSkipped || !result.error) return;
       try {
-        await refundVideoToolTask(job.taskId, error.message || "Video generation failed.", error.payload || null);
+        await refundVideoToolTask(job.taskId, result.error.message || "Video generation failed.", result.error.payload || null);
       } catch (refundError) {
         console.error("[video-tool-refund-failed]", job.taskId, refundError.message || refundError);
       }
@@ -787,6 +812,7 @@ function runVideoToolJobRecoverySchedulerTick() {
 
 function startVideoToolJobRecoveryScheduler() {
   setTimeout(() => runVideoToolJobRecoverySchedulerTick(), 10000).unref?.();
+  setInterval(() => runVideoToolJobRecoverySchedulerTick(), VIDEO_TOOL_JOB_RECOVERY_INTERVAL_MS).unref?.();
 }
 
 async function cleanupStaleVideoToolUploads() {

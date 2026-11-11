@@ -50,3 +50,13 @@ test("scheduler lease tests cover ownership takeover and release", () => {
   assert.match(leaseTest, /release allows the next tick or standby instance/);
   assert.match(leaseTest, /job failure and connection release still release the lease/);
 });
+
+test("video tool recovery keeps scanning and each job holds a per-task lease", () => {
+  const part23 = read("server.parts/part-23.js");
+  assert.match(part23, /const VIDEO_TOOL_JOB_RECOVERY_INTERVAL_MS = Math\.max\(/);
+  assert.match(part23, /setInterval\(\(\) => runVideoToolJobRecoverySchedulerTick\(\), VIDEO_TOOL_JOB_RECOVERY_INTERVAL_MS\)/);
+  assert.match(part23, /const VIDEO_TOOL_JOB_LEASE_NAMESPACE = "raising-game-video-tool-job:"/);
+  assert.match(part23, /runWithSchedulerLease\(`task:\$\{job\.taskId\}`/);
+  assert.match(part23, /namespace: VIDEO_TOOL_JOB_LEASE_NAMESPACE/);
+  assert.match(part23, /onSkipped: \(\) => \{[\s\S]*?console\.log\("\[video-tool-job-lease-held\]"/);
+});
