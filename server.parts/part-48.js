@@ -407,7 +407,7 @@ async function submitArkTaskAfterAssetsReady(payload, { attempts = 12, waitMs = 
   throw new Error("Ark generation submit failed while waiting for assets.");
 }
 
-async function runSeedance25GenerationJob(job = {}, submission = null) {
+async function runSeedance25GenerationJob(job = {}, submission = null, options = {}) {
   const {
     taskId,
     upstreamInput: initialUpstreamInput = {},
@@ -427,6 +427,7 @@ async function runSeedance25GenerationJob(job = {}, submission = null) {
   const recordSource = direct ? "advanced-seedance-nsfw" : "advanced-seedance25";
   const upstreamSource = direct ? "byteplus-direct-seedance25" : (USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25");
   let upstreamPayload = null;
+  let providerDispatchStarted = false;
   try {
     await updateGenerationRecord(taskId, { status: "submitting", awaitingUpstreamTask: true, error: "" }, direct ? "seedance-nsfw-submitting" : "seedance25-submitting");
     if (preprocessReference && (direct || !USE_GATEWAY_UPSTREAM)) {
@@ -490,6 +491,7 @@ async function runSeedance25GenerationJob(job = {}, submission = null) {
         firstFrameAsset,
         lastFrameAsset,
       }, SEEDANCE25_DIRECT_ENDPOINT);
+      providerDispatchStarted = true;
       submitted = await submitArkTaskAfterAssetsReady(upstreamPayload);
     } else {
       upstreamPayload = buildSeedance25TaskPayload(upstreamInput, SEEDANCE25_MODEL_ID);
@@ -510,6 +512,7 @@ async function runSeedance25GenerationJob(job = {}, submission = null) {
       lastFrameUrl: upstreamInput.lastFrameUrl,
       preservePublicMediaUrls: true,
       } : null;
+      providerDispatchStarted = true;
       submitted = USE_GATEWAY_UPSTREAM
         ? await gatewaySubmitAdvancedTask(gatewayBody)
         : await seedance25Request("/api/v3/tasks/create", upstreamPayload);
@@ -543,31 +546,26 @@ async function runSeedance25GenerationJob(job = {}, submission = null) {
       pricingEstimate: pricing,
       finalCredits: cost,
       originalFinalCredits: pricing?.originalCredits ?? cost,
-      billingStatus: cost > 0 ? (direct ? "pre_deducted" : "settled") : "free",
-      billingSettledAt: cost > 0 && !direct ? new Date().toISOString() : "",
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: cost > 0 ? new Date().toISOString() : "",
     }, direct ? "seedance-nsfw-submit" : "seedance25-submit");
   } catch (error) {
     console.warn(direct ? "[seedance-nsfw-generation-job-error]" : "[seedance25-generation-job-error]", taskId, error.message || error);
-    await updateGenerationRecord(taskId, {
-      status: "failed",
-      awaitingUpstreamTask: false,
+    error.providerDispatchStarted = Boolean(providerDispatchStarted);
+    if (error.payload && !error.upstreamPayload) error.upstreamPayload = error.payload;
+    options.onError?.(error);
+    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
+    await settleAdvancedGenerationJobFailure({
+      taskId,
+      userId: String(currentRecord?.userId || ""),
       provider: direct ? SEEDANCE25_DIRECT_PROVIDER : "seedance25",
-      upstreamSource,
-      source: recordSource,
-      model: providerLabel,
-      mediaMode: upstreamInput?.mode || "",
-      mediaAssets,
-      upstreamPayload,
-      createResponse: error.payload || null,
-      error: error.message || `${providerLabel} generation failed.`,
-      code: error.code || "",
-      failedAt: new Date().toISOString(),
-      pricingEstimate: pricing,
-      preDeductedCredits: cost,
-      originalPreDeductedCredits: pricing?.originalCredits ?? cost,
-      finalCredits: cost,
-      originalFinalCredits: pricing?.originalCredits ?? cost,
-    }, direct ? "seedance-nsfw-failed" : "seedance25-failed");
+      requestParams: { mode: upstreamInput?.mode || "" },
+      pricing,
+      cost,
+    }, error, direct ? "seedance-nsfw-failed" : "seedance25-failed", {
+      refundBeforeDispatch: !providerDispatchStarted,
+    });
+    if (options.throwOnError) throw error;
   } finally {
     finishGenerationSubmission(submission);
   }
@@ -754,29 +752,20 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       preserveUserPrompt: true,
     };
 
-    if (cost > 0) {
-      await chargeUserWithSubtoken(auth, {
-        cost,
-        type: "advanced_generation",
-        taskId,
-        meta: {
-          taskId,
-          provider,
-          model: providerLabel,
-          mode,
-          duration: pricing.duration,
-          resolution,
-          creditsPerSecond: pricing.creditsPerSecond,
-          baseCredits: pricing.baseCredits,
-          originalCost: pricing.originalCredits,
-          pricingMultiplier: pricing.userPricingMultiplier,
-          preprocessReference,
-        },
-      });
-      if (!dbEnabled()) await writeDb(auth.db);
-    }
-
-    const record = await upsertGenerationRecord({
+    const chargeMeta = attachAuthContextToMeta({
+      taskId,
+      provider,
+      model: providerLabel,
+      mode,
+      duration: pricing.duration,
+      resolution,
+      creditsPerSecond: pricing.creditsPerSecond,
+      baseCredits: pricing.baseCredits,
+      originalCost: pricing.originalCredits,
+      pricingMultiplier: pricing.userPricingMultiplier,
+      preprocessReference,
+    }, auth);
+    const recordInput = {
       taskId,
       status: "preparing",
       awaitingUpstreamTask: true,
@@ -807,16 +796,17 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       finalCredits: cost,
       originalFinalCredits: pricing.originalCredits,
       userPricingMultiplier: pricing.userPricingMultiplier,
-      billingStatus: cost > 0 ? (direct ? "pre_deducted" : "settled") : "free",
-      billingSettledAt: cost > 0 && !direct ? new Date().toISOString() : "",
+      billingStatus: cost > 0 ? (advancedGenerationSubmitQueueEnabled() || direct ? "pre_deducted" : "settled") : "free",
+      billingSettledAt: cost > 0 && !advancedGenerationSubmitQueueEnabled() && !direct ? new Date().toISOString() : "",
       pricingEstimate: pricing,
       apiTokenId: auth.tokenRecord?.id || "",
       apiTokenName: auth.tokenRecord?.name || "",
       apiTokenType: auth.tokenRecord?.quotaType || "",
       apiTokenSource: auth.tokenSource || "",
-    });
-    startSeedance25GenerationJob({
+    };
+    const queueJobInput = {
       taskId,
+      advancedProviderPath: "seedance25",
       upstreamInput,
       mediaAssets,
       pricing,
@@ -826,7 +816,58 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       imageAssetIds: imageAssets.map((asset) => asset.id),
       firstFrameAssetId: firstFrameAsset?.id || "",
       lastFrameAssetId: lastFrameAsset?.id || "",
-    });
+    };
+    let record;
+    if (advancedGenerationSubmitQueueEnabled()) {
+      if (!dbEnabled()) {
+        throw Object.assign(new Error("Advanced generation submit queue requires PostgreSQL."), {
+          statusCode: 503,
+          code: "GENERATION_SUBMIT_QUEUE_UNAVAILABLE",
+        });
+      }
+      const prepared = await prepareGenerationSubmitInDb({
+        record: recordInput,
+        charge: cost > 0 ? {
+          id: stableLedgerId("advanced_generation", chargeMeta),
+          userId: auth.user.id,
+          delta: -creditsAmount(cost),
+          type: "advanced_generation",
+          meta: chargeMeta,
+        } : null,
+        subtoken: auth.tokenRecord?.id && cost > 0 ? {
+          tokenId: auth.tokenRecord.id,
+          eventKey: subtokenUsageEventKey("charge", taskId, "advanced_generation"),
+          parentUserId: auth.tokenRecord.parentUserId || auth.user.id,
+          deltaAmount: auth.tokenRecord.quotaType === "amount" ? creditsAmount(cost) : 0,
+          deltaCount: auth.tokenRecord.quotaType === "count" ? 1 : 0,
+          meta: { ...chargeMeta, type: "advanced_generation", amount: creditsAmount(cost) },
+        } : null,
+        job: {
+          userId: auth.user.id,
+          kind: ADVANCED_GENERATION_SUBMIT_KIND,
+          payload: queueJobInput,
+        },
+      });
+      record = prepared.record || recordInput;
+      if (prepared.jobInserted === false && String(prepared.job?.status || "") === "failed") {
+        throw Object.assign(new Error("Generation submission queue rejected this task."), {
+          statusCode: 409,
+          code: "GENERATION_SUBMIT_JOB_FAILED",
+        });
+      }
+    } else {
+      if (cost > 0) {
+        await chargeUserWithSubtoken(auth, {
+          cost,
+          type: "advanced_generation",
+          taskId,
+          meta: chargeMeta,
+        });
+        if (!dbEnabled()) await writeDb(auth.db);
+      }
+      record = await upsertGenerationRecord(recordInput);
+      startSeedance25GenerationJob(queueJobInput);
+    }
     const latestDb = await readDb();
     const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
     return sendJson(res, 200, {

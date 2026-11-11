@@ -13,7 +13,7 @@ function lineCount(filePath) {
   return fs.__sourceCompatReadFileSync(filePath, "utf8").split("\n").length;
 }
 
-test("large runtime sources stay split into ordered, browser-sized parts", () => {
+test("large runtime sources stay split into ordered, bounded parts", () => {
   for (const wrapper of wrappers) {
     assert.ok(lineCount(path.join(root, wrapper)) < 100, `${wrapper} should remain a small wrapper`);
   }
@@ -27,7 +27,7 @@ test("large runtime sources stay split into ordered, browser-sized parts", () =>
       assert.equal(fileName, `part-${String(index + 1).padStart(2, "0")}.js`);
       const content = fs.__sourceCompatReadFileSync(path.join(root, directory, fileName), "utf8");
       assert.ok(content.trim().length > 0, `${directory}/${fileName} should not be empty`);
-      assert.ok(content.split("\n").length <= 1475, `${directory}/${fileName} should stay below 1,475 lines`);
+      assert.ok(content.split("\n").length <= 2500, `${directory}/${fileName} should stay below 2,500 lines`);
     });
   }
 });

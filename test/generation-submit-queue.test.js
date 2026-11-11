@@ -145,8 +145,8 @@ test("worker reconciliation only finalizes records and never re-dispatches provi
     part25.indexOf("async function processPlatformGenerationSubmitQueue"),
   );
   const queue = part25.slice(
+    part25.indexOf("async function processGenerationSubmitQueue"),
     part25.indexOf("async function processPlatformGenerationSubmitQueue"),
-    part25.indexOf("let platformGenerationSubmitWorkerRunning"),
   );
   assert.match(reconcile, /getGenerationSubmitJobsNeedingReconciliationInDb/);
   assert.match(reconcile, /markPlatformGenerationSubmitFailed/);

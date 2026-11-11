@@ -489,8 +489,8 @@ function advancedRuntimeForProvider(provider, requestParams = {}) {
   };
 }
 
-function startAdvancedGenerationJob(job) {
-  return startTrackedGenerationJob("advanced-generation", job.taskId, (submission) => runAdvancedGenerationJob(job, submission), async (error) => {
+function startAdvancedGenerationJob(job, runner = runAdvancedGenerationJob) {
+  return startTrackedGenerationJob("advanced-generation", job.taskId, (submission) => runner(job, submission), async (error) => {
     console.error("[advanced-generation-job-failed]", job.taskId, error.stack || error.message || error);
     // The unexpected-error path does not know whether the provider accepted
     // work. Never refund from this outer handler; keep the pre-deduction for
@@ -580,7 +580,104 @@ async function settleAdvancedGenerationJobFailure(job = {}, error = null, reason
   }
 }
 
-async function runAdvancedGenerationJob(job = {}, submission = null) {
+function advancedGenerationSubmitQueueEnabled() {
+  return ADVANCED_GENERATION_SUBMIT_QUEUE_ENABLED;
+}
+
+async function processQueuedAdvancedGenerationJob(job = {}) {
+  const taskId = String(job.taskId || "").trim();
+  const jobInput = job.payload && typeof job.payload === "object" ? job.payload : {};
+  if (!taskId || jobInput.taskId !== taskId) {
+    return { processed: false, reason: "invalid-advanced-job-payload" };
+  }
+  const submission = beginGenerationSubmission("advanced-generation-queue", taskId);
+  try {
+    const marked = await markGenerationSubmitJobSubmittingInDb({
+      taskId,
+      claimToken: job.claimToken,
+    });
+    if (!marked.marked) return { processed: false, reason: "claim-lost-before-submit" };
+    let runnerError = null;
+    try {
+      if (jobInput.advancedProviderPath === "seedance25") {
+        await runSeedance25GenerationJob(jobInput, submission, {
+          queueManaged: true,
+          throwOnError: true,
+          onError: (error) => { runnerError = error; },
+        });
+      } else {
+        await runAdvancedGenerationJob(jobInput, submission, {
+          queueManaged: true,
+          throwOnError: true,
+          onError: (error) => { runnerError = error; },
+        });
+      }
+    } catch (error) {
+      runnerError = runnerError || error;
+    }
+    const record = await getGenerationRecord(taskId).catch(() => null);
+    const upstreamTaskId = String(record?.upstreamTaskId || "").trim();
+    if (upstreamTaskId) {
+      const completed = await completeGenerationSubmitJobInDb({
+        taskId,
+        claimToken: job.claimToken,
+        upstreamTaskId,
+      });
+      if (!completed.completed) {
+        console.error("[advanced-generation-queue-completion-conflict]", taskId);
+        return { processed: false, reason: "completion-conflict", record, error: runnerError };
+      }
+      return { processed: true, record };
+    }
+    if (runnerError?.providerDispatchStarted === false) {
+      const failed = await failGenerationSubmitJobInDb({
+        taskId,
+        claimToken: job.claimToken,
+        error: runnerError.message || record?.error || "Advanced generation failed before provider dispatch.",
+      });
+      return { processed: false, reason: failed.failed ? "terminal-pre-submit" : "failure-transition-conflict", record, error: runnerError };
+    }
+    const markedUnknown = await markGenerationSubmitJobUnknownInDb({
+      taskId,
+      claimToken: job.claimToken,
+      error: runnerError?.message || record?.error || "Provider submission outcome is unknown; manual reconciliation is required.",
+    });
+    return { processed: false, reason: markedUnknown.markedUnknown ? "unknown-after-dispatch" : "unknown-transition-conflict", record, error: runnerError };
+  } finally {
+    finishGenerationSubmission(submission);
+  }
+}
+
+async function reconcileFailedAdvancedGenerationSubmitJobs(limit = 20) {
+  const pending = await getGenerationSubmitJobsNeedingReconciliationInDb({ limit });
+  const results = [];
+  for (const item of pending) {
+    const job = item.job || {};
+    if (job.kind !== ADVANCED_GENERATION_SUBMIT_KIND) continue;
+    const payload = job.payload && typeof job.payload === "object" ? job.payload : {};
+    try {
+      const record = await settleAdvancedGenerationJobFailure({
+        ...payload,
+        taskId: job.taskId,
+        userId: job.userId || payload.userId || item.record?.userId || "",
+        provider: payload.provider || item.record?.provider || "",
+      }, new Error(job.lastError || "Advanced generation submission failed before provider dispatch."), "advanced-pre-submit-failed", {
+        refundBeforeDispatch: true,
+      });
+      if (!record) {
+        results.push({ taskId: job.taskId, reconciled: false, error: new Error("Advanced generation reconciliation returned no record.") });
+        continue;
+      }
+      results.push({ taskId: job.taskId, reconciled: true, record });
+    } catch (error) {
+      console.error("[advanced-generation-reconcile-failed]", job.taskId, error.message || error);
+      results.push({ taskId: job.taskId, reconciled: false, error });
+    }
+  }
+  return results;
+}
+
+async function runAdvancedGenerationJob(job = {}, submission = null, options = {}) {
   const {
     taskId,
     userId,
@@ -1371,9 +1468,12 @@ async function runAdvancedGenerationJob(job = {}, submission = null) {
       caseTitle,
     };
     if (error.upstreamPayload || payload) error.upstreamPayload = error.upstreamPayload || payload;
+    error.providerDispatchStarted = Boolean(providerDispatchStarted);
+    options.onError?.(error);
     await settleAdvancedGenerationJobFailure(failureJob, error, "advanced-failed", {
       refundBeforeDispatch: !providerDispatchStarted,
     });
+    if (options.throwOnError) throw error;
   } finally {
     finishGenerationSubmission(submission);
   }

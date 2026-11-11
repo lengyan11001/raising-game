@@ -1008,60 +1008,51 @@ async function handleAdvancedGenerate(req, res) {
     : [];
   const initialMediaMode = isAliyunVideoProvider(provider) ? wan27MediaMode : seedanceMode;
 
-  if (cost > 0) {
-    await chargeUserWithSubtoken(auth, {
-      cost,
-      type: "advanced_generation",
-      taskId,
-      meta: {
-        taskId,
-        provider: runtime.providerName,
-        model: runtime.model,
-        caseId: selectedCase?.id || "",
-        caseTitle: selectedCase?.title || "",
-        duration: requestParams.duration,
-        creditsPerSecond: pricing.creditsPerSecond,
-        outputCredits: pricing.outputCredits,
-        inputVideoSeconds: pricing.videoInputSeconds || 0,
-        videoInputCreditsPerSecond: pricing.videoInputCreditsPerSecond || 0,
-        videoInputCredits: pricing.videoInputCredits || 0,
-        videoCredits: pricing.videoCredits || 0,
-        preprocessCredits: pricing.preprocessCredits || 0,
-        preprocessImageCount: preprocessPricing.imageCount || 0,
-        preprocessResolution: preprocessPricing.resolution || "",
-        preprocessTier: preprocessPricing.tier || "",
-        preprocessAssetIds: preprocessPricing.items.map((item) => item.assetId),
-        baseCredits: pricing.baseCredits,
-        originalCost: pricing.originalCredits,
-        pricingMultiplier: pricing.userPricingMultiplier,
-        markup: pricing.markup,
-        resolution: pricing.resolution || requestParams.resolution,
-        ratio: pricing.ratio || requestParams.ratio,
-        outputTokens: pricing.outputTokens || null,
-        yuanPerMillionTokens: pricing.yuanPerMillionTokens || null,
-        pricingSource: pricing.source || "duration_rate",
-        preprocessReference: requestParams.preprocessReference,
-        userAssetId: userAsset?.id || "",
-        seedanceFirstFrameAssetId: seedanceFirstFrameAsset?.id || "",
-        seedanceEndFrameAssetId: seedanceEndFrameAsset?.id || "",
-        referenceVideoAssetId: seedanceVideoAsset?.id || "",
-        referenceVideoAssetIds,
-        referenceVideoAssetUris,
-        referenceAudioAssetUris,
-        referenceAudioAssetIds,
-        referenceImageAssetUris,
-        extraUserAssetIds,
-        mediaMode: provider === "seedance" ? initialMediaMode : wan27MediaMode,
-        mediaAssets: isAliyunVideoProvider(provider)
-          ? wan27Media.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", mediaKind: item.mediaKind || "" }))
-          : initialSeedanceMediaAssets.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", audioUrl: item.audioUrl || "", videoUrl: item.videoUrl || "" })),
-        referenceAssetUri: "",
-      },
-    });
-    if (!dbEnabled()) await writeDb(auth.db);
-  }
-
-  const record = await upsertGenerationRecord({
+  const chargeMeta = attachAuthContextToMeta({
+    taskId,
+    provider: runtime.providerName,
+    model: runtime.model,
+    caseId: selectedCase?.id || "",
+    caseTitle: selectedCase?.title || "",
+    duration: requestParams.duration,
+    creditsPerSecond: pricing.creditsPerSecond,
+    outputCredits: pricing.outputCredits,
+    inputVideoSeconds: pricing.videoInputSeconds || 0,
+    videoInputCreditsPerSecond: pricing.videoInputCreditsPerSecond || 0,
+    videoInputCredits: pricing.videoInputCredits || 0,
+    videoCredits: pricing.videoCredits || 0,
+    preprocessCredits: pricing.preprocessCredits || 0,
+    preprocessImageCount: preprocessPricing.imageCount || 0,
+    preprocessResolution: preprocessPricing.resolution || "",
+    preprocessTier: preprocessPricing.tier || "",
+    preprocessAssetIds: preprocessPricing.items.map((item) => item.assetId),
+    baseCredits: pricing.baseCredits,
+    originalCost: pricing.originalCredits,
+    pricingMultiplier: pricing.userPricingMultiplier,
+    markup: pricing.markup,
+    resolution: pricing.resolution || requestParams.resolution,
+    ratio: pricing.ratio || requestParams.ratio,
+    outputTokens: pricing.outputTokens || null,
+    yuanPerMillionTokens: pricing.yuanPerMillionTokens || null,
+    pricingSource: pricing.source || "duration_rate",
+    preprocessReference: requestParams.preprocessReference,
+    userAssetId: userAsset?.id || "",
+    seedanceFirstFrameAssetId: seedanceFirstFrameAsset?.id || "",
+    seedanceEndFrameAssetId: seedanceEndFrameAsset?.id || "",
+    referenceVideoAssetId: seedanceVideoAsset?.id || "",
+    referenceVideoAssetIds,
+    referenceVideoAssetUris,
+    referenceAudioAssetUris,
+    referenceAudioAssetIds,
+    referenceImageAssetUris,
+    extraUserAssetIds,
+    mediaMode: provider === "seedance" ? initialMediaMode : wan27MediaMode,
+    mediaAssets: isAliyunVideoProvider(provider)
+      ? wan27Media.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", mediaKind: item.mediaKind || "" }))
+      : initialSeedanceMediaAssets.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", audioUrl: item.audioUrl || "", videoUrl: item.videoUrl || "" })),
+    referenceAssetUri: "",
+  }, auth);
+  const recordInput = {
     taskId,
     status: "preparing",
     model: runtime.model,
@@ -1102,8 +1093,8 @@ async function handleAdvancedGenerate(req, res) {
     finalCredits: pricing.adaptiveDuration ? null : cost,
     originalFinalCredits: pricing.adaptiveDuration ? null : pricing.originalCredits,
     userPricingMultiplier: pricing.userPricingMultiplier,
-    billingStatus: cost > 0 ? (pricing.adaptiveDuration ? "pre_deducted" : "settled") : "free",
-    billingSettledAt: cost > 0 && !pricing.adaptiveDuration ? new Date().toISOString() : "",
+    billingStatus: cost > 0 ? (advancedGenerationSubmitQueueEnabled() || pricing.adaptiveDuration ? "pre_deducted" : "settled") : "free",
+    billingSettledAt: cost > 0 && !advancedGenerationSubmitQueueEnabled() && !pricing.adaptiveDuration ? new Date().toISOString() : "",
     pricingEstimate: pricing,
     createResponse: null,
     awaitingUpstreamTask: true,
@@ -1111,8 +1102,8 @@ async function handleAdvancedGenerate(req, res) {
     apiTokenName: auth.tokenRecord?.name || "",
     apiTokenType: auth.tokenRecord?.quotaType || "",
     apiTokenSource: auth.tokenSource || "",
-  });
-  startAdvancedGenerationJob({
+  };
+  const queueJobInput = {
     taskId,
     userId: auth.user.id,
     userAssetId: userAsset?.id || "",
@@ -1137,7 +1128,58 @@ async function handleAdvancedGenerate(req, res) {
     caseId: selectedCase?.id || "",
     caseTitle: selectedCase?.title || "",
     config,
-  });
+  };
+  let record;
+  if (advancedGenerationSubmitQueueEnabled()) {
+    if (!dbEnabled()) {
+      throw Object.assign(new Error("Advanced generation submit queue requires PostgreSQL."), {
+        statusCode: 503,
+        code: "GENERATION_SUBMIT_QUEUE_UNAVAILABLE",
+      });
+    }
+    const prepared = await prepareGenerationSubmitInDb({
+      record: recordInput,
+      charge: cost > 0 ? {
+        id: stableLedgerId("advanced_generation", chargeMeta),
+        userId: auth.user.id,
+        delta: -creditsAmount(cost),
+        type: "advanced_generation",
+        meta: chargeMeta,
+      } : null,
+      subtoken: auth.tokenRecord?.id && cost > 0 ? {
+        tokenId: auth.tokenRecord.id,
+        eventKey: subtokenUsageEventKey("charge", taskId, "advanced_generation"),
+        parentUserId: auth.tokenRecord.parentUserId || auth.user.id,
+        deltaAmount: auth.tokenRecord.quotaType === "amount" ? creditsAmount(cost) : 0,
+        deltaCount: auth.tokenRecord.quotaType === "count" ? 1 : 0,
+        meta: { ...chargeMeta, type: "advanced_generation", amount: creditsAmount(cost) },
+      } : null,
+      job: {
+        userId: auth.user.id,
+        kind: ADVANCED_GENERATION_SUBMIT_KIND,
+        payload: queueJobInput,
+      },
+    });
+    record = prepared.record || recordInput;
+    if (prepared.jobInserted === false && String(prepared.job?.status || "") === "failed") {
+      throw Object.assign(new Error("Generation submission queue rejected this task."), {
+        statusCode: 409,
+        code: "GENERATION_SUBMIT_JOB_FAILED",
+      });
+    }
+  } else {
+    if (cost > 0) {
+      await chargeUserWithSubtoken(auth, {
+        cost,
+        type: "advanced_generation",
+        taskId,
+        meta: chargeMeta,
+      });
+      if (!dbEnabled()) await writeDb(auth.db);
+    }
+    record = await upsertGenerationRecord(recordInput);
+    startAdvancedGenerationJob(queueJobInput);
+  }
   const latestUser = await getUserByIdInDb(auth.user.id) || auth.user;
   return sendJson(res, 200, {
     ok: true,

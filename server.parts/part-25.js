@@ -701,7 +701,7 @@ async function reconcileFailedPlatformGenerationSubmitJobs(limit = 20) {
   return results;
 }
 
-async function processPlatformGenerationSubmitQueue(limit = 1) {
+async function processGenerationSubmitQueue(limit = 1) {
   const claimed = await claimNextGenerationSubmitJobsInDb({
     limit,
     leaseMs: 10 * 60 * 1000,
@@ -712,15 +712,24 @@ async function processPlatformGenerationSubmitQueue(limit = 1) {
    * generation record and refund before claiming more work; the query remains
    * repeatable until billing reaches a terminal state.
    */
-  const reconciliation = await reconcileFailedPlatformGenerationSubmitJobs(limit);
+  const reconciliation = [
+    ...await reconcileFailedPlatformGenerationSubmitJobs(limit),
+    ...await reconcileFailedAdvancedGenerationSubmitJobs(limit),
+  ];
   const results = [];
   for (const item of claimed.jobs) {
-    results.push(await processQueuedPlatformGenerationJob({
-      ...item,
-      claimToken: claimed.claimToken,
-    }));
+    const claimedJob = { ...item, claimToken: claimed.claimToken };
+    if (claimedJob.kind === ADVANCED_GENERATION_SUBMIT_KIND) {
+      results.push(await processQueuedAdvancedGenerationJob(claimedJob));
+    } else {
+      results.push(await processQueuedPlatformGenerationJob(claimedJob));
+    }
   }
   return { ...claimed, reconciliation, results };
+}
+
+async function processPlatformGenerationSubmitQueue(limit = 1) {
+  return processGenerationSubmitQueue(limit);
 }
 
 let platformGenerationSubmitWorkerRunning = false;
@@ -732,7 +741,7 @@ async function runPlatformGenerationSubmitWorkerTick(reason = "timer") {
   platformGenerationSubmitWorkerRunning = true;
   try {
     return await runWithSchedulerLease("generation-submit-worker", async () => {
-      const result = await processPlatformGenerationSubmitQueue(GENERATION_SUBMIT_WORKER_BATCH_SIZE);
+      const result = await processGenerationSubmitQueue(GENERATION_SUBMIT_WORKER_BATCH_SIZE);
       const processed = result.results.filter((item) => item?.processed).length;
       const reconciled = result.reconciliation.filter((item) => item.reconciled).length;
       if (processed || result.jobs.length || result.unknownJobs?.length || result.reconciliation.length) {

@@ -40,6 +40,28 @@ test("tracked generation job is reserved before its scheduled runner starts", as
   assert.equal(result.drained, true);
 });
 
+test("advanced generation wrapper passes the complete job and submission to its runner", async () => {
+  const job = {
+    taskId: "advanced-contract-test",
+    userId: "user-contract-test",
+    provider: "seedance",
+    requestParams: { mediaMode: "reference_video", ratio: "9:16", duration: 5 },
+  };
+  let receivedJob = null;
+  let receivedSubmission = null;
+  const submission = server.startAdvancedGenerationJob(job, async (runnerJob, runnerSubmission) => {
+    receivedJob = runnerJob;
+    receivedSubmission = runnerSubmission;
+  });
+
+  assert.ok(submission, "the advanced generation wrapper must reserve a submission synchronously");
+  const result = await server.waitForGenerationSubmissionsToDrain(1000);
+  assert.equal(result.drained, true);
+  assert.equal(receivedJob, job, "the runner must receive the original job object");
+  assert.equal(receivedJob.requestParams.mediaMode, "reference_video");
+  assert.equal(receivedSubmission, submission, "the runner must receive the tracked submission token");
+});
+
 test("tracked generation job releases its reservation when the runner throws", async () => {
   let handledError;
   server.startTrackedGenerationJob(
@@ -130,7 +152,7 @@ test("generation entrypoints reserve synchronously before returning", () => {
     const body = source.slice(startIndex, endIndex + 2);
     assert.match(body, /return startTrackedGenerationJob\(/, `${functionName} must reserve synchronously`);
     assert.doesNotMatch(body, /setImmediate\(/, `${functionName} must not defer reservation`);
-    assert.match(body, /\(submission\) => run[A-Za-z0-9]+GenerationJob\(job, submission\)/, `${functionName} must pass both job and submission to its runner`);
+    assert.match(body, /\(submission\) => (?:runner|run[A-Za-z0-9]+GenerationJob)\(job, submission\)/, `${functionName} must pass both job and submission to its runner`);
   }
 });
 

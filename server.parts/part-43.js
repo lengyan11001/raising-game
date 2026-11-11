@@ -924,6 +924,7 @@ module.exports = {
   readResponseBodyWithLimit,
   objectStorageKeyFromPublicUrl,
   handleAdvancedVegaGenerate,
+  startAdvancedGenerationJob,
   beginGenerationSubmission,
   finishGenerationSubmission,
   startTrackedGenerationJob,

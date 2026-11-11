@@ -435,8 +435,9 @@ async function main() {
   await generationSubmitCrashWindowDrill();
   await generationSubmitAtomicDrill();
   await generationSubmitRefundDrill();
+  await generationSubmitAmbiguousDrill();
   await generationSubmitReconciliationDrill();
-  process.stdout.write("POSTGRES_FAULT_INJECTION_OK webhook_claims=5 scheduler_takeover=1 request_idempotency=1 http_idempotency=1 generation_submit_queue=1 generation_submit_crash_window=1 generation_submit_atomic=1 generation_submit_refund=1 generation_submit_reconciliation=1\n");
+  process.stdout.write("POSTGRES_FAULT_INJECTION_OK webhook_claims=5 scheduler_takeover=1 request_idempotency=1 http_idempotency=1 generation_submit_queue=1 generation_submit_crash_window=1 generation_submit_atomic=1 generation_submit_refund=1 generation_submit_ambiguous=1 generation_submit_reconciliation=1\n");
 }
 
 async function generationSubmitCrashWindowDrill() {
@@ -577,6 +578,47 @@ async function generationSubmitRefundDrill() {
       "refunded record must leave the reconciliation scan");
   } finally {
     await cleanupDrillTask({ taskId, userId, chargeId, refundId, tokenId, usageKey: chargeUsageKey });
+  }
+}
+
+async function generationSubmitAmbiguousDrill() {
+  const taskId = "drill-submit-ambiguous-1";
+  const userId = "drill-submit-ambiguous-user";
+  const chargeId = "drill-submit-ambiguous-charge";
+  try {
+    await prepareDrillSubmission({ taskId, userId, chargeId });
+    const owner = await claimDrillSubmission(taskId, "ambiguous-owner");
+    const marked = await db.markGenerationSubmitJobSubmittingInDb({ taskId, claimToken: owner.claimToken });
+    assert.equal(marked.marked, true, "ambiguous owner must enter submitting before dispatch");
+    const unknown = await db.markGenerationSubmitJobUnknownInDb({
+      taskId,
+      claimToken: owner.claimToken,
+      error: "network reset after provider request",
+    });
+    assert.equal(unknown.markedUnknown, true, "ambiguous dispatch must become unknown");
+
+    const reclaim = await db.claimNextGenerationSubmitJobsInDb({ limit: 20, claimToken: "ambiguous-reclaim" });
+    assert.equal(reclaim.jobs.some((item) => item.taskId === taskId), false,
+      "unknown work must never be reclaimed and resent");
+    assert.equal(reclaim.unknownJobs.some((item) => item.taskId === taskId), false,
+      "an explicit unknown transition must not be reported as a new lease expiry");
+    const lateCompletion = await db.completeGenerationSubmitJobInDb({
+      taskId,
+      claimToken: owner.claimToken,
+      upstreamTaskId: "late-upstream-id",
+    });
+    assert.equal(lateCompletion.completed, false, "an old lease token must not complete an unknown job");
+
+    await withClient(async (client) => {
+      const job = await client.query("SELECT status, submit_state, claim_token FROM app_generation_submit_jobs WHERE task_id = $1", [taskId]);
+      assert.deepEqual(job.rows[0], { status: "unknown", submit_state: "unknown", claim_token: "" });
+      const ledger = await client.query("SELECT count(*)::int AS count FROM app_credit_ledger WHERE meta->>'taskId' = $1 AND type = 'generation_refund'", [taskId]);
+      const user = await client.query("SELECT credits FROM app_users WHERE id = $1", [userId]);
+      assert.equal(ledger.rows[0].count, 0, "ambiguous dispatch must not auto-refund");
+      assert.equal(Number(user.rows[0].credits), 7, "ambiguous dispatch must keep the pre-deduction pending reconciliation");
+    });
+  } finally {
+    await cleanupDrillTask({ taskId, userId, chargeId });
   }
 }
 
