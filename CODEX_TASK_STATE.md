@@ -7,7 +7,8 @@
 - Verification: focused signing suite 105/105; generation/media/result suite 243/243; operational/auth/result suite 163/163; syntax and `git diff --check` pass.
 - Publish scope: `.env.example`, `oss-storage.js`, `server.parts/part-02.js`, `server.parts/part-11.js`, `server.parts/part-17.js`, `server.parts/part-19.js`, `server.parts/part-37.js`, only the two intended exports in `server.parts/part-43.js`, `test/oss-storage.test.js`, `test/media-authorization.test.js`, `test/wan30-upstream-signed-media.test.js`, `test/advanced-preparation-recovery.test.js`, this state entry.
 - Excluded unrelated WIP: DB migration/bootstrap changes, Test-mode files, workflow assets/maps, `node_modules`.
-- Deployment: pending Old-only through `scripts/deploy_local.sh --site old`; Live untouched.
+- Deployment: Old-only deployed through `scripts/deploy_local.sh --site old`. Source `163cae79`, platform release `aed43629` (previous `123689e1`). Production env now explicitly sets `OSS_UPSTREAM_SIGNED_URL_TTL_SECONDS=43200` while ordinary `OSS_SIGNED_URL_TTL_SECONDS` remains 600; env backup is `/etc/raising-game-demo.env.bak.upstream-signing-20261111131613`. Live untouched.
+- Production acceptance: release `aed4362`, service active/running, MainPID `2609285`, `NRestarts=0`; internal health/readyz 200 and public homepage/health 200; no startup errors in journal. On-server syntax checks pass for all changed server/OSS files; result download/generated-media verification still uses the 600-second normal signer.
 
 ## 2026-11-11 Step A + C deployed; startup historical import gated
 
