@@ -749,6 +749,7 @@ const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECR
 const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
 const TELEGRAM_BOT_WEBHOOK_PATH = String(process.env.TELEGRAM_BOT_WEBHOOK_PATH || "/api/telegram/webhook").trim().replace(/\/$/, "") || "/api/telegram/webhook";
 const TELEGRAM_BOT_NOTIFIER_INTERVAL_MS = Math.max(10000, Number(process.env.TELEGRAM_BOT_NOTIFIER_INTERVAL_MS || 15000) || 15000);
+const TELEGRAM_GENERATION_NOTIFICATIONS_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.TELEGRAM_GENERATION_NOTIFICATIONS_ENABLED || "1").trim());
 const TELEGRAM_PAYMENT_BOT_TOKEN = String(process.env.TELEGRAM_PAYMENT_BOT_TOKEN || TELEGRAM_BOT_TOKEN || TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
 const TELEGRAM_PAYMENT_NOTIFICATIONS_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.TELEGRAM_PAYMENT_NOTIFICATIONS_ENABLED || "0").trim());
 const TELEGRAM_PAYMENT_NOTIFY_CHAT_IDS = [...new Set(String(process.env.TELEGRAM_PAYMENT_NOTIFY_CHAT_IDS || "")

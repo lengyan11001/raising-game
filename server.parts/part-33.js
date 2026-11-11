@@ -482,8 +482,12 @@ async function telegramUserContextForGeneration(record = {}) {
   return user;
 }
 
+function telegramGenerationNotifierEnabled() {
+  return Boolean(TELEGRAM_GENERATION_NOTIFICATIONS_ENABLED && TELEGRAM_BOT_TOKEN && telegramBotClient.enabled);
+}
+
 async function notifyTelegramGenerationRecord(record = {}) {
-  if (!TELEGRAM_BOT_TOKEN || !telegramBotClient.enabled || !record?.taskId) return;
+  if (!telegramGenerationNotifierEnabled() || !record?.taskId) return;
   if (String(record.telegramSource || record.params?.telegramSource || "") !== "telegram-bot") return;
   const user = await telegramUserContextForGeneration(record);
   if (!user?.telegramChatId) return;
@@ -540,7 +544,7 @@ async function notifyTelegramGenerationRecord(record = {}) {
 
 let telegramGenerationScanRunning = false;
 async function scanTelegramGenerationNotifications() {
-  if (telegramGenerationScanRunning || !TELEGRAM_BOT_TOKEN || !telegramBotClient.enabled) return;
+  if (telegramGenerationScanRunning || !telegramGenerationNotifierEnabled()) return;
   telegramGenerationScanRunning = true;
   try {
     const records = (await readGenerationRecords())
