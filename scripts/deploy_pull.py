@@ -415,14 +415,10 @@ fi"""
         if not separator or not verify_url.startswith(("http://", "https://")) or not expected_code.isdigit():
             raise SystemExit(f"Invalid --verify-status value: {requirement}")
         verify_status.setdefault(verify_url, []).append(int(expected_code))
+    # Status/content assertions are complete verification requirements by
+    # themselves. In particular, a URL expected to be 404 must not also be
+    # listed as a normal successful URL by the deployment target.
     verify_urls = list(dict.fromkeys([*args.verify_url, *verify_contains, *verify_not_contains, *verify_status]))
-    unknown_verify_urls = [
-        verify_url
-        for verify_url in [*verify_contains, *verify_not_contains, *verify_status]
-        if verify_url not in args.verify_url
-    ]
-    if unknown_verify_urls:
-        raise SystemExit(f"Verification URL must also be passed to --verify-url: {unknown_verify_urls[0]}")
     verification_checks = []
     for verify_url in verify_urls:
         verify_url_q = shlex.quote(verify_url)

@@ -86,6 +86,26 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deploySite, /SHA256:FjIDikg5kkvITUdxOc2142HRn\+WP5A7Bj6Z5fReu8lI/);
 });
 
+test("old deploy verification keeps 404-only assets out of successful URL checks", () => {
+  const output = runPython(String.raw`
+import importlib.util
+from pathlib import Path
+
+root = Path(${JSON.stringify(root)})
+spec = importlib.util.spec_from_file_location("deploy_site", root / "scripts" / "deploy_site.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+target = module.TARGETS["old"]
+status_urls = {item.rsplit("=", 1)[0] for item in target["verify_status"]}
+assert target["verify_urls"] == ("https://123vips.com/",), target["verify_urls"]
+assert "https://123vips.com/live.js" in status_urls
+assert not status_urls.intersection(target["verify_urls"]), status_urls.intersection(target["verify_urls"])
+print("ok")
+`);
+  assert.match(output, /ok/);
+  assert.doesNotMatch(deployPull, /Verification URL must also be passed to --verify-url/);
+});
+
 test("deployment SSH accepts only the pinned SHA-256 host key", () => {
   const output = runPython(String.raw`
 import base64

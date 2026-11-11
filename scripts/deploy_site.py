@@ -33,17 +33,10 @@ TARGETS = {
         # Keep a stable stop deadline in the rendered release deployer. This
         # prevents a stuck drain from holding the service restart indefinitely.
         "stop_timeout_seconds": 300,
-        "verify_urls": (
-            "https://123vips.com/",
-            "https://123vips.com/live.html",
-            "https://123vips.com/live.css",
-            "https://123vips.com/live.js",
-            "https://123vips.com/qrcode.js",
-            "https://123vips.com/site-landing.html",
-            "https://123vips.com/site-landing.css",
-            "https://123vips.com/site-landing.js",
-            "https://123vips.com/downloads/vipeak-live.apk",
-        ),
+        # Only URLs expected to succeed belong here. Live-owned static paths
+        # are asserted as 404 below; keeping them here as normal 200 checks
+        # made the deploy verifier contradict itself.
+        "verify_urls": ("https://123vips.com/",),
         # A real private object must never be anonymously readable through
         # Nginx. The release deployer turns this into a post-health check.
         "verify_private_media": True,
