@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 const {
   leaseKeyFor,
@@ -50,6 +52,11 @@ test("scheduler lease names are bounded and namespaced", () => {
   assert.equal(normalizedSchedulerName(" wallet-scan "), "wallet-scan");
   assert.throws(() => normalizedSchedulerName(""), /required/);
   assert.match(leaseKeyFor("wallet-scan"), /^raising-game-scheduler:wallet-scan$/);
+  const source = fs.readFileSync(path.join(__dirname, "..", "lib-scheduler-lease.js"), "utf8");
+  assert.match(source, /pg_try_advisory_lock\(hashtextextended\(\$1, 0\)\)/);
+  assert.match(source, /pg_advisory_unlock\(hashtextextended\(\$1, 0\)\)/);
+  assert.doesNotMatch(source, /pg_(?:try_)?advisory_(?:lock|unlock)\(hashtext\(/);
+  assert.match(source, /client\.release\?\.\(!reusable\)/);
 });
 
 test("two scheduler instances cannot run one job concurrently", async () => {

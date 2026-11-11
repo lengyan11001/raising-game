@@ -37,7 +37,7 @@ async function runWithSchedulerLease(name, fn, {
     if (!client || typeof client.query !== "function") {
       throw new Error("Scheduler lease connection must provide query().");
     }
-    const result = await client.query("SELECT pg_try_advisory_lock(hashtext($1)) AS acquired", [lockKey]);
+    const result = await client.query("SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired", [lockKey]);
     acquired = result?.rows?.[0]?.acquired === true;
     if (!acquired) {
       onSkipped?.(leaseName, lockKey);
@@ -56,7 +56,7 @@ async function runWithSchedulerLease(name, fn, {
       let reusable = true;
       if (acquired) {
         try {
-          await client.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]);
+          await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
         } catch {
           /*
            * A failed unlock may leave the session lock held. Destroy this

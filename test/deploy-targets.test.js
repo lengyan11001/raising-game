@@ -249,6 +249,11 @@ test("deployment key auth is preferred and never falls back to password", () => 
   assert.match(deploySite, /key_env.*DEPLOY_SSH_KEY/);
 });
 
+test("Old deployment migrates PostgreSQL before service restart", () => {
+  assert.match(deploySite, /node ops\/run-db-migrations\.js --dry-run && node ops\/run-db-migrations\.js --apply && node ops\/run-db-migrations\.js --dry-run/);
+  assert.match(deploySite, /\. \/etc\/raising-game-demo\.env/);
+});
+
 test("release snapshot builder excludes foreign paths from both trees and ancestry", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "release-snapshot-"));
   const source = path.join(workspace, "source");

@@ -85,6 +85,41 @@ async function ensureSchema() {
   return schemaPromise;
 }
 
+async function ensureWebhookDeliveriesSchema({ client = null } = {}) {
+  const run = async (sql, params = []) => (
+    client ? client.query(sql, params) : query(sql, params)
+  );
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_webhook_deliveries (
+      provider TEXT NOT NULL,
+      delivery_id TEXT NOT NULL,
+      event_type TEXT NOT NULL DEFAULT '',
+      task_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'completed',
+      claim_token TEXT NOT NULL DEFAULT '',
+      lease_until TIMESTAMPTZ,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT NOT NULL DEFAULT '',
+      received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ,
+      PRIMARY KEY (provider, delivery_id)
+    );
+  `);
+  await run(`
+    ALTER TABLE app_webhook_deliveries
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'completed',
+      ADD COLUMN IF NOT EXISTS claim_token TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_webhook_deliveries_received_idx ON app_webhook_deliveries (received_at);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_webhook_deliveries_recovery_idx ON app_webhook_deliveries (status, lease_until) WHERE status = 'claimed';`);
+}
+
 async function ensureSchemaInner({ client = null } = {}) {
   const run = async (sql, params = []) => (
     client ? client.query(sql, params) : query(sql, params)
@@ -288,6 +323,7 @@ async function ensureSchemaInner({ client = null } = {}) {
     );
   `);
   await run(`CREATE INDEX IF NOT EXISTS app_rate_limits_updated_idx ON app_rate_limits (updated_at);`);
+  await ensureWebhookDeliveriesSchema({ client });
   await run(`
     CREATE TABLE IF NOT EXISTS app_wallet_orders (
       id TEXT PRIMARY KEY,
@@ -2379,6 +2415,126 @@ async function incrementRateLimitInDb(bucketKey = "", { windowMs = 60_000, amoun
   } finally {
     client.release();
   }
+}
+
+function normalizeWebhookDeliveryKey({ provider = "", deliveryId = "" } = {}) {
+  const cleanProvider = String(provider || "").trim().slice(0, 80);
+  const cleanDeliveryId = String(deliveryId || "").trim().slice(0, 240);
+  if (!cleanProvider || !cleanDeliveryId) throw new Error("Webhook provider and delivery ID are required.");
+  return { provider: cleanProvider, deliveryId: cleanDeliveryId };
+}
+
+async function claimWebhookDeliveryInDb({
+  provider = "",
+  deliveryId = "",
+  eventType = "",
+  taskId = "",
+  claimToken = "",
+  // A webhook may perform a provider query plus a 15-minute remote media
+  // download/upload. Keep ownership beyond the full handler timeout so a
+  // slower but healthy request cannot be taken over by another process.
+  leaseMs = 20 * 60 * 1000,
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for webhook delivery deduplication.");
+  const key = normalizeWebhookDeliveryKey({ provider, deliveryId });
+  const token = String(claimToken || crypto.randomUUID()).trim().slice(0, 120);
+  const lease = Math.max(5_000, Math.min(30 * 60 * 1000, Number(leaseMs) || 20 * 60 * 1000));
+  if (!token) throw new Error("Webhook claim token is required.");
+  await ensureSchema();
+  const { rows } = await query(
+    `INSERT INTO app_webhook_deliveries(
+       provider, delivery_id, event_type, task_id, status, claim_token,
+       lease_until, attempts, last_error, received_at, updated_at, completed_at
+     )
+     VALUES ($1, $2, $3, $4, 'claimed', $5, NOW() + ($6::int * INTERVAL '1 millisecond'), 1, '', NOW(), NOW(), NULL)
+     ON CONFLICT (provider, delivery_id) DO UPDATE SET
+       event_type = EXCLUDED.event_type,
+       task_id = EXCLUDED.task_id,
+       status = 'claimed',
+       claim_token = EXCLUDED.claim_token,
+       lease_until = EXCLUDED.lease_until,
+       attempts = app_webhook_deliveries.attempts + 1,
+       last_error = '',
+       updated_at = NOW(),
+       completed_at = NULL
+     WHERE app_webhook_deliveries.status = 'retry'
+        OR (
+          app_webhook_deliveries.status = 'claimed'
+          AND COALESCE(app_webhook_deliveries.lease_until, app_webhook_deliveries.updated_at) <= NOW()
+        )
+     RETURNING provider, delivery_id, status, claim_token, lease_until, attempts, received_at`,
+    [key.provider, key.deliveryId, String(eventType || "").slice(0, 120), String(taskId || "").slice(0, 240), token, Math.trunc(lease)],
+  );
+  if (rows.length === 1) {
+    return {
+      claimed: true,
+      claimToken: token,
+      status: "claimed",
+      leaseUntil: rows[0].lease_until,
+      attempts: Number(rows[0].attempts || 1),
+      receivedAt: rows[0].received_at,
+    };
+  }
+  const current = await query(
+    `SELECT status, lease_until, attempts, received_at
+     FROM app_webhook_deliveries
+     WHERE provider = $1 AND delivery_id = $2`,
+    [key.provider, key.deliveryId],
+  );
+  return {
+    claimed: false,
+    claimToken: "",
+    status: String(current.rows[0]?.status || "unknown"),
+    leaseUntil: current.rows[0]?.lease_until || null,
+    attempts: Number(current.rows[0]?.attempts || 0),
+    receivedAt: current.rows[0]?.received_at || null,
+  };
+}
+
+async function releaseWebhookDeliveryClaimInDb({
+  provider = "",
+  deliveryId = "",
+  claimToken = "",
+  error = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for webhook delivery recovery.");
+  const key = normalizeWebhookDeliveryKey({ provider, deliveryId });
+  const token = String(claimToken || "").trim();
+  if (!token) throw new Error("Webhook claim token is required.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_webhook_deliveries
+     SET status = 'retry',
+         claim_token = '',
+         lease_until = NULL,
+         last_error = $4,
+         updated_at = NOW()
+     WHERE provider = $1 AND delivery_id = $2 AND claim_token = $3 AND status = 'claimed'
+     RETURNING provider, delivery_id, status, attempts, updated_at`,
+    [key.provider, key.deliveryId, token, String(error || "").slice(0, 2000)],
+  );
+  return { released: rows.length === 1, status: rows[0]?.status || "", attempts: Number(rows[0]?.attempts || 0) };
+}
+
+async function completeWebhookDeliveryClaimInDb({ provider = "", deliveryId = "", claimToken = "" } = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for webhook delivery completion.");
+  const key = normalizeWebhookDeliveryKey({ provider, deliveryId });
+  const token = String(claimToken || "").trim();
+  if (!token) throw new Error("Webhook claim token is required.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_webhook_deliveries
+     SET status = 'completed',
+         claim_token = '',
+         lease_until = NULL,
+         last_error = '',
+         completed_at = NOW(),
+         updated_at = NOW()
+     WHERE provider = $1 AND delivery_id = $2 AND claim_token = $3 AND status = 'claimed'
+     RETURNING provider, delivery_id, status, completed_at`,
+    [key.provider, key.deliveryId, token],
+  );
+  return { completed: rows.length === 1, status: rows[0]?.status || "", completedAt: rows[0]?.completed_at || null };
 }
 
 async function recordRiskEventInDb({ eventType = "", scopeKey = "", tenantId = DEFAULT_TENANT_ID, subject = "", ip = "", userAgent = "", metadata = {} } = {}) {
@@ -7148,7 +7304,11 @@ async function generationRecordsTableCount() {
   return rows[0]?.count || 0;
 }
 
-const SCHEMA_MIGRATION_KEY = "2026-11-11-schema-bootstrap-v1";
+const SCHEMA_MIGRATION_KEYS = Object.freeze([
+  "2026-11-11-schema-bootstrap-v1",
+  "2026-11-11-webhook-deliveries-v1",
+]);
+const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
 const REQUIRED_SCHEMA_TABLES = Object.freeze([
   "app_kv",
   "app_catalog_entries",
@@ -7161,10 +7321,11 @@ const REQUIRED_SCHEMA_TABLES = Object.freeze([
   "app_user_assets",
   "app_user_characters",
   "app_generation_records",
+  "app_webhook_deliveries",
 ]);
 
 async function schemaMigrationStatus() {
-  if (!dbEnabled()) return { available: false, database: false, schemaVersion: "", requiredTables: REQUIRED_SCHEMA_TABLES, missingTables: REQUIRED_SCHEMA_TABLES, migrationApplied: false };
+  if (!dbEnabled()) return { available: false, database: false, schemaVersion: "", requiredTables: REQUIRED_SCHEMA_TABLES, requiredMigrations: SCHEMA_MIGRATION_KEYS, missingTables: REQUIRED_SCHEMA_TABLES, missingMigrations: SCHEMA_MIGRATION_KEYS, migrationApplied: false };
   const { rows: tableRows } = await query(`
     SELECT table_name
     FROM information_schema.tables
@@ -7175,17 +7336,26 @@ async function schemaMigrationStatus() {
   const present = new Set(tableRows.map((row) => String(row.table_name || "")));
   const missingTables = REQUIRED_SCHEMA_TABLES.filter((table) => !present.has(table));
   const ledgerPresent = present.has("app_catalog_migration_state");
-  let migrationApplied = false;
+  let completedMigrations = [];
   if (ledgerPresent) {
-    const { rows } = await query(`SELECT 1 FROM app_catalog_migration_state WHERE migration_key = $1 LIMIT 1`, [SCHEMA_MIGRATION_KEY]);
-    migrationApplied = rows.length > 0;
+    const { rows } = await query(
+      `SELECT migration_key FROM app_catalog_migration_state WHERE migration_key = ANY($1::text[])`,
+      [SCHEMA_MIGRATION_KEYS],
+    );
+    const completed = new Set(rows.map((row) => String(row.migration_key || "")));
+    completedMigrations = SCHEMA_MIGRATION_KEYS.filter((key) => completed.has(key));
   }
+  const completed = new Set(completedMigrations);
+  const missingMigrations = SCHEMA_MIGRATION_KEYS.filter((key) => !completed.has(key));
+  const migrationApplied = missingMigrations.length === 0;
   return {
     available: true,
     database: true,
-    schemaVersion: migrationApplied ? SCHEMA_MIGRATION_KEY : "",
+    schemaVersion: migrationApplied ? SCHEMA_MIGRATION_KEY : (completedMigrations.at(-1) || ""),
     requiredTables: REQUIRED_SCHEMA_TABLES,
+    requiredMigrations: SCHEMA_MIGRATION_KEYS,
     missingTables,
+    missingMigrations,
     migrationApplied,
     ready: missingTables.length === 0 && migrationApplied,
   };
@@ -7194,7 +7364,7 @@ async function schemaMigrationStatus() {
 async function assertSchemaReady() {
   const status = await schemaMigrationStatus();
   if (!status.ready) {
-    const error = new Error(`PostgreSQL schema is not migrated: missing tables=${status.missingTables.join(",") || "none"}; migration_ledger=${status.migrationApplied ? "present" : "missing"}. Run ops/run-db-migrations.js --apply before restart.`);
+    const error = new Error(`PostgreSQL schema is not migrated: missing tables=${status.missingTables.join(",") || "none"}; missing migrations=${status.missingMigrations?.join(",") || "unknown"}. Run ops/run-db-migrations.js --apply before restart.`);
     error.code = "DATABASE_SCHEMA_NOT_READY";
     error.schema = status;
     throw error;
@@ -9444,6 +9614,7 @@ module.exports = {
   dbEnabled,
   ensureSchema,
   ensureSchemaInner,
+  ensureWebhookDeliveriesSchema,
   schemaMigrationStatus,
   assertSchemaReady,
   getPool,
@@ -9684,6 +9855,9 @@ module.exports = {
   syncFailedMediaIngestRecordStatusesInDb,
   incrementRateLimitInDb,
   recordRiskEventInDb,
+  claimWebhookDeliveryInDb,
+  releaseWebhookDeliveryClaimInDb,
+  completeWebhookDeliveryClaimInDb,
   getLoginFailureStateInDb,
   recordLoginFailureInDb,
   clearLoginFailuresInDb,

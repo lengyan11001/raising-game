@@ -80,6 +80,7 @@ TARGETS = {
         ),
         "pre_restart_commands": (
             "/usr/bin/python3 /opt/raising-game-demo/scripts/ensure_media_signing_secret.py --env-file /etc/raising-game-demo.env",
+            "set -a; . /etc/raising-game-demo.env; set +a; cd /opt/raising-game-demo; node ops/run-db-migrations.js --dry-run && node ops/run-db-migrations.js --apply && node ops/run-db-migrations.js --dry-run",
             "install -d -m 0755 /etc/systemd/system/raising-game-demo.service.d && printf '[Service]\nTimeoutStopSec=300\n' > /etc/systemd/system/raising-game-demo.service.d/91-stop-timeout.conf && systemctl daemon-reload",
         ),
         # Nginx must keep serving public/admin media directly while every

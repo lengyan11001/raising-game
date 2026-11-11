@@ -326,8 +326,6 @@ async function handleStartAirwallexCheckoutSession(req, res, orderId) {
   }
 }
 
-const mulerouterWebhookDeliveries = new Set();
-
 function verifyMulerouterWebhookSignature(rawBody, deliveryId, timestamp, signatureHeader) {
   const secret = String(process.env.MULEROUTER_WEBHOOK_SECRET || "").trim();
   if (!secret || !rawBody || !deliveryId || !timestamp || !signatureHeader) return false;
@@ -385,47 +383,93 @@ async function handleMulerouterWebhook(req, res) {
   if (!verifyMulerouterWebhookSignature(rawBody, deliveryId, timestamp, signature)) {
     return sendJson(res, 401, { ok: false, code: "MULEROUTER_WEBHOOK_SIGNATURE_INVALID" });
   }
-  if (mulerouterWebhookDeliveries.has(deliveryId)) return sendJson(res, 200, { ok: true, duplicate: true });
-  mulerouterWebhookDeliveries.add(deliveryId);
-  if (mulerouterWebhookDeliveries.size > 5000) {
-    const first = mulerouterWebhookDeliveries.values().next().value;
-    mulerouterWebhookDeliveries.delete(first);
+  /* Delivery ownership is durable: two application processes cannot both
+     process one signed provider callback. Insert the claim before parsing or
+     mutating a generation record; PostgreSQL is the authoritative boundary. */
+  const deliveryClaim = await claimWebhookDeliveryInDb({
+    provider: "mulerouter",
+    deliveryId,
+    eventType: "pending",
+  });
+  if (!deliveryClaim.claimed) {
+    return sendJson(res, 200, {
+      ok: true,
+      duplicate: true,
+      deliveryStatus: deliveryClaim.status,
+    });
   }
+
   let event = {};
-  try { event = JSON.parse(rawBody); } catch { return sendJson(res, 400, { ok: false, message: "Invalid MuleRouter webhook body." }); }
-  const type = String(event.type || "");
-  if (type === "balance.low") {
-    console.warn("[mulerouter-webhook-balance-low]", String(event.id || ""));
-    return sendJson(res, 200, { ok: true, accepted: type });
+  let taskId = "";
+  try {
+    try {
+      event = JSON.parse(rawBody);
+    } catch {
+      await releaseWebhookDeliveryClaimInDb({
+        provider: "mulerouter",
+        deliveryId,
+        claimToken: deliveryClaim.claimToken,
+        error: "invalid-json",
+      });
+      return sendJson(res, 400, { ok: false, message: "Invalid MuleRouter webhook body." });
+    }
+    const type = String(event.type || "");
+    if (type === "balance.low") {
+      console.warn("[mulerouter-webhook-balance-low]", String(event.id || ""));
+      await completeWebhookDeliveryClaimInDb({ provider: "mulerouter", deliveryId, claimToken: deliveryClaim.claimToken });
+      return sendJson(res, 200, { ok: true, accepted: type });
+    }
+    if (type !== "task.succeeded" && type !== "task.failed") {
+      await completeWebhookDeliveryClaimInDb({ provider: "mulerouter", deliveryId, claimToken: deliveryClaim.claimToken });
+      return sendJson(res, 200, { ok: true, ignored: type || "unknown" });
+    }
+    const data = event.data && typeof event.data === "object" ? event.data : {};
+    const payload = data.payload && typeof data.payload === "object" ? data.payload : {};
+    taskId = String((payload.task_info && payload.task_info.id) || (payload.taskInfo && payload.taskInfo.id) || "").trim();
+    const slug = String(data.model_name || data.modelName || "").trim();
+    if (!taskId || String(event.id || "").startsWith("evt_test_")) {
+      await completeWebhookDeliveryClaimInDb({ provider: "mulerouter", deliveryId, claimToken: deliveryClaim.claimToken });
+      return sendJson(res, 200, { ok: true, test: true });
+    }
+    const record = await findMulerouterGenerationRecord(taskId, slug);
+    if (!record) {
+      await releaseWebhookDeliveryClaimInDb({
+        provider: "mulerouter",
+        deliveryId,
+        claimToken: deliveryClaim.claimToken,
+        error: "task-not-ready:" + taskId,
+      });
+      return sendJson(res, 503, { ok: false, code: "MULEROUTER_TASK_NOT_READY", message: "Local task record is not ready yet." });
+    }
+    const terminal = isSucceededStatus(record.status) || isFailedStatus(record.status);
+    if (terminal && (record.localVideoUrl || record.cdnVideoUrl || record.localImageUrl || record.cdnImageUrl || isFailedStatus(record.status))) {
+      await completeWebhookDeliveryClaimInDb({ provider: "mulerouter", deliveryId, claimToken: deliveryClaim.claimToken });
+      return sendJson(res, 200, { ok: true, alreadySettled: true });
+    }
+    const reason = "mulerouter-webhook-" + type;
+    const nextRecord = record.provider === "aliyun-wan27-image"
+      ? await refreshWan27ImageGenerationRecord(record, { reason, upstreamRaw: payload })
+      : await refreshWan27GenerationRecord(record, { download: false, reason, upstreamRaw: payload });
+    await completeWebhookDeliveryClaimInDb({ provider: "mulerouter", deliveryId, claimToken: deliveryClaim.claimToken });
+    console.log("[mulerouter-webhook]", JSON.stringify({
+      type,
+      taskId,
+      slug,
+      localTaskId: record.taskId,
+      status: nextRecord && nextRecord.status || "",
+    }));
+    return sendJson(res, 200, { ok: true, status: nextRecord && nextRecord.status || "" });
+  } catch (error) {
+    await releaseWebhookDeliveryClaimInDb({
+      provider: "mulerouter",
+      deliveryId,
+      claimToken: deliveryClaim.claimToken,
+      error: `${taskId ? `task:${taskId}:` : ""}${error?.message || error}`,
+    }).catch((releaseError) => {
+      console.error("[mulerouter-webhook-release-failed]", releaseError?.message || releaseError);
+    });
+    throw error;
   }
-  if (type !== "task.succeeded" && type !== "task.failed") {
-    return sendJson(res, 200, { ok: true, ignored: type || "unknown" });
-  }
-  const data = event.data && typeof event.data === "object" ? event.data : {};
-  const payload = data.payload && typeof data.payload === "object" ? data.payload : {};
-  const taskId = String((payload.task_info && payload.task_info.id) || (payload.taskInfo && payload.taskInfo.id) || "").trim();
-  const slug = String(data.model_name || data.modelName || "").trim();
-  if (!taskId || String(event.id || "").startsWith("evt_test_")) {
-    return sendJson(res, 200, { ok: true, test: true });
-  }
-  const record = await findMulerouterGenerationRecord(taskId, slug);
-  if (!record) return sendJson(res, 503, { ok: false, code: "MULEROUTER_TASK_NOT_READY", message: "Local task record is not ready yet." });
-  const terminal = isSucceededStatus(record.status) || isFailedStatus(record.status);
-  if (terminal && (record.localVideoUrl || record.cdnVideoUrl || record.localImageUrl || record.cdnImageUrl || isFailedStatus(record.status))) {
-    return sendJson(res, 200, { ok: true, alreadySettled: true });
-  }
-  const reason = "mulerouter-webhook-" + type;
-  const nextRecord = record.provider === "aliyun-wan27-image"
-    ? await refreshWan27ImageGenerationRecord(record, { reason, upstreamRaw: payload })
-    : await refreshWan27GenerationRecord(record, { download: false, reason, upstreamRaw: payload });
-  console.log("[mulerouter-webhook]", JSON.stringify({
-    type,
-    taskId,
-    slug,
-    localTaskId: record.taskId,
-    status: nextRecord && nextRecord.status || "",
-  }));
-  return sendJson(res, 200, { ok: true, status: nextRecord && nextRecord.status || "" });
 }
 
 function verifyAirwallexSignature(rawBody, timestamp, signature) {
