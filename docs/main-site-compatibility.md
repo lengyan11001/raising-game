@@ -98,6 +98,10 @@ a workflow. Results are written to
   layout and dialog issues but does not substitute for a physical iPhone or
   Android device. Evidence:
   `/tmp/main-site-compat/prod-engines-results.json`.
+- The production acceptance check treats every browser console error as a
+  failure. The active Google Analytics and Google Identity Services loaders are
+  covered by narrow CSP entries for `www.googletagmanager.com` and
+  `accounts.google.com`, without widening either directive to all HTTPS hosts.
 - The real React workflow canvas opened on both sites at 320x568 and 390x844.
   Image-node parameters changed to 3:4 / 1K, manual save issued a PUT request to
   `/api/workflow/canvases/compat-canvas`, and the 保存请求 body contained the

@@ -1,3 +1,12 @@
+## 2026-11-11 Main-site CSP compatibility cleanup (in progress)
+
+- Scope remains `123vips.com` and `123vip.fans` only. User will perform physical-device acceptance personally.
+- Production config still supplies Google Analytics measurement ID `G-HG9K80QVKT`; GTM is active business telemetry, not dead code. Google Identity Services is also an enabled login integration.
+- Narrow CSP fix: allow only `https://www.googletagmanager.com` in `script-src` and only `https://accounts.google.com` in `style-src`. No wildcard or broad `https:` relaxation.
+- Added regression assertions in `test/site-http.test.js`; removed the CSP/GTM/GSI console-error exemptions from `scripts/check_main_site_compatibility.mjs`, so future checks fail on any console error.
+- Local verification: site-http 10/10; site-http + main-site compatibility + mobile-tool UX 26/26; affected JS syntax and `git diff --check` pass.
+- Next: publish the integration commit, confirm release snapshot boundaries, deploy Old only through `scripts/deploy_local.sh --site old`, then rerun both-domain header and browser checks before recording final deployment evidence.
+
 ## 2026-11-11 P2 watchdog restart safeguards and isolated restart drill
 
 - User asked to continue phase-by-phase without impacting online business; backup work remains deferred.

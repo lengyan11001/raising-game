@@ -23,6 +23,9 @@ test("admin entry and assets bypass CDN caching while previews roll out", () => 
 test("public security headers cover browser-facing responses", () => {
   assert.match(PUBLIC_SECURITY_HEADERS["content-security-policy"], /frame-ancestors 'none'/);
   assert.match(PUBLIC_SECURITY_HEADERS["content-security-policy"], /https:\/\/oauth\.telegram\.org/);
+  assert.match(PUBLIC_SECURITY_HEADERS["content-security-policy"], /script-src[^;]*https:\/\/www\.googletagmanager\.com/);
+  assert.match(PUBLIC_SECURITY_HEADERS["content-security-policy"], /style-src[^;]*https:\/\/accounts\.google\.com/);
+  assert.doesNotMatch(PUBLIC_SECURITY_HEADERS["content-security-policy"], /(?:script-src|style-src)[^;]*\shttps:(?:\s|;)/);
   assert.equal(PUBLIC_SECURITY_HEADERS["cross-origin-opener-policy"], "same-origin-allow-popups");
   assert.equal(PUBLIC_SECURITY_HEADERS["x-content-type-options"], "nosniff");
   assert.equal(PUBLIC_SECURITY_HEADERS["x-frame-options"], "DENY");
