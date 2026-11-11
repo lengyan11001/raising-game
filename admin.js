@@ -6777,8 +6777,9 @@ async function renderPricing() {
       _pricingKey: String(row.key || `${row.provider || "row"}-${index}`),
     };
   });
+  const visiblePricingRows = pricingRows.filter((row) => row.pricingVisible !== false);
   const modelGroups = new Map();
-  for (const row of pricingRows) {
+  for (const row of visiblePricingRows) {
     const key = pricingModelFilterKey(row);
     const current = modelGroups.get(key) || { key, row, count: 0 };
     current.count += 1;
@@ -6806,7 +6807,7 @@ async function renderPricing() {
           <div class="adm-card-head">
             <div>
               <h3>模型</h3>
-              <p class="adm-muted">共 ${models.length} 个模型，${pricingRows.length} 个计费项</p>
+              <p class="adm-muted">共 ${models.length} 个上线模型，${visiblePricingRows.length} 个计费项</p>
             </div>
           </div>
           <label class="adm-pricing-filter adm-pricing-model-search">
@@ -6829,7 +6830,7 @@ async function renderPricing() {
     const group = modelGroups.get(modelKey);
     if (!group || !detail) return;
     state.pricingModelKey = modelKey;
-    const rows = pricingRows.filter((row) => pricingModelFilterKey(row) === modelKey);
+    const rows = visiblePricingRows.filter((row) => pricingModelFilterKey(row) === modelKey);
     const discount = pricingModelDiscount(group.row, pricing);
     detail.innerHTML = `
       <div class="adm-card-head adm-pricing-detail-head">

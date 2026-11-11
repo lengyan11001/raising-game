@@ -4466,6 +4466,44 @@ dialog.tool-download-modal {
   font-size: .88rem;
   font-weight: 900;
 }
+.pricing-shot-model-picker {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 320px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 14px;
+  padding: 14px 22px;
+  border-bottom: 1px solid rgba(255,255,255,.09);
+  background: rgba(255,255,255,.025);
+}
+.pricing-shot-model-picker label {
+  color: rgba(247,247,251,.62);
+  font-size: .76rem;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.pricing-shot-model-picker select {
+  min-height: 40px;
+  border: 1px solid rgba(255,255,255,.17);
+  border-radius: 8px;
+  padding: 0 36px 0 12px;
+  color: #fff;
+  background: #18181e;
+  font: inherit;
+  font-size: .9rem;
+  font-weight: 850;
+}
+.pricing-shot-model-picker select:focus-visible {
+  outline: 2px solid rgba(255,79,163,.65);
+  outline-offset: 2px;
+}
+.pricing-shot-model-picker p {
+  grid-column: 2 / -1;
+  margin: 0;
+  color: rgba(247,247,251,.62);
+  font-size: .8rem;
+  font-weight: 700;
+}
 .pricing-shot-table-wrap {
   overflow-x: auto;
 }
@@ -4517,6 +4555,11 @@ dialog.tool-download-modal {
   font-size: .72rem;
   font-weight: 700;
   overflow-wrap: anywhere;
+}
+@media (max-width: 720px) {
+  .pricing-shot-model-picker { grid-template-columns: 1fr; padding: 13px 16px; }
+  .pricing-shot-model-picker p { grid-column: 1; }
+  .pricing-shot-model-picker select { width: 100%; }
 }
 @media (max-width: 620px) { .referral-link-row { grid-template-columns: 1fr; } .referral-link-copy-btn { justify-content: center; } }
 .pricing-shot-table tr:last-child td {

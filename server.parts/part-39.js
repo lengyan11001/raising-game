@@ -10,10 +10,18 @@ function publicAdvancedPricingRowVisible(row = {}) {
   return true;
 }
 
+function publicPricingModelVisible(row = {}) {
+  const provider = normalizeAdvancedProvider(row.provider);
+  // These routes stay available internally but are not model choices on the
+  // public generation page. Keep their pricing configs for admin/runtime use.
+  if (provider === "seedance25" || provider === "seedance20-vega") return false;
+  return publicAdvancedPricingRowVisible({ ...row, provider });
+}
+
 function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
   const normalized = normalizeAdvancedPricing(pricing);
   const rows = ADVANCED_PRICING_ROWS
-    .filter(publicAdvancedPricingRowVisible)
+    .filter(publicPricingModelVisible)
     .map((row) => {
       const saleCreditsPerUnit = advancedSaleCreditsPerSecond(
         normalized,
@@ -80,6 +88,35 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
         saleCreditsPerUnit: applyAdvancedModelDiscount(configuredSaleCreditsPerUnit, normalized, modelKey),
       };
     })(),
+    ...[
+      ["z-image-spicy-pro", "zImageSpicyPro", "Z-Image Spicy Pro"],
+      ["qwen-image-edit-spicy", "qwenImageEditSpicy", "Qwen Image Edit Spicy"],
+    ].map(([modelKey, pricingKey, providerLabel]) => {
+      const modelSetting = advancedModelSetting(normalized, modelKey);
+      const imagePricing = normalized[pricingKey] || DEFAULT_ADVANCED_PRICING[pricingKey] || {};
+      const configuredSaleCreditsPerUnit = pricingNumber(
+        Number(imagePricing.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY),
+        0,
+        0,
+        6,
+      );
+      return {
+        key: modelKey,
+        provider: modelKey,
+        providerLabel,
+        model: imagePricing.model || modelKey,
+        modelKey,
+        modelDisplayName: modelSetting.displayName,
+        modelSubtitle: modelSetting.subtitle,
+        modelDiscount: modelSetting.discount,
+        configuredSaleCreditsPerUnit,
+        resolution: "1K / 2K",
+        rateKind: "output",
+        unit: "image",
+        usageLabel: "Generated image",
+        saleCreditsPerUnit: applyAdvancedModelDiscount(configuredSaleCreditsPerUnit, normalized, modelKey),
+      };
+    }),
     ...["1K", "2K"].map((resolution) => {
       const modelKey = "seedream5-image";
       const modelSetting = advancedModelSetting(normalized, modelKey);
@@ -178,7 +215,7 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
         })(),
       ];
     }),
-  ].filter(publicAdvancedPricingRowVisible);
+  ].filter(publicPricingModelVisible);
 
   return [...rows, ...imageRows];
 }
@@ -792,6 +829,7 @@ async function adminAdvancedPricingView(config = {}) {
       purchaseSource: adminConfiguredPurchase ? "admin_configured" : purchase.source,
       purchaseMessage: adminConfiguredPurchase ? "后台配置的采购价；对外计费仍使用右侧对外价。" : purchase.message || "",
       purchaseEditable: Boolean(wan30PurchaseTable || vegaPurchase),
+      pricingVisible: publicPricingModelVisible(row),
       modelKey,
       modelDisplayName: modelSetting.displayName,
       modelSubtitle: modelSetting.subtitle,
@@ -826,6 +864,7 @@ async function adminAdvancedPricingView(config = {}) {
       purchaseUsdPerSecond: purchaseUsdFromCredits(purchaseCredits),
       purchaseSource: gatewayImagePurchase?.source || "mulerouter_official_model_pricing",
       purchaseMessage: gatewayImagePurchase?.message || "Mulerouter per generated image price.",
+      pricingVisible: publicPricingModelVisible({ provider: rowKey }),
       modelKey,
       modelDisplayName: modelSetting.displayName,
       modelSubtitle: modelSetting.subtitle,
@@ -855,6 +894,7 @@ async function adminAdvancedPricingView(config = {}) {
       purchaseUsdPerSecond: hasGatewayPurchase ? purchaseUsdFromCredits(purchaseCredits) : purchaseUsd,
       purchaseSource: gatewayPurchase?.source || "byteplus_official_image_pricing",
       purchaseMessage: gatewayPurchase?.message || "Official Seedream 5.0 Pro image price per generated image.",
+      pricingVisible: publicPricingModelVisible({ provider: "seedream5-image" }),
       modelKey: "seedream5-image",
       modelDisplayName: advancedModelSetting(pricing, "seedream5-image").displayName,
       modelSubtitle: advancedModelSetting(pricing, "seedream5-image").subtitle,
@@ -884,6 +924,7 @@ async function adminAdvancedPricingView(config = {}) {
       purchaseUsdPerSecond: hasGatewayPurchase ? purchaseUsdFromCredits(purchaseCredits) : purchaseUsd,
       purchaseSource: gatewayPurchase?.source || "byteplus_official_image_pricing",
       purchaseMessage: gatewayPurchase?.message || "Official add-on price per reference image after the first reference image.",
+      pricingVisible: publicPricingModelVisible({ provider: "seedream5-image" }),
       modelKey: "seedream5-image",
       modelDisplayName: advancedModelSetting(pricing, "seedream5-image").displayName,
       modelSubtitle: advancedModelSetting(pricing, "seedream5-image").subtitle,
@@ -918,6 +959,7 @@ async function adminAdvancedPricingView(config = {}) {
         purchaseUsdPerSecond: hasGatewayPurchase ? purchaseUsdFromCredits(purchaseCredits) : officialUsd,
         purchaseSource: gatewayPurchase?.source || "aliyun_singapore_official_model_pricing",
         purchaseMessage: gatewayPurchase?.message || "Alibaba Cloud Model Studio Singapore official output image price.",
+        pricingVisible: publicPricingModelVisible({ provider: "qwen-image3", modelKey }),
         modelKey,
         modelDisplayName: modelSetting.displayName,
         modelSubtitle: modelSetting.subtitle,
@@ -950,6 +992,7 @@ async function adminAdvancedPricingView(config = {}) {
         purchaseUsdPerSecond: hasGatewayPurchase ? purchaseUsdFromCredits(purchaseCredits) : officialUsd,
         purchaseSource: gatewayPurchase?.source || "aliyun_singapore_official_model_pricing",
         purchaseMessage: gatewayPurchase?.message || "Alibaba Cloud Model Studio Singapore official input price per reference image.",
+        pricingVisible: publicPricingModelVisible({ provider: "qwen-image3", modelKey }),
         modelKey,
         modelDisplayName: modelSetting.displayName,
         modelSubtitle: modelSetting.subtitle,

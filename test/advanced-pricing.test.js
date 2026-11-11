@@ -32,6 +32,7 @@ test("admin pricing uses a model list and detail view without dropping hidden ro
   assert.match(pricingSource, /card\.hidden = Boolean\(query\)/);
   assert.match(pricingSource, /closest\("#pricingModelList > \[data-pricing-model\]"\)/);
   assert.match(pricingSource, /data-pricing-detail/);
+  assert.match(pricingSource, /const visiblePricingRows = pricingRows\.filter\(\(row\) => row\.pricingVisible !== false\)/);
   assert.match(pricingSource, /const nextRows = pricingRows\.map/);
   assert.match(pricingSource, /detail\?\.querySelector\(`tr\[data-row-key=/);
   assert.match(pricingSource, /body: \{ rows: nextRows, modelSettings: nextSettings \}/);
@@ -43,13 +44,34 @@ test("admin pricing uses a model list and detail view without dropping hidden ro
 
 test("public pricing uses the same configured model rows as the admin", () => {
   assert.match(server, /rows: publicAdvancedPricingRows\(normalized\)/);
-  assert.match(server, /ADVANCED_PRICING_ROWS\s*\n\s*\.filter\(publicAdvancedPricingRowVisible\)/);
+  assert.match(server, /ADVANCED_PRICING_ROWS\s*\n\s*\.filter\(publicPricingModelVisible\)/);
   assert.match(server, /saleCreditsPerUnit = advancedSaleCreditsPerSecond/);
   assert.match(server, /key: "wan27-image"[\s\S]*?saleCreditsPerUnit: applyAdvancedModelDiscount\(configuredSaleCreditsPerUnit, normalized, modelKey\)/);
   assert.match(server, /key: `qwen-image3-\$\{tier\}-\$\{resolution\.toLowerCase\(\)\}`/);
   assert.match(platformUi, /const configuredRows = Array\.isArray\(pricing\.rows\)/);
+  assert.match(platformUi, /row && row\.pricingVisible !== false/);
+  assert.match(platformUi, /const modelGroups = new Map\(\)/);
+  assert.match(platformUi, /id="publicPricingModelSelect"/);
+  assert.match(platformUi, /state\.pricingModelKey = String\(event\.target\.value/);
   assert.match(platformUi, /row\.saleCreditsPerUnit \?\? row\.saleCreditsPerSecond/);
   assert.match(platformUi, /Prices come directly from the current admin sale-price configuration/);
+});
+
+test("public and admin pricing list only models visible on the generation page", async () => {
+  const publicRows = application.publicAdvancedPricingRows();
+  assert.equal(publicRows.some((row) => row.provider === "seedance20-vega"), false);
+  assert.equal(publicRows.some((row) => row.provider === "seedance25"), false);
+  assert.equal(publicRows.some((row) => row.provider === "happyhorse"), false);
+  assert.equal(publicRows.some((row) => row.key === "z-image-spicy-pro"), true);
+  assert.equal(publicRows.some((row) => row.key === "qwen-image-edit-spicy"), true);
+
+  const admin = await application.adminAdvancedPricingView({});
+  assert.equal(admin.rows.some((row) => row.key === "vega10-pro-1080p" && row.pricingVisible === false), true);
+  assert.equal(admin.rows.some((row) => row.key === "seedance25-480p" && row.pricingVisible === false), true);
+  assert.equal(admin.rows.some((row) => row.key === "vega15-pro-1080p" && row.pricingVisible === true), true);
+  assert.equal(admin.rows.some((row) => row.key === "seedance-fast-720p" && row.pricingVisible === true), true);
+  assert.equal(admin.rows.some((row) => row.key === "z-image-spicy-pro" && row.pricingVisible === true), true);
+  assert.equal(admin.rows.some((row) => row.key === "qwen-image-edit-spicy" && row.pricingVisible === true), true);
 });
 
 test("admin pricing keeps current models and omits early Wan models", () => {
@@ -135,11 +157,10 @@ test("model discount applies consistently to admin, public, and runtime sale pri
   assert.equal(adminRow.saleCreditsPerSecond, 35.937);
   assert.equal(adminRow.purchaseCreditsPerSecond, 26.62);
 
+  assert.equal(adminRow.pricingVisible, false);
   const publicRow = application.publicAdvancedPricingRows(advancedPricing)
     .find((row) => row.key === "vega10-pro-1080p");
-  assert.ok(publicRow);
-  assert.equal(publicRow.configuredSaleCreditsPerUnit, adminRow.configuredSaleCreditsPerSecond);
-  assert.equal(publicRow.saleCreditsPerUnit, adminRow.saleCreditsPerSecond);
+  assert.equal(publicRow, undefined);
 
   const runtime = application.advancedModelPricing("seedance20-vega", {
     advancedPricing,
@@ -360,8 +381,9 @@ test("Vega 1.0 Pro pricing rows cover every resolution with separate reference-v
   const byKey = Object.fromEntries(publicRows.map((row) => [row.key, row]));
   assert.equal(byKey["vega10-pro-768p"], undefined);
   assert.equal(byKey["vega10-pro-video-768p"], undefined);
-  assert.equal(byKey["vega10-pro-1080p"].saleCreditsPerUnit, 39.93);
-  assert.equal(byKey["vega10-pro-video-1080p"].saleCreditsPerUnit, 24.93);
+  assert.equal(byKey["vega10-pro-1080p"], undefined);
+  assert.equal(byKey["vega10-pro-video-1080p"], undefined);
+  assert.equal(publicRows.some((row) => row.provider === "seedance20-vega"), false);
 });
 
 test("Vega 1.0 Pro bills no-reference, reference input, and reference output rates correctly", () => {

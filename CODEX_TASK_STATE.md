@@ -3525,3 +3525,11 @@ CODEX_TASK_STATE.md
 - Result: succeeded. Local video `/tmp/cgt-q0o01-analysis/generated.mp4`; contact sheet `/tmp/cgt-q0o01-analysis/contact.jpg`; full frames q6/q12/q18/q25.
 - Visual judgment: major improvement over `cgt-20261111191609-y6scd`. The anime/3D face is largely gone; the two characters now read as live-action short-drama actors with real skin texture. Remaining weaknesses: skin is still slightly too smooth/polished, there is mild idol-drama retouching, the camera stays in intimate close coverage for too long, and the generated action is mostly one prolonged pose. It is not yet a perfect result.
 - Product conclusion: the opt-in “realistic assist” should combine prompt/coverage rewriting plus optional character-sheet/face normalization. Normalization alone is insufficient; prompt alone was also insufficient. Keep it off by default and never auto-apply.
+
+## 2026-11-11 Pricing navigation visibility
+
+- Admin and public pricing now show only models exposed in the current generation UI; internal/offline routes remain stored so admin saves do not delete their configuration.
+- Public pricing adds a model selector and renders only the selected model detail. Admin pricing keeps its model-list/detail layout and only renders visible model groups.
+- Hidden from public/admin pricing navigation: the retired `seedance20-vega` option, `seedance25` official-route pricing, and perpetually hidden HappyHorse; existing Wan/Qwen environment gates remain intact.
+- Added visible image pricing for `z-image-spicy-pro` and `qwen-image-edit-spicy`.
+- Verification used a clean tree built strictly from staged hunks: syntax checks pass, target suite `115/115`, `git diff --check` passes.

@@ -394,7 +394,7 @@ function pricingTable(title, description, columns = [], rows = []) {
 
 function renderConfiguredPricingRows(pricing = {}, packages = []) {
   const configuredRows = Array.isArray(pricing.rows)
-    ? pricing.rows.filter((row) => row && normalizeAdvancedProvider(row.provider) !== "seedance25")
+    ? pricing.rows.filter((row) => row && row.pricingVisible !== false)
     : [];
   if (!configuredRows.length) return false;
   const creditsPerUsd = Number(pricing.creditsPerUsd || 100) || 100;
@@ -422,11 +422,29 @@ function renderConfiguredPricingRows(pricing = {}, packages = []) {
     const prefix = row.unit === "input_second" ? "+" : "";
     return commonDurations.map((duration) => `${duration}s ${prefix}${publicCredits(rate * duration)}`).join(" / ");
   };
-  const rows = configuredRows.map((row) => {
+  const modelGroups = new Map();
+  for (const row of configuredRows) {
+    const modelKey = String(row.modelKey || row.provider || row.key || "other").trim().toLowerCase();
+    const current = modelGroups.get(modelKey) || {
+      key: modelKey,
+      label: String(row.modelDisplayName || publicGenerationDisplayLabel(row.provider) || row.providerLabel || row.provider || row.model || "Model").trim(),
+      subtitle: String(row.modelSubtitle || "").trim(),
+      rows: [],
+    };
+    current.rows.push(row);
+    modelGroups.set(modelKey, current);
+  }
+  const models = [...modelGroups.values()];
+  const selectedKey = models.some((model) => model.key === state.pricingModelKey)
+    ? state.pricingModelKey
+    : models[0]?.key || "";
+  state.pricingModelKey = selectedKey;
+  const selected = modelGroups.get(selectedKey) || models[0];
+  const rows = selected.rows.map((row) => {
     const rate = Number(row.saleCreditsPerUnit ?? row.saleCreditsPerSecond ?? 0) || 0;
     return {
       category: rowCategory(row),
-      model: publicGenerationDisplayLabel(row.provider) || String(row.providerLabel || row.provider || row.model || "Model"),
+      model: selected.label,
       modelId: String(row.model || ""),
       spec: String(row.resolution || "-"),
       unit: rowUnit(row, rate),
@@ -446,6 +464,13 @@ function renderConfiguredPricingRows(pricing = {}, packages = []) {
           <h3>Public price list</h3>
         </div>
         <span>1 USD = ${escapeHtml(formatCredits(creditsPerUsd))} credits</span>
+      </div>
+      <div class="pricing-shot-model-picker">
+        <label for="publicPricingModelSelect">Model</label>
+        <select id="publicPricingModelSelect">
+          ${models.map((model) => `<option value="${escapeHtml(model.key)}"${model.key === selectedKey ? " selected" : ""}>${escapeHtml(model.label)}</option>`).join("")}
+        </select>
+        ${selected.subtitle ? `<p>${escapeHtml(selected.subtitle)}</p>` : ""}
       </div>
       <div class="pricing-shot-table-wrap">
         <table class="pricing-shot-table">
@@ -479,6 +504,10 @@ function renderConfiguredPricingRows(pricing = {}, packages = []) {
       </div>
     </div>
   `;
+  els.pricingRules.querySelector("#publicPricingModelSelect")?.addEventListener("change", (event) => {
+    state.pricingModelKey = String(event.target.value || "").trim();
+    renderConfiguredPricingRows(pricing, packages);
+  });
   return true;
 }
 
