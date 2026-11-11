@@ -168,25 +168,55 @@ async function notifyTelegramPaymentOrder(order = {}, user = {}) {
   order.telegramPaymentNotificationAttempts = Math.max(0, Number(order.telegramPaymentNotificationAttempts || 0)) + 1;
   const errors = [];
   for (const chatId of pendingChatIds) {
+    const claimToken = `${order.id}:${chatId}:${crypto.randomUUID()}`;
+    const claim = await claimTelegramPaymentNotificationRecipientInDb(order.id, chatId, claimToken);
+    if (!claim) continue;
+    order = claim.order;
+    if (!claim.claimed) {
+      const claimStatus = order.telegramPaymentNotificationRecipientClaims?.[chatId]?.status;
+      if (claimStatus === "sent") sentChatIds.add(chatId);
+      continue;
+    }
     try {
       await callTelegramPaymentApi("sendMessage", {
         chat_id: chatId,
         text: telegramPaymentNotificationText(order, user),
         disable_web_page_preview: true,
       });
-      sentChatIds.add(chatId);
+      const confirmed = await confirmTelegramPaymentNotificationRecipientInDb(order.id, chatId, claimToken);
+      if (confirmed) {
+        order = confirmed;
+        sentChatIds.add(chatId);
+      }
     } catch (error) {
       errors.push(`${chatId}: ${error.message || error}`);
+      const released = await releaseTelegramPaymentNotificationRecipientClaimInDb(
+        order.id,
+        chatId,
+        claimToken,
+        error.message || String(error),
+      ).catch(() => null);
+      if (released) order = released;
     }
   }
   order.telegramPaymentNotificationSentChatIds = Array.from(sentChatIds);
-  if (errors.length) {
-    order.telegramPaymentNotificationStatus = "retry";
+  const pendingAfterAttempt = TELEGRAM_PAYMENT_NOTIFY_CHAT_IDS.filter((chatId) => (
+    !sentChatIds.has(chatId)
+    && order.telegramPaymentNotificationRecipientClaims?.[chatId]?.status !== "sent"
+  ));
+  const status = pendingAfterAttempt.length ? (errors.length ? "retry" : "sending") : "sent";
+  const sentAt = status === "sent" ? now : "";
+  const persisted = await recordTelegramPaymentNotificationStateInDb(order.id, {
+    status,
+    error: errors.join("; "),
+    sentAt,
+    attempted: true,
+  }).catch(() => null);
+  if (persisted) order = persisted;
+  else {
+    order.telegramPaymentNotificationStatus = status;
     order.telegramPaymentNotificationError = errors.join("; ").slice(0, 1000);
-  } else {
-    order.telegramPaymentNotificationStatus = "sent";
-    order.telegramPaymentNotificationError = "";
-    order.telegramPaymentNotificationSentAt = now;
+    if (sentAt) order.telegramPaymentNotificationSentAt = sentAt;
   }
   order.updatedAt = now;
   return true;

@@ -24,6 +24,40 @@ test("payment notifications are sent per chat id and retried without duplicating
   assert.match(server, /`到账积分: \$\{credits}`/);
 });
 
+test("payment notification recipients are claimed atomically before sending", () => {
+  const db = fs.readFileSync(path.resolve(__dirname, "..", "db.js"), "utf8");
+  const part13 = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-13.js"), "utf8");
+  assert.match(db, /async function claimTelegramPaymentNotificationRecipientInDb/);
+  assert.match(db, /async function confirmTelegramPaymentNotificationRecipientInDb/);
+  assert.match(db, /async function releaseTelegramPaymentNotificationRecipientClaimInDb/);
+  assert.match(db, /async function recordTelegramPaymentNotificationStateInDb/);
+  assert.match(db, /telegramPaymentNotificationRecipientClaims/);
+  assert.match(db, /claim\.claimToken !== token/);
+  assert.match(db, /SET payload = \$2::jsonb/);
+  assert.match(part13, /await claimTelegramPaymentNotificationRecipientInDb\(order\.id, chatId, claimToken\)/);
+  assert.match(part13, /await confirmTelegramPaymentNotificationRecipientInDb\(order\.id, chatId, claimToken\)/);
+  assert.match(part13, /await releaseTelegramPaymentNotificationRecipientClaimInDb\(/);
+  assert.match(part13, /await recordTelegramPaymentNotificationStateInDb\(order\.id/);
+  assert.match(part13, /pendingAfterAttempt/);
+  assert.match(part13, /status !== "sent"/);
+});
+
+test("notification claims use at-most-once semantics after uncertain delivery", () => {
+  const db = fs.readFileSync(path.resolve(__dirname, "..", "db.js"), "utf8");
+  const paymentClaim = db.match(/async function claimTelegramPaymentNotificationRecipientInDb[\s\S]*?\n}/);
+  const generationClaim = db.match(/async function claimTelegramGenerationNotificationInDb[\s\S]*?\n}/);
+  assert.ok(paymentClaim);
+  assert.ok(generationClaim);
+  assert.doesNotMatch(paymentClaim[0], /staleBefore/);
+  assert.match(paymentClaim[0], /pg_advisory_xact_lock/);
+  assert.match(paymentClaim[0], /SELECT \* FROM app_wallet_orders WHERE id = \$1/);
+  assert.match(paymentClaim[0], /claimStatus === "sending"/);
+  assert.match(generationClaim[0], /pg_advisory_xact_lock/);
+  assert.match(generationClaim[0], /SELECT payload FROM app_generation_records WHERE task_id = \$1/);
+  assert.match(generationClaim[0], /to_jsonb\('unknown'::text\)/);
+  assert.match(generationClaim[0], /claim\?\.status === "unknown"/);
+});
+
 test("payment notification polling queries only pending paid orders and users", () => {
   const db = fs.readFileSync(path.resolve(__dirname, "..", "db.js"), "utf8");
   const part13 = fs.readFileSync(path.resolve(__dirname, "..", "server.parts", "part-13.js"), "utf8");

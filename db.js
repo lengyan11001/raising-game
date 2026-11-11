@@ -2684,6 +2684,201 @@ async function getTelegramPaymentNotificationScanDataFromDb({ limit = 50 } = {})
   };
 }
 
+async function claimTelegramPaymentNotificationRecipientInDb(orderId = "", chatId = "", claimToken = "") {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-payment:${id}:${chat}`]);
+    const currentRows = await client.query(`SELECT * FROM app_wallet_orders WHERE id = $1`, [id]);
+    const current = currentRows.rows[0];
+    if (!current || current.status !== "paid") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const currentOrder = walletOrderFromRow(current);
+    const claimStatus = currentOrder.telegramPaymentNotificationRecipientClaims?.[chat]?.status || "";
+    if (
+      !currentOrder.telegramPaymentNotificationPendingAt
+      || currentOrder.telegramPaymentNotificationStatus === "sent"
+      || claimStatus === "sending"
+      || claimStatus === "sent"
+    ) {
+      await client.query("ROLLBACK");
+      return { order: currentOrder, claimed: false };
+    }
+    const nextOrder = {
+      ...currentOrder,
+      telegramPaymentNotificationRecipientClaims: {
+        ...(currentOrder.telegramPaymentNotificationRecipientClaims || {}),
+        [chat]: { claimToken: token, claimedAt: now, status: "sending" },
+      },
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_wallet_orders
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE id = $1
+        AND status = 'paid'
+      RETURNING *
+    `, [id, JSON.stringify(nextOrder), now]);
+    if (!rows[0]) {
+      await client.query("ROLLBACK");
+      return { order: currentOrder, claimed: false };
+    }
+    await client.query("COMMIT");
+    return { order: walletOrderFromRow(rows[0]), claimed: true };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function confirmTelegramPaymentNotificationRecipientInDb(orderId = "", chatId = "", claimToken = "") {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-payment:${id}:${chat}`]);
+    const { rows: currentRows } = await client.query(`SELECT * FROM app_wallet_orders WHERE id = $1`, [id]);
+    const current = currentRows[0];
+    if (!current || current.status !== "paid") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const currentOrder = walletOrderFromRow(current);
+    const claim = currentOrder.telegramPaymentNotificationRecipientClaims?.[chat];
+    if (!claim || claim.claimToken !== token || claim.status !== "sending") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const sentChatIds = Array.from(new Set([
+      ...(Array.isArray(currentOrder.telegramPaymentNotificationSentChatIds) ? currentOrder.telegramPaymentNotificationSentChatIds : []),
+      chat,
+    ]));
+    const nextOrder = {
+      ...currentOrder,
+      telegramPaymentNotificationRecipientClaims: {
+        ...(currentOrder.telegramPaymentNotificationRecipientClaims || {}),
+        [chat]: { ...claim, completedAt: now, status: "sent" },
+      },
+      telegramPaymentNotificationSentChatIds: sentChatIds,
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_wallet_orders
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE id = $1 AND status = 'paid'
+      RETURNING *
+    `, [id, JSON.stringify(nextOrder), now]);
+    await client.query("COMMIT");
+    return rows[0] ? walletOrderFromRow(rows[0]) : null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function releaseTelegramPaymentNotificationRecipientClaimInDb(orderId = "", chatId = "", claimToken = "", errorMessage = "") {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-payment:${id}:${chat}`]);
+    const { rows: currentRows } = await client.query(`SELECT * FROM app_wallet_orders WHERE id = $1`, [id]);
+    const current = currentRows[0];
+    if (!current || current.status !== "paid") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const currentOrder = walletOrderFromRow(current);
+    const claim = currentOrder.telegramPaymentNotificationRecipientClaims?.[chat];
+    if (!claim || claim.claimToken !== token || claim.status !== "sending") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const nextOrder = {
+      ...currentOrder,
+      telegramPaymentNotificationRecipientClaims: {
+        ...(currentOrder.telegramPaymentNotificationRecipientClaims || {}),
+        [chat]: { ...claim, failedAt: now, error: String(errorMessage || "").slice(0, 1000), status: "retry" },
+      },
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_wallet_orders
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE id = $1 AND status = 'paid'
+      RETURNING *
+    `, [id, JSON.stringify(nextOrder), now]);
+    await client.query("COMMIT");
+    return rows[0] ? walletOrderFromRow(rows[0]) : null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function recordTelegramPaymentNotificationStateInDb(orderId = "", {
+  status = "",
+  error = "",
+  sentAt = "",
+  attempted = false,
+} = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  const notificationStatus = String(status || "").trim();
+  if (!id || !notificationStatus) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const { rows } = await query(`
+    UPDATE app_wallet_orders
+    SET payload = payload || jsonb_build_object(
+          'telegramPaymentNotificationStatus', $2::text,
+          'telegramPaymentNotificationError', $3::text,
+          'telegramPaymentNotificationSentAt',
+            CASE WHEN $4::text <> '' THEN to_jsonb($4::text) ELSE COALESCE(payload->'telegramPaymentNotificationSentAt', '""'::jsonb) END,
+          'telegramPaymentNotificationLastAttemptAt',
+            CASE WHEN $5::boolean THEN to_jsonb($6::text) ELSE payload->'telegramPaymentNotificationLastAttemptAt' END,
+          'telegramPaymentNotificationAttempts',
+            CASE WHEN $5::boolean THEN to_jsonb(COALESCE(NULLIF(payload->>'telegramPaymentNotificationAttempts', '')::int, 0) + 1)
+                 ELSE COALESCE(payload->'telegramPaymentNotificationAttempts', '0'::jsonb) END,
+          'updatedAt', to_jsonb($6::text)
+        ),
+        updated_at = $6::timestamptz
+    WHERE id = $1 AND status = 'paid'
+    RETURNING *
+  `, [id, notificationStatus, String(error || "").slice(0, 1000), String(sentAt || ""), Boolean(attempted), now]);
+  return rows[0] ? walletOrderFromRow(rows[0]) : null;
+}
+
 async function getWalletOrderByIdInDb(orderId = "") {
   if (!dbEnabled()) return null;
   const id = String(orderId || "").trim();
@@ -7462,6 +7657,187 @@ async function upsertGenerationRecordInDb(nextRecord) {
   return rows[0]?.payload || null;
 }
 
+async function claimTelegramGenerationNotificationInDb(taskId = "", stage = "", chatId = "", claimToken = "") {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  const notificationStage = String(stage || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !notificationStage || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const staleBefore = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const key = `${notificationStage}:${chat}`;
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-generation:${id}:${key}`]);
+    const currentRows = await client.query(`SELECT payload FROM app_generation_records WHERE task_id = $1`, [id]);
+    const current = currentRows.rows[0]?.payload;
+    if (!current || current.deletedAt) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const claim = current.telegramNotificationClaims?.[key];
+    if (claim?.status === "sent") {
+      await client.query("ROLLBACK");
+      return { record: current, claimed: false };
+    }
+    if (claim?.status === "sending") {
+      if (String(claim.claimedAt || "") < staleBefore) {
+        const stale = await client.query(`
+          UPDATE app_generation_records
+          SET payload = jsonb_set(
+                jsonb_set(
+                  payload,
+                  ARRAY['telegramNotificationClaims', $2::text, 'status'],
+                  to_jsonb('unknown'::text),
+                  true
+                ),
+                ARRAY['telegramNotificationClaims', $2::text, 'staleAt'],
+                to_jsonb($3::text),
+                true
+              ),
+              updated_at = $3::timestamptz
+          WHERE task_id = $1
+          RETURNING payload
+        `, [id, key, now]);
+        await client.query("COMMIT");
+        console.warn("[telegram-generation-notify-stale-claim]", id, notificationStage, chat);
+        return { record: stale.rows[0].payload, claimed: false, stale: true };
+      }
+      await client.query("ROLLBACK");
+      return { record: current, claimed: false };
+    }
+    if (claim?.status === "unknown") {
+      await client.query("ROLLBACK");
+      return { record: current, claimed: false };
+    }
+    const nextRecord = {
+      ...current,
+      telegramNotificationClaims: {
+        ...(current.telegramNotificationClaims || {}),
+        [key]: { claimToken: token, claimedAt: now, status: "sending" },
+      },
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_generation_records
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE task_id = $1
+      RETURNING payload
+    `, [id, JSON.stringify(nextRecord), now]);
+    if (!rows[0]) {
+      await client.query("ROLLBACK");
+      return { record: current, claimed: false };
+    }
+    await client.query("COMMIT");
+    return { record: rows[0].payload, claimed: true };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function confirmTelegramGenerationNotificationInDb(taskId = "", stage = "", chatId = "", claimToken = "") {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  const notificationStage = String(stage || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !notificationStage || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const key = `${notificationStage}:${chat}`;
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-generation:${id}:${key}`]);
+    const { rows: currentRows } = await client.query(`SELECT payload FROM app_generation_records WHERE task_id = $1`, [id]);
+    const current = currentRows[0]?.payload;
+    const claim = current?.telegramNotificationClaims?.[key];
+    if (!current || !claim || claim.claimToken !== token || claim.status !== "sending") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const nextRecord = {
+      ...current,
+      telegramNotificationClaims: {
+        ...(current.telegramNotificationClaims || {}),
+        [key]: { ...claim, completedAt: now, status: "sent" },
+      },
+      telegramNotificationStages: {
+        ...(current.telegramNotificationStages || {}),
+        [notificationStage]: now,
+      },
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_generation_records
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE task_id = $1
+      RETURNING payload
+    `, [id, JSON.stringify(nextRecord), now]);
+    await client.query("COMMIT");
+    return rows[0]?.payload || null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function releaseTelegramGenerationNotificationClaimInDb(taskId = "", stage = "", chatId = "", claimToken = "", errorMessage = "") {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  const notificationStage = String(stage || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !notificationStage || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const key = `${notificationStage}:${chat}`;
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-generation:${id}:${key}`]);
+    const { rows: currentRows } = await client.query(`SELECT payload FROM app_generation_records WHERE task_id = $1`, [id]);
+    const current = currentRows[0]?.payload;
+    const claim = current?.telegramNotificationClaims?.[key];
+    if (!current || !claim || claim.claimToken !== token || claim.status !== "sending") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const nextRecord = {
+      ...current,
+      telegramNotificationClaims: {
+        ...(current.telegramNotificationClaims || {}),
+        [key]: { ...claim, failedAt: now, error: String(errorMessage || "").slice(0, 1000), status: "retry" },
+      },
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_generation_records
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE task_id = $1
+      RETURNING payload
+    `, [id, JSON.stringify(nextRecord), now]);
+    await client.query("COMMIT");
+    return rows[0]?.payload || null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function enqueueMediaIngestJobInDb(taskId = "", {
   userId = "",
   kind = "advanced_download",
@@ -8962,6 +9338,10 @@ module.exports = {
   getUserByVerifiedEmailInDb,
   getWalletChainScanDataFromDb,
   getTelegramPaymentNotificationScanDataFromDb,
+  claimTelegramPaymentNotificationRecipientInDb,
+  confirmTelegramPaymentNotificationRecipientInDb,
+  releaseTelegramPaymentNotificationRecipientClaimInDb,
+  recordTelegramPaymentNotificationStateInDb,
   getWalletOrderByIdInDb,
   getPromotionPurchaseStateInDb,
   reservePromotionPurchaseInDb,
@@ -9147,6 +9527,9 @@ module.exports = {
   updateGenerationRecordAdvancedDownloadInDb,
   backfillGenerationRecordResultAssetMediaFieldsInDb,
   getGenerationRecordsNeedingResultAssetMediaBackfillFromDb,
+  claimTelegramGenerationNotificationInDb,
+  confirmTelegramGenerationNotificationInDb,
+  releaseTelegramGenerationNotificationClaimInDb,
   enqueueMediaIngestJobInDb,
   claimMediaIngestJobInDb,
   claimNextMediaIngestJobsInDb,

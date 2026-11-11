@@ -489,12 +489,22 @@ async function notifyTelegramGenerationRecord(record = {}) {
   if (!user?.telegramChatId) return;
   const stage = telegramStatusStage(record.status);
   const key = String(record.taskId);
+  if (!stage) return;
   if (telegramTaskNotificationStages.get(key) === stage) return;
+  const chatId = String(user.telegramChatId);
+  const claimToken = `${key}:${stage}:${chatId}:${crypto.randomUUID()}`;
+  const claim = await claimTelegramGenerationNotificationInDb(key, stage, chatId, claimToken);
+  if (!claim || !claim.claimed) return;
+  const claimedStage = claim.record?.telegramNotificationStages?.[stage];
+  if (claimedStage === "sent") {
+    telegramTaskNotificationStages.set(key, stage);
+    return;
+  }
   try {
     if (stage === "processing") {
-      await telegramBotClient.sendMessage(user.telegramChatId, `Generation in progress\nTask: ${key}`);
+      await telegramBotClient.sendMessage(chatId, `Generation in progress\nTask: ${key}`);
     } else if (stage === "failed") {
-      await telegramBotClient.sendMessage(user.telegramChatId, `Generation failed\nTask: ${key}\n${String(record.error || "Generation failed.").slice(0, 600)}`);
+      await telegramBotClient.sendMessage(chatId, `Generation failed\nTask: ${key}\n${String(record.error || "Generation failed.").slice(0, 600)}`);
     } else if (stage === "completed") {
       const latest = await getGenerationRecord(key) || record;
       const view = publicGenerationRecord(latest, {
@@ -509,19 +519,21 @@ async function notifyTelegramGenerationRecord(record = {}) {
         const previewUrl = telegramNativePublicUrl(view.lockedPreviewUrl);
         const markup = { inline_keyboard: [[{ text: "Unlock result", callback_data: `tg:unlock:${key}` }]] };
         if (previewUrl) {
-          await telegramBotClient.sendPhoto(user.telegramChatId, previewUrl, `Generation complete\nUnlock for ${Number(view.unlockCredits || 0).toFixed(2)} credits`, { reply_markup: markup });
+          await telegramBotClient.sendPhoto(chatId, previewUrl, `Generation complete\nUnlock for ${Number(view.unlockCredits || 0).toFixed(2)} credits`, { reply_markup: markup });
         } else {
-          await telegramBotClient.sendMessage(user.telegramChatId, `Generation complete\nUnlock for ${Number(view.unlockCredits || 0).toFixed(2)} credits`, { reply_markup: markup });
+          await telegramBotClient.sendMessage(chatId, `Generation complete\nUnlock for ${Number(view.unlockCredits || 0).toFixed(2)} credits`, { reply_markup: markup });
         }
       } else {
         const links = telegramNativeTaskLinks(view);
-        await telegramBotClient.sendMessage(user.telegramChatId, links.length ? `Generation complete\n${links.join("\n")}` : `Generation complete\nTask: ${key}`);
+        await telegramBotClient.sendMessage(chatId, links.length ? `Generation complete\n${links.join("\n")}` : `Generation complete\nTask: ${key}`);
       }
     } else {
-      await telegramBotClient.sendMessage(user.telegramChatId, `Generation status: ${stage}\nTask: ${key}`);
+      await telegramBotClient.sendMessage(chatId, `Generation status: ${stage}\nTask: ${key}`);
     }
-    telegramTaskNotificationStages.set(key, stage);
+    const confirmed = await confirmTelegramGenerationNotificationInDb(key, stage, chatId, claimToken);
+    if (confirmed) telegramTaskNotificationStages.set(key, stage);
   } catch (error) {
+    await releaseTelegramGenerationNotificationClaimInDb(key, stage, chatId, claimToken, error.message || String(error)).catch(() => null);
     console.warn("[telegram-generation-notify-failed]", key, error.message || error);
   }
 }

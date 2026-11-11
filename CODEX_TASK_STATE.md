@@ -1,4 +1,16 @@
-## 2026-11-11 Canvas duplicate video and project thumbnail repair (ready for Old deployment)
+## 2026-11-11 Telegram notification claims and production test-data cleanup (ready for Old deployment)
+
+- Goal remains staged single-node hardening without online disruption. Multi-process remains disabled; Live is untouched; backup remains deferred to the end.
+- Restored the production `raising_game_app` password from `/etc/raising-game-demo.env` without printing it, then verified a fresh application-role connection with `SELECT 1`. `raising-game-demo` remained `active` and `/api/health` returned HTTP 200.
+- Payment and generation Telegram notifications now claim each recipient/stage through a PostgreSQL transaction advisory lock, re-read the row inside the lock, and only the claim winner sends. Added payment claim/confirm/release/state helpers and equivalent generation claim/confirm/release helpers. Payment completion is computed from current persisted claims, not a stale scan snapshot.
+- Notification semantics are explicitly at-most-once: a claim is persisted before the Telegram call. If the process crashes after delivery but before confirmation, the notification is not automatically resent; payments stay `sending` for manual/operator convergence and stale generation claims become `unknown`. Telegram failures release the claim for normal retry. This trades a very small chance of a missed notification for no duplicate sends.
+- Real PostgreSQL verification on disposable `raising_game_notify_test` passed: concurrent claims have exactly one winner, the persisted winner token is required for confirmation, a wrong token is rejected, stale generation claims become `unknown` and are not resent. The test database was dropped afterward.
+- Removed three production test orders (`order-debug-1794367154140`, `order-debug-1794367194093`, `order-debug-1794367242383`) only after confirming they all belonged to test user `u`; `order-debug-*` / `release-debug-*` residue is now zero. No real order matched or was changed.
+- Verification: notification unit tests 5 pass / 1 skip; P4 scheduler-lease, single-owner, video-tool, generation DB scope, resilience, site HTTP, submit drain, and DB import scope regression 50/50; syntax and `git diff --check` pass. Service is active and health returns HTTP 200 after cleanup.
+- Publish scope: `db.js`, `server.parts/part-01.js`, `server.parts/part-13.js`, `server.parts/part-33.js`, `test/payment-telegram-notifications.test.js`, `test/telegram-notification-claim.postgres.test.js`, and this state entry only. Preserve unrelated frontend/test-mode/canvas WIP.
+- Deployment: pending committed `old-site` -> `platform-release` -> `scripts/deploy_local.sh --site old`. Live must remain untouched.
+
+## 2026-11-11 Canvas duplicate video and project thumbnail repair (deployed Old)
 
 - User report: the latest canvas video still showed two visible videos in one preview node, and project-list thumbnails stopped rendering.
 - PostgreSQL evidence: canvas `workflow-1794297669486-e23b46e3` result node `video-mwalp1po-x25w` has one durable CDN video and one provider/TOS mirror for the same generation. The old UI unioned both, producing two previews even though only one output existed.
