@@ -13,8 +13,9 @@ umask 077
 #   APP_ROOT=/opt/raising-game-demo (default)
 #   ENV_FILE=/etc/raising-game-demo.env (default; source credentials only)
 # Optional:
-#   PORT_A=4181 PORT_B=4182 EDGE_PORT=48080
+#   PORT_A=4181 PORT_B=4182 EDGE_PORT=48080 SWITCH_PORT=4183
 #   RUN_ROOT=/tmp/raising-game-nginx-drill
+#   PROBE_REQUESTS=80
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root on the isolated Old-host drill environment." >&2
@@ -27,14 +28,16 @@ ENV_FILE="${ENV_FILE:-/etc/raising-game-demo.env}"
 PORT_A="${PORT_A:-4181}"
 PORT_B="${PORT_B:-4182}"
 EDGE_PORT="${EDGE_PORT:-48080}"
+SWITCH_PORT="${SWITCH_PORT:-4183}"
 RUN_ROOT="${RUN_ROOT:-/tmp/raising-game-nginx-drill}"
 NGINX_BIN="${NGINX_BIN:-nginx}"
+PROBE_REQUESTS="${PROBE_REQUESTS:-80}"
 
 if [[ ! "$DRILL_DB" =~ ^raising_game_nginx_drill_[0-9]{14}$ ]]; then
   echo "DRILL_DB must be a disposable raising_game_nginx_drill_YYYYMMDDHHMMSS database." >&2
   exit 2
 fi
-for port in "$PORT_A" "$PORT_B" "$EDGE_PORT"; do
+for port in "$PORT_A" "$PORT_B" "$EDGE_PORT" "$SWITCH_PORT"; do
   if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1024 || port > 65535 )); then
     echo "Invalid drill port: $port" >&2
     exit 2
@@ -44,8 +47,12 @@ for port in "$PORT_A" "$PORT_B" "$EDGE_PORT"; do
     exit 3
   fi
 done
-if [[ "$PORT_A" == "4174" || "$PORT_B" == "4174" || "$EDGE_PORT" == "4174" ]]; then
+if [[ "$PORT_A" == "4174" || "$PORT_B" == "4174" || "$EDGE_PORT" == "4174" || "$SWITCH_PORT" == "4174" ]]; then
   echo "The production port 4174 must not be used for this drill." >&2
+  exit 2
+fi
+if [[ ! "$PROBE_REQUESTS" =~ ^[1-9][0-9]*$ ]] || (( PROBE_REQUESTS > 1000 )); then
+  echo "PROBE_REQUESTS must be an integer between 1 and 1000." >&2
   exit 2
 fi
 if [[ ! -d "$APP_ROOT" || ! -f "$APP_ROOT/server.js" || ! -f "$APP_ROOT/ops/run-db-migrations.js" ]]; then
@@ -83,6 +90,8 @@ nginx_pid=""
 request_loop_pid=""
 
 cleanup() {
+  local status=$?
+  local remaining
   set +e
   for pid in "$request_loop_pid" "$nginx_pid" "$pid_a" "$pid_b"; do
     [[ -n "$pid" ]] && kill -TERM "$pid" 2>/dev/null
@@ -91,7 +100,19 @@ cleanup() {
     [[ -n "$pid" ]] && timeout 10 tail --pid="$pid" -f /dev/null 2>/dev/null
   done
   rm -rf "$RUN_ROOT"
-  echo "NGINX_DRILL_CLEANUP db=$DRILL_DB"
+  if ! runuser -u postgres -- dropdb --if-exists -- "$DRILL_DB"; then
+    echo "NGINX_DRILL_CLEANUP_FAILED db=$DRILL_DB reason=dropdb" >&2
+    [[ "$status" -eq 0 ]] && status=1
+  else
+    remaining="$(runuser -u postgres -- psql -X -A -t -d postgres -c "SELECT count(*) FROM pg_database WHERE datname = '$DRILL_DB'")"
+    if [[ "$remaining" == "0" ]]; then
+      echo "NGINX_DRILL_CLEANUP_OK=1 db=$DRILL_DB"
+    else
+      echo "NGINX_DRILL_CLEANUP_FAILED db=$DRILL_DB remaining=${remaining:-unknown}" >&2
+      [[ "$status" -eq 0 ]] && status=1
+    fi
+  fi
+  exit "$status"
 }
 trap cleanup EXIT
 
@@ -238,6 +259,19 @@ http {
     server 127.0.0.1:$PORT_B max_fails=1 fail_timeout=2s;
     keepalive 16;
   }
+  upstream raising_game_switch_drill {
+    server 127.0.0.1:$PORT_A;
+    keepalive 16;
+  }
+  upstream raising_game_txn_app {
+    server 127.0.0.1:$PORT_A;
+  }
+  upstream raising_game_txn_chat {
+    server 127.0.0.1:$PORT_A;
+  }
+  upstream raising_game_txn_live {
+    server 127.0.0.1:$PORT_A;
+  }
   map \$http_upgrade \$connection_upgrade { default upgrade; "" ""; }
   server {
     listen 127.0.0.1:$EDGE_PORT;
@@ -266,6 +300,45 @@ http {
       proxy_set_header Connection \$connection_upgrade;
       proxy_next_upstream error timeout http_502 http_503 http_504;
       proxy_next_upstream_tries 2;
+      proxy_connect_timeout 1s;
+      proxy_read_timeout 10s;
+      proxy_send_timeout 10s;
+    }
+    location /txn-app/ {
+      proxy_pass http://raising_game_txn_app/api/;
+      proxy_http_version 1.1;
+      proxy_set_header Host \$host;
+      proxy_set_header Connection "";
+      proxy_connect_timeout 1s;
+      proxy_read_timeout 10s;
+      proxy_send_timeout 10s;
+    }
+    location /txn-chat/ {
+      proxy_pass http://raising_game_txn_chat/api/;
+      proxy_http_version 1.1;
+      proxy_set_header Host \$host;
+      proxy_set_header Connection "";
+      proxy_connect_timeout 1s;
+      proxy_read_timeout 10s;
+      proxy_send_timeout 10s;
+    }
+    location /txn-live/ {
+      proxy_pass http://raising_game_txn_live/api/;
+      proxy_http_version 1.1;
+      proxy_set_header Host \$host;
+      proxy_set_header Connection "";
+      proxy_connect_timeout 1s;
+      proxy_read_timeout 10s;
+      proxy_send_timeout 10s;
+    }
+    location /switch/ {
+      proxy_pass http://raising_game_switch_drill/api/;
+      proxy_http_version 1.1;
+      proxy_set_header Host \$host;
+      proxy_set_header X-Real-IP \$remote_addr;
+      proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto \$scheme;
+      proxy_set_header Connection "";
       proxy_connect_timeout 1s;
       proxy_read_timeout 10s;
       proxy_send_timeout 10s;
@@ -320,14 +393,142 @@ for i in $(seq 1 10); do
 done
 echo "ROLLING_REPLACEMENT_OK=1 replacement_port=$drain_port"
 
-# SIGKILL the remaining original peer. The replacement peer must keep serving.
+# Verify the controlled switch path independently from emergency failover. The
+# switch target starts on A; once /switch/ proves A works, atomically move it
+# to B and require the old A process to remain alive until the switch succeeds.
+inactive_port="$PORT_A"
+[[ "$inactive_port" == "$drain_port" ]] && inactive_port="$PORT_B"
+for i in $(seq 1 10); do
+  curl -fsS --max-time 3 "http://127.0.0.1:$EDGE_PORT/switch/health" >/dev/null
+done
+switch_log="$logs/upstream-switch.log"
+python3 "$APP_ROOT/ops/nginx-upstream-switch.py" \
+  --file "$nginx_prefix/conf/nginx.conf" \
+  --upstream raising_game_switch_drill \
+  --current-port "$PORT_A" \
+  --next-port "$inactive_port" \
+  --health-url "http://127.0.0.1:$EDGE_PORT/switch/health" \
+  --nginx-bin "$NGINX_BIN" \
+  --nginx-test-command "$NGINX_BIN -t -p $nginx_prefix -c $nginx_prefix/conf/nginx.conf" \
+  --reload-command "$NGINX_BIN -p $nginx_prefix -c $nginx_prefix/conf/nginx.conf -s reload" \
+  --apply >"$switch_log" 2>&1
+grep -q "UPSTREAM_SWITCH_OK upstream=raising_game_switch_drill port=$inactive_port" "$switch_log"
+cat "$switch_log"
+old_pid="$( [[ "$inactive_port" == "$PORT_A" ]] && printf '%s' "$pid_b" || printf '%s' "$pid_a" )"
+kill -0 "$old_pid" 2>/dev/null || { echo "Old switch source process died before switch proof." >&2; exit 10; }
+echo "UPSTREAM_SWITCH_BEFORE_DRAIN_OK=1 from=$PORT_A to=$inactive_port source_alive=1"
+
+# Force a health failure after atomic config replacement. The exact old file
+# must be restored, Nginx reloaded back, and the old process must still be alive.
+rollback_log="$logs/upstream-switch-rollback.log"
+if python3 "$APP_ROOT/ops/nginx-upstream-switch.py" \
+  --file "$nginx_prefix/conf/nginx.conf" \
+  --upstream raising_game_switch_drill \
+  --current-port "$inactive_port" \
+  --next-port 4199 \
+  --health-url "http://127.0.0.1:$EDGE_PORT/switch/definitely-not-healthy" \
+  --nginx-bin "$NGINX_BIN" \
+  --nginx-test-command "$NGINX_BIN -t -p $nginx_prefix -c $nginx_prefix/conf/nginx.conf" \
+  --reload-command "$NGINX_BIN -p $nginx_prefix -c $nginx_prefix/conf/nginx.conf -s reload" \
+  --apply >"$rollback_log" 2>&1; then
+  echo "Expected failed health proof, but switch reported success." >&2
+  exit 10
+fi
+if ! grep -q "server 127.0.0.1:$inactive_port;" "$nginx_prefix/conf/nginx.conf"; then
+  echo "Failed switch did not restore the previous upstream." >&2
+  exit 10
+fi
+kill -0 "$old_pid" 2>/dev/null || { echo "Old switch source process died during rollback." >&2; exit 10; }
+for i in $(seq 1 10); do
+  curl -fsS --max-time 3 "http://127.0.0.1:$EDGE_PORT/switch/health" >/dev/null
+done
+echo "UPSTREAM_SWITCH_ROLLBACK_OK=1 restored_port=$inactive_port source_alive=1"
+
+# Production-shaped transaction: all three independently named traffic
+# upstreams must move in one file replacement and one Nginx reload. The health
+# URLs cover each entry path, so a partial cutover or one unhealthy route must
+# roll the whole file back.
+txn_log="$logs/upstream-transaction.log"
+python3 "$APP_ROOT/ops/nginx-upstream-switch.py" \
+  --file "$nginx_prefix/conf/nginx.conf" \
+  --switch "raising_game_txn_app=$PORT_A:$inactive_port" \
+  --switch "raising_game_txn_chat=$PORT_A:$inactive_port" \
+  --switch "raising_game_txn_live=$PORT_A:$inactive_port" \
+  --health-url "http://127.0.0.1:$EDGE_PORT/txn-app/health" \
+  --health-url "http://127.0.0.1:$EDGE_PORT/txn-chat/health" \
+  --health-url "http://127.0.0.1:$EDGE_PORT/txn-live/health" \
+  --nginx-bin "$NGINX_BIN" \
+  --nginx-test-command "$NGINX_BIN -t -p $nginx_prefix -c $nginx_prefix/conf/nginx.conf" \
+  --reload-command "$NGINX_BIN -p $nginx_prefix -c $nginx_prefix/conf/nginx.conf -s reload" \
+  --apply >"$txn_log" 2>&1
+grep -qx "UPSTREAM_SWITCH_COMMIT_OK upstreams=3 health_urls=3" "$txn_log"
+cat "$txn_log"
+for upstream in raising_game_txn_app raising_game_txn_chat raising_game_txn_live; do
+  block="$(awk -v name="$upstream" '$0 ~ "upstream " name " \\{" {inside=1} inside {print} inside && /^[[:space:]]*}/ {exit}' "$nginx_prefix/conf/nginx.conf")"
+  grep -q "server 127.0.0.1:$inactive_port;" <<<"$block" || { echo "Transaction did not switch $upstream." >&2; exit 10; }
+done
+for path in txn-app txn-chat txn-live; do
+  curl -fsS --max-time 3 "http://127.0.0.1:$EDGE_PORT/$path/health" >/dev/null
+done
+old_txn_pid="$( [[ "$inactive_port" == "$PORT_A" ]] && printf '%s' "$pid_b" || printf '%s' "$pid_a" )"
+kill -0 "$old_txn_pid" 2>/dev/null || { echo "Old source died during transaction switch." >&2; exit 10; }
+echo "UPSTREAM_TRANSACTION_SWITCH_OK=1 upstreams=3 port=$inactive_port source_alive=1"
+
+# A single bad route must restore all three upstream members together.
+txn_rollback_log="$logs/upstream-transaction-rollback.log"
+if python3 "$APP_ROOT/ops/nginx-upstream-switch.py" \
+  --file "$nginx_prefix/conf/nginx.conf" \
+  --switch "raising_game_txn_app=$inactive_port:$PORT_A" \
+  --switch "raising_game_txn_chat=$inactive_port:$PORT_A" \
+  --switch "raising_game_txn_live=$inactive_port:$PORT_A" \
+  --health-url "http://127.0.0.1:$EDGE_PORT/txn-app/health" \
+  --health-url "http://127.0.0.1:$EDGE_PORT/txn-chat/definitely-not-healthy" \
+  --health-url "http://127.0.0.1:$EDGE_PORT/txn-live/health" \
+  --nginx-bin "$NGINX_BIN" \
+  --nginx-test-command "$NGINX_BIN -t -p $nginx_prefix -c $nginx_prefix/conf/nginx.conf" \
+  --reload-command "$NGINX_BIN -p $nginx_prefix -c $nginx_prefix/conf/nginx.conf -s reload" \
+  --apply >"$txn_rollback_log" 2>&1; then
+  echo "Expected transaction health failure, but switch reported success." >&2
+  exit 10
+fi
+for upstream in raising_game_txn_app raising_game_txn_chat raising_game_txn_live; do
+  block="$(awk -v name="$upstream" '$0 ~ "upstream " name " \\{" {inside=1} inside {print} inside && /^[[:space:]]*}/ {exit}' "$nginx_prefix/conf/nginx.conf")"
+  grep -q "server 127.0.0.1:$inactive_port;" <<<"$block" || { echo "Transaction rollback lost $upstream." >&2; exit 10; }
+done
+for path in txn-app txn-chat txn-live; do
+  curl -fsS --max-time 3 "http://127.0.0.1:$EDGE_PORT/$path/health" >/dev/null
+done
+echo "UPSTREAM_TRANSACTION_ROLLBACK_OK=1 upstreams=3 restored_port=$inactive_port"
+
+# SIGKILL the remaining original peer while a steady request loop runs through
+# the disposable Nginx edge. A successful failover means every request returns
+# HTTP 200; a request that reaches the dead peer must be retried successfully.
 if [[ -n "$pid_a" && "$pid_a" != "$replacement" ]]; then killed_pid="$pid_a"; killed_port="$PORT_A"; else killed_pid="$pid_b"; killed_port="$PORT_B"; fi
+probe_log="$logs/edge-sigkill-probe.log"
+(
+  ok=0
+  failed=0
+  for _ in $(seq 1 "$PROBE_REQUESTS"); do
+    if curl -fsS --max-time 3 "http://127.0.0.1:$EDGE_PORT/api/health" >/dev/null 2>&1; then
+      ok=$((ok + 1))
+    else
+      failed=$((failed + 1))
+    fi
+    sleep 0.05
+  done
+  printf 'EDGE_SIGKILL_PROBE_OK requests=%s failures=%s\n' "$ok" "$failed"
+) >"$probe_log" 2>&1 &
+probe_pid=$!
+sleep 0.75
 kill -KILL "$killed_pid"
 wait "$killed_pid" 2>/dev/null || true
 [[ "$killed_port" == "$PORT_A" ]] && pid_a="" || pid_b=""
-for i in $(seq 1 20); do
-  curl -fsS --max-time 3 "http://127.0.0.1:$EDGE_PORT/api/health" >/dev/null || { echo "Edge failed after SIGKILL." >&2; exit 11; }
-done
+wait "$probe_pid"
+cat "$probe_log"
+grep -qx "EDGE_SIGKILL_PROBE_OK requests=$PROBE_REQUESTS failures=0" "$probe_log" || {
+  echo "Edge had failed or incomplete requests after SIGKILL." >&2
+  exit 11
+}
 echo "SIGKILL_FAILOVER_OK=1 killed_port=$killed_port"
 
 # Verify the surviving replacement still reports healthy and then drain it.

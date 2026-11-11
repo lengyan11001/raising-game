@@ -21,6 +21,7 @@ ENV_FILE="${ENV_FILE:-/etc/raising-game-demo.env}"
 PORT_A="${PORT_A:-4181}"
 PORT_B="${PORT_B:-4182}"
 RUN_ROOT="${RUN_ROOT:-/tmp/raising-game-multi-process-drill}"
+PROBE_REQUESTS="${PROBE_REQUESTS:-60}"
 
 if [[ ! "$DRILL_DB" =~ ^raising_game_multi_drill_[0-9]{14}$ ]]; then
   echo "DRILL_DB must be a disposable raising_game_multi_drill_YYYYMMDDHHMMSS database." >&2
@@ -36,6 +37,10 @@ for port in "$PORT_A" "$PORT_B"; do
     exit 3
   fi
 done
+if [[ ! "$PROBE_REQUESTS" =~ ^[1-9][0-9]*$ ]] || (( PROBE_REQUESTS > 1000 )); then
+  echo "PROBE_REQUESTS must be an integer between 1 and 1000." >&2
+  exit 2
+fi
 if [[ "$PORT_A" == "4174" || "$PORT_B" == "4174" ]]; then
   echo "The production port 4174 must not be used for this drill." >&2
   exit 2
@@ -96,6 +101,8 @@ http_a=""
 http_b=""
 
 cleanup() {
+  local status=$?
+  local remaining
   set +e
   for pid in "$http_a" "$http_b" "$lock_holder"; do
     [[ -n "$pid" ]] && kill -TERM "$pid" 2>/dev/null
@@ -104,8 +111,19 @@ cleanup() {
     [[ -n "$pid" ]] && timeout 10 tail --pid="$pid" -f /dev/null 2>/dev/null
   done
   rm -rf "$RUN_ROOT"
-  runuser -u postgres -- dropdb --if-exists "$DRILL_DB" >/dev/null 2>&1
-  echo "MULTI_PROCESS_DRILL_CLEANUP db=$DRILL_DB"
+  if ! runuser -u postgres -- dropdb --if-exists -- "$DRILL_DB"; then
+    echo "MULTI_PROCESS_DRILL_CLEANUP_FAILED db=$DRILL_DB reason=dropdb" >&2
+    [[ "$status" -eq 0 ]] && status=1
+  else
+    remaining="$(runuser -u postgres -- psql -X -A -t -d postgres -c "SELECT count(*) FROM pg_database WHERE datname = '$DRILL_DB'")"
+    if [[ "$remaining" == "0" ]]; then
+      echo "MULTI_PROCESS_DRILL_CLEANUP_OK=1 db=$DRILL_DB"
+    else
+      echo "MULTI_PROCESS_DRILL_CLEANUP_FAILED db=$DRILL_DB remaining=${remaining:-unknown}" >&2
+      [[ "$status" -eq 0 ]] && status=1
+    fi
+  fi
+  exit "$status"
 }
 trap cleanup EXIT
 
@@ -143,6 +161,35 @@ if [[ "${DRILL_CONFIRM_DISPOSABLE_DATABASE:-}" != "1" ]]; then
   echo "DRILL_CONFIRM_DISPOSABLE_DATABASE=1 is required before schema migration." >&2
   exit 4
 fi
+# Migrations create the catalog table but intentionally do not seed runtime
+# data. Refuse an empty disposable database before migrations or app startup;
+# a production-like drill must be restored from a populated verified snapshot.
+catalog_probe="$(
+  runuser -u postgres -- psql "$DRILL_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 -c "
+    SELECT
+      to_regclass('public.app_catalog_entries') IS NOT NULL,
+      COALESCE((SELECT COUNT(*) FROM app_catalog_entries WHERE catalog = 'ourdream_presets' AND deleted_at IS NULL), 0),
+      COALESCE((SELECT COUNT(*) FROM app_catalog_entries WHERE catalog = 'ourdream_actions' AND deleted_at IS NULL), 0),
+      COALESCE((SELECT COUNT(*) FROM app_catalog_entries WHERE catalog = 'chat_live_voices' AND scope = 'realtime' AND deleted_at IS NULL), 0),
+      COALESCE((SELECT COUNT(*) FROM app_catalog_entries WHERE catalog = 'chat_live_voices' AND scope = 'component' AND deleted_at IS NULL), 0),
+      COALESCE((SELECT COUNT(*) FROM app_catalog_entries WHERE catalog = 'showcase_cases' AND deleted_at IS NULL), 0)
+  " 2>/dev/null
+)" || {
+  echo "DRILL_DB must be restored from a populated disposable snapshot; catalog probe failed." >&2
+  exit 4
+}
+IFS='|' read -r catalog_table_ready presets_count actions_count realtime_count component_count showcase_count <<<"$catalog_probe"
+if [[ "$catalog_table_ready" != "t" ]] \
+  || (( ${presets_count:-0} <= 0 )) \
+  || (( ${actions_count:-0} <= 0 )) \
+  || (( ${realtime_count:-0} <= 0 )) \
+  || (( ${component_count:-0} <= 0 )) \
+  || (( ${showcase_count:-0} <= 0 )); then
+  echo "DRILL_DB must be restored from a populated disposable snapshot; required runtime catalogs are missing or empty." >&2
+  echo "catalog probe: table=${catalog_table_ready:-unknown} presets=${presets_count:-0} actions=${actions_count:-0} realtime=${realtime_count:-0} component=${component_count:-0} showcase=${showcase_count:-0}" >&2
+  exit 4
+fi
+echo "DRILL_CATALOG_PROBE_OK presets=$presets_count actions=$actions_count realtime=$realtime_count component=$component_count showcase=$showcase_count"
 cd "$APP_ROOT"
 # Restored histories can carry data without a trusted migration ledger. The
 # readiness gate intentionally refuses to start then; reconcile the disposable
@@ -263,13 +310,40 @@ const pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 2 
 })().catch((error) => { console.error(error); process.exit(1); });
 NODE
 
-# Graceful replacement: stop B, keep A serving; then stop A. Both must exit 0.
-kill -TERM "$http_b"
-wait_exit "$http_b" || { echo "HTTP B did not drain cleanly." >&2; exit 8; }
+# A request probe keeps exercising A while B is killed without shutdown. This
+# proves that loss of one process does not make the other process unhealthy;
+# the Nginx drill separately proves that the edge retries away from the dead
+# peer without a user-visible error.
+probe_log="$logs/survivor-probe.log"
+(
+  ok=0
+  failed=0
+  for _ in $(seq 1 "$PROBE_REQUESTS"); do
+    if curl -fsS --max-time 2 "http://127.0.0.1:$PORT_A/api/health" >/dev/null 2>&1; then
+      ok=$((ok + 1))
+    else
+      failed=$((failed + 1))
+    fi
+    sleep 0.05
+  done
+  printf 'SURVIVOR_PROBE_OK requests=%s failures=%s\n' "$ok" "$failed"
+) >"$probe_log" 2>&1 &
+probe_pid=$!
+sleep 0.75
+kill -KILL "$http_b"
+wait "$http_b" 2>/dev/null || true
 http_b=""
-wait_http "$PORT_A" "$http_a" || { echo "HTTP A failed after peer drain." >&2; exit 9; }
-echo "PEER_DRAIN_SURVIVED=1"
+wait "$probe_pid"
+cat "$probe_log"
+grep -qx "SURVIVOR_PROBE_OK requests=$PROBE_REQUESTS failures=0" "$probe_log" || {
+  echo "Surviving process had failed or incomplete requests after SIGKILL." >&2
+  exit 8
+}
+wait_http "$PORT_A" "$http_a" || { echo "HTTP A failed after peer SIGKILL." >&2; exit 9; }
+echo "SIGKILL_PEER_SURVIVED=1 killed_port=$PORT_B"
+
+# Graceful replacement: stop the surviving A and require a clean drain.
 kill -TERM "$http_a"
 wait_exit "$http_a" || { echo "HTTP A did not drain cleanly." >&2; exit 9; }
 http_a=""
-echo "MULTI_PROCESS_DRILL_OK http_instances=2 scheduler_takeover=1"
+echo "MULTI_PROCESS_DRILL_OK http_instances=2 scheduler_takeover=1 sigkill_failover=1"

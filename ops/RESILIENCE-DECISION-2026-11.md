@@ -33,16 +33,30 @@ Recommended order:
 - Graceful SIGTERM drains in-flight generation submissions with a bounded timeout.
 - A disposable-database Old-host drill proved two HTTP processes can start, coexist, hand over a
   scheduler lease, survive stopping one peer, and exit cleanly.
+- A production-shaped transient-systemd drill proved two independent services can share one
+  release and one PostgreSQL database, survive SIGKILL with automatic restart, stop and restart
+  independently, and leave no unit or database residue. It deliberately disabled schedulers and
+  the generation-submit worker; the peer-isolation and lease drills cover those controls.
 - A fault-injection drill proved one winning request claim, one charge, one provider submission,
   crash-window recovery, refund idempotency, and reconciliation.
+- An isolated Old-host Nginx drill proved health removal and automatic failover between two
+  application ports, rolling replacement while the other process serves HTTP, and SIGKILL
+  failover with 80/80 successful edge probes.
+- The same isolated drill proved a transaction-shaped cutover: three independently named traffic
+  upstreams move to the replacement in one atomic file replacement and one Nginx reload. A bad
+  health route restores all three together.
+- A single-upstream switch tool refuses ambiguous configuration and rolls back the exact original
+  file when Nginx validation, reload, or an explicit HTTP 200 check fails.
 
 ## What is not proven yet
 
-- Nginx upstream health removal and automatic failover between two application ports.
-- Rolling replacement of one process while the other serves real HTTP traffic.
-- A real crash (SIGKILL), not only SIGTERM, followed by recovery without duplicate work.
-- A full production-like deployment topology with two systemd instances and one shared release.
+- Production cutover using every real traffic upstream together, with rollback of the full
+  original Nginx configuration.
+- A sustained capacity measurement proving that the second process improves p95 latency or
+  headroom enough to justify permanent production enablement.
 - Sustained capacity and latency benefit from a second process.
+- End-to-end crash recovery for every externally triggered mutation under live traffic; isolated
+  race and refund tests pass, but production promotion still requires measured evidence.
 
 ## Promotion gates for same-host multi-process
 
@@ -56,7 +70,7 @@ All must pass before production traffic is load-balanced across two Node process
   durable result guard.
 - A duplicate request across different ports produces one charge and one provider submission.
 - Nginx marks a stopped/failed upstream unavailable within the configured retry window and keeps
-  serving from the healthy peer.
+  serving from the healthy peer. Isolated drill evidence exists; production wiring is still a gate.
 - A rolling replacement drains one process with zero failed health checks at the external URL.
 - SIGKILL of one process does not duplicate a generation charge, provider submit, webhook, or
   settlement.
@@ -109,7 +123,27 @@ resilience.
   window.
 - Treat a passing health probe as availability evidence only, not capacity evidence.
 
-### Stage B: Isolated Nginx failover and rolling replacement (no production topology change)
+### Stage B: Isolated Nginx failover and rolling replacement (verified)
+
+Isolated evidence on 2026-11-11:
+
+- `raising_game_nginx_drill_20261111102348` restored from a verified backup and ran on isolated
+  app ports 4181/4182 with edge port 48080.
+- Two HTTP instances were ready with schedulers and the durable submit worker disabled.
+- A drained peer was replaced while the edge kept serving.
+- `SIGKILL` of one peer during an 80-request edge probe produced zero failures.
+- Three transaction-shaped upstreams switched together in one file write/reload; one bad route
+  restored all three together.
+- Cleanup is verified by a second PostgreSQL metadata query, not by assuming `dropdb` succeeded.
+
+The production shape has now been validated with transient units, but production remains
+single-process on port 4174. The next promotion stage is a measured, reversible production
+cutover: start a second service on a spare port, verify all readiness endpoints, transaction-switch
+every real traffic upstream together, observe, then stop the old listener only after the new one
+has served real traffic. Do not expose a partial traffic mix or depend on Nginx `max_fails` to hide
+a release gap.
+
+## Stage B design (historical)
 
 - Run two disposable DB-backed app instances.
 - Put them behind a disposable Nginx upstream.
@@ -126,11 +160,18 @@ resilience.
 
 ### Stage D: Production-shaped rollout
 
-- Keep one systemd service initially; add a second instance only behind a tested upstream.
-- Start the second instance with schedulers disabled only if promotion is staged; then move
-  background ownership through PostgreSQL leases.
-- Use health-based removal, not ad hoc restarts.
-- Roll back to the single upstream if any error, charge, or lock anomaly appears.
+- The isolated systemd topology has passed: two transient units, one shared release/database,
+  distinct cgroups and ports, SIGKILL auto-restart, independent stop/restart, and verified cleanup.
+- Next, create a permanent but disabled second unit template only after the release artifact and
+  environment ownership are reviewed. Keep the primary unit unchanged until the cutover window.
+- Start the second instance on a spare port with schedulers disabled; use PostgreSQL leases to
+  move background ownership only after HTTP cutover is stable.
+- Transaction-switch every real traffic upstream together. Require all public and internal
+  health URLs to return HTTP 200 before accepting the new configuration.
+- Observe error rate, p95 latency, database connections/pool waits, restart count, generation
+  success/refund uniqueness, and provider-submit anomalies.
+- Roll the entire Nginx file back if any check fails, then stop the new instance. Never cut a
+  single upstream to a partially prepared topology.
 
 ### Stage E: Capacity review
 
