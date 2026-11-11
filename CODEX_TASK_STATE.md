@@ -1,3 +1,11 @@
+## 2026-11-11 Step V: MuleRouter fetch failure diagnosed; bounded network retry prepared
+
+- Inspected production task `img-20261111210825-7adf84` (`wan2.7-image-pro`). The generation record has `provider=aliyun-wan27-image`, `upstreamSource=direct`, no upstream task id / create response, `error=fetch failed`, and `billingStatus=refunded`; journal shows `[mulerouter-image-edit]` immediately before `[wan27-image-edit-background-error] ... fetch failed`. This is a server-to-MuleRouter failure, not a browser/client network error.
+- Production `mulerouter_route` was enabled. Recent Wan2.7 image task history shows only this one `fetch failed`; neighboring tasks succeeded. The failing request therefore hit a transient server/upstream network drop rather than a user-side fault.
+- `mulerouter-aliyun.js` now normalizes network failures to `MULEROUTER_NETWORK_ERROR` (HTTP 502) instead of surfacing raw `fetch failed`. GET polling retries up to 3 attempts on transient network/HTTP failures. Generation POST retries only DNS/connect-refused/connect-timeout failures before a connection exists; ambiguous post-send failures are not retried because MuleRouter treats a new POST as a new billed generation.
+- Added focused coverage in `test/mulerouter-balance.test.js`: polling transient retry, no retry after ambiguous POST failure, and safe pre-connect POST retry. Combined targeted suite passed 35/35 with source compatibility; syntax and whitespace checks passed.
+- Deployment pending in this step until the exact integration commit and platform release are built/pushed. Do not include unrelated dirty workspace files.
+
 ## 2026-11-11 Step U: no-restart deployment hardened and resilience candidate deployed Old-only
 
 - Found and fixed a deployment-safety defect before production mutation: `--no-restart` prevented `systemctl restart` but still executed `pre_restart_commands` and `post_restart_commands`. This could have run PostgreSQL migration and Nginx hardening during a code-only window. The flag now makes both command sets inert, and the entrypoint log reflects the effective restart decision.

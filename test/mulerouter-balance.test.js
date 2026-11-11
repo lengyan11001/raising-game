@@ -57,3 +57,80 @@ test("other MuleRouter failures retain their original error", async () => {
     restore();
   }
 });
+
+
+test("MuleRouter polling retries a transient network failure", async () => {
+  const original = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      const error = new TypeError("fetch failed");
+      error.cause = { code: "ECONNRESET" };
+      throw error;
+    }
+    return new Response(JSON.stringify({
+      task_info: { id: "task-1", status: "completed" },
+      images: ["https://cdn.example.com/result.png"],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const result = await mulerouter.query("mr:qwen-image-edit-spicy:task-1");
+    assert.equal(calls, 2);
+    assert.equal(result.task.status, "completed");
+    assert.deepEqual(result.task.imageUrls, ["https://cdn.example.com/result.png"]);
+  } finally {
+    global.fetch = original;
+  }
+});
+
+test("MuleRouter does not retry a submitted generation on an ambiguous fetch failure", async () => {
+  const original = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    throw new TypeError("fetch failed");
+  };
+  try {
+    await assert.rejects(
+      () => mulerouter.submit({ use: true, vendor: "carrothub", slug: "qwen-image-edit-spicy", body: { prompt: "test" } }),
+      (error) => {
+        assert.equal(error.code, "MULEROUTER_NETWORK_ERROR");
+        assert.equal(error.statusCode, 502);
+        return true;
+      },
+    );
+    assert.equal(calls, 1);
+  } finally {
+    global.fetch = original;
+  }
+});
+
+test("MuleRouter retries a generation only when the connection was never established", async () => {
+  const original = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      const error = new TypeError("fetch failed");
+      error.cause = { code: "ENOTFOUND" };
+      throw error;
+    }
+    return new Response(JSON.stringify({
+      task_info: { id: "task-2", status: "pending" },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const result = await mulerouter.submit({ use: true, vendor: "carrothub", slug: "qwen-image-edit-spicy", body: { prompt: "test" } });
+    assert.equal(calls, 2);
+    assert.equal(result.task.taskId, "mr:qwen-image-edit-spicy:task-2");
+  } finally {
+    global.fetch = original;
+  }
+});
