@@ -121,7 +121,7 @@ test("external API results still expose the matching provider URL first", () => 
   assert.match(source, /providerVideoUrl \|\| deliveryVideoUrl \|\| localUrl/);
 });
 
-test("completed video records without durable media refresh even when a provider URL exists", () => {
+test("completed video records without durable media only refresh inside the recovery window", () => {
   const start = server.indexOf("function shouldRefreshGenerationRecord(");
   const end = server.indexOf("function isStalePreSubmitGenerationRecord(", start + 1);
   assert.notEqual(start, -1);
@@ -138,6 +138,7 @@ test("completed video records without durable media refresh even when a provider
     "isSucceededStatus",
     "generationRecordProviderVideoUrl",
     "GENERATION_MEDIA_PERSISTENCE_RETRY_DELAY_MS",
+    "GENERATION_MEDIA_PERSISTENCE_MAX_AGE_MS",
     `${source}\nreturn shouldRefreshGenerationRecord;`,
   )(
     () => false,
@@ -150,6 +151,7 @@ test("completed video records without durable media refresh even when a provider
     (status) => ["succeeded", "success", "done", "completed"].includes(String(status).toLowerCase()),
     (record) => String(record.remoteVideoUrl || ""),
     30 * 60 * 1000,
+    24 * 60 * 60 * 1000,
   );
 
   const base = {
@@ -158,8 +160,15 @@ test("completed video records without durable media refresh even when a provider
     provider: "seedance",
     upstreamSource: "direct",
     remoteVideoUrl: "https://provider.example/expiring.mp4",
+    createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
   };
   assert.equal(shouldRefresh(base), true);
+  assert.equal(shouldRefresh({
+    ...base,
+    createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date().toISOString(),
+  }), false);
+  assert.equal(shouldRefresh({ ...base, createdAt: "" }), false);
   assert.equal(shouldRefresh({ ...base, cdnVideoUrl: "https://media.example/video.mp4", storageKey: "generated/videos/video.mp4" }), false);
   assert.equal(shouldRefresh({ ...base, mediaPersistenceTerminalAt: new Date().toISOString() }), false);
   assert.equal(shouldRefresh({ ...base, mediaPersistenceRetryAt: new Date(Date.now() + 60_000).toISOString() }), false);
@@ -171,6 +180,19 @@ test("completed video records without durable media refresh even when a provider
   const persistenceScanner = server.slice(persistenceStart, persistenceEnd);
   assert.match(persistenceScanner, /if \(!current\.cdnVideoUrl && shouldRefreshGenerationRecord\(current\)\)[\s\S]*?current = await refreshGenerationRecordStatus\(current\)/);
   assert.ok(persistenceScanner.indexOf("refreshGenerationRecordStatus(current)") < persistenceScanner.indexOf("prepareGenerationRecordAdvancedDownload(current)"));
+});
+
+test("missing upstream resources do not downgrade an already succeeded generation record", () => {
+  const preserveHelper = functionSource("preserveSucceededGenerationRecordAfterMissingUpstream", "updateGenerationRecord");
+  assert.match(preserveHelper, /mediaPersistenceTerminalAt: new Date\(\)\.toISOString\(\)/);
+  assert.doesNotMatch(preserveHelper, /status:\s*"failed"/);
+  const refreshStatus = functionSource("refreshGenerationRecordStatus", "findActiveSeedream5ImageDuplicate");
+  assert.equal((refreshStatus.match(/if \(upstreamResourceMissing\(error\)\)/g) || []).length, 3);
+  assert.equal((refreshStatus.match(/if \(isSucceededStatus\(record\.status\)\)/g) || []).length, 3);
+  assert.equal((refreshStatus.match(/preserveSucceededGenerationRecordAfterMissingUpstream\(record, error,/g) || []).length, 3);
+  for (const reason of ["vega-upstream-resource-missing-preserved-success", "wan27-upstream-resource-missing-preserved-success", "upstream-resource-missing-preserved-success"]) {
+    assert.match(refreshStatus, new RegExp(reason));
+  }
 });
 
 test("poll=1 uses a status-only snapshot while plain refresh=1 stays compatible", () => {

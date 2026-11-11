@@ -3229,3 +3229,14 @@ CODEX_TASK_STATE.md
 - Release-focused tracked tests: 121/121 pass. Tracked full suite: 1,131 tests, 1,100 pass, 30 known pre-existing failures, 1 skipped; the newly introduced media-size regression is fixed and no new failure remains.
 - Static checks pass: affected Node syntax, `bash -n ops/multi-process-drill.sh`, Python compile, and cached/unstaged `git diff --check`. Temporary `server.parts/part-26.tmp.js` was removed.
 - Still not committed or deployed. Production remains untouched; generation queue, worker, multi-process and Redis remain disabled.
+
+## 2026-11-11 Legacy generation-record upstream re-query regression (candidate ready)
+
+- Read-only production observation found `cgt-20261104165705-43a7f7` changing from `succeeded` to `failed` from a `user-poll` refresh. Its provider resource `cgt-20261104165706-ehc8q` no longer exists, but the task was created on 2026-11-04 and only has an expired provider video URL, with no `cdnVideoUrl`, `storageKey`, or `localVideoUrl`.
+- Billing is already `settled`, one `advanced_generation -900` ledger entry exists, and no refund was issued. This is not a duplicate-refund case; do not mutate production records or manually refund it.
+- Root cause: `shouldRefreshGenerationRecord()` allowed a succeeded video without durable R2 media to re-query upstream indefinitely. List refresh has a 24-hour updated-at guard, but poster recovery updates `updatedAt`, so a four-day-old task could re-enter the refresh window. If the provider object was gone, the generic refresh catch wrote `status: "failed"`, changing user-visible history.
+- Implemented minimal fix: gate succeeded-without-durable-media upstream recovery by original `createdAt` within the existing 24-hour media persistence window; preserve an already-succeeded record when a later upstream lookup reports the resource missing. Missing `createdAt` is treated as non-refreshable to avoid touching historical records.
+- Implemented protection across the three upstream-missing paths: Tencent VOD/Vega, Wan, and generic refresh. The helper records query diagnostics and `mediaPersistenceTerminalAt` without writing `status: "failed"` or changing billing.
+- Regression coverage now proves: recent succeeded/no-R2 may recover; old succeeded/no-R2 must not refresh even when `updatedAt` is recent; missing `createdAt`, durable R2, terminal persistence, and future retry states must not refresh; all three missing-resource paths preserve succeeded history.
+- Verification passed: focused suite 193/193, all `server.parts/*.js` plus `server.js` and the changed test pass `node --check`, and `git diff --check` is clean.
+- Changed only `server.parts/part-20.js`, `server.parts/part-21.js`, `test/generation-record-list-refresh.test.js`, and this state file. No production data was mutated and no deployment has been performed yet.

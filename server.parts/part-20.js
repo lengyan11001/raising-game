@@ -824,6 +824,19 @@ async function upsertAndSettleGenerationRecord(nextRecord, reason = "query") {
   return settleSeedanceGenerationRecord(record, reason);
 }
 
+async function preserveSucceededGenerationRecordAfterMissingUpstream(record = {}, error = {}, reason = "upstream-resource-missing") {
+  console.warn("[generation-record-refresh-preserved-success]", record.taskId, error.message || error);
+  return upsertGenerationRecord({
+    taskId: record.taskId,
+    statusQueryError: error.message || "Upstream task resource not found.",
+    statusQueryStatusCode: error.statusCode || 0,
+    statusQueryPayload: error.payload || null,
+    statusQueryCheckedAt: new Date().toISOString(),
+    mediaPersistenceTerminalAt: new Date().toISOString(),
+    lastUpdateReason: reason,
+  });
+}
+
 async function updateGenerationRecord(taskId, updates = {}, reason = "update") {
   if (!taskId) return null;
   const nextRecord = storageGenerationRecord({ ...updates, taskId });

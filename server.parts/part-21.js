@@ -110,6 +110,8 @@ function shouldRefreshGenerationRecord(record = {}) {
     if (retryAt && retryAt > Date.now()) return false;
     const lastAttemptAt = Date.parse(record.mediaPersistenceLastAttemptAt || record.statusQueryCheckedAt || "");
     if (lastAttemptAt && Date.now() - lastAttemptAt < GENERATION_MEDIA_PERSISTENCE_RETRY_DELAY_MS) return false;
+    const createdMs = Date.parse(record.createdAt || "");
+    if (!createdMs || Date.now() - createdMs > GENERATION_MEDIA_PERSISTENCE_MAX_AGE_MS) return false;
     // A provider URL is temporary. Do not treat it as durable storage: if the
     // object-storage copy is missing, query upstream again before it expires.
     return Boolean(record.taskId) && !record.localVideoUrl;
@@ -1031,6 +1033,9 @@ async function refreshGenerationRecordStatus(record = {}) {
     } catch (error) {
       console.warn("[vega-generation-record-refresh-failed]", record.taskId, error.message || error);
       if (upstreamResourceMissing(error)) {
+        if (isSucceededStatus(record.status)) {
+          return await preserveSucceededGenerationRecordAfterMissingUpstream(record, error, "vega-upstream-resource-missing-preserved-success");
+        }
         return await upsertAndSettleGenerationRecord({
           taskId: record.taskId,
           status: "failed",
@@ -1226,6 +1231,9 @@ async function refreshGenerationRecordStatus(record = {}) {
     } catch (error) {
       console.warn("[wan27-generation-record-refresh-failed]", record.taskId, error.message || error);
       if (upstreamResourceMissing(error)) {
+        if (isSucceededStatus(record.status)) {
+          return await preserveSucceededGenerationRecordAfterMissingUpstream(record, error, "wan27-upstream-resource-missing-preserved-success");
+        }
         return await upsertAndSettleGenerationRecord({
           taskId: record.taskId,
           status: "failed",
@@ -1311,6 +1319,13 @@ async function refreshGenerationRecordStatus(record = {}) {
       if (isChatCompletionGenerationRecord(record) || String(record.textResult || record.responseText || "").trim()) {
         console.warn("[generation-record-refresh-ignored-missing-chat]", record.taskId);
         return record;
+      }
+      if (isSucceededStatus(record.status)) {
+        // Provider objects expire. A later lookup missing the upstream resource
+        // must not rewrite an already successful customer-visible history or
+        // alter settled billing. Stop automatic recovery with a query error and
+        // preserve the compact status snapshot.
+        return await preserveSucceededGenerationRecordAfterMissingUpstream(record, error, "upstream-resource-missing-preserved-success");
       }
       return await upsertAndSettleGenerationRecord({
         taskId: record.taskId,
