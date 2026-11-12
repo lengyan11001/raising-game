@@ -1,3 +1,12 @@
+## 2026-11-12 Step BB: generation-record polling skips full history counts
+
+- `GET /api/generation-records?...&refresh=1&poll=1` now uses a bounded first-page query without `COUNT(*) OVER()`. Normal history pagination still returns the authoritative `total` and `totalPages`; the poll response keeps the same fields but treats its total as a non-authoritative page estimate.
+- Production read-only `EXPLAIN (ANALYZE, BUFFERS)` on the largest sampled user with 2,891 live records: old counted query `92.877 ms`, 15,709 shared buffers and 2,891 scanned rows; lightweight query `1.363 ms`, 160 shared buffers and 21 scanned rows. Both use `app_generation_records_user_created_idx`; no schema or index change.
+- Candidate source `259ae4f173315002dbc1e49033176579945821e5`; exact platform release `9ea834f955235e2a38539eb5c7aae171b310c29e`. The release differs from deployed `085254748d153fc7e20247d376176536332e615c` only by this state file and the three intended polling files.
+- Verification: focused regression `32/32`; full integration suite `1253` tests with `1252 pass / 0 fail / 1 skip`; exact release tree with installed dependencies `1177` tests with `1175 pass / 0 fail / 2 skip`; Node syntax and `git diff --check` pass. Logs: `/tmp/raising-poll-no-count-full.log`, `/tmp/raising-poll-no-count-exact-with-deps.log`.
+- The first exact-tree run had 28 failures solely because the temporary tree had no `node_modules`; rerunning the identical tree with the installed dependency directory passed. The erroneous candidate `b951ca8b` was never pushed or deployed.
+- Redis remains disabled, 4175 schedulers/queue/worker remain disabled, Live remains untouched, and backups remain last.
+
 ## 2026-11-12 Step BA: generation-record polling failure backoff
 
 - Added visibility-aware exponential backoff for generation completion polling: 15s after a transient failure, then 30s, 60s, and at most 120s. Any successful poll immediately resets the failure counter, and hidden pages continue not to poll.
