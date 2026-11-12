@@ -49,18 +49,8 @@ def run(command: list[str], timeout: int = 15) -> subprocess.CompletedProcess[st
     )
 
 
-def systemctl_binary() -> str:
-    # Test-only injection keeps every production call on the real systemctl.
-    binary = os.environ.get("RAISING_GAME_SYSTEMCTL_BIN", "systemctl")
-    if Path(binary).name != "systemctl":
-        candidate = Path(binary)
-        if not candidate.is_absolute() or not candidate.is_file():
-            raise RuntimeError("RAISING_GAME_SYSTEMCTL_BIN must name an existing systemctl")
-    return binary
-
-
 def systemctl_show(service: str, properties: tuple[str, ...]) -> dict[str, str]:
-    command = [systemctl_binary(), "show", service, "--no-pager"]
+    command = ["systemctl", "show", service, "--no-pager"]
     for prop in properties:
         command.extend(["-p", prop])
     result = run(command)
@@ -133,7 +123,7 @@ def add_public_checks(checks: list[Check], phase: str) -> None:
         )
 
 
-SECONDARY_ENV = Path(os.environ.get("RAISING_GAME_SECONDARY_ENV", "/etc/raising-game-demo-b.env"))
+SECONDARY_ENV = Path("/etc/raising-game-demo-b.env")
 SERVICE_ENV = Path(os.environ.get("RAISING_GAME_SERVICE_ENV", "/etc/raising-game-demo.env"))
 
 
@@ -151,7 +141,7 @@ def read_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def secondary_environment_check(checks: list[Check], phase: str, env_path: Path = SECONDARY_ENV) -> None:
+def secondary_environment_check(checks: list[Check], phase: str) -> None:
     """Validate the non-secret secondary overrides without executing the app."""
     required = {
         "PORT": "4175",
@@ -162,10 +152,10 @@ def secondary_environment_check(checks: list[Check], phase: str, env_path: Path 
     }
     forbidden = ("DATABASE_URL", "SECRET", "TOKEN", "PASSWORD", "KEY")
     problems: list[str] = []
-    if not env_path.is_file():
-        problems.append(f"missing env file: {env_path}")
+    if not SECONDARY_ENV.is_file():
+        problems.append("missing env file")
     else:
-        values = read_env_file(env_path)
+        values = read_env_file(SECONDARY_ENV)
         for key, expected in required.items():
             actual = values.get(key)
             if actual != expected:
@@ -255,12 +245,6 @@ def main() -> int:
     )
     parser.add_argument("--candidate-port", type=int, default=SECONDARY_PORT)
     parser.add_argument("--primary-port", type=int, default=PRIMARY_PORT)
-    parser.add_argument(
-        "--secondary-env",
-        type=Path,
-        default=SECONDARY_ENV,
-        help="Secondary systemd environment file to validate without printing secrets.",
-    )
     args = parser.parse_args()
 
     for binary in ("systemctl", "ss", "curl", "psql"):
@@ -283,7 +267,7 @@ def main() -> int:
     add_http_checks(checks, f"http://127.0.0.1:{args.primary_port}", f"{args.phase}:primary")
 
     if args.phase == "candidate":
-        secondary_environment_check(checks, args.phase, args.secondary_env)
+        secondary_environment_check(checks, args.phase)
         secondary = add_service_check(checks, SECONDARY_SERVICE, True, args.phase)
         secondary_pid = secondary.get("MainPID", "0")
         secondary_listening, secondary_detail = listening_pid(args.candidate_port)

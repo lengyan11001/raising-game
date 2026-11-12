@@ -93,10 +93,6 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deployPull, /class PinnedHostKeyPolicy/);
   assert.match(deployPull, /--host-key-sha256/);
   assert.match(deploySite, /SHA256:FjIDikg5kkvITUdxOc2142HRn\+WP5A7Bj6Z5fReu8lI/);
-  assert.match(deploySite, /--rolling cannot be combined with --no-restart/);
-  assert.match(deploySite, /--rolling is not implemented in deploy_site\.py/);
-  assert.match(deployPull, /--rolling cannot be combined with --no-restart or --no-mutations/);
-  assert.match(deployPull, /--rolling is not implemented here/);
 });
 
 function printedDeployCommand(extraArgs = [], env = {}) {

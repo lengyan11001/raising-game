@@ -66,7 +66,6 @@ PLATFORM_PATTERNS = (
     "assets/admin/**",
     "workflow-react/**",
     "ops/run-db-migrations.js",
-    "ops/prepare-independent-release.sh",
     "ops/multi-process-drill.sh",
     "ops/nginx-multi-upstream-drill.sh",
     "ops/nginx-upstream-switch.py",
@@ -92,8 +91,6 @@ PLATFORM_PATTERNS = (
     "ops/production-cutover-runbook.md",
     "ops/verify-production-cutover.py",
     "ops/verify-postgres-backup.sh",
-    "test/independent-release.test.js",
-    "test/runtime-assets-root.test.js",
     "test/migration-runner.test.js",
     "test/migration-drill.test.js",
 )

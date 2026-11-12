@@ -1138,11 +1138,11 @@ function platformHtmlCacheKey(req, version = "current") {
   ].join("|");
 }
 
-async function renderPlatformHtmlSnapshot(req) {
+async function renderPlatformHtmlSnapshot(req, version = "") {
   const filePath = path.join(ROOT, "platform.html");
   const html = await fs.readFile(filePath, "utf8");
-  const version = await currentPlatformAssetVersion();
-  const versionedHtml = applyPlatformAssetVersion(html, version);
+  const assetVersion = version || await currentPlatformAssetVersion();
+  const versionedHtml = applyPlatformAssetVersion(html, assetVersion);
   const snapshot = await geoSiteSnapshot(req);
   return injectPlatformGeoHead(versionedHtml, snapshot, requestTenantOptions(req));
 }
@@ -1163,7 +1163,7 @@ async function platformHtmlSnapshot(req) {
   const cacheHit = Boolean(cached && cached.expiresAt > now);
   baselineMetrics.recordCache("platform_html", cacheHit);
   if (cacheHit) return cached.promise;
-  const pending = renderPlatformHtmlSnapshot(req);
+  const pending = renderPlatformHtmlSnapshot(req, version);
   const entry = { promise: pending, expiresAt: now + PLATFORM_HTML_CACHE_TTL_MS };
   platformHtmlSnapshotCache.set(key, entry);
   try {
@@ -1174,21 +1174,38 @@ async function platformHtmlSnapshot(req) {
   }
 }
 
+async function computePlatformAssetVersion() {
+  // File mtimes are preserved by archive/copy based releases and can leave an
+  // older, newer-mtime file dominating the cache key. Content hashes make the
+  // public asset URL change whenever any shipped platform file changes.
+  const entries = await Promise.all(
+    PLATFORM_ASSET_FILES.map(async (fileName) => {
+      const content = await fs.readFile(path.join(ROOT, fileName));
+      const digest = crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
+      return `${fileName}:${digest}`;
+    }),
+  );
+  return crypto.createHash("sha256").update(entries.join("\0")).digest("hex").slice(0, 12);
+}
+
 async function currentPlatformAssetVersion() {
-  if (!platformAssetVersionPromise) {
-    // File mtimes are preserved by archive/copy based releases and can leave an
-    // older, newer-mtime file dominating the cache key. Content hashes make the
-    // public asset URL change whenever any shipped platform file changes.
-    platformAssetVersionPromise = Promise.all(
-      PLATFORM_ASSET_FILES.map(async (fileName) => {
-        const content = await fs.readFile(path.join(ROOT, fileName));
-        const digest = crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
-        return `${fileName}:${digest}`;
-      }),
-    ).then((entries) => crypto.createHash("sha256").update(entries.join("\0")).digest("hex").slice(0, 12))
-      .catch(() => "current");
+  const now = Date.now();
+  if (platformAssetVersionCache.promise && platformAssetVersionCache.expiresAt > now) {
+    return platformAssetVersionCache.promise;
   }
-  return platformAssetVersionPromise;
+  const previousValue = platformAssetVersionCache.value;
+  const pending = computePlatformAssetVersion()
+    .then((value) => {
+      platformAssetVersionCache.value = value;
+      return value;
+    })
+    .catch(() => previousValue || "current");
+  platformAssetVersionCache = {
+    value: previousValue,
+    expiresAt: now + PLATFORM_ASSET_VERSION_CACHE_TTL_MS,
+    promise: pending,
+  };
+  return pending;
 }
 
 function applyPlatformAssetVersion(html = "", version = "current") {

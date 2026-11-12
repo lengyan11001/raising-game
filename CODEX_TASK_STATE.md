@@ -1,3 +1,12 @@
+## 2026-11-12 Step BE: anonymous contact panel repair and asset-version cache correction
+
+- Corrects Step BD: the delivered bottom-left `联系我们` entry intentionally opens the notification panel, not the support dialog directly. The panel's `在线客服` item opens the anonymous support form. Anonymous visitors must not be redirected to login by either entry.
+- The deployed fans-only Nginx fence rewrites the old `?v=8a625c027303` asset version to `?v=8cc597500820`; backup is `/etc/nginx/sites-enabled/123vip.fans.codex-bak-1794482141`. This is temporary and must be removed after the permanent content-hash deployment is verified.
+- Fixed `toggleNotificationPanel()`/`renderNotificationCenter()` so the notification container remains available without an authenticated user, while authenticated users retain their existing notification and ticket flows. The panel's support entry now opens `openSupportDialog({ source: "notification_panel" })`.
+- Fixed the permanent asset cache-busting root cause: the in-process platform asset version result was cached forever. It now uses content hashes with a 20-second TTL, and HTML rendering reuses the same version value instead of hashing twice.
+- New-baseline serial full suite passed: `1253 pass / 0 fail / 1 skipped` (1254 tests, log `/tmp/raising-fans-anon-full-final.log`). Focused support/navigation/cache tests passed `82/82`; Node syntax checks and `git diff --check` passed.
+- The five source commits are rebased onto `origin/old-site` commit `94aa897cc12b08433194d2a0b0de52f311999a47` without reverting other sessions' polling/release work. Next: merge into `old-site`, build a new `platform-release`, and deploy Old-only through `scripts/deploy_local.sh --site old`. Live and existing login sessions must remain untouched.
+
 ## 2026-11-12 Step BD: contact entry and case-library navigation deployed Old-only without restart
 
 - Source commit `33a864d2d3529a593d5d9f80f8b939d13e01aed7` changed the bottom-left entry to `联系我们` with a `messages-square` icon and `contact_open` analytics. Clicking it closes the notification panel and opens the anonymous-capable support dialog directly; no login is required.

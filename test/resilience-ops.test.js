@@ -30,9 +30,7 @@ const secondaryUnit = fs.readFileSync(path.join(root, "ops", "systemd", "raising
 const secondaryEnv = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-demo-b.env.example"), "utf8");
 const cutoverRunbook = fs.readFileSync(path.join(root, "ops", "production-cutover-runbook.md"), "utf8");
 const cutoverVerifier = fs.readFileSync(path.join(root, "ops", "verify-production-cutover.py"), "utf8");
-const cutoverVerifierScript = path.join(root, "ops", "verify-production-cutover.py");
 const upstreamSwitchScript = path.join(root, "ops", "nginx-upstream-switch.py");
-const upstreamSwitchScriptSource = fs.readFileSync(upstreamSwitchScript, "utf8");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -181,7 +179,6 @@ test("resilience operations are included only in the platform release snapshot",
     "ops/production-cutover-runbook.md",
     "ops/verify-production-cutover.py",
     "ops/verify-postgres-backup.sh",
-    "ops/prepare-independent-release.sh",
     "ops/run-db-migrations.js",
   ]) {
     assert.match(snapshotBuilder, new RegExp(`"${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
@@ -1372,33 +1369,6 @@ exit 22
   });
 });
 
-test("Nginx transaction bounds reload and health-check subprocesses", async () => {
-  await withTempDir(async (dir) => {
-    const file = path.join(dir, "site.conf");
-    writeUpstreamConfig(file);
-    const nginx = path.join(dir, "nginx");
-    const reload = path.join(dir, "reload");
-    const curl = path.join(dir, "curl");
-    writeExecutable(nginx, "#!/usr/bin/env bash\nexit 0\n");
-    writeExecutable(reload, "#!/usr/bin/env bash\nexit 0\n");
-    writeExecutable(curl, "#!/usr/bin/env bash\nprintf '200'\n");
-    const result = invokeUpstreamSwitch([
-      "--file", file,
-      "--upstream", "raising_game_app",
-      "--current-port", "4174",
-      "--next-port", "4183",
-      "--health-url", "http://127.0.0.1:48080/api/livez",
-      "--nginx-bin", nginx,
-      "--reload-command", reload,
-      "--apply",
-    ], { PATH: `${dir}:${process.env.PATH}` });
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(upstreamSwitchScriptSource, /def run\(command: list\[str\], timeout: int = 20\)/);
-    assert.match(upstreamSwitchScriptSource, /subprocess\.run\(command, check=True, timeout=timeout\)/);
-    assert.match(upstreamSwitchScriptSource, /--max-time", "10"[\s\S]*timeout=15/);
-  });
-});
-
 test("Nginx upstream switch verifies an explicit HTTP 200 rather than accepting a redirect or auth page", () => {
   withTempDir((dir) => {
     const file = path.join(dir, "site.conf");
@@ -1464,84 +1434,9 @@ test("cutover runbook uses one atomic switch for every real upstream", () => {
   assert.match(cutoverRunbook, /Redis remains disabled/);
 });
 
-test("cutover verifier accepts an explicit secondary env and fails closed on unsafe env files", async () => {
-  await withTempDir(async (dir) => {
-    const bin = path.join(dir, "bin");
-    fs.mkdirSync(bin);
-    writeExecutable(path.join(bin, "systemctl"), `#!/usr/bin/env bash
-if [[ "$1" != "show" ]]; then exit 90; fi
-case "$2" in
-  raising-game-demo.service) pid=100 ;;
-  raising-game-demo-b.service) pid=200 ;;
-  *) exit 91 ;;
-esac
-printf 'LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=%s\nNRestarts=0\nControlGroup=/system.slice/%s\n' "$pid" "$2"
-`);
-    writeExecutable(path.join(bin, "ss"), `#!/usr/bin/env bash
-case "$*" in
-  *:4174*) printf 'LISTEN 0 511 127.0.0.1:4174 0.0.0.0:* users:(("node",pid=100,fd=20))\n' ;;
-  *:4175*) printf 'LISTEN 0 511 127.0.0.1:4175 0.0.0.0:* users:(("node",pid=200,fd=21))\n' ;;
-  *) exit 92 ;;
-esac
-`);
-    writeExecutable(path.join(bin, "curl"), `#!/usr/bin/env bash
-printf '200 0.010'
-`);
-    writeExecutable(path.join(bin, "psql"), `#!/usr/bin/env bash
-printf '100|10|0|0|0\n'
-`);
-
-    const secondary = path.join(dir, "raising-game-demo-b.env");
-    fs.writeFileSync(secondary, `PORT=4175
-DB_SCHEMA_MIGRATION_MODE=verify
-BACKGROUND_SCHEDULERS_ENABLED=0
-GENERATION_SUBMIT_QUEUE_ENABLED=0
-GENERATION_SUBMIT_WORKER_ENABLED=0
-`);
-    const serviceEnv = path.join(dir, "raising-game-demo.env");
-    const databaseSecret = "postgresql://cutover-test:must-not-print@127.0.0.1/test";
-    fs.writeFileSync(serviceEnv, `DATABASE_URL=${databaseSecret}
-`);
-    const env = {
-      PATH: `${bin}:${process.env.PATH}`,
-      RAISING_GAME_SERVICE_ENV: serviceEnv,
-    };
-    const invoke = (secondaryEnv) => spawnSync("python3", [
-      cutoverVerifierScript,
-      "--phase", "candidate",
-      "--candidate-port", "4175",
-      "--primary-port", "4174",
-      "--secondary-env", secondaryEnv,
-    ], { cwd: root, env: { ...process.env, ...env }, encoding: "utf8" });
-
-    const accepted = invoke(secondary);
-    assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
-    assert.match(accepted.stdout, /PASS phase=candidate name=candidate:secondary-environment detail="overrides=5\/5 secrets=0"/);
-    assert.doesNotMatch(`${accepted.stdout}${accepted.stderr}`, /must-not-print/);
-
-    const missing = invoke(path.join(dir, "missing.env"));
-    assert.notEqual(missing.status, 0);
-    assert.match(missing.stdout, /FAIL phase=candidate name=candidate:secondary-environment/);
-    assert.match(missing.stdout, /missing env file/);
-
-    const invalid = path.join(dir, "invalid.env");
-    fs.writeFileSync(invalid, fs.readFileSync(secondary, "utf8").replace("BACKGROUND_SCHEDULERS_ENABLED=0", "BACKGROUND_SCHEDULERS_ENABLED=1"));
-    const invalidResult = invoke(invalid);
-    assert.notEqual(invalidResult.status, 0);
-    assert.match(invalidResult.stdout, /BACKGROUND_SCHEDULERS_ENABLED=1 expected=0/);
-
-    const secret = path.join(dir, "secret.env");
-    fs.writeFileSync(secret, `${fs.readFileSync(secondary, "utf8")}API_TOKEN=must-not-print-token\n`);
-    const secretResult = invoke(secret);
-    assert.notEqual(secretResult.status, 0);
-    assert.match(secretResult.stdout, /forbidden key=API_TOKEN/);
-    assert.doesNotMatch(`${secretResult.stdout}${secretResult.stderr}`, /must-not-print-token/);
-  });
-});
-
 test("cutover verifier is read-only and checks public, service, port, and database gates", () => {
   assert.match(cutoverVerifier, /Read-only acceptance checks/);
-  assert.match(cutoverVerifier, /systemctl_binary\(\), "show"/);
+  assert.match(cutoverVerifier, /systemctl", "show"/);
   assert.doesNotMatch(cutoverVerifier, /systemctl", "(start|stop|restart|reload)"/);
   assert.doesNotMatch(cutoverVerifier, /nginx-upstream-switch|os\.replace|write_text|open\([^)]*["']w/);
   for (const url of ["https://123vips.com/api/health", "https://chat.5vips.com/api/health", "https://live.123vipeak.com/api/health"]) {

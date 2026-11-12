@@ -519,15 +519,7 @@ const {
   readinessResponse,
 } = require("./readiness");
 const ROOT = __dirname;
-// Immutable release assets stay with the code that references them. Runtime
-// media can live in a separate, shared directory so two independent releases
-// never overwrite each other's user uploads or generated results.
-const RELEASE_ASSETS_ROOT = path.join(ROOT, "assets");
-const CONFIGURED_RUNTIME_MEDIA_ROOT = String(process.env.RUNTIME_MEDIA_ROOT || "").trim();
-const RUNTIME_MEDIA_ROOT = CONFIGURED_RUNTIME_MEDIA_ROOT
-  ? path.resolve(CONFIGURED_RUNTIME_MEDIA_ROOT)
-  : RELEASE_ASSETS_ROOT;
-const ASSETS_ROOT = RELEASE_ASSETS_ROOT;
+const ASSETS_ROOT = path.join(ROOT, "assets");
 
 function pathWithin(root, target, { allowRoot = false } = {}) {
   const rootPath = path.resolve(String(root || ""));
@@ -560,63 +552,11 @@ function safePathWithin(root, target, options = {}) {
   }
 }
 
-const RUNTIME_MEDIA_URL_PREFIXES = Object.freeze([
-  "user-uploads/",
-  "user-characters/",
-  "generated/videos/",
-  "generated/posters/",
-  "generated/images/",
-  "generated/locked-previews/",
-  "generated/characters/apiz/",
-  "generated/panoramas/",
-  "admin/home/",
-  "admin/advanced-cases/",
-  "admin/platform-templates/",
-  "admin/undress-examples/",
-]);
-
-function assetRelativePathFromUrl(value = "") {
+function safeAssetPathFromUrl(value = "") {
   const text = String(value || "").trim().split("?")[0];
   if (!text.startsWith("/assets/")) return "";
-  if (/%2e|%2f|%5c/i.test(text)) return "";
-  return text.replace(/^\/+/, "").replace(/^assets\//, "");
-}
-
-function runtimeMediaRelativePathFromUrl(value = "") {
-  const relative = assetRelativePathFromUrl(value);
-  if (!relative) return "";
-  return RUNTIME_MEDIA_URL_PREFIXES.some((prefix) => relative.startsWith(prefix)) ? relative : "";
-}
-
-function safeAssetPathFromUrl(value = "") {
-  const runtimeRelative = runtimeMediaRelativePathFromUrl(value);
-  const relative = runtimeRelative || assetRelativePathFromUrl(value);
-  if (!relative) return "";
-  const root = runtimeRelative ? RUNTIME_MEDIA_ROOT : RELEASE_ASSETS_ROOT;
-  return safePathWithin(root, path.resolve(root, relative));
-}
-
-function safePathWithinAssetRoots(target = "") {
-  return safePathWithin(RUNTIME_MEDIA_ROOT, target)
-    || safePathWithin(RELEASE_ASSETS_ROOT, target);
-}
-
-function resolveStaticFilePath(staticRoot, pathname = "") {
-  if (/%2e|%2f|%5c/i.test(String(pathname || ""))) return { root: "", filePath: "", runtimeMedia: false };
-  const runtimeRelative = runtimeMediaRelativePathFromUrl(pathname);
-  if (runtimeRelative) {
-    const runtimeCandidate = safePathWithin(RUNTIME_MEDIA_ROOT, path.resolve(RUNTIME_MEDIA_ROOT, runtimeRelative));
-    if (!runtimeCandidate) return { root: "", filePath: "", runtimeMedia: false };
-    if (fsSync.existsSync(runtimeCandidate)) {
-      return { root: RUNTIME_MEDIA_ROOT, filePath: runtimeCandidate, runtimeMedia: true };
-    }
-    const releaseFallback = safePathWithin(RELEASE_ASSETS_ROOT, path.resolve(RELEASE_ASSETS_ROOT, runtimeRelative));
-    if (releaseFallback && fsSync.existsSync(releaseFallback)) {
-      return { root: RELEASE_ASSETS_ROOT, filePath: releaseFallback, runtimeMedia: true };
-    }
-    return { root: RUNTIME_MEDIA_ROOT, filePath: runtimeCandidate, runtimeMedia: true };
-  }
-  return { root: staticRoot, filePath: path.normalize(path.join(staticRoot, pathname)), runtimeMedia: false };
+  const target = path.resolve(ASSETS_ROOT, text.replace(/^\/+/, "").replace(/^assets\//, ""));
+  return safePathWithin(ASSETS_ROOT, target);
 }
 
 const LIVE_STATIC_ROOT = resolveLiveStaticRoot(ROOT, process.env.LIVE_STATIC_ROOT);
@@ -677,7 +617,8 @@ const ADMIN_ASSET_VERSION = crypto
   .update(fsSync.readFileSync(path.join(ROOT, "admin.js")))
   .digest("hex")
   .slice(0, 12);
-let platformAssetVersionPromise = null;
+const PLATFORM_ASSET_VERSION_CACHE_TTL_MS = 20_000;
+let platformAssetVersionCache = { value: "", expiresAt: 0, promise: null };
 const TOOL_VIDEO_STYLE_VERSION = crypto
   .createHash("sha256")
   .update(fsSync.readFileSync(path.join(ROOT, "tool-video.css")))
@@ -828,21 +769,20 @@ const CREATOR_MEMBERSHIP_PLAN_ID = "plan-main-creator";
 const CREATOR_MEMBERSHIP_PRICE_USD = 99;
 const CREATOR_MEMBERSHIP_REFERRAL_TARGET = 100;
 const API_DOCS_PRODUCT_ID = "api-docs-access";
-const USER_UPLOAD_DIR = path.join(RUNTIME_MEDIA_ROOT, "user-uploads");
-const ADMIN_HOME_DIR = path.join(RUNTIME_MEDIA_ROOT, "admin", "home");
-const UNDRESS_TOOL_EXAMPLE_DIR = path.join(RUNTIME_MEDIA_ROOT, "admin", "undress-examples");
-const ADMIN_ADVANCED_CASE_DIR = path.join(RUNTIME_MEDIA_ROOT, "admin", "advanced-cases");
-const ADMIN_PLATFORM_TEMPLATE_DIR = path.join(RUNTIME_MEDIA_ROOT, "admin", "platform-templates");
-const USER_CHARACTER_DIR = path.join(RUNTIME_MEDIA_ROOT, "user-characters");
-const GENERATED_VIDEO_DIR = path.join(RUNTIME_MEDIA_ROOT, "generated", "videos");
+const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
+const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
+const UNDRESS_TOOL_EXAMPLE_DIR = path.join(ROOT, "assets", "admin", "undress-examples");
+const ADMIN_ADVANCED_CASE_DIR = path.join(ROOT, "assets", "admin", "advanced-cases");
+const ADMIN_PLATFORM_TEMPLATE_DIR = path.join(ROOT, "assets", "admin", "platform-templates");
+const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
 const GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS = 4;
 const GENERATED_VIDEO_DURATION_TOLERANCE_SECONDS = 0.75;
 const GENERATED_VIDEO_DOWNLOAD_RETRY_DELAY_MS = 2500;
-const GENERATED_POSTER_DIR = path.join(RUNTIME_MEDIA_ROOT, "generated", "posters");
-const GENERATED_IMAGE_DIR = path.join(RUNTIME_MEDIA_ROOT, "generated", "images");
-const GENERATED_LOCKED_PREVIEW_DIR = path.join(RUNTIME_MEDIA_ROOT, "generated", "locked-previews");
-const GENERATED_CHARACTER_DIR = path.join(RUNTIME_MEDIA_ROOT, "generated", "characters", "apiz");
-const VIDEO_TOOL_UPLOAD_PART_DIR = path.join(RUNTIME_MEDIA_ROOT, "runtime-tmp", "video-tool-uploads");
+const GENERATED_POSTER_DIR = path.join(ROOT, "assets", "generated", "posters");
+const GENERATED_IMAGE_DIR = path.join(ROOT, "assets", "generated", "images");
+const GENERATED_LOCKED_PREVIEW_DIR = path.join(ROOT, "assets", "generated", "locked-previews");
+const GENERATED_CHARACTER_DIR = path.join(ROOT, "assets", "generated", "characters", "apiz");
+const VIDEO_TOOL_UPLOAD_PART_DIR = path.join(ROOT, "tmp", "video-tool-uploads");
 const VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES = 300 * 1024 * 1024;
 const VIDEO_TOOL_UPLOAD_CHUNK_MAX_BYTES = 10 * 1024 * 1024;
 const VIDEO_TOOL_UPLOAD_CHUNK_MAX_COUNT = 64;

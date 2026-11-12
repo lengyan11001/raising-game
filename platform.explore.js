@@ -3727,7 +3727,9 @@ function renderNotificationCenter(payload = {}) {
   const unread = Number(payload.unreadCount ?? notifications.filter((item) => item.unread).length);
   const total = Number(payload.totalUnreadCount ?? unread + supportUnread);
   state.notificationCenter = payload;
-  if (els.notificationCenter) els.notificationCenter.hidden = !state.user;
+  // The notification container also hosts the anonymous support entry; keep
+  // it available without requiring an authenticated session.
+  if (els.notificationCenter) els.notificationCenter.hidden = false;
   if (els.notificationBellDot) els.notificationBellDot.hidden = unread <= 0;
   if (els.notificationSupportUnread) {
     els.notificationSupportUnread.hidden = supportUnread <= 0;
@@ -3830,8 +3832,8 @@ function positionNotificationPanelFromNav() {
 }
 
 function toggleNotificationPanel(source = "bell") {
-  if (!state.user) return openLogin();
   if (!els.notificationPanel) return;
+  if (els.notificationCenter) els.notificationCenter.hidden = false;
   const willOpen = els.notificationPanel.hidden;
   els.notificationPanel.hidden = !willOpen;
   els.notificationPanel.dataset.source = source;

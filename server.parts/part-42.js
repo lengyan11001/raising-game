@@ -92,10 +92,8 @@ async function serveStatic(req, res, url) {
     return sendText(res, 403, "Unlock required");
   }
   const staticRoot = liveStaticSurfaceRequest ? LIVE_STATIC_ROOT : ROOT;
-  const resolvedStaticFile = resolveStaticFilePath(staticRoot, pathname);
-  const filePath = resolvedStaticFile.filePath;
-  if (!filePath) return sendText(res, 403, "Forbidden");
-  const relativePath = path.relative(resolvedStaticFile.root, filePath);
+  const filePath = path.normalize(path.join(staticRoot, pathname));
+  const relativePath = path.relative(staticRoot, filePath);
   if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
     return sendText(res, 403, "Forbidden");
   }

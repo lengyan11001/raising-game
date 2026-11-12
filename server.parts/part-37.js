@@ -676,6 +676,7 @@ async function handleDeleteUserAsset(req, res, assetId) {
   return sendJson(res, 200, { ok: true, asset });
 }
 
+const USER_CHARACTER_DIR = path.join(ROOT, "assets", "user-characters");
 
 function publicUserCharacter(character) {
   if (!character) return null;

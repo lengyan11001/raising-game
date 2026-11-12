@@ -67,6 +67,11 @@ test("HTML snapshots coalesce requests and include tenant/version cache keys", (
   assert.match(source, /tenant\.tenant\?\.siteProfile/);
   assert.match(source, /version/);
   assert.match(source, /const cached = platformHtmlSnapshotCache\.get\(key\);/);
+  assert.match(read("server.parts/part-01.js"), /const PLATFORM_ASSET_VERSION_CACHE_TTL_MS = 20_000;/);
+  assert.match(source, /async function computePlatformAssetVersion\(\)/);
+  assert.match(source, /if \(platformAssetVersionCache\.promise && platformAssetVersionCache\.expiresAt > now\)/);
+  assert.match(source, /renderPlatformHtmlSnapshot\(req, version\)/);
+  assert.doesNotMatch(source, /let platformAssetVersionPromise = null/);
 });
 
 test("GEO analytics never sits on the request critical path", () => {

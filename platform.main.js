@@ -1470,7 +1470,6 @@ els.previewDialog?.addEventListener("close", () => {
   }
 });
 function openSupportDialog(options = {}) {
-  window.openSupportDialog = openSupportDialog;
   return openSupportCenter(options);
 }
 
@@ -1530,7 +1529,7 @@ els.notificationBellBtn?.addEventListener("click", (event) => {
 els.notificationReadAllBtn?.addEventListener("click", markAllNotificationsRead);
 els.notificationSupportEntry?.addEventListener("click", () => {
   closeNotificationPanel();
-  openSupportDialog();
+  openSupportDialog({ source: "notification_panel" });
 });
 els.notificationList?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-notification-id]");
