@@ -168,12 +168,38 @@ function seedancePromptOptimizerReferenceInventory(references = []) {
 function seedancePromptOptimizerInvalidReferences(text = "", references = []) {
   const source = String(text || "");
   const allowed = new Set();
+  const allowedKinds = new Set();
+  const referencePattern = /(图片|图|视频|音频|文档|Image|Video|Audio|Document)\s*(\d+)/i;
+  const kindAliases = {
+    "图片": "image", "图": "image", image: "image",
+    "视频": "video", video: "video",
+    "音频": "audio", audio: "audio",
+    "文档": "document", document: "document",
+  };
   for (const item of references) {
     const label = String(item?.label || "").trim();
-    if (label) allowed.add(label);
+    if (!label) continue;
+    allowed.add(label);
+    const match = label.match(referencePattern);
+    if (match) allowedKinds.add(`${kindAliases[match[1].toLowerCase()]}:${Number(match[2])}`);
   }
-  const found = source.match(/(?:图片|视频|音频|文档|Image|Video|Audio|Document)\s*\d+/gi) || [];
-  return [...new Set(found.filter((label) => !allowed.has(label.replace(/\s+/g, " ").trim())))];
+  const found = source.match(/(?:图片|图|视频|音频|文档|Image|Video|Audio|Document)\s*\d+/gi) || [];
+  return [...new Set(found.filter((label) => {
+    const normalized = label.replace(/\s+/g, " ").trim();
+    if (allowed.has(normalized)) return false;
+    const match = normalized.match(referencePattern);
+    return !match || !allowedKinds.has(`${kindAliases[match[1].toLowerCase()]}:${Number(match[2])}`);
+  }))];
+}
+
+function seedancePromptOptimizerNeutralizeInvalidReferences(text = "", references = []) {
+  let output = String(text || "");
+  const invalid = seedancePromptOptimizerInvalidReferences(output, references);
+  for (const label of invalid) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    output = output.replace(new RegExp(escaped, "gi"), references.length ? "对应素材" : "画面主体");
+  }
+  return { text: output, invalid };
 }
 
 function seedancePromptOptimizerRequest(payload = {}, { languageCorrection = false } = {}) {
@@ -380,9 +406,14 @@ async function handleAdvancedPromptOptimize(req, res) {
       }
     }
     if (seedanceRequest) {
-      const invalidReferences = seedancePromptOptimizerInvalidReferences(optimizedPrompt, request.references);
-      if (invalidReferences.length) {
-        throw Object.assign(new Error(`Prompt optimizer referenced media outside the supplied inventory: ${invalidReferences.join(", ")}`), { statusCode: 502, code: "PROMPT_OPTIMIZER_REFERENCE_MISMATCH" });
+      const referenceRepair = seedancePromptOptimizerNeutralizeInvalidReferences(optimizedPrompt, request.references);
+      if (referenceRepair.invalid.length) {
+        console.warn("[prompt-optimizer-reference-repaired]", JSON.stringify({
+          ...requestContext,
+          invalidReferences: referenceRepair.invalid,
+          elapsedMs: Date.now() - startedAt,
+        }));
+        optimizedPrompt = referenceRepair.text;
       }
       optimizedPrompt = optimizedPrompt.slice(0, W3_PROMPT_MAX_CHARS).trim();
     } else {

@@ -64,13 +64,14 @@ const helpers = new Function("papayaLanguageRequest", [
   extractFunction(server, "seedancePromptOptimizerIsProvider"),
   extractFunction(server, "seedancePromptOptimizerReferenceInventory"),
   extractFunction(server, "seedancePromptOptimizerInvalidReferences"),
+  extractFunction(server, "seedancePromptOptimizerNeutralizeInvalidReferences"),
   extractFunction(server, "seedancePromptOptimizerRequest"),
   extractFunction(server, "w3PromptOptimizerRequest"),
   extractFunction(server, "promptOptimizerRequestForPayload"),
   extractFunction(server, "promptOptimizerUpstreamIsRetryable"),
   extractFunction(server, "promptOptimizerPapayaRequest"),
   "const delay = async () => {};",
-  "return { w3ParseOptimizerJson, w3TruncatePrompt, w3PromptIsMostlyChinese, w3PromptOptimizerLanguage, w3PromptOptimizerRequest, w3NormalizeConstraintStack, seedancePromptOptimizerRequest, promptOptimizerRequestForPayload, seedancePromptOptimizerIsProvider, seedancePromptOptimizerInvalidReferences, promptOptimizerUpstreamIsRetryable, promptOptimizerPapayaRequest };",
+  "return { w3ParseOptimizerJson, w3TruncatePrompt, w3PromptIsMostlyChinese, w3PromptOptimizerLanguage, w3PromptOptimizerRequest, w3NormalizeConstraintStack, seedancePromptOptimizerRequest, promptOptimizerRequestForPayload, seedancePromptOptimizerIsProvider, seedancePromptOptimizerInvalidReferences, seedancePromptOptimizerNeutralizeInvalidReferences, promptOptimizerUpstreamIsRetryable, promptOptimizerPapayaRequest };",
 ].join("\n"))(() => { throw new Error("papayaLanguageRequest mock missing"); });
 
 test("optimizer route is authenticated in front of generate and uses Papaya", () => {
@@ -235,7 +236,19 @@ test("Seedance optimizer rejects reference labels outside the supplied inventory
   assert.deepEqual(helpers.seedancePromptOptimizerInvalidReferences("图片1控制脸，图片2控制服装。", references), []);
   assert.deepEqual(helpers.seedancePromptOptimizerInvalidReferences("图片1控制脸，图片3控制服装。", references), ["图片3"]);
   assert.deepEqual(helpers.seedancePromptOptimizerInvalidReferences("图片1控制脸，Video 2控制动作。", references), ["Video 2"]);
-  assert.match(server, /PROMPT_OPTIMIZER_REFERENCE_MISMATCH/);
+});
+
+test("Seedance optimizer accepts equivalent Chinese and English reference labels", () => {
+  const references = [{ kind: "image", label: "Image 1" }, { kind: "video", label: "Video 1" }];
+  assert.deepEqual(helpers.seedancePromptOptimizerInvalidReferences("图片1控制脸，视频1控制动作。", references), []);
+  assert.deepEqual(helpers.seedancePromptOptimizerInvalidReferences("图2控制脸。", references), ["图2"]);
+});
+
+test("Seedance optimizer neutralizes invented references without failing the request", () => {
+  const noReferences = helpers.seedancePromptOptimizerNeutralizeInvalidReferences("图片1中的女生站在窗边，图片2控制服装。", []);
+  assert.deepEqual(noReferences.invalid, ["图片1", "图片2"]);
+  assert.equal(noReferences.text, "画面主体中的女生站在窗边，画面主体控制服装。");
+  assert.deepEqual(helpers.seedancePromptOptimizerInvalidReferences(noReferences.text, []), []);
 });
 
 test("prompt optimizer retries one transient upstream failure and keeps the request bounded", async () => {
