@@ -152,7 +152,7 @@ or DB pool exhaustion.
 1. Switch all three upstreams back atomically:
    ```bash
    python3 /opt/raising-game-demo/ops/nginx-upstream-switch.py \
-     --file-switch '/etc/nginx/sites-enabled/5vips.com=raising_game_app=4175:4174' \
+     --file-switch '/etc/nginx/sites-enabled/default=raising_game_app=4175:4174' \
      --file-switch '/etc/nginx/sites-enabled/chat.5vips.com=raising_game_app_chat=4175:4174' \
      --file-switch '/etc/nginx/sites-enabled/live.123vipeak.com=raising_game_app_live=4175:4174' \
      --health-url https://123vips.com/api/health \
@@ -221,7 +221,7 @@ separate change window both pass.
 5. Roll back all three files together, then verify health and 5xx:
    ```bash
    python3 /opt/raising-game-demo/ops/nginx-upstream-switch.py \
-     --file-switch '/etc/nginx/sites-enabled/5vips.com=raising_game_app=4175:4174' \
+     --file-switch '/etc/nginx/sites-enabled/default=raising_game_app=4175:4174' \
      --file-switch '/etc/nginx/sites-enabled/chat.5vips.com=raising_game_app_chat=4175:4174' \
      --file-switch '/etc/nginx/sites-enabled/live.123vipeak.com=raising_game_app_live=4175:4174' \
      --health-url https://123vips.com/api/health \

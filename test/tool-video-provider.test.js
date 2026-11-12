@@ -32,7 +32,7 @@ test("Video tool Seedance payload includes ordered references and fixed options"
 });
 
 test("Video replacement uses the fixed prompt, model, and reference mode", () => {
-  assert.match(server, /if \(isVideoReplacementRequest && provider !== "z-image-spicy-pro"\) prompt = VIDEO_REPLACE_PROMPT/);
+  assert.match(server, /if \(isVideoReplacementRequest\) prompt = VIDEO_REPLACE_PROMPT/);
   assert.match(server, /seedanceMode = isVideoReplacementRequest\s*\? "reference_video"/);
   assert.match(server, /requestParams\.model = provider === "seedance"\s*\? \(isVideoReplacementRequest \? TOOL_VIDEO_SEEDANCE_MODEL/);
   assert.match(server, /requestParams\.duration = 6/);
@@ -41,5 +41,5 @@ test("Video replacement uses the fixed prompt, model, and reference mode", () =>
 
 test("Video template provider helper remains available to all platform surfaces", () => {
   assert.match(explore, /function playfluxTemplateVideoProvider\(\)/);
-  assert.match(html, /platform\.js\?v=[^"\s]+/);
+  assert.match(html, /platform\.js\?v=ai-\d+-[a-z0-9-]+/);
 });

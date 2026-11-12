@@ -12,9 +12,6 @@ const deploySite = fs.readFileSync(path.join(root, "scripts", "deploy_site.py"),
 const deployPull = fs.readFileSync(path.join(root, "scripts", "deploy_pull.py"), "utf8");
 const materializer = path.join(root, "scripts", "materialize_static_release.py");
 const snapshotBuilder = path.join(root, "scripts", "build_release_snapshot.py");
-const historicalGitSkip = spawnSync("git", ["rev-parse", "--verify", "33a6e65^"], { cwd: root, encoding: "utf8" }).status === 0
-  ? false
-  : "Source Git history is absent from an exported release tree.";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -150,7 +147,7 @@ test("integration branches are rejected before any SSH connection", () => {
   }
 });
 
-test("platform history rejects 33a6e65 even when a later commit deletes live files", { skip: historicalGitSkip }, () => {
+test("platform history rejects 33a6e65 even when a later commit deletes live files", () => {
   const output = runPython(String.raw`
 import importlib.util
 import json

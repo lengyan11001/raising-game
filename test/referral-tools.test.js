@@ -5,7 +5,6 @@ const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
-const liveSurfaceSkip = fs.existsSync(path.join(root, "live.js")) ? false : "Live frontend files are absent from the platform release.";
 
 test("main site and both tool tenants use the 100-credit referral reward", () => {
   const server = read("server.js");
@@ -31,6 +30,7 @@ test("main site and both tool tenants use the 100-credit referral reward", () =>
 
 test("paid invite rewards are not gated by creator membership and remain idempotent", () => {
   const server = read("server.js");
+  const live = read("live.js");
 
   const grant = server.match(/async function maybeGrantReferralReward[\s\S]*?\n}\n\nasync function grantPendingReferralRewardsForMember/)[0];
   assert.doesNotMatch(grant, /ensureCreatorMembershipFromReferrals|userHasCreatorMembership/);
@@ -47,10 +47,7 @@ test("paid invite rewards are not gated by creator membership and remain idempot
   assert.match(summary, /const availableRewards = Math\.max\(0, paidUserIds\.size - rewardCount\);/);
   assert.match(summary, /const rewardEligible = true;/);
   assert.match(summary, /rewardEligible,/);
-});
 
-test("live referral page shows the 100-credit reward without legacy terms", { skip: liveSurfaceSkip }, () => {
-  const live = read("live.js");
   const referralPage = live.match(/async function showReferral\(\) \{[\s\S]*?\n  \}\n\n  function languageSheet/)[0];
   assert.match(referralPage, /\\u6bcf\\u4f4d\\u6709\\u6548\\u4ed8\\u8d39\\u7528\\u6237 \$\{reward\} \\u79ef\\u5206/);
   assert.match(referralPage, /\\u540c\\u4e00\\u4e2a\\u88ab\\u9080\\u8bf7\\u7528\\u6237\\u53ea\\u8ba1\\u4e00\\u6b21\\u5956\\u52b1\\uff0c\\u91cd\\u590d\\u652f\\u4ed8\\u4e0d\\u91cd\\u590d\\u53d1\\u653e/);

@@ -48,10 +48,10 @@ test("Top-up UI redirects to the Stripe cashier instead of embedding a provider 
 
 test("Dedicated payment page exists and can start Stripe or PayPal checkout sessions", () => {
   assert.match(payHtml, /Secure checkout/);
-  assert.match(payHtml, /Secure card payment/);
+  assert.match(payHtml, /Stripe payment/);
   assert.match(payJs, /checkout-sessions/);
-  assert.match(payJs, /Continue to \$\{providerName\}/);
-  assert.match(payJs, /Opening \$\{providerName\} checkout/);
+  assert.match(payJs, /Continue to Stripe/);
+  assert.match(payJs, /Opening \$\{isStripe \? "Stripe" : "PayPal"\} checkout/);
   assert.match(payJs, /checkout-sessions\/\$\{encodeURIComponent\(activeId\)\}\/start/);
 });
 
@@ -64,5 +64,5 @@ test("PayPal checkout failures retain safe diagnostics and advance the retry id"
   assert.match(server, /message: paypalPublicFailureMessage\(summary\)/);
   assert.match(server, /errorMessage: order\.paypalErrorCode \? paypalPublicFailureMessage\(failureSummary\) : ""/);
   assert.match(payJs, /Payment reference: \$\{reference\}/);
-  assert.match(payJs, /failed \? `Try \$\{providerName\} again`/);
+  assert.match(payJs, /failed \? "Try PayPal again"/);
 });

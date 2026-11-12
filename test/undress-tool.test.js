@@ -15,11 +15,7 @@ const html = read("platform.html");
 const frontend = read("platform.undress-tool.js");
 const ui = read("platform.ui.js");
 const admin = read("admin.js");
-const history = fs.readdirSync(path.join(root, "platform.create.parts"))
-  .filter((file) => /^part-\d+\.js$/.test(file))
-  .sort()
-  .map((file) => read(path.join("platform.create.parts", file)))
-  .join("\n");
+const history = read("platform.create.js");
 const css = read("tool-undress.css");
 const videoTools = read("video-tools.js");
 

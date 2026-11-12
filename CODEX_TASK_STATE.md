@@ -249,6 +249,14 @@
 - Decision: same-host two-process failover is now proven in isolation for graceful drain, rolling replacement, scheduler takeover, and SIGKILL. It is still not enabled in production. The next step is a production-shaped rollout design with explicit Nginx active-upstream removal before draining, zero-5xx and generation-submit smoke gates, automatic rollback, and a measured baseline; backup/off-host recovery remains last per user direction.
 - Redis remains disabled and is not a prerequisite. Its planned scope remains cache-aside public config/templates/platform snapshots/pricing metadata/compact polling only after measured need and invalidation proof; PostgreSQL remains authoritative for all business, financial, identity, security, and generation facts.
 
+## 2026-11-12 Step AK: Nginx two-member rollback equivalence and runbook path fix
+
+- Fixed the cross-file Nginx transaction's two-member swap so it preserves the original member order. A `4174 primary / 4175 backup` to `4175 primary / 4174 backup` and back cycle now restores the exact audited file bytes, not merely equivalent routing.
+- Added a three-file production-shaped test covering simultaneous switch and rollback across `raising_game_app`, `raising_game_app_chat`, and `raising_game_app_live`, including exact byte equality after rollback.
+- Corrected the cutover runbook rollback path from the nonexistent `/etc/nginx/sites-enabled/5vips.com` to the real `/etc/nginx/sites-enabled/default`; added a regression assertion for all three real Nginx file paths.
+- Verification: focused Nginx swap test passed; full `test/resilience-ops.test.js` passed `45/45`; Python compile and `git diff --check` passed. No production traffic, process, Nginx config, database, Redis, or Live deployment was changed in this local step.
+- This test-only/ops documentation change does not require a production process restart. The next production action remains a non-peak, read-only three-upstream dry-run with byte-hash checks, explicitly not a cutover.
+
 ## 2026-11-11 Full test failure cleanup (local only)
 
 - Goal: eliminate recurring full-suite failures so the team stops re-investigating the same stale assertions.
@@ -3836,5 +3844,22 @@ CODEX_TASK_STATE.md
 - Old disk deployment completed through mandatory `scripts/deploy_local.sh --site old --no-restart`; server release `/opt/raising-game-demo` is `7592e1a3`; MainPID stayed `3283605`; public health is 200; release-boundary and private-media checks passed. Log `/tmp/raising-deploy-startup-hardening-no-restart.log`.
 - Standby `raising-game-demo-b` (4175) was restarted alone and now loads the new code: PID `3284968`, `NRestarts=0`, health/livez/readyz all 200. Startup order was `[database-check] ok`, `[schema-check] ... tables:14`, `[catalog-check] ...`; schedulers/submit queue/worker remain disabled. Logs `/tmp/raising-standby-restart.log`, `/tmp/raising-standby-before.log`.
 - 4174 was NOT restarted by this deployment and still runs code loaded at its previous start; it remains the primary traffic instance and must not be restarted merely to activate the fix. Nginx PID remains `2485219`; default config hash stayed `ef4f8ac556a047d7d93b1c6c46f041694051b729b05ed0bbddf2672ec29e82ec`.
-- Current three upstreams each have `4174 primary` plus `4175 backup`. `ops/nginx-upstream-switch.py` switch mode requires a single server and is incompatible with the current two-member configuration; do not hard-edit or bypass it.
+- Current three upstreams each have `4174 primary` plus `4175 backup`. `ops/nginx-upstream-switch.py` now supports this two-member topology and swaps roles in place while preserving member order; a switch-then-rollback cycle restores the original file bytes. Do not hard-edit or bypass the tool.
 - Immediate next gates: update/verify state; determine why 4174 started at 12:57 CST without conflating it with this deployment; continue read-only 4175 stability sampling; run a real generation-submit smoke on 4175 with a safe test identity and verify DB/refund closure; then design a journaled rollback-capable primary replacement that understands backup members.
+
+## 2026-11-12 Step AH: stale test cleanup and no-restart Old deployment accepted
+
+- Clean baseline `d527dd8a` was verified in isolated worktree `/tmp/raising-clean-d527-verify`; only test expectations were changed, with no production business-source edits.
+- Commits: `6e5c1ea5` (`Align tests with deployed platform behavior`) and `80860fa2` (`Scope release tests to owned surfaces`). The second commit changes exactly five test files and correctly scopes release checks to surfaces owned by the platform release.
+- Integration-tree full verification: `1215` tests, `1214` pass, `0` fail, `1` intentional skip. Log: `/tmp/raising-clean-final-scope.log`.
+- Release rebuild: source `old-site` commit `80860fa2ba0855ac65056407052547ab55daca18`; `platform-release` `9588759ffda9a1e88dfdba256a1da0ae124284ca`; locally generated `live-release` `3169cbdbc875ece01a6b70567f6842f68ab2fc11`.
+- Exported release-tree full verification: `1139` tests, `1126` pass, `0` fail, `13` skip. Export: `/tmp/raising-release-9588759f.AHQZPQ`; log: `/tmp/raising-release-9588759f-test.log`.
+- Pushed only `origin/old-site` at `80860fa2` and `origin/platform-release` at `9588759f`. Live was not pushed or deployed; remote `origin/live-release` remains `7cb63dd6`.
+- Old was deployed only through `scripts/deploy_local.sh --site old --no-restart`; log `/tmp/raising-deploy-old-9588759f.log`. The release diff from the prior live release `d717984d` was 21 test files only, so production processes were deliberately not restarted.
+- Post-deploy acceptance: primary 4174 PID `3287956`, standby 4175 PID `3284968`, both `active/running` with `NRestarts=0`; all `/api/health`, `/api/livez`, and `/api/readyz` probes returned 200; server release is `9588759f`.
+- 4175 still has `BACKGROUND_SCHEDULERS_ENABLED=0`, `GENERATION_SUBMIT_QUEUE_ENABLED=0`, and `GENERATION_SUBMIT_WORKER_ENABLED=0`. Nginx master remained PID `2485219`, config test passed, and all three upstreams remained 4174 primary / 4175 backup.
+- PostgreSQL 16.15 acceptance: about 6-8 of 100 connections in use, zero lock waiters, zero idle-in-transaction sessions, and zero deadlocks. Cutover precheck result `CUTOVER_VERIFY_OK phase=pre checks=12 failed=0`; standby candidate result `CUTOVER_VERIFY_OK phase=candidate checks=13 failed=0`.
+- Both services had no warning-level journal entries after 20:00 CST. Current state is observation only: no traffic switch, no primary restart, no Live deployment, no Redis/durable-queue enablement, and backup/off-host recovery remains last.
+- Post-deploy deep acceptance: official verifier `pre` 12/12 and `candidate` 13/13 passed with `DATABASE_URL` loaded; both instances are the same release/checkout; mixed-load smoke (80 requests each across `/`, `/platform.html`, `/api/config/public`, health/livez/readyz) passed 80/80 per instance, with p95 0.85s primary versus 1.23s standby under a 16-worker burst. PID/restart counts stayed unchanged; PostgreSQL returned to 20 total connections with zero lock waiters and zero idle transactions.
+- Observed one `POST /api/advanced/prompt-optimize` 502 at 13:40:11 CST. Source review confirms this endpoint returns 502 only after an upstream optimizer/validation failure; it neither creates a generation record nor deducts credits. The database has zero prompt-related generation records, and the application journal shows no crash/startup failure at that time. Treat it as an upstream optimizer failure, not an application outage.
+- One-day read-only generation failure audit shows every failure bucket is already `refunded` except one `free`; refund anomalies are zero. No historical failure rows were changed.

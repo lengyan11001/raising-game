@@ -92,7 +92,7 @@ test("cleanup removes only stale disposable OS temp workspaces", async (t) => {
 test("server schedules temp cleanup without deleting business media", async () => {
   const server = await fs.readFile(path.resolve(__dirname, "..", "server.js"), "utf8");
   assert.match(server, /startLocalMediaCleanupScheduler\(\);/);
-  assert.match(server, /setInterval\(\(\) => runLocalMediaCleanupSchedulerTick\(\), 5 \* 60 \* 1000\)/);
+  assert.match(server, /setInterval\(\(\) => cleanupStaleLocalMedia\(\), 5 \* 60 \* 1000\)/);
   const cleanupStart = server.indexOf("async function cleanupStaleLocalMedia()");
   const cleanupEnd = server.indexOf("async function deleteStoredGeneratedObject", cleanupStart);
   const cleanupBlock = server.slice(cleanupStart, cleanupEnd);
@@ -132,7 +132,7 @@ test("generation records recover delayed R2 publication automatically", async ()
   assert.match(server, /async function ensureGenerationRecordImageR2Published\(/);
   assert.match(server, /findUploadedR2Object\(objectStoragePath\("generated", "videos"/);
   assert.match(server, /startGenerationRecordMediaRecoveryScheduler\(\);/);
-  assert.match(server, /setInterval\(\(\) => runGenerationRecordMediaRecoverySchedulerTick\("timer"\), 5 \* 60 \* 1000\)/);
+  assert.match(server, /setInterval\(\(\) => scanGenerationRecordMediaRecovery\("timer"\), 5 \* 60 \* 1000\)/);
   assert.match(server, /getGenerationRecordsNeedingR2RecoveryFromDb\(\{ limit: 100 \}\)/);
   assert.match(await fs.readFile(path.resolve(__dirname, "..", "db.js"), "utf8"), /async function getGenerationRecordsNeedingR2RecoveryFromDb\(/);
   assert.match(await fs.readFile(path.resolve(__dirname, "..", "db.js"), "utf8"), /updated_at > NOW\(\) - INTERVAL '48 hours'/);
@@ -153,6 +153,6 @@ test("successful generated media retention is permanent and never purged by age"
   assert.match(db, /JOIN app_user_assets assets[\s\S]*?assets\.user_id = records\.payload->>'userId'/);
   assert.match(db, /assets\.id = records\.payload->>'resultAssetId'/);
   assert.match(server, /startGenerationRecordResultAssetMediaBackfillScheduler\(\);/);
-  assert.match(server, /runGenerationRecordResultAssetMediaBackfillSchedulerTick\("startup"\)/);
+  assert.match(server, /scanGenerationRecordResultAssetMediaBackfill\("startup"\)/);
   assert.match(db, /COALESCE\(NULLIF\(payload->>'\$\{key\}', ''\), \$\$\{index\}::text\)/);
 });

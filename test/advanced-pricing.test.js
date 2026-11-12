@@ -623,7 +623,7 @@ test("Wan3.0 premium pricing fails closed and keeps public rate tables", () => {
 
 test("Wan3.0 adaptive duration pre-deducts the maximum and settles from the output video", () => {
   assert.match(server, /const billingDuration = adaptiveDuration \? 30 : duration/);
-  assert.match(server, /billingStatus: cost > 0 \? \(advancedGenerationSubmitQueueEnabled\(\) \|\| pricing\.adaptiveDuration \? "pre_deducted" : "settled"\) : "free"/);
+  assert.match(server, /billingStatus: cost > 0 \? \(pricing\.adaptiveDuration \? "pre_deducted" : "settled"\)/);
   assert.match(server, /async function settleWan30AdaptiveDuration/);
   assert.match(server, /const actualDuration = await probeVideoDurationSeconds\(resultUrl\)/);
   assert.match(server, /Math\.min\(30, actualDuration\) \* creditsPerSecond/);

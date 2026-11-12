@@ -8,7 +8,6 @@ const test = require("node:test");
 const root = path.resolve(__dirname, "..");
 const serverSource = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const dbSource = fs.readFileSync(path.join(root, "db.js"), "utf8");
-const liveSurfaceSkip = fs.existsSync(path.join(root, "live.js")) ? false : "Live frontend files are absent from the platform release.";
 const {
   chatLiveUpstreamBillingEvidence,
   chatLiveDisplayUpstreamEvidence,
@@ -331,7 +330,7 @@ test("orphan allocation cleanup only releases old reservations without a session
   assert.match(cleanupBlock, /a\.created_at <= NOW\(\) - \(\$1 \* INTERVAL '1 second'\)/);
   assert.match(cleanupBlock, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/);
   assert.match(cleanupBlock, /SELECT 1 FROM app_chat_live_sessions WHERE id = \$1/);
-  assert.match(serverSource, /setInterval\(\(\) => runChatLiveOrphanCleanupSchedulerTick\(\), 10 \* 60 \* 1000\)/);
+  assert.match(serverSource, /setInterval\(\(\) => cleanupOrphanedChatLiveFreeAllocations\(\).*10 \* 60 \* 1000/);
 });
 
 test("free allocation requires PostgreSQL and has no flat-file fallback", () => {
@@ -584,7 +583,7 @@ test("terminal call history backfill is idempotent and does not overwrite newer 
   assert.match(dbSource, /NOT EXISTS \(/);
 });
 
-test("message thread contact enrichment keeps real video-call previews", { skip: liveSurfaceSkip }, () => {
+test("message thread contact enrichment keeps real video-call previews", () => {
   const liveSource = fs.readFileSync(path.join(root, "live.js"), "utf8");
   const contactsBlock = liveSource.match(/for \(const item of contacts \|\| \[\]\) \{[\s\S]*?\n    \}/)?.[0] || "";
   assert.match(contactsBlock, /video: true/);
@@ -594,7 +593,7 @@ test("message thread contact enrichment keeps real video-call previews", { skip:
   assert.doesNotMatch(liveSource, /视频连线 · \$\{textPreview\}/);
 });
 
-test("ending a video call requires confirmation and keeps the live thread in sync", { skip: liveSurfaceSkip }, () => {
+test("ending a video call requires confirmation and keeps the live thread in sync", () => {
   const chatLiveSource = fs.readFileSync(path.join(root, "chat-live.js"), "utf8");
   const liveSource = fs.readFileSync(path.join(root, "live.js"), "utf8");
   assert.match(chatLiveSource, /function requestEndCall\(\)/);

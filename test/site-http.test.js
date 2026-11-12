@@ -11,12 +11,8 @@ const {
   publicStaticPath,
 } = require("../site-http");
 
-const serverSource = require("../server-source").readServerSource();
-const createSource = fs.readdirSync(path.resolve(__dirname, "..", "platform.create.parts"))
-  .filter((fileName) => /^part-\d+\.js$/.test(fileName))
-  .sort()
-  .map((fileName) => fs.readFileSync(path.resolve(__dirname, "..", "platform.create.parts", fileName), "utf8"))
-  .join("\n");
+const serverSource = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8");
+const createSource = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.js"), "utf8");
 
 test("admin entry and assets bypass CDN caching while previews roll out", () => {
   assert.match(serverSource, /const frontendNames = \[\"\/admin\.html\", \"\/admin\.css\", \"\/admin\.js\"/);

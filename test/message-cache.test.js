@@ -6,15 +6,12 @@ const path = require("node:path");
 const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
-const livePath = path.join(root, "live.js");
-const htmlPath = path.join(root, "live.html");
-const live = fs.existsSync(livePath) ? fs.readFileSync(livePath, "utf8") : null;
+const live = fs.readFileSync(path.join(root, "live.js"), "utf8");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const db = fs.readFileSync(path.join(root, "db.js"), "utf8");
-const html = fs.existsSync(htmlPath) ? fs.readFileSync(htmlPath, "utf8") : null;
-const liveSurfaceSkip = live && html ? false : "Live frontend files are absent from the platform release.";
+const html = fs.readFileSync(path.join(root, "live.html"), "utf8");
 
-test("message list renders cached conversations before checking for updates", { skip: liveSurfaceSkip }, () => {
+test("message list renders cached conversations before checking for updates", () => {
   assert.match(live, /const MESSAGE_CACHE_PREFIX = "vipeakMessageCacheV1"/);
   assert.match(live, /function readThreadCache\(\)/);
   assert.match(live, /function writeThreadCache\(conversations = \[\]\)/);
@@ -22,7 +19,7 @@ test("message list renders cached conversations before checking for updates", { 
   assert.match(live, /writeThreadCache\(state\.conversations\)/);
 });
 
-test("opening a chat renders cached messages before an incremental update", { skip: liveSurfaceSkip }, () => {
+test("opening a chat renders cached messages before an incremental update", () => {
   const showStart = live.indexOf("async function showTextChat(options = {})");
   const showEnd = live.indexOf("\n  async function showReferral", showStart);
   const showBlock = live.slice(showStart, showEnd);
@@ -36,7 +33,7 @@ test("opening a chat renders cached messages before an incremental update", { sk
   assert.match(live, /writeConversationCache\(conversationId, conversation, merged\)/);
 });
 
-test("client message caches are user-scoped, bounded, and cleared with authentication state", { skip: liveSurfaceSkip }, () => {
+test("client message caches are user-scoped, bounded, and cleared with authentication state", () => {
   assert.match(live, /MESSAGE_CACHE_MAX_THREADS = 100/);
   assert.match(live, /MESSAGE_CACHE_MAX_MESSAGES = 300/);
   assert.match(live, /\.slice\(-MESSAGE_CACHE_MAX_MESSAGES\)/);
@@ -60,6 +57,6 @@ test("server exposes a PostgreSQL-backed incremental message cursor", () => {
   assert.match(db, /app_chat_messages_user_conversation_created_id_idx/);
 });
 
-test("live message cache assets use the new cache key", { skip: liveSurfaceSkip }, () => {
+test("live message cache assets use the new cache key", () => {
   assert.match(html, /live\.js\?v=2026110301/);
 });

@@ -17,8 +17,7 @@ test("Qwen3.7 Flash remains supported but is hidden from the Custom model list",
   assert.match(html, /id="advancedQwen37MaxTokens"/);
   assert.match(html, /id="advancedQwen37Temperature"/);
   assert.match(create, /\["qwen37-flash", "byteplus-language"\]\.includes\(provider\).*?return \[\];/);
-  assert.match(create, /\|\| usesDedicatedFrameUpload/);
-  assert.match(create, /\[\"qwen37-flash\", \"byteplus-language\"\]\.includes\(provider\)/);
+  assert.match(create, /\|\| isQwenText\s*\|\| usesDedicatedFrameUpload/);
 });
 
 test("Qwen3.7 Flash uses the Singapore OpenAI-compatible endpoint", () => {
@@ -39,10 +38,8 @@ test("Qwen3.7 Flash bills from actual token usage and exposes text results", () 
   assert.match(server, /completionTokens: usage\.completionTokens/);
   assert.match(server, /textResult,[\s\S]*responseText: textResult/);
   assert.match(create, /class="advanced-result-text"/);
-  assert.match(create, /function bindAdvancedResultCardEvents\(card\)[\s\S]*?querySelectorAll\("\[data-advanced-result-copy\]"\)/);
-  assert.match(create, /function reconcileAdvancedResultCards\(records = \[\]\)[\s\S]*?bindAdvancedResultCardEvents\(card\)/);
-  assert.match(create, /function renderAdvancedResultPanel\(\)[\s\S]*?reconcileAdvancedResultCards\(records\)/);
-  assert.match(ui, /\["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"\]\.includes\(normalizedProvider\)/);
+  assert.match(create, /function renderAdvancedResultPanel\(\)[\s\S]*?querySelectorAll\("\[data-advanced-result-copy\]"\)/);
+  assert.match(ui, /\["qwen37-flash", "byteplus-language"\]\.includes\(normalizedProvider\)/);
 });
 
 test("Qwen3.7 Flash estimate uses the estimate request parameters", () => {

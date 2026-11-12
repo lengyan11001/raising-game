@@ -1166,6 +1166,72 @@ test("Nginx file transaction commits all files and rejects duplicate upstream na
   });
 });
 
+test("Nginx file transaction swaps primary and backup across every traffic upstream", async () => {
+  await withTempDir(async (dir) => {
+    const main = path.join(dir, "default");
+    const chat = path.join(dir, "chat.conf");
+    const live = path.join(dir, "live.conf");
+    const mainOriginal = writeUpstreamConfig(main, `upstream raising_game_app {
+    server 127.0.0.1:4174;
+    server 127.0.0.1:4175 backup;
+    keepalive 64;
+}
+`);
+    const chatOriginal = writeUpstreamConfig(chat, `upstream raising_game_app_chat { server 127.0.0.1:4174; server 127.0.0.1:4175 backup; keepalive 32; }
+`);
+    const liveOriginal = writeUpstreamConfig(live, `upstream raising_game_app_live {
+    server 127.0.0.1:4174;
+    server 127.0.0.1:4175 backup;
+}
+`);
+    const nginx = path.join(dir, "nginx");
+    const reload = path.join(dir, "reload");
+    const curl = path.join(dir, "curl");
+    writeExecutable(nginx, "#!/usr/bin/env bash\nexit 0\n");
+    writeExecutable(reload, "#!/usr/bin/env bash\nexit 0\n");
+    writeExecutable(curl, "#!/usr/bin/env bash\nprintf '200'\n");
+    const common = [
+      "--file-switch", `${main}=raising_game_app=4174:4175`,
+      "--file-switch", `${chat}=raising_game_app_chat=4174:4175`,
+      "--file-switch", `${live}=raising_game_app_live=4174:4175`,
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--health-url", "http://127.0.0.1:48080/chat/health",
+      "--health-url", "http://127.0.0.1:48080/live/health",
+      "--nginx-bin", nginx,
+      "--reload-command", reload,
+    ];
+    const env = {
+      PATH: `${dir}:${process.env.PATH}`,
+      NGINX_UPSTREAM_SWITCH_JOURNAL_DIR: dir,
+      NGINX_UPSTREAM_SWITCH_LOCK: path.join(dir, "switch.lock"),
+    };
+    const promoted = invokeUpstreamSwitch([...common, "--apply"], env);
+    assert.equal(promoted.status, 0, promoted.stderr);
+    assert.match(promoted.stdout, /UPSTREAM_SWITCH_COMMIT_OK upstreams=3 files=3 health_urls=3/);
+    for (const file of [main, chat, live]) {
+      const text = fs.readFileSync(file, "utf8");
+      assert.match(text, /server 127\.0\.0\.1:4175;/);
+      assert.match(text, /server 127\.0\.0\.1:4174 backup;/);
+    }
+
+    const rollback = invokeUpstreamSwitch([
+      "--file-switch", `${main}=raising_game_app=4175:4174`,
+      "--file-switch", `${chat}=raising_game_app_chat=4175:4174`,
+      "--file-switch", `${live}=raising_game_app_live=4175:4174`,
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--health-url", "http://127.0.0.1:48080/chat/health",
+      "--health-url", "http://127.0.0.1:48080/live/health",
+      "--nginx-bin", nginx,
+      "--reload-command", reload,
+      "--apply",
+    ], env);
+    assert.equal(rollback.status, 0, rollback.stderr);
+    assert.equal(fs.readFileSync(main, "utf8"), mainOriginal);
+    assert.equal(fs.readFileSync(chat, "utf8"), chatOriginal);
+    assert.equal(fs.readFileSync(live, "utf8"), liveOriginal);
+  });
+});
+
 test("Nginx upstream transaction rejects any mismatched member without writing config", () => {
   withTempDir((dir) => {
     const file = path.join(dir, "site.conf");
@@ -1277,6 +1343,13 @@ test("secondary unit is disabled by default and keeps schedulers off", () => {
   assert.match(secondaryEnv, /GENERATION_SUBMIT_QUEUE_ENABLED=0/);
   assert.match(secondaryEnv, /GENERATION_SUBMIT_WORKER_ENABLED=0/);
   assert.doesNotMatch(secondaryEnv, /DATABASE_URL|SECRET|TOKEN|PASSWORD|KEY/);
+});
+
+test("cutover runbook only targets real Nginx files for primary and rollback", () => {
+  assert.match(cutoverRunbook, /sites-enabled\/default=raising_game_app=/);
+  assert.match(cutoverRunbook, /sites-enabled\/chat\.5vips\.com=raising_game_app_chat=/);
+  assert.match(cutoverRunbook, /sites-enabled\/live\.123vipeak\.com=raising_game_app_live=/);
+  assert.doesNotMatch(cutoverRunbook, /sites-enabled\/5vips\.com/);
 });
 
 test("cutover runbook uses one atomic switch for every real upstream", () => {

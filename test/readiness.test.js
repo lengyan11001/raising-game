@@ -211,6 +211,78 @@ test("readiness HTTP contract turns a database failure into 503", async () => {
   assert.deepEqual(response.body.database, { ok: false, code: "ECONNREFUSED" });
 });
 
+
+test("startup database gate retries transient failures and then succeeds", async () => {
+  const { checkDatabaseStartup } = require("../db");
+  let attempts = 0;
+  const waits = [];
+  const result = await checkDatabaseStartup({
+    attempts: 4,
+    check: async () => {
+      attempts += 1;
+      if (attempts < 3) {
+        const error = new Error("connect timeout");
+        error.code = "ETIMEDOUT";
+        throw error;
+      }
+      return { ok: true };
+    },
+    wait: async (ms) => { waits.push(ms); },
+    baseDelayMs: 10,
+    maxDelayMs: 25,
+  });
+  assert.deepEqual(result, { ok: true });
+  assert.equal(attempts, 3);
+  assert.deepEqual(waits, [10, 20]);
+});
+
+test("startup database gate fails closed after bounded retries", async () => {
+  const { checkDatabaseStartup } = require("../db");
+  let attempts = 0;
+  await assert.rejects(
+    checkDatabaseStartup({
+      attempts: 3,
+      check: async () => {
+        attempts += 1;
+        const error = new Error("database unavailable");
+        error.code = "DATABASE_UNAVAILABLE";
+        throw error;
+      },
+      wait: async () => {},
+    }),
+    /database unavailable/,
+  );
+  assert.equal(attempts, 3);
+});
+
+test("server bootstrap performs the database gate before schema checks and listen", () => {
+  const source = require("../server-source").readServerSource();
+  const bootstrap = source.slice(source.indexOf("async function bootstrap()"), source.indexOf("let gracefulShutdownStarted"));
+  assert.match(bootstrap, /await checkDatabaseStartup\(\{ timeoutMs: 5000 \}\)/);
+  assert.ok(bootstrap.indexOf("checkDatabaseStartup") < bootstrap.indexOf("assertSchemaReady"));
+  assert.ok(bootstrap.indexOf("checkDatabaseStartup") < bootstrap.indexOf("server.listen"));
+});
+
+test("startup maintenance scans are serialized while steady intervals remain enabled", () => {
+  const source = require("../server-source").readServerSource();
+  for (const name of [
+    "stale-submit-generation-records",
+    "active-generation-records",
+    "wallet-chain-scan",
+    "media-ingest-worker",
+    "generation-record-media-recovery",
+    "generation-record-media-persistence",
+    "generation-poster-backfill",
+    "generation-result-asset-backfill",
+  ]) {
+    assert.match(source, new RegExp(`scheduleStartupScheduler\\("${name}"`));
+  }
+  assert.match(source, /function scheduleStartupScheduler\(name, task\)/);
+  assert.match(source, /startupSchedulerQueue = startupSchedulerQueue\s*\.then/);
+  assert.match(source, /setInterval\(\(\) => runMediaIngestWorkerSchedulerTick\(\), 15 \* 1000\)/);
+  assert.match(source, /setInterval\(\(\) => runStaleSubmitGenerationRecordSchedulerTick\("timer"\), GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS\)/);
+});
+
 test("health stays a compatibility liveness response while probes have separate contracts", () => {
   const fs = require("node:fs");
   const path = require("node:path");

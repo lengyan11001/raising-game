@@ -129,8 +129,16 @@ def switch_upstreams_text(
             primary_end = body_start + primary_server.end()
             backup_start = body_start + backup_server.start()
             backup_end = body_start + backup_server.end()
-            edits.append((primary_start, primary_end, f"server {expected_backup};"))
-            edits.append((backup_start, backup_end, f"server {expected_primary} backup;"))
+            # Swap only the role suffix/port while preserving the original
+            # member order. Reversing the lines is semantically valid, but it
+            # prevents a switch-and-rollback cycle from restoring the exact
+            # audited Nginx file and weakens rollback equivalence.
+            if primary_start < backup_start:
+                edits.append((primary_start, primary_end, f"server {expected_backup};"))
+                edits.append((backup_start, backup_end, f"server {expected_primary} backup;"))
+            else:
+                edits.append((backup_start, backup_end, f"server {expected_primary} backup;"))
+                edits.append((primary_start, primary_end, f"server {expected_backup};"))
             continue
         if len(parsed) == 1 and len(source_primary) == 1:
             server, _arguments = source_primary[0]
