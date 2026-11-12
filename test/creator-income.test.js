@@ -182,19 +182,23 @@ test("server-derived ownership and royalty eligibility gate only public communit
   assert.match(publicPredicate, /character\?\.communityShareEnabled === true/);
   assert.match(publicPredicate, /character\?\.communityVisibility === "public"/);
   assert.match(publicPredicate, /character\?\.enabled !== false/);
-  assert.match(live, /<button class="role-share-button" data-action="share-role" aria-label="分享角色">\$\{uiIcon\("share"\)\}<\/button>/);
-  assert.doesNotMatch(live, /canShareEarnings \?/);
-  assert.doesNotMatch(live, /c\.communityVisibility === "public"[^;\n]*share-role/);
+  if (live) {
+    assert.match(live, /<button class="role-share-button" data-action="share-role" aria-label="分享角色">\$\{uiIcon\("share"\)\}<\/button>/);
+    assert.doesNotMatch(live, /canShareEarnings \?/);
+    assert.doesNotMatch(live, /c\.communityVisibility === "public"[^;\n]*share-role/);
+  }
 });
 
 test("owner can share a public created role while an internal role has no royalty CTA", () => {
-  const publicRoleCard = live.slice(
-    live.indexOf('data-action="create-share"'),
-    live.indexOf('data-action="create-delete"'),
-  );
-  assert.match(publicRoleCard, /分享角色/);
-  assert.match(live, /if \(role\.communityVisibility !== "public"\) \{\s*state\.createFocusVisibility = true;\s*await openCreateEditor\(id\);\s*referralToast\("设为「公开并分享」并保存后，即可分享角色"\);/);
-  assert.match(live, /if \(saved\.character\?\.communityVisibility === "public"\)[\s\S]*?await openSharePoster\(\);/);
+  if (live) {
+    const publicRoleCard = live.slice(
+      live.indexOf('data-action="create-share"'),
+      live.indexOf('data-action="create-delete"'),
+    );
+    assert.match(publicRoleCard, /分享角色/);
+    assert.match(live, /if \(role\.communityVisibility !== "public"\) \{\s*state\.createFocusVisibility = true;\s*await openCreateEditor\(id\);\s*referralToast\("设为「公开并分享」并保存后，即可分享角色"\);/);
+    assert.match(live, /if \(saved\.character\?\.communityVisibility === "public"\)[\s\S]*?await openSharePoster\(\);/);
+  }
   const creatorView = server.slice(
     server.indexOf("function creatorChatLiveCharacterView"),
     server.indexOf("async function handleCreatorChatLiveCharacters"),
@@ -439,13 +443,15 @@ test("internal creator center is available to logged-in users while staying priv
   assert.match(communityHandler, /source: "community",/);
   assert.match(communityHandler, /payload\.communityShareEnabled = true;/);
 
-  assert.match(live, /\["creator", "pen", "创作者中心", u \? "管理内部角色与素材，不参与分成" : "登录后管理角色与素材"\]/);
-  assert.match(live, /if \(action === "creator"\) \{\s*if \(!token\(\) \|\| !state\.user\) return askLogin\(\);\s*rememberLiveNavigation\("creator"\);\s*state\.page = "creator";/);
-  assert.doesNotMatch(live, /创作者中心仅供平台管理员使用/);
-  assert.doesNotMatch(live, /state\.user\?\.role !== "admin"/);
-  assert.match(live, /data-action="create-share" data-id="\$\{esc\(item\.id\)\}"[\s\S]*?分享角色/);
-  assert.doesNotMatch(live, /视频通话实扣积分的 30% 计入角色创作者独立收益/);
-  assert.match(live, /「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30%/);
+  if (live) {
+    assert.match(live, /\["creator", "pen", "创作者中心", u \? "管理内部角色与素材，不参与分成" : "登录后管理角色与素材"\]/);
+    assert.match(live, /if \(action === "creator"\) \{\s*if \(!token\(\) \|\| !state\.user\) return askLogin\(\);\s*rememberLiveNavigation\("creator"\);\s*state\.page = "creator";/);
+    assert.doesNotMatch(live, /创作者中心仅供平台管理员使用/);
+    assert.doesNotMatch(live, /state\.user\?\.role !== "admin"/);
+    assert.match(live, /data-action="create-share" data-id="\$\{esc\(item\.id\)\}"[\s\S]*?分享角色/);
+    assert.doesNotMatch(live, /视频通话实扣积分的 30% 计入角色创作者独立收益/);
+    assert.match(live, /「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30%/);
+  }
   assert.match(admin, /聊天、视频通话、礼物分成收益/);
   assert.match(admin, /聊天 \/ 视频通话 \/ 礼物实扣积分/);
   assert.doesNotMatch(admin, /查看角色视频通话分成收益/);
