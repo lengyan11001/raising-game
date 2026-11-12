@@ -116,6 +116,8 @@ const helpers = new Function("papayaLanguageRequest", [
   `const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = ${JSON.stringify(server.slice(server.indexOf("const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `") + "const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `".length, server.indexOf("`;\n\nconst SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT")))};`,
   `const SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT = ${JSON.stringify(server.slice(server.indexOf("const SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `") + "const SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `".length, server.indexOf("`;\n\nfunction w3PromptOptimizerText")))};`,
   extractFunction(server, "w3NormalizeOptimizerPromptFormatting"),
+  extractFunction(server, "w3WrapWanPromptParagraph"),
+  extractFunction(server, "w3NormalizeWanPromptFormatting"),
   extractFunction(server, "w3OptimizerReadablePrompt"),
   extractFunction(server, "w3ParseOptimizerJson"),
   extractFunction(server, "seedancePromptOptimizerDialogueLines"),
@@ -141,7 +143,7 @@ const helpers = new Function("papayaLanguageRequest", [
   extractFunction(server, "w3PromptOptimizerRequest"),
   extractFunction(server, "promptOptimizerRequestForPayload"),
   "const delay = async () => {};",
-  "return { w3NormalizeOptimizerPromptFormatting, w3OptimizerReadablePrompt, w3ParseOptimizerJson, seedancePromptOptimizerDialogueLines, seedancePromptOptimizerTimelineRanges, seedancePromptOptimizerContentIssues, seedancePromptOptimizerRepairContent, seedancePromptOptimizerRequestedDuration, seedancePromptOptimizerTimelineInstruction, w3TruncatePrompt, w3PromptIsMostlyChinese, w3PromptOptimizerLanguage, w3PromptOptimizerRequest, w3NormalizeConstraintStack, seedancePromptOptimizerRequest, promptOptimizerRequestForPayload, seedancePromptOptimizerIsProvider, seedancePromptOptimizerInvalidReferences, seedancePromptOptimizerNeutralizeInvalidReferences };",
+  "return { w3NormalizeOptimizerPromptFormatting, w3NormalizeWanPromptFormatting, w3OptimizerReadablePrompt, w3ParseOptimizerJson, seedancePromptOptimizerDialogueLines, seedancePromptOptimizerTimelineRanges, seedancePromptOptimizerContentIssues, seedancePromptOptimizerRepairContent, seedancePromptOptimizerRequestedDuration, seedancePromptOptimizerTimelineInstruction, w3TruncatePrompt, w3PromptIsMostlyChinese, w3PromptOptimizerLanguage, w3PromptOptimizerRequest, w3NormalizeConstraintStack, seedancePromptOptimizerRequest, promptOptimizerRequestForPayload, seedancePromptOptimizerIsProvider, seedancePromptOptimizerInvalidReferences, seedancePromptOptimizerNeutralizeInvalidReferences };",
 ].join("\n"))(() => { throw new Error("papayaLanguageRequest mock missing"); });
 
 test("optimizer route is authenticated in front of generate and uses Papaya", () => {
@@ -215,6 +217,22 @@ test("negative residue is converted into a positive final constraint stack", () 
   assert.match(result, /镜头稳定/);
 });
 
+test("Wan fill formatting remains readable prose and removes model Markdown wrappers", () => {
+  const source = "```markdown\n# W3 提示词\n\nAt 00:00, 女生坐在窗边，双手放在膝上。At 00:03, 她轻轻抬头，目光转向窗外。**Camera static.** 镜头稳定，画面清晰，4K。\n```";
+  const result = helpers.w3NormalizeWanPromptFormatting(source);
+  assert.doesNotMatch(result, /```|^#|\*\*|^-\s/m);
+  assert.doesNotMatch(result, /^W3 提示词/m);
+  assert.match(result, /At 00:00, 女生坐在窗边/);
+  assert.match(result, /At 00:03, 她轻轻抬头/);
+  assert.match(result, /At 00:00,[^\n]+\n\nAt 00:03,/);
+  assert.match(result, /Camera static\. 镜头稳定/);
+  assert.ok(result.endsWith("4K。"));
+
+  const chineseTimeline = helpers.w3NormalizeWanPromptFormatting("0—3秒：女生抬手整理头发。3—6秒：她转身看向门口。结尾约束：镜头稳定，画面清晰。");
+  assert.match(chineseTimeline, /0—3秒：[^\n]+\n\n3—6秒：/);
+  assert.match(chineseTimeline, /\n\n结尾约束：/);
+});
+
 test("5000-character truncation keeps a positive final constraint stack and sentence boundary", () => {
   const source = `${"这是一个很长的镜头描述。".repeat(800)}END`;
   const result = helpers.w3TruncatePrompt(source);
@@ -241,6 +259,8 @@ test("client writes readable prompt text rather than JSON into the input box", (
   assert.equal(readable('{"optimizedPrompt":"【主体】角色A站在窗边。"}'), "【主体】角色A站在窗边。");
   assert.equal(readable(JSON.stringify({ optimizedPrompt: JSON.stringify({ optimizedPrompt: "【动作时间轴】\n0—4秒：抬头。" }) })), "【动作时间轴】\n0—4秒：抬头。");
   assert.doesNotMatch(readable({ optimizedPrompt: { optimizedPrompt: "【镜头运镜】缓慢推近。" } }), /^[{[]/);
+  assert.equal(typeof scope.window.W3PromptOptimizer.normalizeWanFillPrompt, "function");
+  assert.equal(scope.window.W3PromptOptimizer.normalizeWanFillPrompt("- At 00:00, 人物抬头。"), "At 00:00, 人物抬头。");
 });
 
 test("modal opens without requesting and only starts after explicit confirmation", () => {
