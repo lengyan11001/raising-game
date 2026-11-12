@@ -4000,3 +4000,13 @@ CODEX_TASK_STATE.md
 - Added server-side normalization before constraint-stack and truncation handling, plus client-side defensive normalization before the modal result is editable/applied.
 - Verification: `test/w3-prompt-optimizer.test.js` passes `35/35`; JavaScript syntax checks and `git diff --check` pass. Full suite reports `930 pass / 27 fail / 1 skip`, matching the known pre-existing failure set with three additional passing tests.
 - Source commit `a7d5e4c1`; Old-only release/deploy acceptance recorded below after completion. Live remains untouched.
+
+## 2026-11-12 Step AQ: bottom-left contact entry and clickable case library
+
+- User requested the bottom-left “消息通知” entry be renamed “联系我们”, and the referral-page “案例库” row be clickable so it opens the same-style “Case” tab.
+- Updated `platform.html`: side utility label/icon/analytics changed to `联系我们` / `messages-square` / `contact_open`; membership case-library row is now a real button with `data-open-case-library`.
+- Updated `platform.main.js`: bottom-left click closes notifications and opens the support dialog directly with source `side_nav`; case-library click switches to `setTab("cases")`.
+- Updated `platform.css` with keyboard-visible and hover styling for the case-library row.
+- Updated `test/support-notifications.test.js` to assert the new label, support action, clickable row, and `setTab("cases")` wiring.
+- Verification: focused regression command `node --test test/support-notifications.test.js test/side-navigation-overflow.test.js test/session-login-race.test.js test/platform-refresh-performance.test.js` passes 24/24; source assertions and `git diff --check` pass.
+- Deployment status: pending at time of this record. Intended scope is Old only via `scripts/deploy_local.sh --site old --no-restart`; Live untouched. No session invalidation or service restart.

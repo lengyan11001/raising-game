@@ -108,8 +108,8 @@ test("platform UI exposes one left messages entry, unread dots, notification det
   const js = read("platform.explore.js");
   const main = read("platform.main.js");
   const css = read("platform.css");
-  assert.match(html, /id="supportNavBtn"[^>]*aria-label="消息通知"/);
-  assert.match(html, /id="supportNavBtn"[\s\S]*?<span>消息通知<\/span>/);
+  assert.match(html, /id="supportNavBtn"[^>]*aria-label="联系我们"/);
+  assert.match(html, /id="supportNavBtn"[\s\S]*?<span>联系我们<\/span>/);
   assert.doesNotMatch(html, /id="supportFab"/);
   assert.doesNotMatch(html, /id="mobileNotificationBellBtn"/);
   assert.match(html, /id="notificationBellBtn"[^>]*hidden/);
@@ -126,7 +126,9 @@ test("platform UI exposes one left messages entry, unread dots, notification det
   assert.match(js, /supportNavBtn\.getBoundingClientRect\(\)/);
   assert.match(js, /els\.notificationPanel\.style\.left =/);
   assert.match(js, /els\.notificationPanel\.style\.top =/);
-  assert.match(main, /supportNavBtn\?\.addEventListener[\s\S]*?toggleNotificationPanel\("nav"\)/);
+  assert.match(main, /supportNavBtn\?\.addEventListener[\s\S]*?openSupportDialog\(\{ source: "side_nav" \}\)/);
+  assert.match(html, /class="membership-benefit membership-benefit-row membership-benefit-link"[^>]*data-open-case-library/);
+  assert.match(main, /data-open-case-library[\s\S]*?setTab\("cases"\)/);
   assert.match(main, /notificationSupportEntry\?\.addEventListener/);
   assert.match(css, /\.notification-bell\[hidden\][^{]*\{[^}]*display:\s*none/);
   assert.match(css, /\.notification-dot[^{]*\{[^}]*background:/);

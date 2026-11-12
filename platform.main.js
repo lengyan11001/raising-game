@@ -1488,7 +1488,11 @@ document.querySelectorAll("[data-analytics-event]").forEach((element) => {
 });
 els.supportNavBtn?.addEventListener("click", (event) => {
   event.stopPropagation();
-  toggleNotificationPanel("nav");
+  closeNotificationPanel();
+  openSupportDialog({ source: "side_nav" });
+});
+document.querySelectorAll("[data-open-case-library]").forEach((entry) => {
+  entry.addEventListener("click", () => setTab("cases"));
 });
 els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
 els.supportCloseBtn?.addEventListener("click", () => els.supportDialog?.close());

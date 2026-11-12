@@ -4120,6 +4120,21 @@ dialog.tool-download-modal {
   font-size: .76rem;
   text-overflow: clip;
 }
+.membership-benefit-link {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+.membership-benefit-link:hover,
+.membership-benefit-link:focus-visible {
+  border-color: rgba(255, 194, 77, .38) !important;
+  background: rgba(255, 194, 77, .075) !important;
+  outline: none;
+}
+.membership-benefit-link:hover .membership-benefit-badge,
+.membership-benefit-link:focus-visible .membership-benefit-badge { color: #ffe7c4; }
 .membership-benefits svg { width: 17px; height: 17px; flex: 0 0 auto; }
 .membership-calculator {
   margin: 4px 24px 0;
