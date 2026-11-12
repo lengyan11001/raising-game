@@ -78,9 +78,15 @@
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result.ok === false) {
-      const error = new Error(result.message || `优化失败：${response.status}`);
-      error.code = result.code || "";
+      const code = String(result.code || "");
+      const upstreamBusy = code === "PROMPT_OPTIMIZER_UPSTREAM_UNAVAILABLE" || [502, 503, 504].includes(response.status);
+      const retryHint = response.status === 429
+        ? "请求太频繁，请稍后重试。"
+        : "上游模型暂时繁忙，请稍后重试。";
+      const error = new Error(upstreamBusy ? retryHint : (result.message || `优化失败：${response.status}`));
+      error.code = code;
       error.statusCode = response.status;
+      error.requestId = String(result.requestId || "");
       throw error;
     }
     return result;
