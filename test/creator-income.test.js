@@ -9,8 +9,11 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 const dbSource = fs.readFileSync(path.join(root, "db.js"), "utf8");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
-const live = fs.readFileSync(path.join(root, "live.js"), "utf8");
-const liveHtml = fs.readFileSync(path.join(root, "live.html"), "utf8");
+const livePath = path.join(root, "live.js");
+const liveHtmlPath = path.join(root, "live.html");
+const live = fs.existsSync(livePath) ? fs.readFileSync(livePath, "utf8") : null;
+const liveHtml = fs.existsSync(liveHtmlPath) ? fs.readFileSync(liveHtmlPath, "utf8") : null;
+const liveSurfaceSkip = live && liveHtml ? false : "Live frontend files are absent from the platform release.";
 const admin = fs.readFileSync(path.join(root, "admin.js"), "utf8");
 const adminHtml = fs.readFileSync(path.join(root, "admin.html"), "utf8");
 
@@ -180,12 +183,15 @@ test("server-derived ownership and royalty eligibility gate only public communit
   assert.match(publicPredicate, /character\?\.communityShareEnabled === true/);
   assert.match(publicPredicate, /character\?\.communityVisibility === "public"/);
   assert.match(publicPredicate, /character\?\.enabled !== false/);
+});
+
+test("live role sharing UI reflects public community eligibility", { skip: liveSurfaceSkip }, () => {
   assert.match(live, /<button class="role-share-button" data-action="share-role" aria-label="分享角色">\$\{uiIcon\("share"\)\}<\/button>/);
   assert.doesNotMatch(live, /canShareEarnings \?/);
   assert.doesNotMatch(live, /c\.communityVisibility === "public"[^;\n]*share-role/);
 });
 
-test("owner can share a public created role while an internal role has no royalty CTA", () => {
+test("owner can share a public created role while an internal role has no royalty CTA", { skip: liveSurfaceSkip }, () => {
   const publicRoleCard = live.slice(
     live.indexOf('data-action="create-share"'),
     live.indexOf('data-action="create-delete"'),
@@ -437,6 +443,12 @@ test("internal creator center is available to logged-in users while staying priv
   assert.match(communityHandler, /source: "community",/);
   assert.match(communityHandler, /payload\.communityShareEnabled = true;/);
 
+  assert.match(admin, /聊天、视频通话、礼物分成收益/);
+  assert.match(admin, /聊天 \/ 视频通话 \/ 礼物实扣积分/);
+  assert.doesNotMatch(admin, /查看角色视频通话分成收益/);
+});
+
+test("live creator center UI is available to logged-in users while staying private and non-royalty", { skip: liveSurfaceSkip }, () => {
   assert.match(live, /\["creator", "pen", "创作者中心", u \? "管理内部角色与素材，不参与分成" : "登录后管理角色与素材"\]/);
   assert.match(live, /if \(action === "creator"\) \{\s*if \(!token\(\) \|\| !state\.user\) return askLogin\(\);\s*rememberLiveNavigation\("creator"\);\s*state\.page = "creator";/);
   assert.doesNotMatch(live, /创作者中心仅供平台管理员使用/);
@@ -444,9 +456,6 @@ test("internal creator center is available to logged-in users while staying priv
   assert.match(live, /data-action="create-share" data-id="\$\{esc\(item\.id\)\}"[\s\S]*?分享角色/);
   assert.doesNotMatch(live, /视频通话实扣积分的 30% 计入角色创作者独立收益/);
   assert.match(live, /「创作」页公开角色被其他用户实际扣费聊天、视频通话或送礼物时，实扣积分的 30%/);
-  assert.match(admin, /聊天、视频通话、礼物分成收益/);
-  assert.match(admin, /聊天 \/ 视频通话 \/ 礼物实扣积分/);
-  assert.doesNotMatch(admin, /查看角色视频通话分成收益/);
 });
 
 test("creator income APIs, profile page, and admin review UI are wired", () => {
@@ -455,6 +464,16 @@ test("creator income APIs, profile page, and admin review UI are wired", () => {
   assert.match(server, /url\.pathname === "\/api\/admin\/creator-data"/);
   assert.match(server, /url\.pathname === "\/api\/admin\/creator-withdrawals"/);
   assert.match(server, /adminCreatorWithdrawalMatch[\s\S]*?handleAdminUpdateCreatorWithdrawal/);
+  assert.match(adminHtml, /data-route="creator-data"[\s\S]*?创作者数据/);
+  assert.match(adminHtml, /admin\.js\?v=[^"\s]+/);
+  assert.match(admin, /async function renderCreatorData/);
+  assert.match(admin, /data-creator-withdraw-action="paid"/);
+  assert.match(admin, /data-creator-withdraw-action="rejected"/);
+  assert.match(admin, /打款必须填写链上交易哈希；拒绝必须填写原因/);
+  assert.doesNotMatch(admin, /result\.txHash/);
+});
+
+test("live creator income profile page exposes earnings and withdrawal flows", { skip: liveSurfaceSkip }, () => {
   assert.match(live, /\["creator-income", "gift", "创作者收益"/);
   assert.match(live, /单笔收益 = 用户在该角色上的实扣积分 × \$\{Math\.round\(Number\(income\.earningRate \|\| \.3\) \* 100\)\}%/);
   assert.match(live, /仅「创作」页创建的公开角色参与分成；内部创作者中心角色不参与分成。收益独立计算，不累计到普通积分余额。/);
@@ -477,11 +496,4 @@ test("creator income APIs, profile page, and admin review UI are wired", () => {
   assert.match(live, /if \(a === "copy-poster-link"\) \{ await copyShareLinkSilently\(\); return; \}/);
   assert.match(liveHtml, /live\.js\?v=2026110301/);
   assert.match(liveHtml, /live\.css\?v=2026110301/);
-  assert.match(adminHtml, /data-route="creator-data"[\s\S]*?创作者数据/);
-  assert.match(adminHtml, /admin\.js\?v=[^"\s]+/);
-  assert.match(admin, /async function renderCreatorData/);
-  assert.match(admin, /data-creator-withdraw-action="paid"/);
-  assert.match(admin, /data-creator-withdraw-action="rejected"/);
-  assert.match(admin, /打款必须填写链上交易哈希；拒绝必须填写原因/);
-  assert.doesNotMatch(admin, /result\.txHash/);
 });
