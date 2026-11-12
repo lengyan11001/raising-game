@@ -1,3 +1,11 @@
+## 2026-11-12 Step BC: fans Cases rollback deployed, contact entry retained
+
+- User clarified that only the prior bottom-left contact-copy/entry work should remain; fans must not expose Same-style/Cases, and the fans membership Cases row must not navigate.
+- Source `2ca5a570`: fans default allowlist no longer contains `cases`; removed the old-process compatibility push of `cases`; membership Cases is marked `data-cases-main-only`; fans JS hides/disables that row; fans CSS hides it before JS; main-site behavior is unchanged. Bottom-left `联系我们`/support notification behavior was not changed.
+- Verification: focused platform/profile/navigation/support tests pass `29/29`; Node syntax and `git diff --check` pass. Exact pushed platform release `d969729c` differs from prior deployed `e72976b4` only by this state file and the eight intended files.
+- Old deployed through the required `scripts/deploy_local.sh --site old` entrypoint (exit 0); migrations `pending=0`; `/opt/raising-game-demo` HEAD is `d969729`; primary `3426830` active/running `NRestarts=0`, standby `3425692` active `NRestarts=0`.
+- Post-deploy checks: `123vips.com` and `123vip.fans` health/livez/readyz all 200; home pages 200; fans tenant allowlist excludes `cases`; deployed JS/CSS include the fans-only hide guard; main site retains the Cases click behavior; both domains still render `联系我们`; `app_sessions=1009`, expired `0` (no session purge); no fatal/unhandled/error journal lines in the deployment window. Live remains untouched at `f40e7a35`.
+
 ## 2026-11-12 Step BF: deployment-doc reread, Old release, and post-deploy acceptance
 
 - Re-read the current `DEPLOY.md` before release: integration commits stay on `old-site`; production must be built as a release snapshot on `platform-release` or `live-release`; deploy through `scripts/deploy_local.sh --site old`; Live remains a separate release surface; existing sessions must not be purged or rotated.
