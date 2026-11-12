@@ -8407,7 +8407,7 @@ async function getGenerationRecordsNeedingR2RecoveryFromDb({ limit = 100 } = {})
   return rows.map((row) => row.payload);
 }
 
-async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit = 8 } = {}) {
+async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit = 8, countTotal = true } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
   const cleanUserId = String(userId || "").trim();
@@ -8415,6 +8415,26 @@ async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit
   const safeLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit || 8) || 8)));
   const safePage = Math.max(1, Math.trunc(Number(page || 1) || 1));
   const offset = (safePage - 1) * safeLimit;
+  if (countTotal === false) {
+    // Completion polling only needs the visible first page. Counting every
+    // matching row here turns a bounded lookup into a full scan of the
+    // user's generation history on every poll.
+    const { rows } = await query(`
+      SELECT payload
+      FROM app_generation_records
+      WHERE payload->>'userId' = $1
+        AND COALESCE(payload->>'deletedAt', '') = ''
+      ORDER BY created_at DESC, task_id DESC
+      LIMIT $2 OFFSET $3
+    `, [cleanUserId, safeLimit, offset]);
+    return {
+      records: rows.map((row) => row.payload),
+      total: offset + rows.length,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: safePage,
+    };
+  }
   const { rows } = await query(`
     SELECT payload, COUNT(*) OVER()::int AS total_count
     FROM app_generation_records
