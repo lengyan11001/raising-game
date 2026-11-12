@@ -24,6 +24,7 @@ const skill = fs.readFileSync(path.resolve(process.env.HOME || "", ".codex/skill
 function extractFunction(source, name) {
   let start = source.indexOf(`function ${name}(`);
   if (start === -1) throw new Error(`missing function ${name}`);
+  if (source.slice(Math.max(0, start - 6), start) === "async ") start -= 6;
   let parenDepth = 0;
   let bodyStart = -1;
   for (let index = source.indexOf("(", start); index < source.length; index += 1) {
@@ -47,7 +48,7 @@ function extractFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
-const helpers = new Function([
+const helpers = new Function("papayaLanguageRequest", [
   "const W3_PROMPT_MAX_CHARS = 5000;",
   "const W3_PROMPT_OPTIMIZER_MODEL = \"carrothub-papaya-1.0\";",
   "const SEEDANCE_PROMPT_OPTIMIZER_PROVIDERS = new Set([\"seedance\",\"seedance25\",\"seedance-nsfw\",\"seedance20-vega\",\"seedance25-vega\"]);",
@@ -66,8 +67,11 @@ const helpers = new Function([
   extractFunction(server, "seedancePromptOptimizerRequest"),
   extractFunction(server, "w3PromptOptimizerRequest"),
   extractFunction(server, "promptOptimizerRequestForPayload"),
-  "return { w3ParseOptimizerJson, w3TruncatePrompt, w3PromptIsMostlyChinese, w3PromptOptimizerLanguage, w3PromptOptimizerRequest, w3NormalizeConstraintStack, seedancePromptOptimizerRequest, promptOptimizerRequestForPayload, seedancePromptOptimizerIsProvider, seedancePromptOptimizerInvalidReferences };",
-].join("\n"))();
+  extractFunction(server, "promptOptimizerUpstreamIsRetryable"),
+  extractFunction(server, "promptOptimizerPapayaRequest"),
+  "const delay = async () => {};",
+  "return { w3ParseOptimizerJson, w3TruncatePrompt, w3PromptIsMostlyChinese, w3PromptOptimizerLanguage, w3PromptOptimizerRequest, w3NormalizeConstraintStack, seedancePromptOptimizerRequest, promptOptimizerRequestForPayload, seedancePromptOptimizerIsProvider, seedancePromptOptimizerInvalidReferences, promptOptimizerUpstreamIsRetryable, promptOptimizerPapayaRequest };",
+].join("\n"))(() => { throw new Error("papayaLanguageRequest mock missing"); });
 
 test("optimizer route is authenticated in front of generate and uses Papaya", () => {
   const optimize = route.indexOf('url.pathname === "/api/advanced/prompt-optimize"');
@@ -76,7 +80,7 @@ test("optimizer route is authenticated in front of generate and uses Papaya", ()
   assert.match(route, /handleAdvancedPromptOptimize\(req, res\)/);
   assert.match(server, /carrothub-papaya-1\.0/);
   assert.match(server, /const auth = await requireUser\(req, res\);\s*if \(!auth\) return;/);
-  assert.match(server, /papayaLanguageRequest\(requestAttempt\.body/);
+  assert.match(server, /promptOptimizerPapayaRequest\(requestAttempt\.body/);
 });
 
 test("optimizer validates prompt length and does not create generation records", () => {
@@ -232,6 +236,58 @@ test("Seedance optimizer rejects reference labels outside the supplied inventory
   assert.deepEqual(helpers.seedancePromptOptimizerInvalidReferences("图片1控制脸，图片3控制服装。", references), ["图片3"]);
   assert.deepEqual(helpers.seedancePromptOptimizerInvalidReferences("图片1控制脸，Video 2控制动作。", references), ["Video 2"]);
   assert.match(server, /PROMPT_OPTIMIZER_REFERENCE_MISMATCH/);
+});
+
+test("prompt optimizer retries one transient upstream failure and keeps the request bounded", async () => {
+  const calls = [];
+  const attemptHelpers = new Function("papayaLanguageRequest", [
+    "const W3_PROMPT_MAX_CHARS = 5000;",
+    "const W3_PROMPT_OPTIMIZER_MODEL = \"carrothub-papaya-1.0\";",
+    "const PROMPT_OPTIMIZER_TOTAL_BUDGET_MS = 50000;",
+    "const PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT_MS = 25000;",
+    "const PROMPT_OPTIMIZER_UPSTREAM_MAX_ATTEMPTS = 2;",
+    "const PROMPT_OPTIMIZER_RETRYABLE_STATUS = new Set([408,425,429,500,502,503,504,520,522]);",
+    "const delay = async () => {};",
+    extractFunction(server, "promptOptimizerUpstreamIsRetryable"),
+    extractFunction(server, "promptOptimizerPapayaRequest"),
+    "return { promptOptimizerPapayaRequest, promptOptimizerUpstreamIsRetryable };",
+  ].join("\n"))(async (body, options) => {
+    calls.push({ body, options });
+    if (calls.length === 1) throw Object.assign(new Error("temporary upstream failure"), { statusCode: 502 });
+    return { choices: [{ message: { content: "ok" } }] };
+  });
+  const result = await attemptHelpers.promptOptimizerPapayaRequest({ prompt: "test" }, { deadline: Date.now() + 50000, requestContext: { requestId: "test" } });
+  assert.equal(result.choices[0].message.content, "ok");
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((call) => call.options.timeoutMs <= 25000));
+  assert.equal(attemptHelpers.promptOptimizerUpstreamIsRetryable(Object.assign(new Error("timeout"), { name: "TimeoutError" })), true);
+});
+
+test("prompt optimizer exposes a bounded structured error after exhausted retries", async () => {
+  const attemptHelpers = new Function("papayaLanguageRequest", [
+    "const PROMPT_OPTIMIZER_TOTAL_BUDGET_MS = 50000;",
+    "const PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT_MS = 25000;",
+    "const PROMPT_OPTIMIZER_UPSTREAM_MAX_ATTEMPTS = 2;",
+    "const PROMPT_OPTIMIZER_RETRYABLE_STATUS = new Set([408,425,429,500,502,503,504,520,522]);",
+    "const delay = async () => {};",
+    extractFunction(server, "promptOptimizerUpstreamIsRetryable"),
+    extractFunction(server, "promptOptimizerPapayaRequest"),
+    "return { promptOptimizerPapayaRequest };",
+  ].join("\n"))(async () => { throw Object.assign(new Error("upstream down"), { statusCode: 502 }); });
+  await assert.rejects(
+    () => attemptHelpers.promptOptimizerPapayaRequest({}, { deadline: Date.now() + 50000 }),
+    (error) => {
+      assert.equal(error.code, "PROMPT_OPTIMIZER_UPSTREAM_UNAVAILABLE");
+      assert.equal(error.statusCode, 503);
+      assert.equal(error.attempts, 2);
+      return true;
+    },
+  );
+  assert.match(server, /PROMPT_OPTIMIZER_TOTAL_BUDGET_MS = 50000/);
+  assert.match(server, /PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT_MS = 25000/);
+  assert.match(server, /\[prompt-optimizer-failed\]/);
+  assert.match(client, /PROMPT_OPTIMIZER_UPSTREAM_UNAVAILABLE/);
+  assert.match(client, /上游模型暂时繁忙，请稍后重试/);
 });
 
 test("W3 skill keeps 18+ intent and structure guidance without policy limits", () => {

@@ -1,5 +1,9 @@
 const W3_PROMPT_MAX_CHARS = 5000;
 const W3_PROMPT_OPTIMIZER_MODEL = "carrothub-papaya-1.0";
+const PROMPT_OPTIMIZER_TOTAL_BUDGET_MS = 50000;
+const PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT_MS = 25000;
+const PROMPT_OPTIMIZER_UPSTREAM_MAX_ATTEMPTS = 2;
+const PROMPT_OPTIMIZER_RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 520, 522]);
 const SEEDANCE_PROMPT_OPTIMIZER_PROVIDERS = new Set([
   "seedance",
   "seedance25",
@@ -283,6 +287,49 @@ function w3PromptOptimizerRequest(payload = {}, { languageCorrection = false } =
   };
 }
 
+function promptOptimizerUpstreamIsRetryable(error = {}) {
+  const status = Number(error.statusCode || error.cause?.statusCode || 0);
+  if (PROMPT_OPTIMIZER_RETRYABLE_STATUS.has(status) || error.retryable === true) return true;
+  const detail = `${String(error.cause?.code || error.code || "")} ${String(error.message || "")}`;
+  return !status && /abort|timeout|timed out|fetch failed|network|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT/i.test(detail);
+}
+
+async function promptOptimizerPapayaRequest(body = {}, { deadline = Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS, requestContext = {}, usage = {} } = {}) {
+  let lastError = null;
+  let attempts = 0;
+  for (let attempt = 1; attempt <= PROMPT_OPTIMIZER_UPSTREAM_MAX_ATTEMPTS; attempt += 1) {
+    const remainingMs = Number(deadline) - Date.now();
+    if (remainingMs < 5000) break;
+    attempts = attempt;
+    usage.attempts = (Number(usage.attempts) || 0) + 1;
+    try {
+      return await papayaLanguageRequest(body, {
+        timeoutMs: Math.min(PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT_MS, remainingMs),
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt >= PROMPT_OPTIMIZER_UPSTREAM_MAX_ATTEMPTS || !promptOptimizerUpstreamIsRetryable(error)) break;
+      console.warn("[prompt-optimizer-retry]", JSON.stringify({
+        ...requestContext,
+        attempt,
+        maxAttempts: PROMPT_OPTIMIZER_UPSTREAM_MAX_ATTEMPTS,
+        statusCode: Number(error.statusCode || 0),
+        code: String(error.cause?.code || error.code || ""),
+        elapsedMs: Math.max(0, PROMPT_OPTIMIZER_TOTAL_BUDGET_MS - Math.max(0, Number(deadline) - Date.now())),
+      }));
+      await delay(400 * attempt);
+    }
+  }
+  const error = new Error("Prompt optimizer upstream is temporarily unavailable.");
+  error.statusCode = 503;
+  error.code = "PROMPT_OPTIMIZER_UPSTREAM_UNAVAILABLE";
+  error.upstreamStatus = Number(lastError?.statusCode || 0);
+  error.upstreamCode = String(lastError?.cause?.code || lastError?.code || "");
+  error.attempts = attempts;
+  error.cause = lastError;
+  throw error;
+}
+
 async function handleAdvancedPromptOptimize(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -299,18 +346,31 @@ async function handleAdvancedPromptOptimize(req, res) {
     return sendJson(res, 400, { ok: false, code: "PROMPT_TOO_LONG", message: `Prompt must be ${W3_PROMPT_MAX_CHARS} characters or fewer.` });
   }
   if (!String(process.env.MULEROUTER_API_KEY || "").trim()) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_MULEROUTER_API_KEY", message: "Prompt optimizer is not configured." });
+    return sendJson(res, 503, { ok: false, code: "MISSING_MULEROUTER_API_KEY", message: "提示词优化服务暂时不可用，请稍后重试。" });
   }
+  const requestId = `prompt-optimizer-${crypto.randomUUID()}`;
+  const startedAt = Date.now();
+  const deadline = startedAt + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS;
+  const usage = { attempts: 0 };
+  const requestContext = {
+    requestId,
+    provider: request.provider,
+    seedance: seedanceRequest,
+    model: W3_PROMPT_OPTIMIZER_MODEL,
+    duration: request.duration,
+    language: request.language,
+    referenceCount: Array.isArray(request.references) ? request.references.length : 0,
+  };
   try {
     let requestAttempt = request;
-    let raw = await papayaLanguageRequest(requestAttempt.body, { timeoutMs: 180000 });
+    let raw = await promptOptimizerPapayaRequest(requestAttempt.body, { deadline, requestContext, usage });
     let text = w3PromptOptimizerText(raw);
     if (!text) throw Object.assign(new Error("Prompt optimizer returned no text."), { statusCode: 502, code: "PROMPT_OPTIMIZER_EMPTY" });
     let parsed = w3ParseOptimizerJson(text);
     let optimizedPrompt = parsed?.optimizedPrompt || text.replace(/^```(?:json)?|```$/g, "").trim();
     if (request.language === "zh" && !w3PromptIsMostlyChinese(optimizedPrompt)) {
       requestAttempt = promptOptimizerRequestForPayload(body, { languageCorrection: true });
-      raw = await papayaLanguageRequest(requestAttempt.body, { timeoutMs: 180000 });
+      raw = await promptOptimizerPapayaRequest(requestAttempt.body, { deadline, requestContext, usage });
       text = w3PromptOptimizerText(raw);
       if (!text) throw Object.assign(new Error("Prompt optimizer returned no text."), { statusCode: 502, code: "PROMPT_OPTIMIZER_EMPTY" });
       parsed = w3ParseOptimizerJson(text);
@@ -338,7 +398,21 @@ async function handleAdvancedPromptOptimize(req, res) {
       mode: seedanceRequest ? "seedance" : "w3",
     });
   } catch (error) {
-    const status = Number(error.statusCode) >= 400 ? Number(error.statusCode) : 502;
-    return sendJson(res, status, { ok: false, code: error.code || "PROMPT_OPTIMIZER_FAILED", message: error.message || "Prompt optimization failed." });
+    const rawStatus = Number(error.statusCode) || 0;
+    const status = rawStatus >= 400 && rawStatus < 600 ? rawStatus : 502;
+    const code = error.code || "PROMPT_OPTIMIZER_FAILED";
+    console.warn("[prompt-optimizer-failed]", JSON.stringify({
+      ...requestContext,
+      status,
+      code,
+      upstreamStatus: Number(error.upstreamStatus || error.statusCode || 0),
+      upstreamCode: String(error.upstreamCode || error.cause?.code || error.code || ""),
+      attempts: Number(error.attempts || usage.attempts || 0),
+      elapsedMs: Date.now() - startedAt,
+    }));
+    const message = code === "PROMPT_OPTIMIZER_UPSTREAM_UNAVAILABLE"
+      ? "上游模型暂时繁忙，请稍后重试。"
+      : (error.message || "Prompt optimization failed.");
+    return sendJson(res, status, { ok: false, code, message, requestId });
   }
 }
