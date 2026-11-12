@@ -1315,7 +1315,7 @@ els.advancedRatio?.addEventListener("change", () => {
 });
 els.advancedPromptOptimizeBtn?.addEventListener("click", () => {
   const provider = currentAdvancedProvider();
-  if (!window.isWanPromptOptimizerProvider?.(provider)) return;
+  if (!window.isPromptOptimizerProvider?.(provider)) return;
   const prompt = window.getAdvancedPromptValue?.() || els.advancedPrompt?.value || "";
   window.openPromptOptimizer?.({
     prompt,
@@ -1324,6 +1324,9 @@ els.advancedPromptOptimizeBtn?.addEventListener("click", () => {
     duration: Number(els.advancedDuration?.value || 0) || undefined,
     resolution: typeof currentAdvancedResolution === "function" ? currentAdvancedResolution() : "",
     mode: els.advancedVideoCapability?.value || els.advancedSeedanceMediaMode?.value || "",
+    references: typeof advancedReferenceDisplayItems === "function"
+      ? advancedReferenceDisplayItems(provider).map(({ kind, label }) => ({ kind, label }))
+      : [],
     onApply: (value) => {
       if (!window.setAdvancedPromptValue?.(value, { emitInput: true, focus: true })) {
         if (els.advancedPrompt) {

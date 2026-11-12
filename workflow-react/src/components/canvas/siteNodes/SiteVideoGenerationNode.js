@@ -103,7 +103,7 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
               onChange={setPrompt}
               onBlur={savePrompt}
             />
-            {typeof window.isWanPromptOptimizerProvider === 'function' && window.isWanPromptOptimizerProvider(model.id) && (
+            {typeof window.isPromptOptimizerProvider === 'function' && window.isPromptOptimizerProvider(model.id) && (
               <button
                 type="button"
                 className="prompt-optimizer-trigger site-prompt-optimizer-trigger"

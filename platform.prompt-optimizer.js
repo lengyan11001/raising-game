@@ -1,6 +1,7 @@
 (() => {
   const MAX_CHARS = 5000;
   const WAN_PROVIDERS = new Set(["wan30", "wan30-prime", "wan27", "wan-animate", "h3-vega"]);
+  const SEEDANCE_PROVIDERS = new Set(["seedance", "seedance25", "seedance-nsfw", "seedance20-vega", "seedance25-vega"]);
   let activeModal = null;
 
   function normalizeProvider(value = "") {
@@ -18,6 +19,26 @@
   function isWanProvider(value = "") {
     const provider = normalizeProvider(value);
     return WAN_PROVIDERS.has(provider) || provider.startsWith("wan-");
+  }
+
+  function isSeedanceProvider(value = "") {
+    const provider = normalizeProvider(value);
+    return SEEDANCE_PROVIDERS.has(provider) || provider.startsWith("seedance");
+  }
+
+  function isPromptOptimizerProvider(value = "") {
+    return isWanProvider(value) || isSeedanceProvider(value);
+  }
+
+  function normalizeReferences(value = []) {
+    return (Array.isArray(value) ? value : []).slice(0, 50).map((item, index) => {
+      const kind = String(item?.kind || item?.type || "").trim().toLowerCase();
+      return {
+        kind: ["image", "video", "audio", "document"].includes(kind) ? kind : "image",
+        label: String(item?.label || "").trim().slice(0, 80) || `Image ${index + 1}`,
+        index: index + 1,
+      };
+    });
   }
 
   function detectPromptLanguage(value = "") {
@@ -40,10 +61,20 @@
     const prompt = String(payload.prompt || "").trim();
     if (!prompt) throw new Error("请先输入提示词。");
     if (prompt.length > MAX_CHARS) throw new Error(`提示词不能超过 ${MAX_CHARS} 个字符。`);
+    const requestBody = {
+      prompt,
+      provider: String(payload.provider || "").slice(0, 80),
+      providerLabel: String(payload.providerLabel || "").slice(0, 80),
+      duration: Number(payload.duration || 0) || undefined,
+      resolution: String(payload.resolution || "").slice(0, 32),
+      mode: String(payload.mode || "").slice(0, 80),
+      language: String(payload.language || detectPromptLanguage(prompt)).slice(0, 32),
+      references: normalizeReferences(payload.references),
+    };
     const response = await fetch("/api/advanced/prompt-optimize", {
       method: "POST",
       headers: requestHeaders(),
-      body: JSON.stringify({ ...payload, prompt }),
+      body: JSON.stringify(requestBody),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result.ok === false) {
@@ -66,17 +97,21 @@
 
   function ensureModal() {
     if (activeModal?.dialog?.isConnected) return activeModal;
-    const dialog = document.createElement("dialog");
-    dialog.className = "modal prompt-optimizer-dialog";
-    dialog.innerHTML = `
+    // Keep one dialog instance. Closing it clears the active handle so the next
+    // open can reuse the same DOM node instead of appending duplicate modals.
+    let dialog = document.querySelector("dialog.prompt-optimizer-dialog");
+    if (!dialog) {
+      dialog = document.createElement("dialog");
+      dialog.className = "modal prompt-optimizer-dialog";
+      dialog.innerHTML = `
       <form method="dialog">
         <header>
-          <div><span>W3 Prompt Optimizer</span><strong>AI 优化提示词</strong></div>
+          <div><span data-prompt-optimizer-kicker>Prompt Optimizer</span><strong>AI 优化提示词</strong></div>
           <button class="icon-btn" type="button" data-prompt-optimizer-close aria-label="Close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body prompt-optimizer-body">
           <div class="prompt-optimizer-loading" data-prompt-optimizer-loading>
-            <i data-lucide="sparkles"></i><span>正在按 W3 规则优化，请稍候...</span>
+            <i data-lucide="sparkles"></i><span data-prompt-optimizer-loading-text>正在按模型规则优化，请稍候...</span>
           </div>
           <div class="prompt-optimizer-error" data-prompt-optimizer-error hidden></div>
           <div class="prompt-optimizer-content" data-prompt-optimizer-content hidden>
@@ -97,7 +132,8 @@
           <button class="generate-btn" type="button" data-prompt-optimizer-apply disabled><i data-lucide="check"></i>填入提示词</button>
         </div>
       </form>`;
-    document.body.appendChild(dialog);
+      document.body.appendChild(dialog);
+    }
     const modal = {
       dialog,
       original: dialog.querySelector("[data-prompt-optimizer-original]"),
@@ -105,6 +141,8 @@
       count: dialog.querySelector("[data-prompt-optimizer-count]"),
       notes: dialog.querySelector("[data-prompt-optimizer-notes]"),
       loading: dialog.querySelector("[data-prompt-optimizer-loading]"),
+      loadingText: dialog.querySelector("[data-prompt-optimizer-loading-text]"),
+      kicker: dialog.querySelector("[data-prompt-optimizer-kicker]"),
       error: dialog.querySelector("[data-prompt-optimizer-error]"),
       content: dialog.querySelector("[data-prompt-optimizer-content]"),
       apply: dialog.querySelector("[data-prompt-optimizer-apply]"),
@@ -151,6 +189,11 @@
     modal.count.textContent = `0 / ${MAX_CHARS}`;
     modal.notes.innerHTML = "";
     modal.apply.disabled = true;
+    const seedance = isSeedanceProvider(payload.provider);
+    modal.kicker.textContent = seedance ? "Seedance Prompt Optimizer" : "W3 Prompt Optimizer";
+    modal.loadingText.textContent = seedance
+      ? "正在按 Seedance 参考素材与提示词规则优化，请稍候..."
+      : "正在按 W3 规则优化，请稍候...";
     setLoading(modal, true);
     window.lucide?.createIcons?.();
     try {
@@ -192,6 +235,7 @@
       duration: options.duration,
       resolution: options.resolution,
       mode: options.mode,
+      references: normalizeReferences(options.references),
       language: options.language || detectPromptLanguage(prompt),
     };
     const apply = options.onApply || (() => {});
@@ -200,7 +244,9 @@
     return Promise.resolve("");
   }
 
-  window.W3PromptOptimizer = Object.freeze({ isWanProvider, normalizeProvider, open: openPromptOptimizer, maxChars: MAX_CHARS });
+  window.W3PromptOptimizer = Object.freeze({ isWanProvider, isSeedanceProvider, isProvider: isPromptOptimizerProvider, normalizeProvider, open: openPromptOptimizer, maxChars: MAX_CHARS });
   window.isWanPromptOptimizerProvider = isWanProvider;
+  window.isSeedancePromptOptimizerProvider = isSeedanceProvider;
+  window.isPromptOptimizerProvider = isPromptOptimizerProvider;
   window.openPromptOptimizer = openPromptOptimizer;
 })();

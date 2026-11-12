@@ -1,5 +1,12 @@
 const W3_PROMPT_MAX_CHARS = 5000;
 const W3_PROMPT_OPTIMIZER_MODEL = "carrothub-papaya-1.0";
+const SEEDANCE_PROMPT_OPTIMIZER_PROVIDERS = new Set([
+  "seedance",
+  "seedance25",
+  "seedance-nsfw",
+  "seedance20-vega",
+  "seedance25-vega",
+]);
 
 const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `You are the W3 video-prompt rewrite engine for an 18+ adult product.
 Rewrite the user's existing prompt so it follows W3 production grammar. Preserve the user's explicit adult intent and existing content exactly as expressed. Never invent new sexual acts, participants, dialogue, or story beats that the user did not express. This rewrite changes only structure, timing, physical action, camera, continuity, audio, and generation stability.
@@ -14,6 +21,27 @@ Rewrite only for executable clarity and generation stability:
 - For audio, use phrases such as Ambient: quiet room, soft breathing, no background music. Do not add dialogue or sounds that the user did not request; preserve requested dialogue and vocal delivery.
 - Use prose that reads as performance and physical interaction, not a pile of disconnected tags. Keep it within 5000 characters. For 5s target 300-600 chars, 10s 600-900, 15s 800-1200, 30s 1500-2200, but do not pad if the user's content is shorter.
 - If reference/first-frame mode is relevant, apply this high-level rule: gradual single-person motion usually favors first_frame; two-person, large displacement, or position changes usually favor reference_images. Do not force a mode change into the prompt unless it helps the existing content.
+
+Return JSON only, with this shape:
+{"optimizedPrompt":"...","notes":["short change 1","short change 2"]}
+The optimizedPrompt must be the complete usable prompt, not a diff or explanation.`;
+
+const SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `You are the Seedance video-prompt rewrite engine for an 18+ adult product.
+Rewrite the user's existing prompt into a complete, production-ready Seedance prompt. Preserve the user's explicit adult intent and all existing content exactly as expressed. Never invent new sexual acts, participants, dialogue, characters, actions, or story beats that the user did not express. You may improve structure, reference binding, timing, physical motion, camera language, continuity, lighting, audio, and generation stability only.
+
+Return a prompt that is directly usable in Seedance:
+- LANGUAGE LOCK: Detect the dominant language of PROMPT START. Chinese prompts must stay predominantly Chinese; retain Chinese actions, descriptions, dialogue, ambience, and mood. Do not translate the whole prompt into English. Established camera/lighting terms may remain English when useful. If the source is English, keep it predominantly English.
+- REFERENCE BINDING: Use the supplied numbered media inventory and labels exactly. Refer to media as 图片1/图片2, 视频1/视频2, 音频1/音频2 (or Image N / Video N / Audio N when the prompt is English). Never refer to an asset that is not in the inventory, never invent indices, and never use [Image 1].
+- When more than one media item is present, make each item's role explicit in the prompt: identity/face, outfit/costume, scene/location, motion/performance, camera/composition, audio/music, or style reference. State which item is authoritative for each role. If the same role has multiple sources, state the conflict priority (for example, 图片1 controls face and 图片2 cannot change facial geometry).
+- Prefer one clear identity anchor. A person multi-view sheet is weak as the sole identity source; if it is the only available face reference, bind it to facial identity while taking pose, framing, and scene from the prompt or another reference.
+- Preserve the user's requested subject count. For each visible person, state identity binding, position, clothing state, and continuity when the prompt implies them. Do not add extra people.
+- ACTION BUDGET: Make one primary continuous action for about 5 seconds, 2-3 continuous actions for 9-12 seconds, 3-5 beats for about 15 seconds, and 6-8 beats for about 30 seconds. Do not overload short clips. Use timecodes only when they improve clarity; keep beats physically continuous rather than a set of disconnected shots.
+- Keep motion physical and measurable. Prefer body movement, hand placement, contact points, gaze direction, ~Ncm displacement, and explicit holds when these can be inferred from the user's request. Never fabricate anatomy or actions.
+- Camera: prefer a stable, readable shot. Use a side, three-quarter, or profile angle when identity is important; avoid an unnecessary frontal beauty close-up. Avoid compound camera moves unless requested. Use lens and framing terms only when they help the requested scene.
+- LIGHTING AND SKIN: describe real-footage appearance through physical light and texture, such as warm side light, soft natural window light, mild unevenness, visible pores, natural matte skin, restrained highlights, and natural shadow transitions. Do not default to glamour or CG trigger stacks such as 精致、俊美、冷白皮、水光肌、8K超清、磨皮、美颜、蜡像高光、身体油光. If the user asks for fairer skin, express it as brighter, softer lighting, exposure, or white balance without changing facial geometry or deep skin texture.
+- PRESERVE NEGATIVE CONSTRAINTS: Seedance has no universal negative_prompt field. Convert the user's negative constraints into positive, observable end-of-prompt constraints (for example, steady framing, natural skin texture, realistic material response, stable identity).
+- AUDIO: Preserve requested dialogue, vocal delivery, sound effects, ambience, and music. Never add dialogue or sounds the user did not request. If audio is enabled but no audio detail is supplied, describe only a restrained ambience or leave it unspecified.
+- Keep the prompt within 5000 characters. Do not pad. Prefer clear, executable prose over tag piles. The prompt must read as a Seedance instruction, not an explanation of your rewrite.
 
 Return JSON only, with this shape:
 {"optimizedPrompt":"...","notes":["short change 1","short change 2"]}
@@ -105,6 +133,110 @@ function w3PromptOptimizerLanguage(payload = {}, originalPrompt = "") {
   return requested.slice(0, 32);
 }
 
+function seedancePromptOptimizerReferences(payload = {}) {
+  const source = Array.isArray(payload.references) ? payload.references : [];
+  return source.slice(0, 50).map((item, index) => {
+    const requestedKind = String(item?.kind || item?.type || "").trim().toLowerCase();
+    const kind = ["image", "video", "audio", "document"].includes(requestedKind) ? requestedKind : "image";
+    const fallbackLabels = { image: "图片", video: "视频", audio: "音频", document: "文档" };
+    const fallback = `${fallbackLabels[kind]}${index + 1}`;
+    return {
+      kind,
+      label: String(item?.label || fallback).trim().slice(0, 80) || fallback,
+    };
+  });
+}
+
+function seedancePromptOptimizerIsProvider(provider = "") {
+  const normalized = String(provider || "").trim().toLowerCase();
+  return SEEDANCE_PROMPT_OPTIMIZER_PROVIDERS.has(normalized) || normalized.startsWith("seedance");
+}
+
+function seedancePromptOptimizerReferenceInventory(references = []) {
+  if (!references.length) return "No reference media supplied. Do not invent reference labels.";
+  return references.map((item, index) => {
+    const fallbackLabels = { image: "图片", video: "视频", audio: "音频", document: "文档" };
+    const label = item.label || `${fallbackLabels[item.kind] || "素材"}${index + 1}`;
+    return `${index + 1}. ${label} (${item.kind})`;
+  }).join("\n");
+}
+
+function seedancePromptOptimizerInvalidReferences(text = "", references = []) {
+  const source = String(text || "");
+  const allowed = new Set();
+  for (const item of references) {
+    const label = String(item?.label || "").trim();
+    if (label) allowed.add(label);
+  }
+  const found = source.match(/(?:图片|视频|音频|文档|Image|Video|Audio|Document)\s*\d+/gi) || [];
+  return [...new Set(found.filter((label) => !allowed.has(label.replace(/\s+/g, " ").trim())))];
+}
+
+function seedancePromptOptimizerRequest(payload = {}, { languageCorrection = false } = {}) {
+  const originalPrompt = String(payload.prompt || payload.originalPrompt || "").trim();
+  const duration = Math.max(2, Math.min(30, Math.floor(Number(payload.duration) || 5)));
+  const provider = String(payload.provider || "seedance").trim().toLowerCase();
+  const providerLabel = String(payload.providerLabel || provider || "Seedance").trim().slice(0, 80);
+  const resolution = String(payload.resolution || "").trim().slice(0, 32);
+  const mode = String(payload.mode || "").trim().slice(0, 80);
+  const language = w3PromptOptimizerLanguage(payload, originalPrompt);
+  const references = seedancePromptOptimizerReferences(payload);
+  const languageInstruction = language === "zh"
+    ? "LANGUAGE LOCK: The source prompt is Chinese. Keep the optimized prompt predominantly Chinese. Do not translate actions, descriptions, dialogue, ambience, or mood into English. Only established camera/lighting/quality terms may remain English."
+    : language === "en"
+      ? "LANGUAGE LOCK: The source prompt is English. Keep the optimized prompt predominantly English."
+      : "LANGUAGE LOCK: Keep the source prompt's dominant language and language mix.";
+  const actionBudget = duration <= 6
+    ? "ACTION BUDGET: Use one primary continuous action."
+    : duration <= 12
+      ? "ACTION BUDGET: Use 2-3 continuous actions."
+      : duration <= 16
+        ? "ACTION BUDGET: Use 3-5 beats."
+        : "ACTION BUDGET: Use 6-8 beats.";
+  const userPrompt = [
+    `Provider: ${providerLabel} (${provider})`,
+    `Duration: ${duration}s`,
+    resolution ? `Resolution: ${resolution}` : "",
+    mode ? `Mode: ${mode}` : "",
+    `Source language: ${language}`,
+    languageInstruction,
+    actionBudget,
+    languageCorrection ? "Your previous answer broke the source-language lock. Rewrite again and keep the original dominant language." : "",
+    "MEDIA INVENTORY (ordered; these are the only valid reference labels):",
+    seedancePromptOptimizerReferenceInventory(references),
+    "",
+    "Rewrite the following prompt according to the Seedance system rules. Preserve every explicit adult intention already present. Do not add or remove reference media. Return JSON only.",
+    "PROMPT START",
+    originalPrompt,
+    "PROMPT END",
+  ].filter((line) => line !== "").join("\n");
+  return {
+    originalPrompt,
+    duration,
+    provider,
+    providerLabel,
+    resolution,
+    mode,
+    language,
+    references,
+    body: {
+      model: W3_PROMPT_OPTIMIZER_MODEL,
+      messages: [
+        { role: "system", content: SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.3,
+      max_tokens: 6000,
+    },
+  };
+}
+
+function promptOptimizerRequestForPayload(payload = {}, options = {}) {
+  return seedancePromptOptimizerIsProvider(payload.provider)
+    ? seedancePromptOptimizerRequest(payload, options)
+    : w3PromptOptimizerRequest(payload, options);
+}
+
 function w3PromptOptimizerRequest(payload = {}, { languageCorrection = false } = {}) {
   const originalPrompt = String(payload.prompt || payload.originalPrompt || "").trim();
   const duration = Math.max(2, Math.min(30, Math.floor(Number(payload.duration) || 5)));
@@ -160,7 +292,8 @@ async function handleAdvancedPromptOptimize(req, res) {
   } catch (error) {
     return sendJson(res, error.statusCode || 400, { ok: false, code: error.code || "INVALID_JSON", message: error.message || "Invalid request." });
   }
-  const request = w3PromptOptimizerRequest(body);
+  const request = promptOptimizerRequestForPayload(body);
+  const seedanceRequest = seedancePromptOptimizerIsProvider(body.provider);
   if (!request.originalPrompt) return sendJson(res, 400, { ok: false, code: "PROMPT_REQUIRED", message: "Prompt is required." });
   if (request.originalPrompt.length > W3_PROMPT_MAX_CHARS) {
     return sendJson(res, 400, { ok: false, code: "PROMPT_TOO_LONG", message: `Prompt must be ${W3_PROMPT_MAX_CHARS} characters or fewer.` });
@@ -176,7 +309,7 @@ async function handleAdvancedPromptOptimize(req, res) {
     let parsed = w3ParseOptimizerJson(text);
     let optimizedPrompt = parsed?.optimizedPrompt || text.replace(/^```(?:json)?|```$/g, "").trim();
     if (request.language === "zh" && !w3PromptIsMostlyChinese(optimizedPrompt)) {
-      requestAttempt = w3PromptOptimizerRequest(body, { languageCorrection: true });
+      requestAttempt = promptOptimizerRequestForPayload(body, { languageCorrection: true });
       raw = await papayaLanguageRequest(requestAttempt.body, { timeoutMs: 180000 });
       text = w3PromptOptimizerText(raw);
       if (!text) throw Object.assign(new Error("Prompt optimizer returned no text."), { statusCode: 502, code: "PROMPT_OPTIMIZER_EMPTY" });
@@ -186,7 +319,15 @@ async function handleAdvancedPromptOptimize(req, res) {
         throw Object.assign(new Error("Prompt optimizer did not preserve the source language."), { statusCode: 502, code: "PROMPT_OPTIMIZER_LANGUAGE_MISMATCH" });
       }
     }
-    optimizedPrompt = w3TruncatePrompt(w3NormalizeConstraintStack(optimizedPrompt));
+    if (seedanceRequest) {
+      const invalidReferences = seedancePromptOptimizerInvalidReferences(optimizedPrompt, request.references);
+      if (invalidReferences.length) {
+        throw Object.assign(new Error(`Prompt optimizer referenced media outside the supplied inventory: ${invalidReferences.join(", ")}`), { statusCode: 502, code: "PROMPT_OPTIMIZER_REFERENCE_MISMATCH" });
+      }
+      optimizedPrompt = optimizedPrompt.slice(0, W3_PROMPT_MAX_CHARS).trim();
+    } else {
+      optimizedPrompt = w3TruncatePrompt(w3NormalizeConstraintStack(optimizedPrompt));
+    }
     if (!optimizedPrompt) throw Object.assign(new Error("Prompt optimizer returned an empty prompt."), { statusCode: 502, code: "PROMPT_OPTIMIZER_EMPTY" });
     return sendJson(res, 200, {
       ok: true,
@@ -194,6 +335,7 @@ async function handleAdvancedPromptOptimize(req, res) {
       optimizedPrompt,
       notes: parsed?.notes || [],
       model: W3_PROMPT_OPTIMIZER_MODEL,
+      mode: seedanceRequest ? "seedance" : "w3",
     });
   } catch (error) {
     const status = Number(error.statusCode) >= 400 ? Number(error.statusCode) : 502;

@@ -50,15 +50,23 @@ function extractFunction(source, name) {
 const helpers = new Function([
   "const W3_PROMPT_MAX_CHARS = 5000;",
   "const W3_PROMPT_OPTIMIZER_MODEL = \"carrothub-papaya-1.0\";",
-  `const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = ${JSON.stringify(server.slice(server.indexOf("const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `") + "const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `".length, server.indexOf("`;\n\nfunction w3PromptOptimizerText")))};`,
+  "const SEEDANCE_PROMPT_OPTIMIZER_PROVIDERS = new Set([\"seedance\",\"seedance25\",\"seedance-nsfw\",\"seedance20-vega\",\"seedance25-vega\"]);",
+  `const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = ${JSON.stringify(server.slice(server.indexOf("const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `") + "const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `".length, server.indexOf("`;\n\nconst SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT")))};`,
+  `const SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT = ${JSON.stringify(server.slice(server.indexOf("const SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `") + "const SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `".length, server.indexOf("`;\n\nfunction w3PromptOptimizerText")))};`,
   extractFunction(server, "w3ParseOptimizerJson"),
   extractFunction(server, "w3PromptHasChinese"),
   extractFunction(server, "w3NormalizeConstraintStack"),
   extractFunction(server, "w3TruncatePrompt"),
   extractFunction(server, "w3PromptIsMostlyChinese"),
   extractFunction(server, "w3PromptOptimizerLanguage"),
+  extractFunction(server, "seedancePromptOptimizerReferences"),
+  extractFunction(server, "seedancePromptOptimizerIsProvider"),
+  extractFunction(server, "seedancePromptOptimizerReferenceInventory"),
+  extractFunction(server, "seedancePromptOptimizerInvalidReferences"),
+  extractFunction(server, "seedancePromptOptimizerRequest"),
   extractFunction(server, "w3PromptOptimizerRequest"),
-  "return { w3ParseOptimizerJson, w3TruncatePrompt, w3PromptIsMostlyChinese, w3PromptOptimizerLanguage, w3PromptOptimizerRequest, w3NormalizeConstraintStack };",
+  extractFunction(server, "promptOptimizerRequestForPayload"),
+  "return { w3ParseOptimizerJson, w3TruncatePrompt, w3PromptIsMostlyChinese, w3PromptOptimizerLanguage, w3PromptOptimizerRequest, w3NormalizeConstraintStack, seedancePromptOptimizerRequest, promptOptimizerRequestForPayload, seedancePromptOptimizerIsProvider, seedancePromptOptimizerInvalidReferences };",
 ].join("\n"))();
 
 test("optimizer route is authenticated in front of generate and uses Papaya", () => {
@@ -160,22 +168,70 @@ test("modal applies only after explicit confirmation", () => {
   assert.match(css, /\.prompt-optimizer-field textarea/);
 });
 
-test("advanced create page shows the optimizer only for Wan and writes back on apply", () => {
+test("optimizer request is an explicit metadata-only whitelist", () => {
+  assert.match(client, /const requestBody = \{/);
+  assert.match(client, /references: normalizeReferences\(payload\.references\)/);
+  assert.doesNotMatch(client, /body: JSON\.stringify\(\{ \.\.\.payload/);
+  assert.match(client, /Array\.isArray\(value\) \? value : \[\]\)\.slice\(0, 50\)/);
+});
+
+test("advanced create page shows the optimizer for Wan and Seedance and writes back only on apply", () => {
   assert.match(advancedHtml, /id="advancedPromptOptimizeBtn"/);
   assert.match(advancedConfig, /advancedPromptOptimizeBtn:/);
-  assert.match(advancedControls, /advancedPromptOptimizeBtn\.hidden = !window\.isWanPromptOptimizerProvider/);
+  assert.match(advancedControls, /advancedPromptOptimizeBtn\.hidden = !window\.isPromptOptimizerProvider/);
   assert.match(advancedMain, /els\.advancedPromptOptimizeBtn\?\.addEventListener\("click"/);
+  assert.match(advancedMain, /isPromptOptimizerProvider\?\.\(provider\)/);
+  assert.match(advancedMain, /references: typeof advancedReferenceDisplayItems/);
   assert.match(advancedMain, /window\.setAdvancedPromptValue\?\.\(value, \{ emitInput: true, focus: true \}\)/);
 });
 
 test("React Flow, legacy workflow, and React bridge each expose the optimizer", () => {
-  assert.match(reactFlow, /window\.isWanPromptOptimizerProvider\(model\.id\)/);
+  assert.match(reactFlow, /window\.isPromptOptimizerProvider\(model\.id\)/);
   assert.match(reactFlow, /window\.openPromptOptimizer/);
   assert.match(legacyEditor, /data-workflow-optimize-prompt/);
   assert.match(legacyEvents, /window\.openPromptOptimizer/);
   assert.match(legacyEvents, /workflowSetNodeData\(node\.id, \{ prompt: value \}\)/);
   assert.match(bridge, /window\.openPromptOptimizer/);
   assert.match(bridge, /node\.data\.prompt = value/);
+});
+
+test("Seedance optimizer preserves the source language and builds a dynamic media inventory", () => {
+  const prompt = "林肆和沈屿川在办公室拥抱，林肆轻轻靠近沈屿川，镜头缓慢推近，气氛温柔。";
+  const references = [
+    { kind: "image", label: "图片1" },
+    { kind: "image", label: "图片2" },
+    { kind: "image", label: "图片3" },
+    { kind: "video", label: "视频1" },
+    { kind: "audio", label: "音频1" },
+  ];
+  const req = helpers.seedancePromptOptimizerRequest({ prompt, provider: "seedance25", language: "en", duration: 11, references });
+  assert.equal(req.language, "zh");
+  assert.equal(req.references.length, 5);
+  assert.match(req.body.messages[0].content, /Seedance video-prompt rewrite engine/);
+  assert.match(req.body.messages[0].content, /REFERENCE BINDING/);
+  assert.match(req.body.messages[0].content, /conflict priority/);
+  assert.match(req.body.messages[0].content, /水光肌/);
+  assert.match(req.body.messages[1].content, /图片1 \(image\)[\s\S]*图片2 \(image\)[\s\S]*图片3 \(image\)[\s\S]*视频1 \(video\)[\s\S]*音频1 \(audio\)/);
+  assert.match(req.body.messages[1].content, /ACTION BUDGET: Use 2-3 continuous actions/);
+  assert.match(req.body.messages[1].content, /Keep the optimized prompt predominantly Chinese/);
+  assert.doesNotMatch(req.body.messages[1].content, /fixed five|exactly 5 images/i);
+});
+
+test("prompt optimizer request branches by provider while W3 behavior remains intact", () => {
+  const seedance = helpers.promptOptimizerRequestForPayload({ prompt: "a cinematic scene", provider: "seedance-nsfw" });
+  const wan = helpers.promptOptimizerRequestForPayload({ prompt: "a cinematic scene", provider: "wan30" });
+  assert.match(seedance.body.messages[0].content, /Seedance video-prompt rewrite engine/);
+  assert.match(wan.body.messages[0].content, /W3 video-prompt rewrite engine/);
+  assert.equal(helpers.seedancePromptOptimizerIsProvider("seedance-fast"), true);
+  assert.equal(helpers.seedancePromptOptimizerIsProvider("wan30"), false);
+});
+
+test("Seedance optimizer rejects reference labels outside the supplied inventory", () => {
+  const references = [{ kind: "image", label: "图片1" }, { kind: "image", label: "图片2" }];
+  assert.deepEqual(helpers.seedancePromptOptimizerInvalidReferences("图片1控制脸，图片2控制服装。", references), []);
+  assert.deepEqual(helpers.seedancePromptOptimizerInvalidReferences("图片1控制脸，图片3控制服装。", references), ["图片3"]);
+  assert.deepEqual(helpers.seedancePromptOptimizerInvalidReferences("图片1控制脸，Video 2控制动作。", references), ["Video 2"]);
+  assert.match(server, /PROMPT_OPTIMIZER_REFERENCE_MISMATCH/);
 });
 
 test("W3 skill keeps 18+ intent and structure guidance without policy limits", () => {
