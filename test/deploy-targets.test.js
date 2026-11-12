@@ -51,17 +51,20 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deployPull, /--verify-status/);
   assert.match(deployPull, /--verify-private-media/);
   assert.match(deployPull, /--post-restart-command/);
-  assert.match(deployPull, /pre_restart_check = "true" if args\.no_restart else/);
-  assert.match(deployPull, /post_restart_check = "true" if args\.no_restart else/);
-  assert.match(deploySite, /args\.no_restart or target\.get\("requires_restart"\) is False/);
+  assert.match(deployPull, /pre_restart_check = "true" if args\.no_mutations else/);
+  assert.match(deployPull, /post_restart_check = "true" if args\.no_mutations else/);
   assert.match(deploySite, /env\["DEPLOY_NO_RESTART"\] = "1"/);
+  assert.match(deploySite, /env\["DEPLOY_NO_MUTATIONS"\] = "1"/);
   assert.match(deployPull, /os\.environ\.get\("DEPLOY_NO_RESTART"\) == "1"/);
+  assert.match(deployPull, /os\.environ\.get\("DEPLOY_NO_MUTATIONS"\) == "1"/);
   assert.match(deployPull, /args\.no_restart = True/);
+  assert.match(deployPull, /args\.no_mutations = True/);
+  assert.match(deployPull, /--run-hooks-without-restart/);
   assert.match(deployPull, /no-restart main_pid_before=/);
   assert.match(deployPull, /no-restart PID changed:/);
   assert.match(deployPull, /no-restart PID unchanged:/);
-  assert.match(deployPull, /shlex\.quote\('1' if args\.no_restart else ''\)/);
-  assert.doesNotMatch(deployPull, /shlex\.quote\('' if args\.no_restart else '1'\)/);
+  assert.match(deployPull, /git -c core\.hooksPath=\/dev\/null checkout/);
+  assert.doesNotMatch(deployPull, /AutoAddPolicy/);
   assert.match(deploySite, /"post_restart_commands": \(\s*"\/opt\/raising-game-demo\/ops\/harden-old-nginx-private-media\.sh"/s);
   assert.match(deploySite, /91-stop-timeout\.conf/);
   assert.match(deploySite, /TimeoutStopSec=300/);
@@ -84,6 +87,104 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deployPull, /class PinnedHostKeyPolicy/);
   assert.match(deployPull, /--host-key-sha256/);
   assert.match(deploySite, /SHA256:FjIDikg5kkvITUdxOc2142HRn\+WP5A7Bj6Z5fReu8lI/);
+});
+
+function printedDeployCommand(extraArgs = [], env = {}) {
+  return run("python3", [
+    path.join(root, "scripts", "deploy_pull.py"),
+    "--branch", "platform-release",
+    "--host-key-sha256", "SHA256:test",
+    "--print-command",
+    ...extraArgs,
+  ], {
+    cwd: root,
+    env: { DEPLOY_SSH_PASSWORD: "not-used-for-print-command", ...env },
+  });
+}
+
+test("no-restart deploy command suppresses every service and Nginx mutation", () => {
+  const command = printedDeployCommand([
+    "--no-restart",
+    "--pre-restart-command", "echo PRE_MUST_NOT_RUN",
+    "--post-restart-command", "echo POST_MUST_NOT_RUN",
+  ]);
+  assert.match(command, /git -c core\.hooksPath=\/dev\/null checkout --detach "\$release_target"/);
+  assert.match(command, /no-restart main_pid_before=/);
+  assert.match(command, /no-restart invocation_before=/);
+  assert.match(command, /no-restart nginx_pid_before=/);
+  assert.match(command, /no-restart PID changed:/);
+  assert.match(command, /no-restart invocation changed:/);
+  assert.match(command, /no-restart Nginx PID changed:/);
+  assert.doesNotMatch(command, /PRE_MUST_NOT_RUN|POST_MUST_NOT_RUN/);
+  assert.doesNotMatch(command, /systemctl restart/);
+  assert.doesNotMatch(command, /systemctl daemon-reload/);
+  assert.doesNotMatch(command, /systemctl reload nginx/);
+  assert.doesNotMatch(command, /harden-old-nginx-private-media/);
+  assert.doesNotMatch(command, /90-generation-submit-drain\.conf/);
+  const beforePid = command.indexOf("main_pid_before=");
+  const beforeInvocation = command.indexOf("invocation_before=");
+  const beforeNginx = command.indexOf("nginx_pid_before=");
+  const checkout = command.indexOf("git -c core.hooksPath=/dev/null checkout");
+  assert.ok(beforePid >= 0 && beforePid < checkout);
+  assert.ok(beforeInvocation >= 0 && beforeInvocation < checkout);
+  assert.ok(beforeNginx >= 0 && beforeNginx < checkout);
+});
+
+test("environment no-restart channel is as strict as the command-line flag", () => {
+  const command = printedDeployCommand([
+    "--pre-restart-command", "echo PRE_MUST_NOT_RUN",
+    "--post-restart-command", "echo POST_MUST_NOT_RUN",
+  ], { DEPLOY_NO_RESTART: "1" });
+  assert.doesNotMatch(command, /PRE_MUST_NOT_RUN|POST_MUST_NOT_RUN/);
+  assert.doesNotMatch(command, /systemctl restart|systemctl daemon-reload/);
+  assert.doesNotMatch(command, /90-generation-submit-drain\.conf/);
+});
+
+test("normal restart deploy still runs all required hooks and guards", () => {
+  const command = printedDeployCommand([
+    "--pre-restart-command", "echo PRE_EXPECTED",
+    "--post-restart-command", "echo POST_EXPECTED",
+  ]);
+  assert.match(command, /echo PRE_EXPECTED/);
+  assert.match(command, /echo POST_EXPECTED/);
+  assert.match(command, /systemctl daemon-reload/);
+  assert.match(command, /systemctl restart raising-game-demo/);
+  assert.match(command, /90-generation-submit-drain\.conf/);
+  assert.doesNotMatch(command, /no-restart main_pid_before=/);
+  assert.match(command, /git -c core\.hooksPath=\/dev\/null checkout --detach "\$release_target"/);
+});
+
+test("hooks-without-restart preserves Live static materialization while preventing restart", () => {
+  const command = printedDeployCommand([
+    "--no-restart",
+    "--run-hooks-without-restart",
+    "--pre-restart-command", "echo LIVE_MATERIALIZE_EXPECTED",
+    "--post-restart-command", "echo LIVE_POST_EXPECTED",
+  ]);
+  assert.match(command, /echo LIVE_MATERIALIZE_EXPECTED/);
+  assert.match(command, /echo LIVE_POST_EXPECTED/);
+  assert.doesNotMatch(command, /systemctl restart/);
+  assert.doesNotMatch(command, /systemctl daemon-reload/);
+  assert.doesNotMatch(command, /90-generation-submit-drain\.conf/);
+  assert.match(command, /no-restart PID changed:/);
+});
+
+test("Git checkout ignores repository hooks during deployment", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "deploy-hook-"));
+  const marker = path.join(workspace, "hook-ran");
+  run("git", ["init", "-q"], { cwd: workspace });
+  run("git", ["config", "user.email", "test@example.com"], { cwd: workspace });
+  run("git", ["config", "user.name", "Test"], { cwd: workspace });
+  writeFile(path.join(workspace, "file.txt"), "one\n");
+  run("git", ["add", "file.txt"], { cwd: workspace });
+  run("git", ["commit", "-q", "-m", "one"], { cwd: workspace });
+  const first = run("git", ["rev-parse", "HEAD"], { cwd: workspace }).trim();
+  writeFile(path.join(workspace, "file.txt"), "two\n");
+  run("git", ["commit", "-q", "-am", "two"], { cwd: workspace });
+  writeFile(path.join(workspace, ".git", "hooks", "post-checkout"), `#!/bin/sh\necho hook > '${marker}'\n`);
+  fs.chmodSync(path.join(workspace, ".git", "hooks", "post-checkout"), 0o755);
+  run("git", ["-c", "core.hooksPath=/dev/null", "checkout", "--detach", first], { cwd: workspace });
+  assert.equal(fs.existsSync(marker), false, "deployment checkout must not execute repository hooks");
 });
 
 test("old deploy verification keeps 404-only assets out of successful URL checks", () => {

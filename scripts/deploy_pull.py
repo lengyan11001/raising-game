@@ -296,8 +296,29 @@ def main() -> None:
     )
     parser.add_argument("--commit", help="Require the remote checkout to be exactly this commit after deployment.")
     parser.add_argument("--no-restart", action="store_true")
+    parser.add_argument(
+        "--no-mutations",
+        action="store_true",
+        help="Strict code-only mode: suppress configured pre/post commands and all service/Nginx mutations.",
+    )
+    parser.add_argument(
+        "--run-hooks-without-restart",
+        action="store_true",
+        help="Allow configured pre/post hooks while keeping service restart and deploy drop-in mutation disabled.",
+    )
+    parser.add_argument(
+        "--print-command",
+        action="store_true",
+        help="Print the generated remote shell command and exit without opening SSH.",
+    )
     args = parser.parse_args()
     if os.environ.get("DEPLOY_NO_RESTART") == "1":
+        args.no_restart = True
+    if os.environ.get("DEPLOY_NO_MUTATIONS") == "1":
+        args.no_mutations = True
+    if args.no_restart and not args.run_hooks_without_restart:
+        args.no_mutations = True
+    if args.no_mutations:
         args.no_restart = True
     if not PASSWORD and not SSH_KEY:
         raise SystemExit("DEPLOY_SSH_KEY or FYSHARK_SSH_PASSWORD is required.")
@@ -500,8 +521,8 @@ if nginx -T 2>/dev/null | grep -Eq '^[[:space:]]*alias[[:space:]]+/opt/raising-g
 fi
 """
 
-    pre_restart_check = "true" if args.no_restart else ("\n".join(args.pre_restart_command) or "true")
-    post_restart_check = "true" if args.no_restart else ("\n".join(args.post_restart_command) or "true")
+    pre_restart_check = "true" if args.no_mutations else ("\n".join(args.pre_restart_command) or "true")
+    post_restart_check = "true" if args.no_mutations else ("\n".join(args.post_restart_command) or "true")
     stop_timeout_q = shlex.quote(str(args.stop_timeout_seconds))
     service_q = shlex.quote(args.service)
 
@@ -514,6 +535,56 @@ if [ "$deployed_commit" != {expected_q} ]; then
 fi"""
     else:
         commit_check = "true"
+
+    no_restart_before = ""
+    no_restart_after = ""
+    restart_preparation = ""
+    cleanup_preparation = ""
+    if args.no_restart:
+        no_restart_before = f"""main_pid_before=$(systemctl show {service_q} -p MainPID --value 2>/dev/null || true)
+invocation_before=$(systemctl show {service_q} -p InvocationID --value 2>/dev/null || true)
+nginx_pid_before=$(cat /run/nginx.pid 2>/dev/null || pgrep -o -x nginx || true)
+echo "no-restart main_pid_before=$main_pid_before"
+echo "no-restart invocation_before=$invocation_before"
+echo "no-restart nginx_pid_before=$nginx_pid_before"
+"""
+        no_restart_after = f"""main_pid_after=$(systemctl show {service_q} -p MainPID --value 2>/dev/null || true)
+invocation_after=$(systemctl show {service_q} -p InvocationID --value 2>/dev/null || true)
+nginx_pid_after=$(cat /run/nginx.pid 2>/dev/null || pgrep -o -x nginx || true)
+if [ "$main_pid_before" != "$main_pid_after" ]; then
+  echo "no-restart PID changed: before=$main_pid_before after=$main_pid_after" >&2
+  exit 38
+fi
+if [ "$invocation_before" != "$invocation_after" ]; then
+  echo "no-restart invocation changed: before=$invocation_before after=$invocation_after" >&2
+  exit 38
+fi
+if [ -z "$nginx_pid_before" ] || [ "$nginx_pid_before" != "$nginx_pid_after" ]; then
+  echo "no-restart Nginx PID changed: before=$nginx_pid_before after=$nginx_pid_after" >&2
+  exit 38
+fi
+echo "no-restart PID unchanged: $main_pid_after"
+echo "no-restart invocation unchanged: $invocation_after"
+echo "no-restart nginx PID unchanged: $nginx_pid_after"
+"""
+    else:
+        restart_preparation = f"""service_name={service_q}
+dropin_dir="/etc/systemd/system/${{service_name}}.service.d"
+install -d -m 0755 "$dropin_dir"
+printf '[Service]\nTimeoutStopSec=%s\n' {stop_timeout_q} > "$dropin_dir/90-generation-submit-drain.conf"
+systemctl daemon-reload
+"""
+        cleanup_preparation = """if [ -f "$dropin_dir/90-generation-submit-drain.conf" ]; then
+  # Keep an operator-installed value if one appeared while the service was
+  # restarting. Otherwise remove only the temporary deploy fence after the
+  # listener is healthy and the in-flight submissions have had their window.
+  if ! grep -Rqs '^[[:space:]]*TimeoutStopSec=' "$dropin_dir" --exclude=90-generation-submit-drain.conf; then
+    rm -f "$dropin_dir/90-generation-submit-drain.conf"
+    rmdir "$dropin_dir" 2>/dev/null || true
+    systemctl daemon-reload
+  fi
+fi
+"""
 
     command = f"""
 set -euo pipefail
@@ -537,20 +608,9 @@ git fetch origin {args.branch}{(" " + shlex.quote(args.audit_base)) if args.audi
 # from the pushed branch. Check out the exact fetched release commit instead of
 # trying to merge or fast-forward the stale local branch.
 release_target=$(git rev-parse "origin/{args.branch}")
-git checkout --detach "$release_target"
-main_pid_before=$(systemctl show {service_q} -p MainPID --value 2>/dev/null || true)
-if [ {shlex.quote('1' if args.no_restart else '')} = 1 ]; then
-  echo "no-restart main_pid_before=$main_pid_before"
-fi
+{no_restart_before}git -c core.hooksPath=/dev/null checkout --detach "$release_target"
 {pre_restart_check}
-if [ {shlex.quote('1' if args.no_restart else '')} = 1 ]; then
-  service_name={service_q}
-  dropin_dir="/etc/systemd/system/${{service_name}}.service.d"
-  install -d -m 0755 "$dropin_dir"
-  printf '[Service]\nTimeoutStopSec=%s\n' {stop_timeout_q} > "$dropin_dir/90-generation-submit-drain.conf"
-  systemctl daemon-reload
-fi
-{"true" if args.no_restart else f"systemctl restart {args.service}"}
+{restart_preparation}{"true" if args.no_restart else f"systemctl restart {args.service}"}
 sleep 2
 git status --short
 git log -1 --oneline
@@ -572,30 +632,16 @@ if [ "$health_code" != "200" ]; then
   echo "Health check returned HTTP $health_code: {args.health_url}" >&2
   exit 27
 fi
-if [ {shlex.quote('1' if args.no_restart else '')} = 1 ] && [ -f "$dropin_dir/90-generation-submit-drain.conf" ]; then
-  # Keep an operator-installed value if one appeared while the service was
-  # restarting. Otherwise remove only the temporary deploy fence after the
-  # listener is healthy and the in-flight submissions have had their window.
-  if ! grep -Rqs '^[[:space:]]*TimeoutStopSec=' "$dropin_dir" --exclude=90-generation-submit-drain.conf; then
-    rm -f "$dropin_dir/90-generation-submit-drain.conf"
-    rmdir "$dropin_dir" 2>/dev/null || true
-    systemctl daemon-reload
-  fi
-fi
-# Mutating post-restart actions are deliberately health-gated. A failed app
+{cleanup_preparation}# Mutating post-restart actions are deliberately health-gated. A failed app
 # start must not be compounded by changing the live Nginx edge.
 {post_restart_check}
-if [ {shlex.quote('1' if args.no_restart else '')} = 1 ]; then
-  main_pid_after=$(systemctl show {service_q} -p MainPID --value 2>/dev/null || true)
-  if [ "$main_pid_before" != "$main_pid_after" ]; then
-    echo "no-restart PID changed: before=$main_pid_before after=$main_pid_after" >&2
-    exit 38
-  fi
-  echo "no-restart PID unchanged: $main_pid_after"
-fi
-{verification_check}
+{no_restart_after}{verification_check}
 {commit_check}
 """
+
+    if args.print_command:
+        print(command)
+        return
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(PinnedHostKeyPolicy(args.host_key_sha256))

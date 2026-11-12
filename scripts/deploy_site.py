@@ -329,7 +329,7 @@ def main() -> None:
     parser.add_argument("--site", choices=sorted(TARGETS), required=True, help="old=platform surface (123vips.com), live=live.123vipeak.com, new2=667zui.video")
     parser.add_argument("--port", type=int, default=None, help="Override the fixed SSH port for this site.")
     parser.add_argument("--dry-run", action="store_true", help="Print the fixed target and exit.")
-    parser.add_argument("--no-restart", action="store_true", help="Pull code without restarting the service.")
+    parser.add_argument("--no-restart", action="store_true", help="Pull code without restarting the service; also suppresses all deployment mutations.")
     parser.add_argument("--skip-shared-sync-check", action="store_true", help="Emergency override for new2 drift guard.")
     args = parser.parse_args()
 
@@ -403,8 +403,10 @@ def main() -> None:
     env = os.environ.copy()
     if args.no_restart:
         # A second, explicit channel prevents a dropped child argument from
-        # turning a code-only deployment into a live service restart.
+        # turning a code-only deployment into a live service restart. The
+        # strict mutation flag protects against pre/post hooks and edge changes.
         env["DEPLOY_NO_RESTART"] = "1"
+        env["DEPLOY_NO_MUTATIONS"] = "1"
     env["DEPLOY_HOST"] = target["host"]
     env["DEPLOY_USER"] = env.get("DEPLOY_USER", "root")
     if key_path:
@@ -447,8 +449,12 @@ def main() -> None:
     ]
     for fingerprint in target.get("host_key_sha256", ()):
         command.extend(["--host-key-sha256", fingerprint])
-    if args.no_restart or target.get("requires_restart") is False:
-        command.append("--no-restart")
+    if args.no_restart:
+        command.extend(["--no-restart", "--no-mutations"])
+    elif target.get("requires_restart") is False:
+        # Live reuses the shared process, so it must not restart it, but its
+        # static materialization hook still has to run during a release.
+        command.extend(["--no-restart", "--run-hooks-without-restart"])
     if target.get("audit_base"):
         command.extend(["--audit-base", target["audit_base"]])
     for pattern in target.get("forbidden_env_patterns", ()):
