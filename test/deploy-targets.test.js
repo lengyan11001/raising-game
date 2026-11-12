@@ -12,10 +12,13 @@ const deploySite = fs.readFileSync(path.join(root, "scripts", "deploy_site.py"),
 const deployPull = fs.readFileSync(path.join(root, "scripts", "deploy_pull.py"), "utf8");
 const materializer = path.join(root, "scripts", "materialize_static_release.py");
 const snapshotBuilder = path.join(root, "scripts", "build_release_snapshot.py");
-const historicalGitSkip = spawnSync(
-  "git", ["rev-parse", "--verify", "33a6e65^"],
-  { cwd: root, encoding: "utf8" }
-).status === 0 ? false : "Source Git history is absent from an exported release tree.";
+const historicalGitProbe = spawnSync(
+  "git", ["log", "--format=%H", "--all", "--", "live.html"],
+  { cwd: root, encoding: "utf8" },
+);
+const historicalGitSkip = historicalGitProbe.status === 0 && historicalGitProbe.stdout.trim()
+  ? false
+  : "Source Git history is absent from an exported release tree.";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
