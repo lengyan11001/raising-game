@@ -787,49 +787,6 @@ upstream raising_game_app_chat { server 127.0.0.1:4174; server 127.0.0.1:4175 ba
   });
 });
 
-test("Nginx upstream switch preserves tuned primary and backup options across promote and rollback", async () => {
-  await withTempDir(async (dir) => {
-    const file = path.join(dir, "site.conf");
-    const original = writeUpstreamConfig(file, `upstream raising_game_app {
-    server 127.0.0.1:4174 max_fails=1 fail_timeout=2s;
-    server 127.0.0.1:4175 backup max_fails=2 fail_timeout=5s;
-    keepalive 64;
-}
-upstream raising_game_app_chat { server 127.0.0.1:4174 max_fails=1 fail_timeout=2s; server 127.0.0.1:4175 backup max_fails=1 fail_timeout=2s; keepalive 32; }
-`);
-    const curl = path.join(dir, "curl");
-    writeExecutable(curl, "#!/usr/bin/env bash\nprintf '200'\n");
-    const env = { PATH: `${dir}:${process.env.PATH}` };
-    const common = [
-      "--file", file,
-      "--health-url", "http://127.0.0.1:48080/api/health",
-      "--nginx-bin", "/usr/bin/true",
-      "--nginx-test-command", "/usr/bin/true",
-      "--reload-command", "/usr/bin/true",
-    ];
-    let result = invokeUpstreamSwitch([
-      ...common,
-      "--switch", "raising_game_app=4174:4175",
-      "--switch", "raising_game_app_chat=4174:4175",
-      "--apply",
-    ], env);
-    assert.equal(result.status, 0, result.stderr);
-    const promoted = fs.readFileSync(file, "utf8");
-    assert.match(promoted, /server 127\.0\.0\.1:4175 max_fails=2 fail_timeout=5s;/);
-    assert.match(promoted, /server 127\.0\.0\.1:4174 backup max_fails=1 fail_timeout=2s;/);
-    assert.match(promoted, /127\.0\.0\.1:4175 max_fails=1 fail_timeout=2s; server 127\.0\.0\.1:4174 backup max_fails=1 fail_timeout=2s; keepalive 32;/);
-
-    result = invokeUpstreamSwitch([
-      ...common,
-      "--switch", "raising_game_app=4175:4174",
-      "--switch", "raising_game_app_chat=4175:4174",
-      "--apply",
-    ], env);
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(fs.readFileSync(file, "utf8"), original);
-  });
-});
-
 test("Nginx upstream switch rolls back an existing primary and backup on health failure", async () => {
   await withTempDir(async (dir) => {
     const file = path.join(dir, "site.conf");
@@ -968,13 +925,13 @@ test("Nginx upstream backup transaction rejects malformed or conflicting members
   });
 });
 
-test("Nginx upstream switch rejects absent, duplicate, multi-server, and unknown-option blocks", () => {
+test("Nginx upstream switch rejects absent, duplicate, multi-server, and extra-option blocks", () => {
   withTempDir((dir) => {
     const cases = [
       ["zero", `upstream other {\n    server 127.0.0.1:4174;\n}\n`, /found 0/],
       ["single-line duplicate", `upstream raising_game_app { server 127.0.0.1:4174; } upstream raising_game_app { server 127.0.0.1:4174; }\n`, /found 2/],
       ["multi-server", `upstream raising_game_app {\n    server 127.0.0.1:4174;\n    server 127.0.0.1:4183;\n}\n`, /server must be exactly/],
-      ["unknown option", `upstream raising_game_app {\n    server 127.0.0.1:4174 weight=2;\n}\n`, /server must be exactly/],
+      ["extra option", `upstream raising_game_app {\n    server 127.0.0.1:4174 max_fails=1;\n}\n`, /server must be exactly/],
     ];
     for (const [name, body, error] of cases) {
       const file = path.join(dir, `${name.replaceAll(" ", "-")}.conf`);
@@ -1443,6 +1400,8 @@ test("cutover verifier is read-only and checks public, service, port, and databa
     assert.match(cutoverVerifier, new RegExp(url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.match(cutoverVerifier, /secondary_environment_check/);
+  assert.match(cutoverVerifier, /read_env_file\(SERVICE_ENV\)\.get\("DATABASE_URL"/);
+  assert.match(cutoverVerifier, /RAISING_GAME_SERVICE_ENV/);
   assert.match(cutoverVerifier, /GENERATION_SUBMIT_QUEUE_ENABLED/);
   assert.match(cutoverVerifier, /pg_stat_activity/);
   assert.match(cutoverVerifier, /CUTOVER_VERIFY_/);
