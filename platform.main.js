@@ -1470,6 +1470,7 @@ els.previewDialog?.addEventListener("close", () => {
   }
 });
 function openSupportDialog(options = {}) {
+  window.openSupportDialog = openSupportDialog;
   return openSupportCenter(options);
 }
 
