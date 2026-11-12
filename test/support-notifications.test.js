@@ -129,7 +129,7 @@ test("platform UI exposes one left messages entry, unread dots, notification det
   assert.match(main, /supportNavBtn\?\.addEventListener[\s\S]*?openSupportDialog\(\{ source: "side_nav" \}\)/);
   assert.match(main, /function openSupportDialog[\s\S]*?window\.openSupportDialog = openSupportDialog/);
   assert.match(html, /class="membership-benefit membership-benefit-row membership-benefit-link"[^>]*data-open-case-library/);
-  assert.match(main, /data-open-case-library[\s\S]*?setTab\("cases"\)/);
+  assert.match(main, /data-open-case-library[\s\S]*?event\.preventDefault\(\)[\s\S]*?setTab\("cases"\)/);
   assert.match(main, /notificationSupportEntry\?\.addEventListener/);
   assert.match(css, /\.notification-bell\[hidden\][^{]*\{[^}]*display:\s*none/);
   assert.match(css, /\.notification-dot[^{]*\{[^}]*background:/);

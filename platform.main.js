@@ -1493,7 +1493,11 @@ els.supportNavBtn?.addEventListener("click", (event) => {
   openSupportDialog({ source: "side_nav" });
 });
 document.querySelectorAll("[data-open-case-library]").forEach((entry) => {
-  entry.addEventListener("click", () => setTab("cases"));
+  entry.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeMobileDrawer();
+    setTab("cases");
+  });
 });
 els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
 els.supportCloseBtn?.addEventListener("click", () => els.supportDialog?.close());
