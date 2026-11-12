@@ -260,6 +260,19 @@ test("poll=1 uses a status-only snapshot while plain refresh=1 stays compatible"
   assert.match(server, /function generationListPollRequested\(url\)/);
 });
 
+test("background polls skip the exact history total while normal history stays paged", () => {
+  const db = fs.readFileSync(path.join(__dirname, "..", "db.js"), "utf8");
+  const userList = functionSource("handleListGenerationRecords", "handleGetGenerationRecord");
+  assert.match(db, /async function getUserGenerationRecordsPageFromDb\(\{ userId = "", page = 1, limit = 8, countTotal = true \} = \{\}\)/);
+  assert.match(db, /if \(countTotal === false\) \{[\s\S]*?SELECT payload[\s\S]*?LIMIT \$2 OFFSET \$3/);
+  const lightweightStart = db.indexOf("if (countTotal === false) {");
+  const countedStart = db.indexOf("SELECT payload, COUNT(*) OVER()", lightweightStart);
+  assert.ok(lightweightStart > 0, "lightweight query branch should exist");
+  assert.ok(countedStart > lightweightStart, "counted query should remain available for history pages");
+  assert.match(userList, /const lightweightPoll = refreshRequested && pollRequested/);
+  assert.match(userList, /getUserGenerationRecordsPageFromDb\(\{ userId: auth\.user\.id, page, limit, countTotal: !lightweightPoll \}\)/);
+});
+
 test("poll serializer omits submission payloads but keeps result and billing state", () => {
   const application = require("../server");
   const omitted = [
