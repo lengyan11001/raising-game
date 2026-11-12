@@ -4,7 +4,11 @@
 - This reduces pressure on `GET /api/generation-records` during provider/API degradation without changing authoritative generation state or introducing client-side persistence.
 - Added regression coverage for the retry schedule and reset behavior in `test/history-pagination.test.js`; `platform.config.js` now initializes the failure counter.
 - Verification before deployment: full `npm test` passed 1,252 tests with 1,251 pass, 0 fail, 1 skip; `git diff --check` passed. Log: `/tmp/raising-step-ba-final.log`.
-- Release/deploy/acceptance status: pending at initial commit; this section will be updated after Old-only deployment.
+- Release/deploy acceptance: source `fdf07ef8543dbd9796e4a6850a09ae3b1cd7dada`; platform release `085254748d153fc7e20247d376176536332e615c`; deployed Old-only through `scripts/deploy_local.sh --site old` with exit 0. Release boundary, migration ledger (`pending=0`), private-media denial, and public verification passed.
+- Post-deploy evidence: production release `08525474`; 4174 MainPID `3378920`, 4175 remained `3374052`, both `NRestarts=0`; Nginx master remained `2485219`. Both instances returned 200 for `/api/health`, `/api/livez`, and `/api/readyz`; public `/api/health` was 200.
+- Both watchdog timers remained enabled/active with failure count 0 and no pending marker across 12 two-minute samples. All 12 samples returned 200 from both instance readiness endpoints. PostgreSQL showed 6 connections, 0 idle-in-transaction, 0 lock waiters, and 0 IO waiters. The deploy-window Nginx sample had 89 requests with 0 5xx and 0 499; application journal had no fatal/uncaught/Unauthorized entries.
+- Real production Chrome smoke loaded `platform.html#custom` with 36 scripts, 443 ID-bearing nodes, 19 dialogs, and the optimizer entry present; runtime exceptions and console errors were both zero. Deployed static assets contain the backoff implementation.
+- Logs: `/tmp/raising-step-ba-final.log`, `/tmp/raising-step-ba-deploy-old.log`. Redis remains disabled, 4175 schedulers/queue/worker remain disabled, Live remains untouched, and backups remain last.
 
 ## 2026-11-12 Step AZ: 4175 watchdog active-mode acceptance
 
