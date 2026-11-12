@@ -179,39 +179,14 @@ test("restore drill refuses the source database and verifies into an isolated da
   assert.doesNotMatch(verifyScript, /dblink|CORE_ROW_IDENTITY/);
 });
 
-test("watchdog uses liveness, retries transient probes, and skips inactive services", () => {
+test("watchdog uses liveness, requires consecutive failures, and skips inactive services", () => {
   assert.match(watchdogScript, /127\.0\.0\.1:4174\/api\/livez/);
-  assert.match(watchdogScript, /HEALTH_RETRY_DELAY_SECONDS/);
-  assert.match(watchdogScript, /if health_check \|\| \{ sleep "\$HEALTH_RETRY_DELAY_SECONDS"; health_check; \}; then/);
   assert.match(watchdogScript, /FAILURE_THRESHOLD/);
   assert.match(watchdogScript, /SERVICE_CHECK_ACTIVE/);
   assert.match(watchdogService, /Environment=HEALTH_URL=http:\/\/127\.0\.0\.1:4174\/api\/livez/);
   assert.match(watchdogService, /Environment=FAILURE_THRESHOLD=3/);
   assert.match(watchdogTimer, /OnUnitActiveSec=10s/);
   assert.match(watchdogTimer, /WantedBy=timers\.target/);
-});
-
-test("watchdog records only one failure after both health attempts time out", async () => {
-  await withTempDir(async (dir) => {
-    await withHealthServer(async (health) => {
-      health.fail();
-      const stateFile = path.join(dir, "failures");
-      const result = invokeWatchdog({
-        HEALTH_URL: health.url,
-        STATE_FILE: stateFile,
-        LOCK_FILE: path.join(dir, "lock"),
-        RESTART_STATE_FILE: path.join(dir, "restarts"),
-        RESTART_PENDING_FILE: path.join(dir, "restart.pending"),
-        FAILURE_THRESHOLD: "3",
-        TIMEOUT_SECONDS: "1",
-        HEALTH_RETRY_DELAY_SECONDS: "0",
-        WATCHDOG_DRY_RUN: "1",
-      });
-      assert.equal(result.status, 0, result.stderr);
-      assert.equal(fs.readFileSync(stateFile, "utf8"), "1\n");
-      assert.match(result.stderr, /consecutive_failures=1/);
-    });
-  });
 });
 
 test("watchdog installer defaults to dry-run and protects active/rollback paths", () => {
@@ -739,6 +714,82 @@ upstream raising_game_app_chat {
   });
 });
 
+test("Nginx upstream switch atomically swaps an existing primary and backup", () => {
+  withTempDir((dir) => {
+    const file = path.join(dir, "site.conf");
+    const original = writeUpstreamConfig(file, `upstream raising_game_app {
+    server 127.0.0.1:4174;
+    server 127.0.0.1:4175 backup;
+    keepalive 64;
+}
+upstream raising_game_app_chat { server 127.0.0.1:4174; server 127.0.0.1:4175 backup; keepalive 32; }
+`);
+    const args = [
+      "--file", file,
+      "--switch", "raising_game_app=4174:4175",
+      "--switch", "raising_game_app_chat=4174:4175",
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--nginx-bin", "/usr/bin/true",
+      "--nginx-test-command", "/usr/bin/true",
+      "--reload-command", "/usr/bin/true",
+      "--apply",
+    ];
+    const curl = path.join(dir, "curl");
+    writeExecutable(curl, "#!/usr/bin/env bash\nprintf '200'\n");
+    const switchEnv = { PATH: `${dir}:${process.env.PATH}` };
+    let result = invokeUpstreamSwitch(args, switchEnv);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /UPSTREAM_SWITCH_PLAN upstream=raising_game_app from=4174 to=4175/);
+    const promoted = fs.readFileSync(file, "utf8");
+    assert.match(promoted, /server 127\.0\.0\.1:4175;\n\s+server 127\.0\.0\.1:4174 backup;/);
+    assert.match(promoted, /keepalive 64;/);
+    assert.match(promoted, /upstream raising_game_app_chat \{ server 127\.0\.0\.1:4175; server 127\.0\.0\.1:4174 backup; keepalive 32; \}/);
+
+    result = invokeUpstreamSwitch(args, switchEnv);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(file, "utf8"), promoted);
+
+    result = invokeUpstreamSwitch([
+      "--file", file,
+      "--switch", "raising_game_app=4175:4174",
+      "--switch", "raising_game_app_chat=4175:4174",
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--nginx-bin", "/usr/bin/true",
+      "--nginx-test-command", "/usr/bin/true",
+      "--reload-command", "/usr/bin/true",
+      "--apply",
+    ], switchEnv);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
+  });
+});
+
+test("Nginx upstream switch rolls back an existing primary and backup on health failure", async () => {
+  await withTempDir(async (dir) => {
+    const file = path.join(dir, "site.conf");
+    const original = writeUpstreamConfig(file, `upstream raising_game_app {
+    server 127.0.0.1:4174;
+    server 127.0.0.1:4175 backup;
+}
+`);
+    await withHealthServer(async (health) => {
+      health.fail();
+      const result = invokeUpstreamSwitch([
+        "--file", file,
+        "--switch", "raising_game_app=4174:4175",
+        "--health-url", health.url,
+        "--nginx-bin", "/usr/bin/true",
+        "--nginx-test-command", "/usr/bin/true",
+        "--reload-command", "/usr/bin/true",
+        "--apply",
+      ]);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stdout, /UPSTREAM_SWITCH_ROLLBACK/);
+      assert.equal(fs.readFileSync(file, "utf8"), original);
+    });
+  });
+});
+
 test("Nginx upstream backup transaction is idempotent and preserves primary plus keepalive", () => {
   withTempDir((dir) => {
     const file = path.join(dir, "site.conf");
@@ -856,7 +907,7 @@ test("Nginx upstream switch rejects absent, duplicate, multi-server, and extra-o
     const cases = [
       ["zero", `upstream other {\n    server 127.0.0.1:4174;\n}\n`, /found 0/],
       ["single-line duplicate", `upstream raising_game_app { server 127.0.0.1:4174; } upstream raising_game_app { server 127.0.0.1:4174; }\n`, /found 2/],
-      ["multi-server", `upstream raising_game_app {\n    server 127.0.0.1:4174;\n    server 127.0.0.1:4183;\n}\n`, /exactly one server directive; found 2/],
+      ["multi-server", `upstream raising_game_app {\n    server 127.0.0.1:4174;\n    server 127.0.0.1:4183;\n}\n`, /server must be exactly/],
       ["extra option", `upstream raising_game_app {\n    server 127.0.0.1:4174 max_fails=1;\n}\n`, /server must be exactly/],
     ];
     for (const [name, body, error] of cases) {

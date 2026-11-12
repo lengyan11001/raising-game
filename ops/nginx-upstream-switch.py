@@ -102,33 +102,53 @@ def switch_upstreams_text(
         closing = _matching_brace(masked, opening)
         body_start = opening + 1
         body_end = closing
-        body = text[body_start:body_end]
         masked_body = masked[body_start:body_end]
         servers = list(SERVER_RE.finditer(masked_body))
-        if len(servers) != 1:
-            raise ValueError(
-                f"upstream {name!r} must contain exactly one server directive; found {len(servers)}"
-            )
+        expected_primary = f"127.0.0.1:{current}"
+        expected_backup = f"127.0.0.1:{next_backend}"
+        parsed: list[tuple[re.Match[str], list[str]]] = []
+        for server in servers:
+            try:
+                arguments = shlex.split(server.group("args"))
+            except ValueError as error:
+                raise ValueError(f"upstream {name!r} has an unparseable server directive") from error
+            parsed.append((server, arguments))
 
-        server = servers[0]
-        try:
-            arguments = shlex.split(server.group("args"))
-        except ValueError as error:
-            raise ValueError(f"upstream {name!r} has an unparseable server directive") from error
-        expected = f"127.0.0.1:{current}"
-        if arguments != [expected]:
-            raise ValueError(
-                f"upstream {name!r} server must be exactly {expected}; found {arguments!r}"
-            )
-
-        start = body_start + server.start()
-        end = body_start + server.end()
-        replacement = f"server 127.0.0.1:{next_backend};"
-        edits.append((start, end, replacement))
+        source_primary = [item for item in parsed if item[1] == [expected_primary]]
+        source_backup = [item for item in parsed if item[1] == [expected_backup, "backup"]]
+        target_primary = [item for item in parsed if item[1] == [expected_backup]]
+        target_backup = [item for item in parsed if item[1] == [expected_primary, "backup"]]
+        if len(parsed) == 2 and len(target_primary) == 1 and len(target_backup) == 1:
+            # Promotion is complete after swapping primary and backup roles.
+            # Preserve the existing text byte-for-byte for an idempotent retry.
+            continue
+        if len(parsed) == 2 and len(source_primary) == 1 and len(source_backup) == 1:
+            primary_server, _ = source_primary[0]
+            backup_server, _ = source_backup[0]
+            primary_start = body_start + primary_server.start()
+            primary_end = body_start + primary_server.end()
+            backup_start = body_start + backup_server.start()
+            backup_end = body_start + backup_server.end()
+            edits.append((primary_start, primary_end, f"server {expected_backup};"))
+            edits.append((backup_start, backup_end, f"server {expected_primary} backup;"))
+            continue
+        if len(parsed) == 1 and len(source_primary) == 1:
+            server, _arguments = source_primary[0]
+            start = body_start + server.start()
+            end = body_start + server.end()
+            replacement = f"server {expected_backup};"
+            edits.append((start, end, replacement))
+            continue
+        found = [arguments for _server, arguments in parsed]
+        raise ValueError(
+            f"upstream {name!r} server must be exactly {expected_primary}, "
+            f"optionally with {expected_backup} backup; found {found!r}"
+        )
 
     # Preserve indentation and trailing tokens (for example `max_fails=...`)
-    # on the managed member so a one-server upstream can become primary plus
-    # backup without changing the primary's connection policy.
+    # on each managed member. All edits use original offsets and are applied
+    # in reverse order after validation, so no partially rendered block can
+    # escape the transaction.
     rendered = text
     for start, end, replacement in sorted(edits, reverse=True):
         rendered = rendered[:start] + replacement + rendered[end:]
