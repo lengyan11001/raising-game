@@ -293,6 +293,46 @@ health checks pass. It prints `ROLLING_DEPLOY_NOOP active_port=...` and never
 performs a reverse switch. A missing, symlinked, invalid, or inconsistent
 `RUNTIME_MEDIA_ROOT` must stop before candidate startup or traffic mutation.
 
+## Shared runtime media cutover
+
+Prepare the shared tree from the active release without copying release-owned
+static assets. The preparation command is dry-run by default and must never
+overwrite an existing target:
+
+```bash
+python3 /opt/raising-game-demo/ops/prepare-runtime-media-root.py \
+  --source-assets /opt/raising-game-demo/assets \
+  --target /opt/raising-game-shared/assets
+```
+
+Require `RUNTIME_MEDIA_PLAN_OK` and inspect every included and empty runtime
+path. Apply only during a quiet window, then require
+`RUNTIME_MEDIA_READY` and preserve its file count, directory count, byte count,
+and target path as the baseline. The tool hashes every copied file; it aborts
+if runtime source files change during preparation.
+
+The cutover order is fixed:
+
+1. Start only the idle 4175 unit against the prepared shared root and verify
+   health, livez, readyz, a read, and a controlled upload while 4174 still
+   serves all traffic.
+2. Move all three upstream files to 4175 in one journaled transaction.
+3. Stop 4174 so it can no longer write to its release-local asset tree.
+4. Perform one final incremental synchronization from 4174's old runtime tree
+   to the shared root. Never use delete flags, never copy a missing file over a
+   file already created by 4175, and never copy an older file over a newer
+   standby-written file. Prefer an explicit collision report.
+5. Hash-compare the completed shared tree. A collision or content mismatch
+   requires a reviewed merge decision, not an overwrite.
+6. Point 4174 at the same `RUNTIME_MEDIA_ROOT`, start it, and verify both
+   instances before enabling any non-HTTP background workload.
+
+Do not reuse the preparation tool to synchronize into an existing target; its
+no-overwrite rule is intentional. Do not copy the entire `assets/` tree. Keep
+release-owned branding, templates, and gallery files in the release. Any
+failure during this sequence must restore the original environment files and
+the complete original Nginx topology.
+
 ## Final state choices
 
 - Single-process rollback: primary active on 4174, secondary disabled, all
