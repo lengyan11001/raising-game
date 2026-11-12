@@ -222,6 +222,26 @@ test("Seedance optimizer preserves the source language and builds a dynamic medi
   assert.doesNotMatch(req.body.messages[1].content, /fixed five|exactly 5 images/i);
 });
 
+test("Seedance optimizer works in text-only mode before any media is uploaded", () => {
+  const prompt = "女生坐在窗边，穿白色衬衫，镜头缓慢推近，自然窗光，皮肤质感真实。";
+  const req = helpers.seedancePromptOptimizerRequest({ prompt, provider: "seedance-nsfw" });
+  assert.equal(req.references.length, 0);
+  assert.match(req.body.messages[0].content, /TEXT-ONLY MODE/);
+  assert.match(req.body.messages[0].content, /do not ask the user to upload media/);
+  assert.match(req.body.messages[1].content, /TEXT-ONLY PROMPT MODE: No reference media supplied/);
+  assert.match(req.body.messages[1].content, /do not mention image\/video\/audio labels/);
+  assert.match(req.body.messages[1].content, /Reference media may be added later/);
+  assert.doesNotMatch(req.body.messages[1].content, /图片1|Image 1|Video 1|Audio 1/);
+  assert.doesNotMatch(req.body.messages[1].content, /exactly 5|fixed five/i);
+});
+
+test("Seedance client explains text-only optimization without requiring uploads", () => {
+  assert.match(client, /const hasReferences = Array\.isArray\(payload\.references\) && payload\.references\.length > 0/);
+  assert.match(client, /纯文本提示词规则优化，素材可稍后添加/);
+  assert.match(client, /正在按 Seedance 参考素材与提示词规则优化/);
+  assert.doesNotMatch(client, /请先上传(?:图片|素材)/);
+});
+
 test("prompt optimizer request branches by provider while W3 behavior remains intact", () => {
   const seedance = helpers.promptOptimizerRequestForPayload({ prompt: "a cinematic scene", provider: "seedance-nsfw" });
   const wan = helpers.promptOptimizerRequestForPayload({ prompt: "a cinematic scene", provider: "wan30" });
