@@ -157,7 +157,7 @@ const PLATFORM_SITE_PROFILE = Object.freeze({
   defaultRoute: String(process.env.PLATFORM_SITE_DEFAULT_ROUTE || "").trim(),
   // Nav entries to hide without disabling the underlying tab/panel.
   hiddenNavTabs: parseCsvList(process.env.PLATFORM_SITE_HIDDEN_NAV_TABS || "advanced"),
-  allowedTabs: parseCsvList(process.env.PLATFORM_SITE_ALLOWED_TABS || "home,cases,advanced,workflow,assets,history,topups,spending,pricing,referral,access"),
+  allowedTabs: parseCsvList(process.env.PLATFORM_SITE_ALLOWED_TABS || "home,advanced,workflow,assets,history,topups,spending,pricing,referral,access"),
   disabledTabs: parseCsvList(process.env.PLATFORM_SITE_DISABLED_TABS || "gallery,characters,chat"),
   // Show a "home" entry in the side rail so the workspace can return to the
   // profile's welcome page.
