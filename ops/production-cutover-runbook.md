@@ -319,11 +319,24 @@ The cutover order is fixed:
 2. Move all three upstream files to 4175 in one journaled transaction.
 3. Stop 4174 so it can no longer write to its release-local asset tree.
 4. Perform one final incremental synchronization from 4174's old runtime tree
-   to the shared root. Never use delete flags, never copy a missing file over a
-   file already created by 4175, and never copy an older file over a newer
-   standby-written file. Prefer an explicit collision report.
-5. Hash-compare the completed shared tree. A collision or content mismatch
-   requires a reviewed merge decision, not an overwrite.
+   to the shared root. Dry-run first, then apply only if the collision count is
+   zero:
+   ```bash
+   python3 /opt/raising-game-demo/ops/sync-runtime-media-root.py \
+     --source-assets /path/to/4174-release/assets \
+     --target /opt/raising-game-shared/assets
+   python3 /opt/raising-game-demo/ops/sync-runtime-media-root.py \
+     --source-assets /path/to/4174-release/assets \
+     --target /opt/raising-game-shared/assets \
+     --apply
+   ```
+   Require `RUNTIME_MEDIA_SYNC_PLAN_OK` before applying and
+   `RUNTIME_MEDIA_SYNC_READY` afterward. The tool never deletes, never
+   overwrites an existing destination, compares same-size files by SHA-256,
+   and blocks with `RUNTIME_MEDIA_SYNC_BLOCKED` on any collision.
+5. Re-run the synchronization dry-run and require `missing=0 collisions=0`.
+   A collision or content mismatch requires a reviewed merge decision, not an
+   overwrite.
 6. Point 4174 at the same `RUNTIME_MEDIA_ROOT`, start it, and verify both
    instances before enabling any non-HTTP background workload.
 

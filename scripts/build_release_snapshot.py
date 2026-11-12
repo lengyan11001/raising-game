@@ -71,7 +71,9 @@ PLATFORM_PATTERNS = (
     "ops/nginx-multi-upstream-drill.sh",
     "ops/nginx-upstream-switch.py",
     "ops/rolling-deploy-transaction.py",
+    "ops/runtime_media_paths.py",
     "ops/prepare-runtime-media-root.py",
+    "ops/sync-runtime-media-root.py",
     "ops/drill-generation-kv-migration.js",
     "ops/RESILIENCE-PLAN.md",
     "ops/RESILIENCE-DECISION-2026-11.md",
@@ -97,6 +99,7 @@ PLATFORM_PATTERNS = (
     "test/independent-release.test.js",
     "test/runtime-assets-root.test.js",
     "test/runtime-media-preparation.test.js",
+    "test/runtime-media-sync.test.js",
     "test/migration-runner.test.js",
     "test/migration-drill.test.js",
 )

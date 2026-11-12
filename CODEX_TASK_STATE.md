@@ -1,3 +1,11 @@
+## 2026-11-12 Step BH: safe final runtime-media synchronization prepared and verified, not deployed
+
+- Continued the Old-only shared runtime-media cutover preparation without touching production. Added `ops/sync-runtime-media-root.py` for the final late-write merge after traffic moves to 4175. It is dry-run by default and `--apply` only creates missing files; it never deletes or overwrites existing destination paths.
+- The synchronization tool shares the canonical 13 runtime-media prefixes from `ops/runtime_media_paths.py` with the initial preparation tool. It compares existing same-size files by SHA-256 and returns `RUNTIME_MEDIA_SYNC_BLOCKED` on any content/type/symlink collision. New files are staged beside the final path and atomically renamed after hash verification; source mutations abort the copy.
+- Updated `ops/production-cutover-runbook.md` with the exact dry-run, apply, and zero-collision recheck sequence. Added the new Python modules and tests to the platform-release allowlist. No Live files were included, no release was pushed or deployed, and no service, Nginx, database, Redis, or production filesystem state was changed.
+- Verification passed: new synchronization suite `7/7`; focused preparation/synchronization/resilience suite `76/76`; release-boundary suite `22/22`; source full suite `1291 pass / 0 fail / 1 skipped` (`/tmp/runtime-media-sync-full.log`); Python compilation, Node syntax, and `git diff --check` passed. External public health at 20:52 CST: Old health/livez/readyz and Fans health all HTTP 200.
+- Remaining gate: commit this state, rebuild a clean platform release snapshot from that commit, run its focused suite, then wait for an explicitly approved quiet window before any push/deploy/cutover. Backup remains last.
+
 ## 2026-11-12 Step BG: rolling transaction and shared runtime-media preparation verified, not deployed
 
 - Isolated branch `codex/rolling-deploy-transaction` now contains rolling-deploy transaction hardening `59b7e649` and shared runtime-media preparation `ea8c6892`. Local `old-site` was fast-forwarded to `ea8c6892`; nothing was pushed to `old-site`, `platform-release`, or `live-release`, and no production action occurred.

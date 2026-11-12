@@ -21,21 +21,7 @@ import stat
 import sys
 from pathlib import Path
 
-RUNTIME_PATHS = (
-    "user-uploads",
-    "user-characters",
-    "generated/videos",
-    "generated/posters",
-    "generated/images",
-    "generated/locked-previews",
-    "generated/characters/apiz",
-    "generated/panoramas",
-    "admin/home",
-    "admin/advanced-cases",
-    "admin/platform-templates",
-    "admin/undress-examples",
-    "runtime-tmp/video-tool-uploads",
-)
+from runtime_media_paths import RUNTIME_MEDIA_PATHS as RUNTIME_PATHS
 
 
 class PreparationError(RuntimeError):
