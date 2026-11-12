@@ -437,7 +437,7 @@ function runGenerationRecordResultAssetMediaBackfillSchedulerTick(reason) {
 }
 
 function startGenerationRecordResultAssetMediaBackfillScheduler() {
-  setTimeout(() => runGenerationRecordResultAssetMediaBackfillSchedulerTick("startup"), 15000).unref?.();
+  scheduleStartupScheduler("generation-result-asset-backfill", () => runGenerationRecordResultAssetMediaBackfillSchedulerTick("startup"));
   setInterval(() => runGenerationRecordResultAssetMediaBackfillSchedulerTick("timer"), 5 * 60 * 1000).unref?.();
 }
 

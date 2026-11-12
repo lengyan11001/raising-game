@@ -1330,7 +1330,7 @@ function startWalletScanScheduler() {
     runWalletScanSchedulerTick("timer");
   }, WALLET_CHAIN_SCAN_INTERVAL_MS);
   walletScanTimer.unref?.();
-  setTimeout(() => runWalletScanSchedulerTick("startup"), 10000).unref?.();
+  scheduleStartupScheduler("wallet-chain-scan", () => runWalletScanSchedulerTick("startup"));
 }
 
 function paypalEnabled() {

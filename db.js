@@ -10756,6 +10756,7 @@ module.exports = {
   patchGenerationRecordsInDb,
   insertWebVitalSamplesInDb,
   getWebVitalsSummaryFromDb,
+  checkDatabaseStartup,
 };
 
 async function checkDatabaseReadiness({ timeoutMs = 1500 } = {}) {
@@ -10787,4 +10788,37 @@ async function checkDatabaseReadiness({ timeoutMs = 1500 } = {}) {
     clearTimeout(timer);
     client?.release();
   }
+}
+
+function startupRetryDelay(attempt = 0, baseMs = 250, maxMs = 2000) {
+  const cleanAttempt = Math.max(0, Number(attempt) || 0);
+  return Math.min(Math.max(1, Number(maxMs) || 2000), Math.max(1, Number(baseMs) || 250) * (2 ** cleanAttempt));
+}
+
+async function checkDatabaseStartup({
+  timeoutMs = 5000,
+  attempts = 5,
+  baseDelayMs = 250,
+  maxDelayMs = 2000,
+  check = checkDatabaseReadiness,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  const totalAttempts = Math.max(1, Number(attempts) || 1);
+  let lastError;
+  for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+    try {
+      return await check({ timeoutMs });
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 >= totalAttempts) break;
+      console.warn("[database-startup-retry]", {
+        attempt: attempt + 1,
+        maxAttempts: totalAttempts,
+        code: error?.code || "",
+        message: error?.message || String(error),
+      });
+      await wait(startupRetryDelay(attempt, baseDelayMs, maxDelayMs));
+    }
+  }
+  throw lastError;
 }

@@ -4,6 +4,7 @@ set -euo pipefail
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:4174/api/livez}"
 FAILURE_THRESHOLD="${FAILURE_THRESHOLD:-3}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-3}"
+HEALTH_RETRY_DELAY_SECONDS="${HEALTH_RETRY_DELAY_SECONDS:-1}"
 STATE_FILE="${STATE_FILE:-/run/raising-game-watchdog.failures}"
 LOCK_FILE="${LOCK_FILE:-/run/raising-game-watchdog.lock}"
 SERVICE="${SERVICE:-raising-game-demo}"
@@ -33,7 +34,7 @@ if [[ ! "$TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
   log "invalid TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
   exit 2
 fi
-for value_name in WARMUP_SECONDS RESTART_COOLDOWN_SECONDS RESTART_BACKOFF_MAX_SECONDS RESTART_MAX_PER_HOUR SIGKILL_AFTER_SECONDS; do
+for value_name in WARMUP_SECONDS HEALTH_RETRY_DELAY_SECONDS RESTART_COOLDOWN_SECONDS RESTART_BACKOFF_MAX_SECONDS RESTART_MAX_PER_HOUR SIGKILL_AFTER_SECONDS; do
   value="${!value_name}"
   if [[ ! "$value" =~ ^[0-9]+$ ]]; then
     log "invalid ${value_name}=${value}"
@@ -185,7 +186,14 @@ if [[ -f "$STATE_FILE" ]]; then
   failures="${failures:-0}"
 fi
 
-if "$CURL_BIN" --silent --show-error --fail --max-time "$TIMEOUT_SECONDS" "$HEALTH_URL" >/dev/null; then
+health_check() {
+  "$CURL_BIN" --silent --show-error --fail --max-time "$TIMEOUT_SECONDS" "$HEALTH_URL" >/dev/null
+}
+
+# A single slow request must not count as a disconnection. Retry once after a
+# short pause so a transient event-loop or database-pool stall is absorbed,
+# while a genuinely unavailable process still fails on every probe.
+if health_check || { sleep "$HEALTH_RETRY_DELAY_SECONDS"; health_check; }; then
   if [[ "$failures" -ne 0 ]]; then
     log "recovered url=$HEALTH_URL previous_failures=$failures"
   fi

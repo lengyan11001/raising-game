@@ -136,7 +136,7 @@ test("bounded media persistence recovery only targets succeeded records with pro
   assert.match(server, /async function scanGenerationRecordMissingMediaPersistence/);
   assert.match(server, /prepareGenerationRecordAdvancedDownload\(current\)/);
   assert.match(server, /function runGenerationRecordMediaPersistenceSchedulerTick\(reason\)[\s\S]*?runWithSchedulerLease\("generation-record-media-persistence"/);
-  assert.match(server, /setTimeout\(\(\) => runGenerationRecordMediaPersistenceSchedulerTick\("startup"\), 35000\)/);
+  assert.match(server, /scheduleStartupScheduler\("generation-record-media-persistence", \(\) => runGenerationRecordMediaPersistenceSchedulerTick\("startup"\)\)/);
 });
 
 test("poster-only maintenance does not fail on a concurrently missing video record", () => {

@@ -359,6 +359,7 @@ const {
   setKv,
   getKvUpdatedAt,
   checkDatabaseReadiness,
+  checkDatabaseStartup,
   assertSchemaReady,
   listApiSubtokensFromDb,
   getApiSubtokenFromDbByToken,

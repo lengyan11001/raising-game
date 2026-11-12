@@ -697,14 +697,17 @@ function runGenerationPosterBackfillSchedulerTick(reason) {
 }
 
 function startGenerationRecordMediaRecoveryScheduler() {
-  setTimeout(() => runGenerationRecordMediaRecoverySchedulerTick("startup"), 20000).unref?.();
+  scheduleStartupScheduler("generation-record-media-recovery", () => runGenerationRecordMediaRecoverySchedulerTick("startup"));
   setInterval(() => runGenerationRecordMediaRecoverySchedulerTick("timer"), 5 * 60 * 1000).unref?.();
-  setTimeout(() => runGenerationRecordMediaPersistenceSchedulerTick("startup"), 35000).unref?.();
+  scheduleStartupScheduler("generation-record-media-persistence", () => runGenerationRecordMediaPersistenceSchedulerTick("startup"));
   setInterval(() => runGenerationRecordMediaPersistenceSchedulerTick("timer"), GENERATION_MEDIA_PERSISTENCE_INTERVAL_MS).unref?.();
-  setTimeout(function runPosterBackfill() {
-    runGenerationPosterBackfillSchedulerTick("startup")
-      .finally(() => setTimeout(runPosterBackfill, GENERATION_POSTER_BACKFILL_INTERVAL_MS).unref?.());
-  }, 25000).unref?.();
+  scheduleStartupScheduler("generation-poster-backfill", async () => {
+    await runGenerationPosterBackfillSchedulerTick("startup");
+    setTimeout(function runPosterBackfill() {
+      runGenerationPosterBackfillSchedulerTick("timer")
+        .finally(() => setTimeout(runPosterBackfill, GENERATION_POSTER_BACKFILL_INTERVAL_MS).unref?.());
+    }, GENERATION_POSTER_BACKFILL_INTERVAL_MS).unref?.();
+  });
 }
 
 function scheduleVideoToolJobDrain() {
@@ -811,7 +814,7 @@ function runVideoToolJobRecoverySchedulerTick() {
 }
 
 function startVideoToolJobRecoveryScheduler() {
-  setTimeout(() => runVideoToolJobRecoverySchedulerTick(), 10000).unref?.();
+  scheduleStartupScheduler("video-tool-job-recovery", () => runVideoToolJobRecoverySchedulerTick());
   setInterval(() => runVideoToolJobRecoverySchedulerTick(), VIDEO_TOOL_JOB_RECOVERY_INTERVAL_MS).unref?.();
 }
 
@@ -843,7 +846,7 @@ function runVideoToolUploadCleanupSchedulerTick() {
 }
 
 function startVideoToolUploadCleanupScheduler() {
-  setTimeout(() => runVideoToolUploadCleanupSchedulerTick(), 30000).unref?.();
+  scheduleStartupScheduler("video-tool-upload-cleanup", () => runVideoToolUploadCleanupSchedulerTick());
   setInterval(() => runVideoToolUploadCleanupSchedulerTick(), 6 * 60 * 60 * 1000).unref?.();
 }
 
@@ -911,9 +914,9 @@ function runGeneratedR2ExpirySchedulerTick() {
 }
 
 function startLocalMediaCleanupScheduler() {
-  setTimeout(() => runLocalMediaCleanupSchedulerTick(), 30000).unref?.();
+  scheduleStartupScheduler("local-media-cleanup", () => runLocalMediaCleanupSchedulerTick());
   setInterval(() => runLocalMediaCleanupSchedulerTick(), 5 * 60 * 1000).unref?.();
-  setTimeout(() => runGeneratedR2ExpirySchedulerTick(), 60000).unref?.();
+  scheduleStartupScheduler("generated-r2-expiry", () => runGeneratedR2ExpirySchedulerTick());
   setInterval(() => runGeneratedR2ExpirySchedulerTick(), 60 * 60 * 1000).unref?.();
 }
 
@@ -925,7 +928,7 @@ function runMediaIngestWorkerSchedulerTick() {
 }
 
 function startMediaIngestWorkerScheduler() {
-  setTimeout(() => runMediaIngestWorkerSchedulerTick(), 5000).unref?.();
+  scheduleStartupScheduler("media-ingest-worker", () => runMediaIngestWorkerSchedulerTick());
   setInterval(() => runMediaIngestWorkerSchedulerTick(), 15 * 1000).unref?.();
 }
 
@@ -981,9 +984,9 @@ function runChatLiveBillingSchedulerTick() {
 }
 
 function startChatLiveSettlementScheduler() {
-  setTimeout(() => runChatLiveStaleSettlementSchedulerTick(), 45000).unref?.();
+  scheduleStartupScheduler("chat-live-stale-settlement", () => runChatLiveStaleSettlementSchedulerTick());
   setInterval(() => runChatLiveStaleSettlementSchedulerTick(), 60000).unref?.();
-  setTimeout(() => runChatLiveOrphanCleanupSchedulerTick(), 90000).unref?.();
+  scheduleStartupScheduler("chat-live-orphan-cleanup", () => runChatLiveOrphanCleanupSchedulerTick());
   setInterval(() => runChatLiveOrphanCleanupSchedulerTick(), 10 * 60 * 1000).unref?.();
   setInterval(() => runAuthRiskCleanupSchedulerTick(), 6 * 60 * 60 * 1000).unref?.();
   /*

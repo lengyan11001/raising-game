@@ -155,7 +155,7 @@ function runStaleSubmitGenerationRecordSchedulerTick(reason) {
 }
 
 function startStaleSubmitGenerationRecordScheduler() {
-  setTimeout(() => runStaleSubmitGenerationRecordSchedulerTick("startup"), 5000).unref?.();
+  scheduleStartupScheduler("stale-submit-generation-records", () => runStaleSubmitGenerationRecordSchedulerTick("startup"));
   setInterval(() => runStaleSubmitGenerationRecordSchedulerTick("timer"), GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS).unref?.();
 }
 
@@ -718,7 +718,7 @@ function runActiveGenerationRecordSchedulerTick(reason) {
 }
 
 function startActiveGenerationRecordScheduler() {
-  setTimeout(() => runActiveGenerationRecordSchedulerTick("startup"), 15000).unref?.();
+  scheduleStartupScheduler("active-generation-records", () => runActiveGenerationRecordSchedulerTick("startup"));
   setInterval(() => runActiveGenerationRecordSchedulerTick("timer"), GENERATION_ACTIVE_SCAN_INTERVAL_MS).unref?.();
 }
 
@@ -733,7 +733,7 @@ function runTelegramBotSchedulerTick() {
 
 function startTelegramBotScheduler() {
   if (!telegramGenerationNotifierEnabled()) return;
-  setTimeout(() => runTelegramBotSchedulerTick(), 10000).unref?.();
+  scheduleStartupScheduler("telegram-generation-notifications", () => runTelegramBotSchedulerTick());
   setInterval(() => runTelegramBotSchedulerTick(), TELEGRAM_BOT_NOTIFIER_INTERVAL_MS).unref?.();
 }
 
@@ -748,8 +748,33 @@ function runTelegramPaymentNotificationSchedulerTick() {
 
 function startTelegramPaymentNotificationScheduler() {
   if (!telegramPaymentNotifierEnabled()) return;
-  setTimeout(() => runTelegramPaymentNotificationSchedulerTick(), 5000).unref?.();
+  scheduleStartupScheduler("telegram-payment-notifications", () => runTelegramPaymentNotificationSchedulerTick());
   setInterval(() => runTelegramPaymentNotificationSchedulerTick(), TELEGRAM_PAYMENT_NOTIFIER_INTERVAL_MS).unref?.();
+}
+
+/*
+ * A restart must not turn every maintenance scheduler into a thundering herd.
+ * Only the first pass is serialized; steady-state intervals keep their normal
+ * cadence. Keep a small gap between passes so pool recovery and request
+ * traffic get event-loop and connection capacity first.
+ */
+const STARTUP_SCHEDULER_PAUSE_MS = 250;
+let startupSchedulerQueue = Promise.resolve();
+
+function scheduleStartupScheduler(name, task) {
+  startupSchedulerQueue = startupSchedulerQueue
+    .then(async () => {
+      try {
+        await task();
+      } catch (error) {
+        console.warn("[startup-scheduler-failed]", {
+          name,
+          code: error?.code || "",
+          message: error?.message || String(error),
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, STARTUP_SCHEDULER_PAUSE_MS));
+    });
 }
 
 const REQUIRED_CATALOGS = Object.freeze([
@@ -783,6 +808,8 @@ async function bootstrap() {
     throw error;
   }
   const schemaMode = String(process.env.DB_SCHEMA_MIGRATION_MODE || "verify").trim().toLowerCase();
+  await checkDatabaseStartup({ timeoutMs: 5000 });
+  console.log("[database-check] ok");
   if (schemaMode === "bootstrap") {
     const generationRecordMigration = await migrateGenerationRecordsKvToTable();
     if (generationRecordMigration?.migrated) {
