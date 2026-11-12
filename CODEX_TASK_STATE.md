@@ -1,3 +1,20 @@
+## 2026-11-12 Step BA: generation-record polling failure backoff
+
+- Added visibility-aware exponential backoff for generation completion polling: 15s after a transient failure, then 30s, 60s, and at most 120s. Any successful poll immediately resets the failure counter, and hidden pages continue not to poll.
+- This reduces pressure on `GET /api/generation-records` during provider/API degradation without changing authoritative generation state or introducing client-side persistence.
+- Added regression coverage for the retry schedule and reset behavior in `test/history-pagination.test.js`; `platform.config.js` now initializes the failure counter.
+- Verification before deployment: full `npm test` passed 1,252 tests with 1,251 pass, 0 fail, 1 skip; `git diff --check` passed. Log: `/tmp/raising-step-ba-final.log`.
+- Release/deploy/acceptance status: pending at initial commit; this section will be updated after Old-only deployment.
+
+## 2026-11-12 Step AZ: 4175 watchdog active-mode acceptance
+
+- Secondary watchdog `raising-game-watchdog-b` was switched from dry-run to active mode with `ops/install-secondary-watchdog.sh --mode active --confirm-active --no-start`; primary watchdog mode and Nginx were not changed. Drop-in now reports `WATCHDOG_DRY_RUN=0`.
+- Isolated systemd hang drill passed: a disposable local service was SIGSTOPped while still `active`; after failures 1/2/3 the watchdog restarted only that unit, then an expired same-PID marker produced exactly one `force-kill requested/dispatched` for the replacement PID. The drill unit, port 4196, state files, and all residue were removed.
+- Controlled 4175 restart acceptance passed: `4175` MainPID `3367690 -> 3374052`; `4174` stayed `3367188`, Nginx stayed `2485219`, and both remained `NRestarts=0`. 4174/4175 health/livez/readyz all returned 200; public `/api/health` returned 200. Warm-up grace cleared normally, failures=0, pending=none.
+- Twelve samples over two minutes: every 4174/4175 readyz probe returned 200; watchdogs remained enabled/active and Nginx master unchanged. PostgreSQL had 15/100 connections, 0 idle-in-transaction, and 0 lock waiters. No new application fatal/uncaught/Unauthorized entries. The only recent Nginx 499 was an analytics request at 16:47, before this change.
+- `test/resilience-ops.test.js` passes 49/49 on the deployed source and local static checks pass. Logs: `/tmp/raising-step-az-hang-drill.log`, `/tmp/raising-step-az-watchdog-active-install.log`, `/tmp/raising-step-az-secondary-restart.log`, `/tmp/raising-step-az-final-resilience.log`.
+- State: Old HTTP traffic remains `4174 primary / 4175 backup`; 4175 schedulers, generation-submit queue, and worker remain disabled. Redis remains disabled pending measured need; Live untouched; backups remain last.
+
 ## 2026-11-12 Step AX: rolling restart acceptance and release verifier correction
 
 - Completed an Old-only rolling replacement without restarting Nginx: `4174` PID `3367188` started at `2026-11-12 16:50:30 CST`, then `4175` PID `3367690` started at `2026-11-12 16:50:54 CST`. All three upstream groups (`default`, `chat`, `live`) resolve to `4174 primary / 4175 backup`; watchdog timer is active and both services report `NRestarts=0`.

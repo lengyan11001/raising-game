@@ -1160,6 +1160,7 @@ function notifyGenerationCompletionChanges(previousRecords = [], nextRecords = [
 
 const GENERATION_COMPLETION_REFRESH_INTERVAL_MS = 15 * 1000;
 const GENERATION_COMPLETION_IDLE_REFRESH_INTERVAL_MS = 120 * 1000;
+const GENERATION_COMPLETION_RETRY_MAX_MS = 120 * 1000;
 const GENERATION_COMPLETION_LEADER_STORAGE_KEY = "raisingGameGenerationCompletionLeader";
 
 function generationCompletionHasActiveRecords(records = []) {
@@ -1168,6 +1169,13 @@ function generationCompletionHasActiveRecords(records = []) {
 
 function generationCompletionRefreshDelay() {
   if (typeof document !== "undefined" && document.visibilityState !== "visible") return 0;
+  const failureCount = Math.max(0, Number(state.generationCompletionRefreshFailures || 0) || 0);
+  if (failureCount > 0) {
+    return Math.min(
+      GENERATION_COMPLETION_REFRESH_INTERVAL_MS * (2 ** Math.min(failureCount - 1, 3)),
+      GENERATION_COMPLETION_RETRY_MAX_MS,
+    );
+  }
   return generationCompletionHasActiveRecords(state.generationCompletionRecords)
     ? GENERATION_COMPLETION_REFRESH_INTERVAL_MS
     : GENERATION_COMPLETION_IDLE_REFRESH_INTERVAL_MS;
@@ -1262,6 +1270,7 @@ async function refreshGenerationCompletionRecords() {
     );
     notifyGenerationCompletionChanges(trackedRecords, records);
     state.generationCompletionRecords = records;
+    state.generationCompletionRefreshFailures = 0;
     records.forEach((record) => {
       if (record?.taskId && typeof mergeAdvancedResultRecord === "function") mergeAdvancedResultRecord(record);
     });
@@ -1278,7 +1287,9 @@ async function refreshGenerationCompletionRecords() {
       renderAdvancedResultPanel();
     }
   } catch {
-    // Transient polling failures are retried by the next interval.
+    // Back off transient failures instead of retrying at the active-task
+    // cadence. A successful poll resets this counter immediately.
+    state.generationCompletionRefreshFailures = Math.max(0, Number(state.generationCompletionRefreshFailures || 0) || 0) + 1;
   } finally {
     state.generationCompletionRefreshInFlight = false;
   }

@@ -44,6 +44,30 @@ test("generation completion polls on a visibility-aware dynamic schedule", () =>
   assert.match(ui, /GENERATION_COMPLETION_LEADER_STORAGE_KEY/);
 });
 
+test("generation completion polling backs off after transient failures", () => {
+  const start = ui.indexOf("function generationCompletionHasActiveRecords(");
+  const end = ui.indexOf("function generationCompletionCanPoll()", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const state = { generationCompletionRecords: [{ taskId: "active", status: "processing" }] };
+  const isTerminalGenerationStatus = (status) => ["succeeded", "failed", "cancelled", "refunded"].includes(String(status || "").toLowerCase());
+  const constants = ui.slice(ui.indexOf("const GENERATION_COMPLETION_REFRESH_INTERVAL_MS"), ui.indexOf("function generationCompletionHasActiveRecords("));
+  const fns = new Function("state", "document", "isTerminalGenerationStatus", `${constants}\n${ui.slice(start, end)}
+return { generationCompletionHasActiveRecords, generationCompletionRefreshDelay };`)(state, { visibilityState: "visible" }, isTerminalGenerationStatus);
+  assert.equal(fns.generationCompletionHasActiveRecords(state.generationCompletionRecords), true);
+  assert.equal(fns.generationCompletionRefreshDelay(), 15_000);
+  state.generationCompletionRefreshFailures = 1;
+  assert.equal(fns.generationCompletionRefreshDelay(), 15_000);
+  state.generationCompletionRefreshFailures = 2;
+  assert.equal(fns.generationCompletionRefreshDelay(), 30_000);
+  state.generationCompletionRefreshFailures = 3;
+  assert.equal(fns.generationCompletionRefreshDelay(), 60_000);
+  state.generationCompletionRefreshFailures = 10;
+  assert.equal(fns.generationCompletionRefreshDelay(), 120_000);
+  assert.match(ui, /state\.generationCompletionRefreshFailures = 0;/);
+  assert.match(ui, /generationCompletionRefreshFailures \|\| 0\) \|\| 0\) \+ 1/);
+});
+
 test("a page that disappeared steps back instead of rendering empty", () => {
   assert.match(create, /const lastPage = Math\.max\(1, Number\(payload\.totalPages \|\| 1\) \|\| 1\);/);
   assert.match(create, /if \(!append && !shouldPreserve && requestedPage > lastPage\) \{/);
