@@ -738,6 +738,7 @@ async function runAdvancedGenerationJob(job = {}, submission = null, options = {
   const preprocessSeedanceImages = provider === "seedance"
     && requestParams.preprocessReference === true
     && !USE_GATEWAY_UPSTREAM;
+  let providerDispatchStarted = false;
 
   try {
     await updateGenerationRecord(taskId, {
@@ -1216,7 +1217,6 @@ async function runAdvancedGenerationJob(job = {}, submission = null, options = {
 
     const config = job.config || await readAppConfig();
     let task = null;
-    let providerDispatchStarted = false;
     let aliyunUpstreamModel = "";
     if (USE_GATEWAY_UPSTREAM) {
       const gatewayBody = {
