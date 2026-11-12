@@ -1063,19 +1063,27 @@ async function loadMe() {
     setUser(null);
     return;
   }
+  const restoreToken = String(state.token || "");
   try {
     const payload = await requestJson("/api/auth/me");
+    // A login completed while this restore request was in flight. Its token
+    // and user response are authoritative; do not overwrite them with the
+    // older session response.
+    if (restoreToken !== String(state.token || "")) return;
     setUser(payload.user);
   } catch (error) {
     // A database/pool timeout or transient 502 must not erase a valid browser
-    // session. Only an explicit auth rejection means the token is unusable.
-    if (error?.statusCode === 401) {
+    // session. Only an explicit rejection for the token used by this restore
+    // request means that token is unusable.
+    if (error?.statusCode === 401 && restoreToken === String(state.token || "")) {
       state.token = "";
       localStorage.removeItem(TOKEN_KEY);
       setUser(null);
       return;
     }
-    console.warn("session restore temporarily unavailable", error?.message || error);
+    if (restoreToken === String(state.token || "")) {
+      console.warn("session restore temporarily unavailable", error?.message || error);
+    }
   }
 }
 
