@@ -12,13 +12,18 @@ const deploySite = fs.readFileSync(path.join(root, "scripts", "deploy_site.py"),
 const deployPull = fs.readFileSync(path.join(root, "scripts", "deploy_pull.py"), "utf8");
 const materializer = path.join(root, "scripts", "materialize_static_release.py");
 const snapshotBuilder = path.join(root, "scripts", "build_release_snapshot.py");
-const historicalGitProbe = spawnSync(
-  "git", ["log", "--format=%H", "--all", "--", "live.html"],
-  { cwd: root, encoding: "utf8" },
-);
-const historicalGitSkip = historicalGitProbe.status === 0 && historicalGitProbe.stdout.trim()
-  ? false
-  : "Source Git history is absent from an exported release tree.";
+const historicalGitSkip = (() => {
+  const probe = spawnSync(
+    "git", ["log", "--format=%H", "--all", "--", "live.html"],
+    { cwd: root, encoding: "utf8" },
+  );
+  if (probe.status !== 0 || !probe.stdout.trim()) return "Source Git history is absent from an exported release tree.";
+  const baseTree = spawnSync("git", ["rev-parse", "33a6e65^{tree}"], { cwd: root, encoding: "utf8" });
+  const liveTree = spawnSync("git", ["rev-parse", "HEAD^{tree}"], { cwd: root, encoding: "utf8" });
+  return baseTree.status === 0 && liveTree.status === 0 && baseTree.stdout.trim() === liveTree.stdout.trim()
+    ? "Exported release tree matches the historical commit tree."
+    : false;
+})();
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
