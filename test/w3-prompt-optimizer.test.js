@@ -96,10 +96,12 @@ test("optimizer accepts plain text, JSON, and fenced JSON", () => {
   assert.deepEqual(helpers.w3ParseOptimizerJson('{"optimizedPrompt":"one","notes":["n"]}'), {
     optimizedPrompt: "one",
     notes: ["n"],
+    referencePlan: [],
   });
   assert.deepEqual(helpers.w3ParseOptimizerJson('```json\n{"optimizedPrompt":"two","notes":[]}\n```'), {
     optimizedPrompt: "two",
     notes: [],
+    referencePlan: [],
   });
 });
 
@@ -222,23 +224,39 @@ test("Seedance optimizer preserves the source language and builds a dynamic medi
   assert.doesNotMatch(req.body.messages[1].content, /fixed five|exactly 5 images/i);
 });
 
-test("Seedance optimizer works in text-only mode before any media is uploaded", () => {
-  const prompt = "女生坐在窗边，穿白色衬衫，镜头缓慢推近，自然窗光，皮肤质感真实。";
+test("Seedance optimizer normalizes scripts and returns a separate optional upload plan", () => {
+  const prompt = "剧本：雨夜，林肆回到公寓，看到沈屿川在窗边等她。两人沉默对视，林肆走近，镜头缓慢推近，自然窗光，皮肤质感真实。";
   const req = helpers.seedancePromptOptimizerRequest({ prompt, provider: "seedance-nsfw" });
   assert.equal(req.references.length, 0);
-  assert.match(req.body.messages[0].content, /TEXT-ONLY MODE/);
-  assert.match(req.body.messages[0].content, /do not ask the user to upload media/);
+  assert.match(req.body.messages[0].content, /INPUT NORMALIZATION/);
+  assert.match(req.body.messages[0].content, /finished prompt, a short idea, loose tags, dialogue, or a full script/);
+  assert.match(req.body.messages[0].content, /referencePlan/);
+  assert.match(req.body.messages[0].content, /图片1：主角脸部身份参考/);
   assert.match(req.body.messages[1].content, /TEXT-ONLY PROMPT MODE: No reference media supplied/);
-  assert.match(req.body.messages[1].content, /do not mention image\/video\/audio labels/);
-  assert.match(req.body.messages[1].content, /Reference media may be added later/);
-  assert.doesNotMatch(req.body.messages[1].content, /图片1|Image 1|Video 1|Audio 1/);
+  assert.match(req.body.messages[1].content, /full script/);
+  assert.match(req.body.messages[1].content, /no image\/video\/audio labels in optimizedPrompt/);
+  assert.match(req.body.messages[1].content, /referencePlan/);
+  assert.match(req.body.messages[1].content, /Do not require uploads/);
   assert.doesNotMatch(req.body.messages[1].content, /exactly 5|fixed five/i);
 });
 
-test("Seedance client explains text-only optimization without requiring uploads", () => {
+test("Seedance optimizer parses structured reference plans and never applies them to media", () => {
+  const parsed = helpers.w3ParseOptimizerJson(JSON.stringify({
+    optimizedPrompt: "人物坐在窗边，自然窗光。",
+    notes: ["剧本压缩为单一连续镜头"],
+    referencePlan: ["图片1：主角脸部身份参考", { label: "图片2：服装参考" }, ""],
+  }));
+  assert.deepEqual(parsed.referencePlan, ["图片1：主角脸部身份参考", "图片2：服装参考"]);
+  assert.match(server, /referencePlan: seedanceRequest \? \(parsed\?\.referencePlan \|\| \[\]\) : \[\]/);
+  assert.doesNotMatch(server, /referencePlan[\s\S]{0,120}(uploadFile|deleteFile|setAdvanced|applyReference)/i);
+});
+
+test("Seedance client shows optional upload suggestions without requiring uploads", () => {
   assert.match(client, /const hasReferences = Array\.isArray\(payload\.references\) && payload\.references\.length > 0/);
   assert.match(client, /纯文本提示词规则优化，素材可稍后添加/);
-  assert.match(client, /正在按 Seedance 参考素材与提示词规则优化/);
+  assert.match(client, /data-prompt-optimizer-reference-plan/);
+  assert.match(client, /建议补充素材（可选）/);
+  assert.match(client, /result\.referencePlan/);
   assert.doesNotMatch(client, /请先上传(?:图片|素材)/);
 });
 

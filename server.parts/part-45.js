@@ -36,7 +36,8 @@ Rewrite the user's existing prompt into a complete, production-ready Seedance pr
 Return a prompt that is directly usable in Seedance:
 - LANGUAGE LOCK: Detect the dominant language of PROMPT START. Chinese prompts must stay predominantly Chinese; retain Chinese actions, descriptions, dialogue, ambience, and mood. Do not translate the whole prompt into English. Established camera/lighting terms may remain English when useful. If the source is English, keep it predominantly English.
 - REFERENCE BINDING: Use the supplied numbered media inventory and labels exactly. Refer to media as 图片1/图片2, 视频1/视频2, 音频1/音频2 (or Image N / Video N / Audio N when the prompt is English). Never refer to an asset that is not in the inventory, never invent indices, and never use [Image 1].
-- TEXT-ONLY MODE: When the media inventory says no reference media was supplied, optimize the prompt as a standalone Seedance prompt. Do not mention images, videos, or audio, do not invent reference bindings, do not ask the user to upload media, and do not block the rewrite. Reference media may be added later; this request only rewrites the prompt text.
+- INPUT NORMALIZATION: Accept any form the user provides, including a finished prompt, a short idea, loose tags, dialogue, or a full script/story outline. Infer the stable shot content from the input and turn it into one directly executable Seedance prompt without changing the user's intent.
+- TEXT-ONLY MODE: When the media inventory says no reference media was supplied, keep image/video/audio bindings out of optimizedPrompt and do not invent reference bindings. Separately return a concise referencePlan for useful future uploads. Each item must name a future label and the exact role it would control, such as "图片1：主角脸部身份参考" or "视频1：指定动作参考". Only include roles that materially help this prompt. Do not require uploads and do not block the rewrite. Reference media may be added later; after upload, the user can optimize again to bind the supplied references.
 - When more than one media item is present, make each item's role explicit in the prompt: identity/face, outfit/costume, scene/location, motion/performance, camera/composition, audio/music, or style reference. State which item is authoritative for each role. If the same role has multiple sources, state the conflict priority (for example, 图片1 controls face and 图片2 cannot change facial geometry).
 - Prefer one clear identity anchor. A person multi-view sheet is weak as the sole identity source; if it is the only available face reference, bind it to facial identity while taking pose, framing, and scene from the prompt or another reference.
 - Preserve the user's requested subject count. For each visible person, state identity binding, position, clothing state, and continuity when the prompt implies them. Do not add extra people.
@@ -49,8 +50,8 @@ Return a prompt that is directly usable in Seedance:
 - Keep the prompt within 5000 characters. Do not pad. Prefer clear, executable prose over tag piles. The prompt must read as a Seedance instruction, not an explanation of your rewrite.
 
 Return JSON only, with this shape:
-{"optimizedPrompt":"...","notes":["short change 1","short change 2"]}
-The optimizedPrompt must be the complete usable prompt, not a diff or explanation.`;
+{"optimizedPrompt":"...","notes":["short change 1","short change 2"],"referencePlan":["图片1：主角脸部身份参考","图片2：固定服装参考"]}
+The optimizedPrompt must be the complete usable prompt, not a diff or explanation. In TEXT-ONLY MODE, referencePlan is the ordered future upload checklist and uses labels that match the prompt language. When reference media was supplied, referencePlan must be empty because the existing references are already bound. Never use referencePlan to modify, upload, replace, or delete media.`;
 
 function w3PromptOptimizerText(raw = {}) {
   return qwen37FlashResponseText(raw);
@@ -70,9 +71,13 @@ function w3ParseOptimizerJson(text = "") {
     try {
       const parsed = JSON.parse(candidate);
       if (parsed && typeof parsed.optimizedPrompt === "string") {
+        const referencePlan = Array.isArray(parsed.referencePlan)
+          ? parsed.referencePlan.map((item) => String(item?.label || item?.text || item || "").trim()).filter(Boolean).slice(0, 12)
+          : [];
         return {
           optimizedPrompt: parsed.optimizedPrompt.trim(),
           notes: Array.isArray(parsed.notes) ? parsed.notes.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 8) : [],
+          referencePlan,
         };
       }
     } catch {}
@@ -225,8 +230,8 @@ function seedancePromptOptimizerRequest(payload = {}, { languageCorrection = fal
         ? "ACTION BUDGET: Use 3-5 beats."
         : "ACTION BUDGET: Use 6-8 beats.";
   const referenceInstruction = references.length
-    ? "Do not add or remove reference media."
-    : "TEXT-ONLY PROMPT MODE: No reference media is supplied. Rewrite as a standalone prompt, do not mention image/video/audio labels, do not invent reference bindings, and do not ask for images. Reference media may be added later; this request only changes the prompt text.";
+    ? "Do not add or remove reference media. referencePlan must be an empty array."
+    : "TEXT-ONLY PROMPT MODE: No reference media is supplied. Treat the input as any mix of finished prompt, idea, loose tags, dialogue, or full script. Rewrite it as a standalone executable prompt with no image/video/audio labels in optimizedPrompt. In referencePlan, list only the future uploads that materially help this shot, using language-appropriate labels such as 图片1/图片2/视频1 or Image 1/Image 2/Video 1 and naming the exact role. Do not require uploads and do not block the rewrite. Reference media may be added later; this request only changes the prompt text.";
   const userPrompt = [
     `Provider: ${providerLabel} (${provider})`,
     `Duration: ${duration}s`,
@@ -429,6 +434,7 @@ async function handleAdvancedPromptOptimize(req, res) {
       originalPrompt: request.originalPrompt,
       optimizedPrompt,
       notes: parsed?.notes || [],
+      referencePlan: seedanceRequest ? (parsed?.referencePlan || []) : [],
       model: W3_PROMPT_OPTIMIZER_MODEL,
       mode: seedanceRequest ? "seedance" : "w3",
     });

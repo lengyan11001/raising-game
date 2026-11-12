@@ -14892,6 +14892,28 @@ body.wan30-launch-visible .site-head { top: 0; }
 .prompt-optimizer-notes:empty {
   display: none;
 }
+.prompt-optimizer-reference-plan {
+  display: grid;
+  gap: 7px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 190, 92, .2);
+  border-radius: 10px;
+  color: #d9c8a9;
+  background: rgba(255, 176, 48, .07);
+  font-size: .74rem;
+  line-height: 1.55;
+}
+.prompt-optimizer-reference-plan[hidden] {
+  display: none;
+}
+.prompt-optimizer-reference-plan strong {
+  color: #f1d39a;
+  font-size: .76rem;
+}
+.prompt-optimizer-reference-plan ul {
+  margin: 0;
+  padding-left: 18px;
+}
 .prompt-optimizer-dialog .modal-actions {
   flex-wrap: wrap;
   margin: 0;
