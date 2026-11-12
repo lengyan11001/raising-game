@@ -40,7 +40,7 @@ Return a prompt that is directly usable in Seedance:
 - TEXT-ONLY MODE: When the media inventory says no reference media was supplied, design the smallest useful reference binding inside optimizedPrompt. Any person with recurring identity needs 图片1/图片2/Image 1/Image 2 as face-identity anchors, their outfits get separate outfit labels, and a recurring location gets a scene label. Preserve explicit source labels and roles verbatim; when the source has no labels, assign stable sequential labels and describe exactly what each label controls. Use the same labels in 【素材绑定】 and 【冲突规则】. Separately return the same ordered labels in referencePlan as the upload checklist. Do not require uploads and do not block the rewrite. Never refer to a label that is neither in the media inventory nor declared in the rewritten prompt's 【素材绑定】.
 - When more than one media item is present, make each item's role explicit in the prompt: identity/face, outfit/costume, scene/location, motion/performance, camera/composition, audio/music, or style reference. State which item is authoritative for each role. If the same role has multiple sources, state the conflict priority (for example, 图片1 controls face and 图片2 cannot change facial geometry).
 - STRUCTURED PROMPT: When the input is a production brief, has multiple reference assets, or already uses section headings, output one directly executable Seedance prompt in Chinese with these headings in this order: 【素材绑定】【冲突规则】【主体与关系】【动作时间轴】【场景环境】【光影色调】【镜头运镜】【视觉风格】【画质与约束】. Omit a heading only when it is truly irrelevant. Keep every explicit reference label and conflict rule. For a Chinese prompt use 图片1/图片2/图片3/视频1; for an English prompt use Image 1/Image 2/Image 3/Video 1. If the source gives no structured format, concise prose is acceptable.
-- Follow the requested duration exactly. For a 12-second prompt, use 0—3秒 / 3—6秒 / 6—9秒 / 9—12秒 beats. Never stretch a 12-second request into 15 seconds or add a beat after the requested end time.
+- DURATION AND TIMELINE LOCK: Follow the authoritative duration supplied by the caller or explicitly stated in the source, whichever is longer. Use ordered, non-overlapping beats and make the last beat end exactly at the requested duration. Use 0—2秒 / 2—5秒 for 5 seconds, 0—3秒 / 3—6秒 / 6—9秒 / 9—12秒 for 12 seconds, and 0—4秒 / 4—8秒 / 8—12秒 / 12—15秒 for 15 seconds. Never collapse a 15-second request into only 0—5秒, never end before the requested duration, and never add a beat beyond it.
 - Prefer one clear identity anchor. A person multi-view sheet is weak as the sole identity source; if it is the only available face reference, bind it to facial identity while taking pose, framing, and scene from the prompt or another reference.
 - Preserve the user's requested subject count. For each visible person, state identity binding, position, clothing state, and continuity when the prompt implies them. Do not add extra people.
 - ACTION BUDGET: Make one primary continuous action for about 5 seconds, 2-3 continuous actions for 9-12 seconds, 3-5 beats for about 15 seconds, and 6-8 beats for about 30 seconds. Do not overload short clips. Use timecodes only when they improve clarity; keep beats physically continuous rather than a set of disconnected shots.
@@ -48,7 +48,7 @@ Return a prompt that is directly usable in Seedance:
 - Camera: prefer a stable, readable shot. Use a side, three-quarter, or profile angle when identity is important; avoid an unnecessary frontal beauty close-up. Avoid compound camera moves unless requested. Use lens and framing terms only when they help the requested scene.
 - LIGHTING AND SKIN: describe real-footage appearance through physical light and texture, such as warm side light, soft natural window light, mild unevenness, visible pores, natural matte skin, restrained highlights, and natural shadow transitions. Do not default to glamour or CG trigger stacks such as 精致、俊美、冷白皮、水光肌、8K超清、磨皮、美颜、蜡像高光、身体油光. If the user asks for fairer skin, express it as brighter, softer lighting, exposure, or white balance without changing facial geometry or deep skin texture.
 - PRESERVE NEGATIVE CONSTRAINTS: Seedance has no universal negative_prompt field. Convert the user's negative constraints into positive, observable end-of-prompt constraints (for example, steady framing, natural skin texture, realistic material response, stable identity).
-- AUDIO: Preserve requested dialogue, vocal delivery, sound effects, ambience, and music. Never add dialogue or sounds the user did not request. If audio is enabled but no audio detail is supplied, describe only a restrained ambience or leave it unspecified.
+- DIALOGUE LOCK: Every explicit quoted line, script line, speaker/line pair, voice-over, and line inside 【对话】 must survive verbatim and stay assigned to the same speaker and beat. Do not paraphrase, omit, merge, translate, or replace dialogue with breathing, moaning, intimacy, or narration. A script's spoken lines and its visual action are separate requirements: preserving one never permits dropping the other. Never invent dialogue. If audio is enabled but no dialogue was supplied, describe only restrained ambience or leave it unspecified.
 - Keep the prompt within 5000 characters. Do not pad. Prefer clear, executable prose over tag piles. The prompt must read as a Seedance instruction, not an explanation of your rewrite.
 
 Return JSON only, with this shape:
@@ -57,6 +57,36 @@ The optimizedPrompt must be the complete usable prompt, not a diff or explanatio
 
 function w3PromptOptimizerText(raw = {}) {
   return qwen37FlashResponseText(raw);
+}
+
+function w3NormalizeOptimizerPromptFormatting(text = "") {
+  return String(text || "")
+    .replace(/【([^】\n]{1,40})}/g, "【$1】")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function w3OptimizerReadablePrompt(value, depth = 0) {
+  if (depth > 8 || value === null || value === undefined) return "";
+  if (typeof value === "string") {
+    const text = value.trim().replace(/^```(?:json|text)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    if (!text) return "";
+    if (/^[{[]/.test(text) || (text.startsWith('"') && text.endsWith('"'))) {
+      try {
+        return w3OptimizerReadablePrompt(JSON.parse(text), depth + 1);
+      } catch {}
+    }
+    return text;
+  }
+  if (Array.isArray(value)) return "";
+  if (typeof value !== "object") return "";
+  for (const key of ["optimizedPrompt", "optimized_prompt", "prompt", "text", "content", "result"]) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      const candidate = w3OptimizerReadablePrompt(value[key], depth + 1);
+      if (candidate) return candidate;
+    }
+  }
+  return "";
 }
 
 function w3ParseOptimizerJson(text = "") {
@@ -69,22 +99,177 @@ function w3ParseOptimizerJson(text = "") {
   const first = source.indexOf("{");
   const last = source.lastIndexOf("}");
   if (first >= 0 && last > first) candidates.push(source.slice(first, last + 1));
+  const normalizePlan = (items) => Array.isArray(items)
+    ? items.map((item) => String(item?.label || item?.text || item || "").trim()).filter(Boolean).slice(0, 12)
+    : [];
+  const mergeUnique = (firstItems = [], secondItems = []) => [...new Set([...firstItems, ...secondItems])].slice(0, 12);
+  const collect = (value, depth = 0, state = { notes: [], referencePlan: [] }) => {
+    if (!value || typeof value !== "object" || depth > 8) return state;
+    state.notes = mergeUnique(state.notes, Array.isArray(value.notes) ? value.notes.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 8) : []);
+    state.referencePlan = mergeUnique(state.referencePlan, normalizePlan(value.referencePlan));
+    if (value.optimizedPrompt !== undefined) {
+      let nested = value.optimizedPrompt;
+      if (typeof nested === "string" && /^\s*\{/.test(nested)) {
+        try { nested = JSON.parse(nested); } catch {}
+      }
+      if (nested && typeof nested === "object") collect(nested, depth + 1, state);
+    }
+    return state;
+  };
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate);
-      if (parsed && typeof parsed.optimizedPrompt === "string") {
-        const referencePlan = Array.isArray(parsed.referencePlan)
-          ? parsed.referencePlan.map((item) => String(item?.label || item?.text || item || "").trim()).filter(Boolean).slice(0, 12)
-          : [];
-        return {
-          optimizedPrompt: parsed.optimizedPrompt.trim(),
-          notes: Array.isArray(parsed.notes) ? parsed.notes.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 8) : [],
-          referencePlan,
-        };
-      }
+      if (!parsed || (typeof parsed !== "object" && typeof parsed !== "string")) continue;
+      const optimizedPrompt = w3OptimizerReadablePrompt(parsed);
+      if (!optimizedPrompt) continue;
+      const collected = collect(parsed);
+      return {
+        optimizedPrompt: w3NormalizeOptimizerPromptFormatting(optimizedPrompt),
+        notes: collected.notes,
+        referencePlan: collected.referencePlan,
+      };
     } catch {}
   }
   return null;
+}
+
+function seedancePromptOptimizerDialogueLines(source = "") {
+  const text = String(source || "");
+  const lines = [];
+  const seen = new Set();
+  const add = (value = "", speaker = "") => {
+    const line = String(value || "").trim().replace(/^[：:，,\s]+|[。；;，,\s]+$/g, "");
+    const name = String(speaker || "").trim().replace(/[：:\s]+$/g, "");
+    if (line.length < 1 || line.length > 300) return;
+    const rendered = name ? `${name}：${line}` : line;
+    const key = rendered.replace(/\s+/g, "");
+    if (seen.has(key)) return;
+    seen.add(key);
+    lines.push(rendered);
+  };
+  const quoted = /[“「『]([^”」』\n]{1,300})[”」』]|"([^"\n]{1,300})"/gu;
+  let match = null;
+  while ((match = quoted.exec(text)) && lines.length < 16) add(match[1] || match[2]);
+  const nonSpeakerLabels = /^(?:环境|场景|镜头|运镜|动作|时长|总时长|风格|画质|光影|色调|素材|冲突|主体|视觉|参考|声音|音频|音乐|说明|备注)$/u;
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.length > 220) continue;
+    const labeled = line.match(/^(?:台词|对白|对话)\s*[：:]\s*(.+)$/);
+    if (labeled) {
+      add(labeled[1]);
+      continue;
+    }
+    const speaker = line.match(/^([\p{L}\p{N}_·]{1,20})\s*[：:]\s*(.+)$/u);
+    if (!speaker || nonSpeakerLabels.test(speaker[1]) || /^(?:图片|图|Image|Video|@)/i.test(speaker[2])) continue;
+    if (/^(?:参考|使用|保持|位于|站在|坐在|镜头|场景|环境)/.test(speaker[2])) continue;
+    add(speaker[2], speaker[1]);
+  }
+  return lines.slice(0, 16);
+}
+
+function seedancePromptOptimizerComparable(text = "") {
+  return String(text || "").replace(/[\s“”「」『』"'，。！？、,.!?;；:：…—–\-]/g, "").toLowerCase();
+}
+
+function seedancePromptOptimizerDialogueBody(line = "") {
+  return String(line || "").split(/[：:]/).slice(1).join("：") || String(line || "");
+}
+
+function seedancePromptOptimizerTimelineRanges(text = "") {
+  const ranges = [];
+  const pattern = /(\d+(?:\.\d+)?)\s*(?:秒|s)?\s*[—–\-~至到]\s*(\d+(?:\.\d+)?)\s*(?:秒|s)/gi;
+  const source = String(text || "");
+  let match = null;
+  while ((match = pattern.exec(source))) {
+    const start = Number(match[1]);
+    const end = Number(match[2]);
+    if (Number.isFinite(start) && Number.isFinite(end) && end >= start) ranges.push({ start, end });
+  }
+  return ranges;
+}
+
+function seedancePromptOptimizerRequestedDuration(payloadDuration, sourcePrompt = "") {
+  const requested = Math.max(2, Math.min(30, Math.floor(Number(payloadDuration) || 5)));
+  const source = String(sourcePrompt || "");
+  const explicit = source.match(/(?:总时长|视频时长|时长|duration)\s*[：:]?\s*(\d+(?:\.\d+)?)\s*(?:秒|s)/i)
+    || source.match(/^\s*(\d+(?:\.\d+)?)\s*(?:秒|s)\s*(?:[，,。\n]|$)/i);
+  if (explicit) return Math.max(2, Math.min(30, Math.floor(Number(explicit[1]) || requested)));
+  const timelineEnd = seedancePromptOptimizerTimelineRanges(source).reduce((max, range) => Math.max(max, range.end), 0);
+  return timelineEnd > requested ? Math.max(2, Math.min(30, Math.ceil(timelineEnd))) : requested;
+}
+
+function seedancePromptOptimizerTimelineInstruction(duration) {
+  const plans = {
+    5: "0—2秒 / 2—5秒",
+    10: "0—2.5秒 / 2.5—5秒 / 5—7.5秒 / 7.5—10秒",
+    12: "0—3秒 / 3—6秒 / 6—9秒 / 9—12秒",
+    15: "0—4秒 / 4—8秒 / 8—12秒 / 12—15秒",
+    30: "0—4秒 / 4—8秒 / 8—12秒 / 12—16秒 / 16—20秒 / 20—24秒 / 24—27秒 / 27—30秒",
+  };
+  const required = plans[duration] || (duration <= 6
+    ? "0—2秒 / 2—" + duration + "秒"
+    : duration <= 12
+      ? "four ordered beats that end exactly at " + duration + "秒"
+      : "four to eight ordered beats that end exactly at " + duration + "秒");
+  return `TIMELINE LOCK (authoritative): The requested duration is exactly ${duration} seconds. Required non-overlapping beat coverage: ${required}. Every timecode must stay within 0—${duration}秒. The final beat must end at ${duration}秒. Do not collapse the timeline to a shorter 0—5s clip when the requested duration is longer.`;
+}
+
+function seedancePromptOptimizerContentIssues(text = "", duration = 5, sourcePrompt = "") {
+  const optimized = String(text || "");
+  const issues = [];
+  const optimizedComparable = seedancePromptOptimizerComparable(optimized);
+  const missingDialogue = seedancePromptOptimizerDialogueLines(sourcePrompt).filter((line) => {
+    const comparable = seedancePromptOptimizerComparable(line);
+    const body = seedancePromptOptimizerComparable(seedancePromptOptimizerDialogueBody(line));
+    return !optimizedComparable.includes(comparable) && !optimizedComparable.includes(body);
+  });
+  if (missingDialogue.length) issues.push({ type: "dialogue", lines: missingDialogue });
+  const ranges = seedancePromptOptimizerTimelineRanges(optimized);
+  const maxEnd = ranges.reduce((max, range) => Math.max(max, range.end), 0);
+  if (maxEnd > Number(duration) + 0.25) {
+    issues.push({ type: "timeline", message: `Timeline ends at ${maxEnd}s beyond requested ${duration}s.` });
+  } else if (Number(duration) >= 10 && maxEnd < Number(duration) - 0.75) {
+    issues.push({ type: "timeline", message: `Timeline ends at ${maxEnd || "no explicit beat"}s before requested ${duration}s.` });
+  }
+  return issues;
+}
+
+function seedancePromptOptimizerRepairContent(text = "", duration = 5, sourcePrompt = "") {
+  let output = w3NormalizeOptimizerPromptFormatting(text);
+  const issues = seedancePromptOptimizerContentIssues(output, duration, sourcePrompt);
+  const dialogueIssue = issues.find((issue) => issue.type === "dialogue");
+  if (dialogueIssue) {
+    output += `\n【对白】\n${dialogueIssue.lines.join("\n")}`;
+  }
+  const timelineIssue = issues.find((issue) => issue.type === "timeline");
+  if (timelineIssue) {
+    const ranges = seedancePromptOptimizerTimelineRanges(output);
+    if (ranges.length) {
+      const last = ranges[ranges.length - 1];
+      const tail = output.slice(output.lastIndexOf(String(last.end)));
+      let replaced = false;
+      output = output.replace(new RegExp(`(${last.start}\\s*(?:秒|s)?\\s*[—–\\-~至到]\\s*)${last.end}(\\s*(?:秒|s))`, "i"), (match, prefix, suffix) => {
+        replaced = true;
+        return `${prefix}${duration}${suffix}`;
+      });
+      if (!replaced && tail) output += `\n【时长约束】\n成片总时长严格为${duration}秒，动作与对白连续完成，并在${duration}秒处结束。`;
+    } else {
+      output += `\n【动作时间轴】\n0—${duration}秒：沿用上文动作与对白，动作连续，最后停在${duration}秒。`;
+    }
+  }
+  return w3NormalizeOptimizerPromptFormatting(output);
+}
+
+function seedancePromptOptimizerCorrectionInstruction(issues = [], duration = 5) {
+  const parts = [];
+  const dialogue = issues.find((issue) => issue.type === "dialogue");
+  if (dialogue) {
+    parts.push(`DIALOGUE LOCK FAILED. Keep every line verbatim and keep each line assigned to the same speaker: ${dialogue.lines.map((line) => JSON.stringify(line)).join(" / ")}. Do not replace it with breathing, moaning, or a summary.`);
+  }
+  if (issues.some((issue) => issue.type === "timeline")) {
+    parts.push(`TIMELINE LOCK FAILED. Rewrite with exact non-overlapping beats through ${duration}秒. Do not return only a 0—5s shot when ${duration} seconds was requested.`);
+  }
+  return parts.join("\n");
 }
 
 function w3PromptHasChinese(text = "") {
@@ -219,23 +404,28 @@ function seedancePromptOptimizerNeutralizeInvalidReferences(text = "", reference
 
 function seedancePromptOptimizerRequest(payload = {}, { languageCorrection = false } = {}) {
   const originalPrompt = String(payload.prompt || payload.originalPrompt || "").trim();
-  const duration = Math.max(2, Math.min(30, Math.floor(Number(payload.duration) || 5)));
   const provider = String(payload.provider || "seedance").trim().toLowerCase();
   const providerLabel = String(payload.providerLabel || provider || "Seedance").trim().slice(0, 80);
   const resolution = String(payload.resolution || "").trim().slice(0, 32);
   const mode = String(payload.mode || "").trim().slice(0, 80);
   const language = w3PromptOptimizerLanguage(payload, originalPrompt);
   const references = seedancePromptOptimizerReferences(payload);
+  const effectiveDuration = seedancePromptOptimizerRequestedDuration(payload.duration, originalPrompt);
+  const timelineInstruction = seedancePromptOptimizerTimelineInstruction(effectiveDuration);
+  const dialogueLines = seedancePromptOptimizerDialogueLines(originalPrompt);
+  const dialogueInstruction = dialogueLines.length
+    ? `DIALOGUE LOCK: Reproduce these explicit lines verbatim in their original language and keep each assigned to the same speaker: ${dialogueLines.map((line) => JSON.stringify(line)).join(" / ")}. Do not omit or replace them with breathing, moaning, or a summary.`
+    : "DIALOGUE LOCK: If PROMPT START contains no explicit dialogue, do not invent any.";
   const languageInstruction = language === "zh"
     ? "LANGUAGE LOCK: The source prompt is Chinese. Keep the optimized prompt predominantly Chinese. Do not translate actions, descriptions, dialogue, ambience, or mood into English. Only established camera/lighting/quality terms may remain English."
     : language === "en"
       ? "LANGUAGE LOCK: The source prompt is English. Keep the optimized prompt predominantly English."
       : "LANGUAGE LOCK: Keep the source prompt's dominant language and language mix.";
-  const actionBudget = duration <= 6
+  const actionBudget = effectiveDuration <= 6
     ? "ACTION BUDGET: Use one primary continuous action."
-    : duration <= 12
+    : effectiveDuration <= 12
       ? "ACTION BUDGET: Use 2-3 continuous actions."
-      : duration <= 16
+      : effectiveDuration <= 16
         ? "ACTION BUDGET: Use 3-5 beats."
         : "ACTION BUDGET: Use 6-8 beats.";
   const referenceInstruction = references.length
@@ -243,24 +433,25 @@ function seedancePromptOptimizerRequest(payload = {}, { languageCorrection = fal
     : "TEXT-ONLY PROMPT MODE: No reference media is supplied. Treat the input as any mix of finished prompt, idea, loose tags, dialogue, or full script. The optimizer, not the user, is responsible for filling the Seedance reference plan. You must make the rewritten prompt directly usable in Seedance by designing stable numbered reference bindings. Preserve explicit labels such as 图片1/图片2/图片3/视频1 or Image 1/Image 2/Image 3/Video 1 and their declared roles/conflict rules. If PROMPT START has no labels, assign sequential labels for each reusable identity, outfit, or scene, write them into 【素材绑定】 and bind them in 【冲突规则】; never leave people or recurring assets as vague 素材 references. Return the identical ordered labels with their exact roles in referencePlan as the upload checklist. Do not require uploads and do not block the rewrite.";
   const userPrompt = [
     `Provider: ${providerLabel} (${provider})`,
-    `Duration: ${duration}s`,
+    `Duration: ${effectiveDuration}s`,
     resolution ? `Resolution: ${resolution}` : "",
     mode ? `Mode: ${mode}` : "",
     `Source language: ${language}`,
     languageInstruction,
     actionBudget,
     languageCorrection ? "Your previous answer broke the source-language lock. Rewrite again and keep the original dominant language." : "",
+    seedancePromptOptimizerCorrectionInstruction(payload.__correctionIssues || [], effectiveDuration),
     "MEDIA INVENTORY (ordered; these are the only valid reference labels):",
     seedancePromptOptimizerReferenceInventory(references),
     "",
-    `Rewrite the following prompt according to the Seedance system rules. Preserve every explicit adult intention already present. ${referenceInstruction} Return JSON only.`,
+    `Rewrite the following prompt according to the Seedance system rules. Preserve every explicit adult intention already present. ${timelineInstruction} ${dialogueInstruction} ${referenceInstruction} Return JSON only.`,
     "PROMPT START",
     originalPrompt,
     "PROMPT END",
   ].filter((line) => line !== "").join("\n");
   return {
     originalPrompt,
-    duration,
+    duration: effectiveDuration,
     provider,
     providerLabel,
     resolution,
@@ -287,7 +478,7 @@ function promptOptimizerRequestForPayload(payload = {}, options = {}) {
 
 function w3PromptOptimizerRequest(payload = {}, { languageCorrection = false } = {}) {
   const originalPrompt = String(payload.prompt || payload.originalPrompt || "").trim();
-  const duration = Math.max(2, Math.min(30, Math.floor(Number(payload.duration) || 5)));
+  const duration = seedancePromptOptimizerRequestedDuration(payload.duration, originalPrompt);
   const provider = String(payload.provider || "wan30").trim().toLowerCase();
   const providerLabel = String(payload.providerLabel || provider || "W3").trim().slice(0, 80);
   const resolution = String(payload.resolution || "").trim().slice(0, 32);
@@ -411,19 +602,41 @@ async function handleAdvancedPromptOptimize(req, res) {
     let text = w3PromptOptimizerText(raw);
     if (!text) throw Object.assign(new Error("Prompt optimizer returned no text."), { statusCode: 502, code: "PROMPT_OPTIMIZER_EMPTY" });
     let parsed = w3ParseOptimizerJson(text);
-    let optimizedPrompt = parsed?.optimizedPrompt || text.replace(/^```(?:json)?|```$/g, "").trim();
+    let optimizedPrompt = parsed?.optimizedPrompt || w3OptimizerReadablePrompt(text);
     if (request.language === "zh" && !w3PromptIsMostlyChinese(optimizedPrompt)) {
       requestAttempt = promptOptimizerRequestForPayload(body, { languageCorrection: true });
       raw = await promptOptimizerPapayaRequest(requestAttempt.body, { deadline, requestContext, usage });
       text = w3PromptOptimizerText(raw);
       if (!text) throw Object.assign(new Error("Prompt optimizer returned no text."), { statusCode: 502, code: "PROMPT_OPTIMIZER_EMPTY" });
       parsed = w3ParseOptimizerJson(text);
-      optimizedPrompt = parsed?.optimizedPrompt || text.replace(/^```(?:json)?|```$/g, "").trim();
+      optimizedPrompt = parsed?.optimizedPrompt || w3OptimizerReadablePrompt(text);
       if (!w3PromptIsMostlyChinese(optimizedPrompt)) {
         throw Object.assign(new Error("Prompt optimizer did not preserve the source language."), { statusCode: 502, code: "PROMPT_OPTIMIZER_LANGUAGE_MISMATCH" });
       }
     }
     if (seedanceRequest) {
+      const initialIssues = seedancePromptOptimizerContentIssues(optimizedPrompt, request.duration, request.originalPrompt);
+      if (initialIssues.length) {
+        requestAttempt = promptOptimizerRequestForPayload({ ...body, __correctionIssues: initialIssues }, { languageCorrection: request.language === "zh" && !w3PromptIsMostlyChinese(optimizedPrompt) });
+        raw = await promptOptimizerPapayaRequest(requestAttempt.body, { deadline, requestContext, usage });
+        text = w3PromptOptimizerText(raw);
+        if (!text) throw Object.assign(new Error("Prompt optimizer returned no text."), { statusCode: 502, code: "PROMPT_OPTIMIZER_EMPTY" });
+        parsed = w3ParseOptimizerJson(text);
+        optimizedPrompt = parsed?.optimizedPrompt || w3OptimizerReadablePrompt(text);
+        const retryIssues = seedancePromptOptimizerContentIssues(optimizedPrompt, request.duration, request.originalPrompt);
+        if (request.language === "zh" && !w3PromptIsMostlyChinese(optimizedPrompt)) {
+          throw Object.assign(new Error("Prompt optimizer did not preserve the source language."), { statusCode: 502, code: "PROMPT_OPTIMIZER_LANGUAGE_MISMATCH" });
+        }
+        if (retryIssues.length) {
+          optimizedPrompt = seedancePromptOptimizerRepairContent(optimizedPrompt, request.duration, request.originalPrompt);
+          console.warn("[prompt-optimizer-content-repair]", JSON.stringify({
+            ...requestContext,
+            issues: retryIssues.map((issue) => issue.type),
+            elapsedMs: Date.now() - startedAt,
+          }));
+        }
+      }
+      optimizedPrompt = w3NormalizeOptimizerPromptFormatting(optimizedPrompt);
       const referenceRepair = seedancePromptOptimizerNeutralizeInvalidReferences(optimizedPrompt, request.references, request.originalPrompt);
       if (referenceRepair.invalid.length) {
         console.warn("[prompt-optimizer-reference-repaired]", JSON.stringify({

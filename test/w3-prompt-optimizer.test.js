@@ -22,14 +22,30 @@ const css = read("platform.css");
 const skill = fs.readFileSync(path.resolve(process.env.HOME || "", ".codex/skills/w3-prompt-optimizer/SKILL.md"), "utf8");
 
 function extractFunction(source, name) {
-  let start = source.indexOf(`function ${name}(`);
+  let start = source.search(new RegExp(`(?:^|\\n)(?:async\\s+)?function\\s+${name}\\s*\\(`));
+  if (start >= 0 && source[start] === "\n") start += 1;
   if (start === -1) throw new Error(`missing function ${name}`);
   if (source.slice(Math.max(0, start - 6), start) === "async ") start -= 6;
   let parenDepth = 0;
+  let parenQuote = "";
+  let parenRegex = false;
   let bodyStart = -1;
   for (let index = source.indexOf("(", start); index < source.length; index += 1) {
-    if (source[index] === "(") parenDepth += 1;
-    else if (source[index] === ")") {
+    const char = source[index];
+    if (parenQuote) {
+      if (char === "\\") index += 1;
+      else if (char === parenQuote) parenQuote = "";
+      continue;
+    }
+    if (parenRegex) {
+      if (char === "\\") index += 1;
+      else if (char === "/") parenRegex = false;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") parenQuote = char;
+    else if (char === "/" && parenDepth > 0 && source[index - 1] === "=") parenRegex = true;
+    else if (char === "(") parenDepth += 1;
+    else if (char === ")") {
       parenDepth -= 1;
       if (parenDepth === 0) {
         bodyStart = source.indexOf("{", index);
@@ -37,10 +53,55 @@ function extractFunction(source, name) {
       }
     }
   }
+  if (bodyStart < 0) throw new Error(`missing body for function ${name}`);
   let depth = 0;
+  let templateDepth = 0;
+  let quote = "";
+  let regex = false;
   for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === "{") depth += 1;
-    else if (source[index] === "}") {
+    const char = source[index];
+    let previous = "";
+    for (let lookback = index - 1; lookback >= bodyStart; lookback -= 1) {
+      if (!/\s/.test(source[lookback])) {
+        previous = source[lookback];
+        break;
+      }
+    }
+    if (quote) {
+      if (char === "\\") index += 1;
+      else if (quote === "`" && char === "$" && source[index + 1] === "{") {
+        templateDepth += 1;
+        index += 1;
+      } else if (quote === "`" && templateDepth && char === "}") {
+        templateDepth -= 1;
+      } else if (char === quote && templateDepth === 0) quote = "";
+      continue;
+    }
+    if (regex) {
+      if (char === "\\") index += 1;
+      else if (char === "/") regex = false;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "/") {
+      index = source.indexOf("\n", index + 2);
+      if (index === -1) break;
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "*") {
+      index = source.indexOf("*/", index + 2) + 1;
+      if (index <= 0) break;
+      continue;
+    }
+    if (char === "/" && /[=(:,!&|?{};+\-*%^~<>]/.test(previous || "")) {
+      regex = true;
+      continue;
+    }
+    if (char === "{") depth += 1;
+    if (char === "}") {
       depth -= 1;
       if (depth === 0) return source.slice(start, index + 1);
     }
@@ -54,7 +115,18 @@ const helpers = new Function("papayaLanguageRequest", [
   "const SEEDANCE_PROMPT_OPTIMIZER_PROVIDERS = new Set([\"seedance\",\"seedance25\",\"seedance-nsfw\",\"seedance20-vega\",\"seedance25-vega\"]);",
   `const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = ${JSON.stringify(server.slice(server.indexOf("const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `") + "const W3_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `".length, server.indexOf("`;\n\nconst SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT")))};`,
   `const SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT = ${JSON.stringify(server.slice(server.indexOf("const SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `") + "const SEEDANCE_PROMPT_OPTIMIZER_SYSTEM_PROMPT = `".length, server.indexOf("`;\n\nfunction w3PromptOptimizerText")))};`,
+  extractFunction(server, "w3NormalizeOptimizerPromptFormatting"),
+  extractFunction(server, "w3OptimizerReadablePrompt"),
   extractFunction(server, "w3ParseOptimizerJson"),
+  extractFunction(server, "seedancePromptOptimizerDialogueLines"),
+  extractFunction(server, "seedancePromptOptimizerComparable"),
+  extractFunction(server, "seedancePromptOptimizerDialogueBody"),
+  extractFunction(server, "seedancePromptOptimizerTimelineRanges"),
+  extractFunction(server, "seedancePromptOptimizerRequestedDuration"),
+  extractFunction(server, "seedancePromptOptimizerTimelineInstruction"),
+  extractFunction(server, "seedancePromptOptimizerContentIssues"),
+  extractFunction(server, "seedancePromptOptimizerRepairContent"),
+  extractFunction(server, "seedancePromptOptimizerCorrectionInstruction"),
   extractFunction(server, "w3PromptHasChinese"),
   extractFunction(server, "w3NormalizeConstraintStack"),
   extractFunction(server, "w3TruncatePrompt"),
@@ -71,7 +143,7 @@ const helpers = new Function("papayaLanguageRequest", [
   extractFunction(server, "promptOptimizerUpstreamIsRetryable"),
   extractFunction(server, "promptOptimizerPapayaRequest"),
   "const delay = async () => {};",
-  "return { w3ParseOptimizerJson, w3TruncatePrompt, w3PromptIsMostlyChinese, w3PromptOptimizerLanguage, w3PromptOptimizerRequest, w3NormalizeConstraintStack, seedancePromptOptimizerRequest, promptOptimizerRequestForPayload, seedancePromptOptimizerIsProvider, seedancePromptOptimizerInvalidReferences, seedancePromptOptimizerNeutralizeInvalidReferences, promptOptimizerUpstreamIsRetryable, promptOptimizerPapayaRequest };",
+  "return { w3NormalizeOptimizerPromptFormatting, w3OptimizerReadablePrompt, w3ParseOptimizerJson, seedancePromptOptimizerDialogueLines, seedancePromptOptimizerTimelineRanges, seedancePromptOptimizerContentIssues, seedancePromptOptimizerRepairContent, seedancePromptOptimizerRequestedDuration, seedancePromptOptimizerTimelineInstruction, w3TruncatePrompt, w3PromptIsMostlyChinese, w3PromptOptimizerLanguage, w3PromptOptimizerRequest, w3NormalizeConstraintStack, seedancePromptOptimizerRequest, promptOptimizerRequestForPayload, seedancePromptOptimizerIsProvider, seedancePromptOptimizerInvalidReferences, seedancePromptOptimizerNeutralizeInvalidReferences, promptOptimizerUpstreamIsRetryable, promptOptimizerPapayaRequest };",
 ].join("\n"))(() => { throw new Error("papayaLanguageRequest mock missing"); });
 
 test("optimizer route is authenticated in front of generate and uses Papaya", () => {
@@ -162,6 +234,15 @@ test("Wan provider detection covers all Wan families and excludes non-Wan", () =
   }
 });
 
+test("client writes readable prompt text rather than JSON into the input box", () => {
+  const scope = { window: {}, document: {}, localStorage: { getItem() { return ""; } } };
+  new Function("window", "document", "localStorage", client)(scope.window, scope.document, scope.localStorage);
+  const readable = scope.window.W3PromptOptimizer.readableOptimizedPrompt;
+  assert.equal(readable('{"optimizedPrompt":"【主体】角色A站在窗边。"}'), "【主体】角色A站在窗边。");
+  assert.equal(readable(JSON.stringify({ optimizedPrompt: JSON.stringify({ optimizedPrompt: "【动作时间轴】\n0—4秒：抬头。" }) })), "【动作时间轴】\n0—4秒：抬头。");
+  assert.doesNotMatch(readable({ optimizedPrompt: { optimizedPrompt: "【镜头运镜】缓慢推近。" } }), /^[{[]/);
+});
+
 test("modal applies only after explicit confirmation", () => {
   const open = client.indexOf("function ensureModal()");
   const apply = client.indexOf('modal.apply.addEventListener("click"');
@@ -239,7 +320,7 @@ test("Seedance optimizer normalizes scripts and returns a separate optional uplo
   assert.match(req.body.messages[1].content, /Preserve explicit labels[\s\S]*declared roles\/conflict rules/);
   assert.match(req.body.messages[1].content, /referencePlan/);
   assert.match(req.body.messages[1].content, /Do not require uploads/);
-  assert.doesNotMatch(req.body.messages[1].content, /exactly 5|fixed five/i);
+  assert.doesNotMatch(req.body.messages[1].content, /exactly 5 images|fixed five/i);
 });
 
 test("Seedance optimizer preserves explicit source references in text-only mode", () => {
@@ -417,4 +498,60 @@ test("W3 skill keeps 18+ intent and structure guidance without policy limits", (
   assert.match(skill, /3–4 seconds/);
   assert.match(skill, /positive end-of-prompt constraint stack/);
   assert.doesNotMatch(skill, /compliance|moderation|minor|underage|policy|sanitize|审核|合规|未成年|净化|消音|删减/i);
+});
+
+
+test("Seedance optimizer flattens nested JSON and normalizes malformed heading brackets", () => {
+  const nested = JSON.stringify({
+    optimizedPrompt: JSON.stringify({
+      optimizedPrompt: "【素材绑定】\n图片1：脸部参考。\n【冲突规则}\n只使用图片1。\n【动作时间轴】\n0—4秒：人物抬头。",
+      notes: ["inner note"],
+      referencePlan: ["图片1：脸部参考"],
+    }),
+    notes: ["outer note"],
+  });
+  const parsed = helpers.w3ParseOptimizerJson(nested);
+  assert.match(parsed.optimizedPrompt, /【冲突规则】/);
+  assert.doesNotMatch(parsed.optimizedPrompt, /optimizedPrompt/);
+  assert.deepEqual(parsed.notes, ["outer note", "inner note"]);
+  assert.deepEqual(parsed.referencePlan, ["图片1：脸部参考"]);
+});
+
+test("Seedance optimizer unwraps object-valued optimizedPrompt into readable text", () => {
+  const nested = JSON.stringify({
+    optimizedPrompt: {
+      optimizedPrompt: "【素材绑定】\n图片1：角色A脸部参考。\n【动作时间轴】\n0—4秒：角色A抬头。",
+      notes: ["object note"],
+      referencePlan: [{ label: "图片1：角色A脸部参考" }],
+    },
+  });
+  const parsed = helpers.w3ParseOptimizerJson(nested);
+  assert.match(parsed.optimizedPrompt, /^【素材绑定】/);
+  assert.doesNotMatch(parsed.optimizedPrompt, /^\s*[{\[]/);
+  assert.deepEqual(parsed.notes, ["object note"]);
+  assert.deepEqual(parsed.referencePlan, ["图片1：角色A脸部参考"]);
+  assert.equal(helpers.w3OptimizerReadablePrompt('"【主体】人物站在窗边。"'), "【主体】人物站在窗边。");
+});
+
+test("Seedance optimizer locks dialogue and uses the longest explicit duration", () => {
+  const prompt = "15秒。林肆：你终于来了。\n沈屿川：外面下雨。\n0-5秒 两人在门口对视。";
+  const req = helpers.seedancePromptOptimizerRequest({ prompt, provider: "seedance-nsfw", duration: 5 });
+  assert.equal(req.duration, 15);
+  assert.match(req.body.messages[1].content, /Duration: 15s/);
+  assert.match(req.body.messages[1].content, /0—4秒 \/ 4—8秒 \/ 8—12秒 \/ 12—15秒/);
+  assert.match(req.body.messages[1].content, /你终于来了/);
+  assert.match(req.body.messages[1].content, /外面下雨/);
+  assert.match(req.body.messages[1].content, /DIALOGUE LOCK/);
+});
+
+test("Seedance optimizer detects missing dialogue and short timelines and deterministically repairs them", () => {
+  const source = "15秒。林肆：「你终于来了。」\n沈屿川：外面下雨。\n0-4秒 两人对视。";
+  const output = "【素材绑定】\n图片1：林肆脸部参考。\n【动作时间轴】\n0—4秒：两人在门口对视。";
+  const issues = helpers.seedancePromptOptimizerContentIssues(output, 15, source);
+  assert.deepEqual(issues.map((issue) => issue.type), ["dialogue", "timeline"]);
+  const repaired = helpers.seedancePromptOptimizerRepairContent(output, 15, source);
+  assert.match(repaired, /你终于来了/);
+  assert.match(repaired, /外面下雨/);
+  assert.match(repaired, /15秒/);
+  assert.equal(helpers.seedancePromptOptimizerContentIssues(repaired, 15, source).some((issue) => issue.type === "dialogue"), false);
 });

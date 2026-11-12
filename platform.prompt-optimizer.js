@@ -92,6 +92,26 @@
     return result;
   }
 
+  function readableOptimizedPrompt(value, depth = 0) {
+    if (depth > 8 || value === null || value === undefined) return "";
+    if (typeof value === "string") {
+      const text = value.trim().replace(/^```(?:json|text)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      if (!text) return "";
+      if (/^[{[]/.test(text) || (text.startsWith('"') && text.endsWith('"'))) {
+        try { return readableOptimizedPrompt(JSON.parse(text), depth + 1); } catch {}
+      }
+      return text;
+    }
+    if (typeof value !== "object" || Array.isArray(value)) return "";
+    for (const key of ["optimizedPrompt", "optimized_prompt", "prompt", "text", "content", "result"]) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) {
+        const candidate = readableOptimizedPrompt(value[key], depth + 1);
+        if (candidate) return candidate;
+      }
+    }
+    return "";
+  }
+
   function escapeHtml(value = "") {
     return String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -216,7 +236,7 @@
     try {
       const result = await requestOptimize(payload);
       modal.original.value = result.originalPrompt || payload.prompt;
-      modal.result.value = String(result.optimizedPrompt || "").slice(0, MAX_CHARS);
+      modal.result.value = readableOptimizedPrompt(result.optimizedPrompt).slice(0, MAX_CHARS);
       modal.notes.innerHTML = (result.notes || []).map((note) => `<li>${escapeHtml(note)}</li>`).join("");
       const referencePlan = Array.isArray(result.referencePlan) ? result.referencePlan.filter(Boolean).slice(0, 12) : [];
       modal.referencePlan.hidden = referencePlan.length === 0;
@@ -264,7 +284,7 @@
     return Promise.resolve("");
   }
 
-  window.W3PromptOptimizer = Object.freeze({ isWanProvider, isSeedanceProvider, isProvider: isPromptOptimizerProvider, normalizeProvider, open: openPromptOptimizer, maxChars: MAX_CHARS });
+  window.W3PromptOptimizer = Object.freeze({ isWanProvider, isSeedanceProvider, isProvider: isPromptOptimizerProvider, normalizeProvider, readableOptimizedPrompt, open: openPromptOptimizer, maxChars: MAX_CHARS });
   window.isWanPromptOptimizerProvider = isWanProvider;
   window.isSeedancePromptOptimizerProvider = isSeedanceProvider;
   window.isPromptOptimizerProvider = isPromptOptimizerProvider;
