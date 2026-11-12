@@ -28,7 +28,8 @@ test("cached refresh paints before anonymous or authenticated config", () => {
   assert.match(create, /const publicConfigPromise = hadStoredSession \? null : requestJson\("\/api\/config\/public", \{ auth: false \}\);/);
   assert.match(create, /if \(cachedConfig\) \{[\s\S]*?eventSafeBackgroundTask\(sessionPromise\.then/);
   assert.match(create, /const payload = await sessionPromise;/, "only a cold cache may await config");
-  assert.match(requestJson, /if \(state\.token && options\.auth !== false\) headers\.authorization = `Bearer \$\{state\.token\}`;/);
+  assert.match(requestJson, /const requestToken = options\.auth === false \? "" : String\(state\.token \|\| ""\);/);
+  assert.match(requestJson, /if \(requestToken\) headers\.authorization = `Bearer \$\{requestToken\}`;/);
   assert.doesNotMatch(create, /cacheBootstrapConfigSnapshot\(authenticated\.config\)/);
 });
 

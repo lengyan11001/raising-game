@@ -884,9 +884,13 @@ function sessionDeviceId() {
 
 async function requestJson(url, options = {}) {
   const headers = { "content-type": "application/json", ...(options.headers || {}) };
+  // Bind auth rejection handling to the token used for this request. A slow
+  // session-restore response carrying an old token must never clear a newer
+  // login token that completed while that request was in flight.
+  const requestToken = options.auth === false ? "" : String(state.token || "");
   // Public bootstrap data is shared by all visitors. Callers must be able to
   // request the anonymous view even when localStorage already has a token.
-  if (state.token && options.auth !== false) headers.authorization = `Bearer ${state.token}`;
+  if (requestToken) headers.authorization = `Bearer ${requestToken}`;
   const response = await fetch(url, {
     method: options.method || "GET",
     headers,
@@ -895,12 +899,13 @@ async function requestJson(url, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
-    const sessionLost = response.status === 401 && Boolean(state.token)
+    const sessionLost = response.status === 401 && Boolean(requestToken)
+      && requestToken === String(state.token || "")
       && (payload.code === "SESSION_REPLACED" || payload.code === "LOGIN_REQUIRED");
     if (sessionLost) {
       clearClientAuthState();
     }
-    if (payload.code === "SESSION_REPLACED") {
+    if (payload.code === "SESSION_REPLACED" && requestToken === String(state.token || "")) {
       window.dispatchEvent(new CustomEvent("raising-session-replaced", { detail: payload }));
     }
     const error = new Error(payload.message || payload.detail || `Request failed: ${response.status}`);
