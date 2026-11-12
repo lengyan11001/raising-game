@@ -179,6 +179,7 @@ test("resilience operations are included only in the platform release snapshot",
     "ops/production-cutover-runbook.md",
     "ops/verify-production-cutover.py",
     "ops/verify-postgres-backup.sh",
+    "ops/prepare-independent-release.sh",
     "ops/run-db-migrations.js",
   ]) {
     assert.match(snapshotBuilder, new RegExp(`"${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
