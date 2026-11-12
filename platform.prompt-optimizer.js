@@ -130,6 +130,10 @@
               <textarea data-prompt-optimizer-result rows="10" maxlength="${MAX_CHARS}"></textarea>
             </label>
             <ul class="prompt-optimizer-notes" data-prompt-optimizer-notes></ul>
+            <div class="prompt-optimizer-reference-plan" data-prompt-optimizer-reference-plan hidden>
+              <strong>建议补充素材（可选）</strong>
+              <ul data-prompt-optimizer-reference-list></ul>
+            </div>
           </div>
         </div>
         <div class="modal-actions inline-actions">
@@ -146,6 +150,8 @@
       result: dialog.querySelector("[data-prompt-optimizer-result]"),
       count: dialog.querySelector("[data-prompt-optimizer-count]"),
       notes: dialog.querySelector("[data-prompt-optimizer-notes]"),
+      referencePlan: dialog.querySelector("[data-prompt-optimizer-reference-plan]"),
+      referenceList: dialog.querySelector("[data-prompt-optimizer-reference-list]"),
       loading: dialog.querySelector("[data-prompt-optimizer-loading]"),
       loadingText: dialog.querySelector("[data-prompt-optimizer-loading-text]"),
       kicker: dialog.querySelector("[data-prompt-optimizer-kicker]"),
@@ -194,6 +200,8 @@
     modal.original.value = payload.prompt;
     modal.count.textContent = `0 / ${MAX_CHARS}`;
     modal.notes.innerHTML = "";
+    modal.referencePlan.hidden = true;
+    modal.referenceList.innerHTML = "";
     modal.apply.disabled = true;
     const seedance = isSeedanceProvider(payload.provider);
     const hasReferences = Array.isArray(payload.references) && payload.references.length > 0;
@@ -210,6 +218,9 @@
       modal.original.value = result.originalPrompt || payload.prompt;
       modal.result.value = String(result.optimizedPrompt || "").slice(0, MAX_CHARS);
       modal.notes.innerHTML = (result.notes || []).map((note) => `<li>${escapeHtml(note)}</li>`).join("");
+      const referencePlan = Array.isArray(result.referencePlan) ? result.referencePlan.filter(Boolean).slice(0, 12) : [];
+      modal.referencePlan.hidden = referencePlan.length === 0;
+      modal.referenceList.innerHTML = referencePlan.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
       modal.count.textContent = `${modal.result.value.length} / ${MAX_CHARS}`;
       modal.loading.hidden = true;
       modal.content.hidden = false;
