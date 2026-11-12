@@ -33,7 +33,7 @@ test("Chat Stripe orders use pay.5vips.com while legacy orders keep the primary 
 
 test("Payment page supports Stripe and PayPal sessions", () => {
   assert.match(pay, /stripe_sid/);
-  assert.match(pay, /providerPath = isStripe \? "stripe" : "paypal"/);
+  assert.match(pay, /const providerPath = isAirwallex \? "airwallex" : \(isStripe \? "stripe" : "paypal"\);/);
   assert.match(pay, /Payment reference:/);
   assert.match(html, /Continue to payment/);
 });

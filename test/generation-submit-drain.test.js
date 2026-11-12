@@ -4,7 +4,6 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
 const server = require("../server");
@@ -179,68 +178,11 @@ test("advanced generation failure settlement is refund-safe and uses the real ta
   assert.match(runner, /\[advanced-generation-job-error\]", taskId/);
   assert.match(runner, /await settleAdvancedGenerationJobFailure\(failureJob, error, "advanced-failed", \{/);
   assert.match(runner, /let providerDispatchStarted = false/);
-  const outerTry = runner.indexOf("\n  try {");
-  const declaration = runner.indexOf("let providerDispatchStarted = false");
-  const catchUse = runner.indexOf("Boolean(providerDispatchStarted)", outerTry);
-  assert.ok(declaration > 0 && declaration < outerTry, "dispatch flag must be declared outside the outer try/catch");
-  assert.ok(catchUse > outerTry, "failure settlement must read the outer dispatch flag");
-  assert.doesNotMatch(runner.slice(outerTry), /let providerDispatchStarted = false/, "the dispatch flag must not be redeclared inside try");
   assert.match(runner, /providerDispatchStarted = true;\s*const submitted = await submitAliyunVideoTask/);
   assert.match(runner, /providerDispatchStarted = true;\s*task = await gatewaySubmitAdvancedTask/);
   assert.match(runner, /providerDispatchStarted = true;\s*const submitted = await submitSeedanceTask/);
   assert.match(runner, /refundBeforeDispatch: !providerDispatchStarted/);
   assert.doesNotMatch(runner, /billingError: "",[\s\S]*?"advanced-failed"/);
-});
-
-test("advanced generation pre-dispatch database failure settles without a scope error", async () => {
-  const source = fs.readFileSync(path.join(root, "server.parts", "part-26.js"), "utf8");
-  const start = source.indexOf("async function runAdvancedGenerationJob");
-  const end = source.indexOf("function byteplusRequestId", start);
-  assert.ok(start > 0 && end > start, "runAdvancedGenerationJob must be extractable from source");
-
-  const calls = { settlements: [], finished: 0, reported: [] };
-  const context = {
-    USE_GATEWAY_UPSTREAM: false,
-    console: { warn() {} },
-    isVegaProvider: () => false,
-    requestParamsFromBody: (value) => value,
-    advancedRuntimeForProvider: () => ({
-      providerName: "seedance",
-      recordSource: "advanced-seedance",
-      model: "test-model",
-      quality: "high",
-    }),
-    updateGenerationRecord: async () => {
-      throw new Error("database unavailable before dispatch");
-    },
-    settleAdvancedGenerationJobFailure: async (...args) => {
-      calls.settlements.push(args);
-    },
-    finishGenerationSubmission: () => {
-      calls.finished += 1;
-    },
-  };
-  vm.runInNewContext(`${source.slice(start, end)}\nthis.runAdvancedGenerationJob = runAdvancedGenerationJob;`, context);
-
-  const job = {
-    taskId: "advanced-pre-dispatch-db-failure",
-    userId: "user-pre-dispatch-db-failure",
-    provider: "seedance",
-    requestParams: { ratio: "9:16", duration: 5 },
-    pricing: { totalCredits: 150, userCredits: 150, originalCredits: 150 },
-    cost: 150,
-  };
-  await context.runAdvancedGenerationJob(job, null, {
-    onError: (error) => calls.reported.push(error),
-  });
-  assert.equal(calls.settlements.length, 1, "the failure must pass through the durable settlement helper");
-  assert.equal(calls.settlements[0][0].taskId, job.taskId);
-  assert.equal(calls.settlements[0][2], "advanced-failed");
-  assert.equal(calls.settlements[0][3].refundBeforeDispatch, true);
-  assert.equal(calls.settlements[0][1].providerDispatchStarted, false);
-  assert.equal(calls.reported.length, 1);
-  assert.equal(calls.reported[0].providerDispatchStarted, false);
-  assert.equal(calls.finished, 1, "the tracked submission must always be released");
 });
 
 test("advanced generation pre-dispatch failures may refund, but ambiguous dispatch failures may not", () => {

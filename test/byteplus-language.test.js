@@ -22,6 +22,6 @@ test("BytePlus Language uses the Seedance Ark key and requested endpoint model",
   assert.match(server, /BYTEPLUS_LANGUAGE_MODEL[^\n]+ep-20260827122554-8fsgw/);
   assert.match(server, /fetch\(`\$\{ARK_BASE_URL\.replace\(\/\\\/\+\$\/, ""\)\}\/chat\/completions`/);
   assert.match(server, /authorization: `Bearer \$\{ARK_API_KEY\}`/);
-  assert.match(server, /provider === "byteplus-language"[\s\S]*?byteplusLanguageRequest\(upstreamPayload\)/);
-  assert.match(server, /upstreamSource: provider === "byteplus-language" \? "byteplus-ark-openai-compatible"/);
+  assert.match(server, /provider === "byteplus-language"\s*\? await byteplusLanguageRequest\(upstreamPayload\)/);
+  assert.match(server, /upstreamSource: provider === "papaya"[\s\S]*?provider === "byteplus-language" \? "byteplus-ark-openai-compatible"/);
 });

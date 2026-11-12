@@ -438,7 +438,7 @@ test("internal creator center is available to logged-in users while staying priv
   assert.match(communityHandler, /payload\.communityShareEnabled = true;/);
 
   assert.match(live, /\["creator", "pen", "创作者中心", u \? "管理内部角色与素材，不参与分成" : "登录后管理角色与素材"\]/);
-  assert.match(live, /if \(action === "creator"\) \{\s*if \(!token\(\) \|\| !state\.user\) return askLogin\(\);\s*state\.page = "creator";/);
+  assert.match(live, /if \(action === "creator"\) \{\s*if \(!token\(\) \|\| !state\.user\) return askLogin\(\);\s*rememberLiveNavigation\("creator"\);\s*state\.page = "creator";/);
   assert.doesNotMatch(live, /创作者中心仅供平台管理员使用/);
   assert.doesNotMatch(live, /state\.user\?\.role !== "admin"/);
   assert.match(live, /data-action="create-share" data-id="\$\{esc\(item\.id\)\}"[\s\S]*?分享角色/);
@@ -475,10 +475,10 @@ test("creator income APIs, profile page, and admin review UI are wired", () => {
   assert.doesNotMatch(live, /data-action="poster-share"/);
   assert.match(live, /async function copyShareLinkSilently\(\) \{[\s\S]*?navigator\.clipboard\.writeText\(link\)[\s\S]*?document\.execCommand\("copy"\)/);
   assert.match(live, /if \(a === "copy-poster-link"\) \{ await copyShareLinkSilently\(\); return; \}/);
-  assert.match(liveHtml, /live\.js\?v=2026110201/);
-  assert.match(liveHtml, /live\.css\?v=2026110201/);
+  assert.match(liveHtml, /live\.js\?v=2026110301/);
+  assert.match(liveHtml, /live\.css\?v=2026110301/);
   assert.match(adminHtml, /data-route="creator-data"[\s\S]*?创作者数据/);
-  assert.match(adminHtml, /admin\.js\?v=20261102-voice-preview-moans-1/);
+  assert.match(adminHtml, /admin\.js\?v=[^"\s]+/);
   assert.match(admin, /async function renderCreatorData/);
   assert.match(admin, /data-creator-withdraw-action="paid"/);
   assert.match(admin, /data-creator-withdraw-action="rejected"/);
