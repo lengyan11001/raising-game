@@ -1,3 +1,11 @@
+## 2026-11-12 Step AQ: strict no-mutation deploy guard verified
+
+- At 14:31 CST the Old deployment used `--no-restart`, but the service still restarted: MainPID changed `3312004 -> 3314402`, journal recorded `Stopping/Started raising-game-demo.service`, and Nginx reloaded. Root cause: the old deployer suppressed only `systemctl restart`, while `--no-restart` still executed configured pre/post hooks, including `systemctl daemon-reload`, systemd drop-in writes, and the Nginx private-media hardening script.
+- Deploy safety fix: `--no-restart` now strictly suppresses every mutation; separate `--no-mutations` is propagated through the wrapper; `--run-hooks-without-restart` preserves Live static materialization without restarting the shared process. Deployment checkout also disables repository Git hooks. No-restart runs capture MainPID, systemd InvocationID, and Nginx master PID before checkout and fail with `38` if any changes.
+- Isolated prior-baseline tests passed `16/16`; generated no-restart shell contains no configured pre/post commands, restart, daemon-reload, Nginx reload/hardening, or deploy drop-in write, while normal-restart and Live static-hook paths retain their required behavior. `py_compile`, `node --check`, `git diff --check`, and `bash -n` passed.
+- Integration commit `fc8fb91a` is based directly on `origin/old-site` `07cf3b96` and changes only `scripts/deploy_pull.py`, `scripts/deploy_site.py`, and `test/deploy-targets.test.js`. Release build/deploy acceptance is recorded in the next step after it completes.
+- No Live deployment, traffic switch, Nginx edit, Redis/worker enablement, database mutation, or backup action was performed.
+
 ## 2026-11-12 Seedance prompt optimizer rollout incident and corrected release
 
 - Incident: release `72f2c851f4eb3b0573739df192c7e6930080b588` made the Generate page fail to load because `platform.create.parts/part-02.js` called `seedanceNo3DFaceApplies(...)` while the release tree did not contain that incomplete Seedance 3D-face symbol. The first deploy relied on static tests and did not perform a real browser boot test. This was a release-scope and verification failure, not a user-side issue.
