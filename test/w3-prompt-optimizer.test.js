@@ -234,8 +234,9 @@ test("Seedance optimizer normalizes scripts and returns a separate optional uplo
   assert.match(req.body.messages[0].content, /图片1：主角脸部身份参考/);
   assert.match(req.body.messages[1].content, /TEXT-ONLY PROMPT MODE: No reference media supplied/);
   assert.match(req.body.messages[1].content, /full script/);
-  assert.match(req.body.messages[1].content, /contains no explicit labels, do not invent labels inside optimizedPrompt/);
-  assert.match(req.body.messages[1].content, /preserve those labels and their declared roles and conflict rules/);
+  assert.match(req.body.messages[1].content, /assign sequential labels for each reusable identity, outfit, or scene/);
+  assert.match(req.body.messages[1].content, /never leave people or recurring assets as vague 素材 references/);
+  assert.match(req.body.messages[1].content, /Preserve explicit labels[\s\S]*declared roles\/conflict rules/);
   assert.match(req.body.messages[1].content, /referencePlan/);
   assert.match(req.body.messages[1].content, /Do not require uploads/);
   assert.doesNotMatch(req.body.messages[1].content, /exactly 5|fixed five/i);
@@ -274,6 +275,37 @@ test("Seedance optimizer preserves explicit English image labels from the source
   );
   assert.deepEqual(preserved.invalid, []);
   assert.equal(preserved.text, "Image 1 controls facial identity. Image 2 controls wardrobe.");
+});
+
+test("Seedance optimizer assigns reference labels when a plain script omits them", () => {
+  const prompt = "剧本：雨夜，林肆回到公寓，看到沈屿川在窗边等她。两人沉默对视，林肆走近，镜头缓慢推近，自然窗光，皮肤质感真实。";
+  const req = helpers.seedancePromptOptimizerRequest({ prompt, provider: "seedance25", duration: 12 });
+  assert.match(req.body.messages[0].content, /design the smallest useful reference binding inside optimizedPrompt/);
+  assert.match(req.body.messages[0].content, /Any person with recurring identity needs 图片1\/图片2\/Image 1\/Image 2/);
+  assert.match(req.body.messages[1].content, /You must make the rewritten prompt directly usable in Seedance/);
+  assert.match(req.body.messages[1].content, /assign sequential labels for each reusable identity, outfit, or scene/);
+  assert.match(req.body.messages[1].content, /identical ordered labels with their exact roles in referencePlan/);
+  assert.match(req.body.messages[1].content, /The optimizer, not the user, is responsible for filling the Seedance reference plan/);
+});
+
+test("Seedance optimizer accepts labels that the model declares in its own material binding section", () => {
+  const designed = helpers.seedancePromptOptimizerNeutralizeInvalidReferences(
+    "【素材绑定】\n图片1：林肆脸部身份参考。\n图片2：林肆服装参考。\n图片3：沈屿川脸部身份参考。\n图片4：沈屿川服装参考。\n图片5：公寓场景参考。\n【冲突规则】\n脸部以图片1、图片3为准，服装以图片2、图片4为准，场景以图片5为准。",
+    [],
+    "雨夜，林肆回到公寓，看到沈屿川在窗边等她。",
+  );
+  assert.deepEqual(designed.invalid, []);
+  assert.match(designed.text, /图片5/);
+});
+
+test("Seedance optimizer still removes labels that are used but never declared", () => {
+  const invented = helpers.seedancePromptOptimizerNeutralizeInvalidReferences(
+    "【素材绑定】\n图片1：主角脸部身份参考。\n【冲突规则】\n场景以图片2为准。",
+    [],
+    "雨夜，林肆回到公寓。",
+  );
+  assert.deepEqual(invented.invalid, ["图片2"]);
+  assert.doesNotMatch(invented.text, /图片2/);
 });
 
 test("Seedance optimizer parses structured reference plans and never applies them to media", () => {

@@ -37,7 +37,7 @@ Return a prompt that is directly usable in Seedance:
 - LANGUAGE LOCK: Detect the dominant language of PROMPT START. Chinese prompts must stay predominantly Chinese; retain Chinese actions, descriptions, dialogue, ambience, and mood. Do not translate the whole prompt into English. Established camera/lighting terms may remain English when useful. If the source is English, keep it predominantly English.
 - REFERENCE BINDING: Use the supplied numbered media inventory and labels exactly. Refer to media as 图片1/图片2, 视频1/视频2, 音频1/音频2 (or Image N / Video N / Audio N when the prompt is English). Never refer to an asset that is not in the inventory, never invent indices, and never use [Image 1].
 - INPUT NORMALIZATION: Accept any form the user provides, including a finished prompt, a short idea, loose tags, dialogue, or a full script/story outline. Infer the stable shot content from the input and turn it into one directly executable Seedance prompt without changing the user's intent.
-- TEXT-ONLY MODE: When the media inventory says no reference media was supplied, do not invent random reference labels. If PROMPT START already contains explicit labels such as 图片1/图片2/Image 1/Image 2 with their roles, preserve those labels and their roles verbatim in optimizedPrompt; the user can upload the corresponding files later. Separately return a concise referencePlan for useful future uploads. Each item must name a future label and the exact role it would control, such as "图片1：主角脸部身份参考" or "视频1：指定动作参考". Only include roles that materially help this prompt. Do not require uploads and do not block the rewrite.
+- TEXT-ONLY MODE: When the media inventory says no reference media was supplied, design the smallest useful reference binding inside optimizedPrompt. Any person with recurring identity needs 图片1/图片2/Image 1/Image 2 as face-identity anchors, their outfits get separate outfit labels, and a recurring location gets a scene label. Preserve explicit source labels and roles verbatim; when the source has no labels, assign stable sequential labels and describe exactly what each label controls. Use the same labels in 【素材绑定】 and 【冲突规则】. Separately return the same ordered labels in referencePlan as the upload checklist. Do not require uploads and do not block the rewrite. Never refer to a label that is neither in the media inventory nor declared in the rewritten prompt's 【素材绑定】.
 - When more than one media item is present, make each item's role explicit in the prompt: identity/face, outfit/costume, scene/location, motion/performance, camera/composition, audio/music, or style reference. State which item is authoritative for each role. If the same role has multiple sources, state the conflict priority (for example, 图片1 controls face and 图片2 cannot change facial geometry).
 - STRUCTURED PROMPT: When the input is a production brief, has multiple reference assets, or already uses section headings, output one directly executable Seedance prompt in Chinese with these headings in this order: 【素材绑定】【冲突规则】【主体与关系】【动作时间轴】【场景环境】【光影色调】【镜头运镜】【视觉风格】【画质与约束】. Omit a heading only when it is truly irrelevant. Keep every explicit reference label and conflict rule. For a Chinese prompt use 图片1/图片2/图片3/视频1; for an English prompt use Image 1/Image 2/Image 3/Video 1. If the source gives no structured format, concise prose is acceptable.
 - Follow the requested duration exactly. For a 12-second prompt, use 0—3秒 / 3—6秒 / 6—9秒 / 9—12秒 beats. Never stretch a 12-second request into 15 seconds or add a beat after the requested end time.
@@ -176,6 +176,7 @@ function seedancePromptOptimizerReferenceInventory(references = []) {
 function seedancePromptOptimizerInvalidReferences(text = "", references = [], sourcePrompt = "") {
   const source = String(text || "");
   const original = String(sourcePrompt || "");
+  const declaredBindings = source.match(/【素材绑定】[\s\S]*?(?=\n【|$)/)?.[0] || "";
   const allowed = new Set();
   const allowedKinds = new Set();
   const referencePattern = /(图片|图|视频|音频|文档|Image|Video|Audio|Document)\s*(\d+)/i;
@@ -195,6 +196,8 @@ function seedancePromptOptimizerInvalidReferences(text = "", references = [], so
   for (const item of references) rememberLabel(item?.label);
   const explicitSourceLabels = original.match(/(?:图片|图|视频|音频|文档|Image|Video|Audio|Document)\s*\d+/gi) || [];
   explicitSourceLabels.forEach(rememberLabel);
+  const designedLabels = declaredBindings.match(/(?:图片|图|视频|音频|文档|Image|Video|Audio|Document)\s*\d+/gi) || [];
+  designedLabels.forEach(rememberLabel);
   const found = source.match(/(?:图片|图|视频|音频|文档|Image|Video|Audio|Document)\s*\d+/gi) || [];
   return [...new Set(found.filter((label) => {
     const normalized = label.replace(/\s+/g, " ").trim();
@@ -237,7 +240,7 @@ function seedancePromptOptimizerRequest(payload = {}, { languageCorrection = fal
         : "ACTION BUDGET: Use 6-8 beats.";
   const referenceInstruction = references.length
     ? "Do not add or remove reference media. referencePlan must be an empty array."
-    : "TEXT-ONLY PROMPT MODE: No reference media is supplied. Treat the input as any mix of finished prompt, idea, loose tags, dialogue, or full script. If PROMPT START explicitly contains labels such as 图片1/图片2/图片3/视频1 or Image 1/Image 2/Image 3/Video 1, preserve those labels and their declared roles and conflict rules in optimizedPrompt; they are planned uploads, not invented assets. If PROMPT START contains no explicit labels, do not invent labels inside optimizedPrompt. In referencePlan, list only the future uploads that materially help this shot, using language-appropriate labels and naming the exact role. Do not require uploads and do not block the rewrite.";
+    : "TEXT-ONLY PROMPT MODE: No reference media is supplied. Treat the input as any mix of finished prompt, idea, loose tags, dialogue, or full script. The optimizer, not the user, is responsible for filling the Seedance reference plan. You must make the rewritten prompt directly usable in Seedance by designing stable numbered reference bindings. Preserve explicit labels such as 图片1/图片2/图片3/视频1 or Image 1/Image 2/Image 3/Video 1 and their declared roles/conflict rules. If PROMPT START has no labels, assign sequential labels for each reusable identity, outfit, or scene, write them into 【素材绑定】 and bind them in 【冲突规则】; never leave people or recurring assets as vague 素材 references. Return the identical ordered labels with their exact roles in referencePlan as the upload checklist. Do not require uploads and do not block the rewrite.";
   const userPrompt = [
     `Provider: ${providerLabel} (${provider})`,
     `Duration: ${duration}s`,
