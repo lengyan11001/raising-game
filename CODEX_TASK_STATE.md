@@ -3928,3 +3928,11 @@ CODEX_TASK_STATE.md
 - The release diff from currently deployed `9588759f` is limited to `CODEX_TASK_STATE.md`, `ops/nginx-upstream-switch.py`, `ops/production-cutover-runbook.md`, and test files. `git diff --name-status 9588759f platform-release` was rechecked after the build; no production business files are in scope.
 - Deployment has NOT yet happened at the time of this record. Do not claim `e0ddfc91` is live until the mandatory wrapper runs and post-deploy hashes/PIDs/health/upstream checks are captured.
 - Deployment constraints remain: push only `old-site` and `platform-release`; never push/deploy Live in this step; run only `scripts/deploy_local.sh --site old --no-restart`; no traffic switch, Nginx reload, service restart, Redis/worker enablement, or backup action. Rollback remains: restore prior release hash and use the runbook's transaction tool only if a later traffic switch is explicitly approved.
+
+## 2026-11-12 Step AP: Wan prompt fillback readability formatting
+
+- User requested Wan prompt fillback in readable, separated format rather than one dense paragraph.
+- Added W3-only output formatting: timecoded beats are separated by blank lines, final positive constraint paragraph is separated, Markdown fences/headings/bullets and wrapper headings such as `W3 提示词` are removed. Seedance `【素材绑定】` format is unchanged.
+- Added server-side normalization before constraint-stack and truncation handling, plus client-side defensive normalization before the modal result is editable/applied.
+- Verification: `test/w3-prompt-optimizer.test.js` passes `35/35`; JavaScript syntax checks and `git diff --check` pass. Full suite reports `930 pass / 27 fail / 1 skip`, matching the known pre-existing failure set with three additional passing tests.
+- Source commit `a7d5e4c1`; Old-only release/deploy acceptance recorded below after completion. Live remains untouched.
