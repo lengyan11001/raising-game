@@ -1,3 +1,11 @@
+## 2026-11-12 Step AT: Nginx passive failover tuning transaction
+
+- Goal: add explicit passive upstream failure tracking without retrying non-idempotent requests. No global `proxy_next_upstream` change is made.
+- `ops/nginx-upstream-switch.py` now supports `--tune NAME=MAX_FAILS:FAIL_TIMEOUT` on `--file` and atomic cross-file `--file-tune PATH=NAME=MAX_FAILS:FAIL_TIMEOUT`. It preserves primary/backup roles and `keepalive`, is idempotent, rejects conflicting `max_fails`/`fail_timeout` and unknown member options, and rolls back every file if validation, reload, or any health check fails.
+- Focused tests cover dry-run immutability, one- and multi-line configuration, missing-option insertion, repeated apply, conflict rejection, exact rollback on health failure, and transaction health gating: `test/resilience-ops.test.js` 48/48 pass.
+- Isolated release-tree full suite with the same dependencies: `1162 tests, 1160 pass, 0 fail, 2 skipped`.
+- Deployment status: pending integration commit and no-restart Old deployment of the tooling. Production Nginx params are NOT enabled by this deployment. No Node restart, Nginx reload, traffic switch, Redis/worker/scheduler enablement, database mutation, or backup.
+
 ## 2026-11-12 Step AQ: strict no-mutation deploy guard verified
 
 - At 14:31 CST the Old deployment used `--no-restart`, but the service still restarted: MainPID changed `3312004 -> 3314402`, journal recorded `Stopping/Started raising-game-demo.service`, and Nginx reloaded. Root cause: the old deployer suppressed only `systemctl restart`, while `--no-restart` still executed configured pre/post hooks, including `systemctl daemon-reload`, systemd drop-in writes, and the Nginx private-media hardening script.

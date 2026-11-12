@@ -71,6 +71,29 @@ function invokeUpstreamSwitch(args, env = {}) {
   return result;
 }
 
+function invokeUpstreamSwitchAsync(args, env = {}) {
+  return new Promise((resolve) => {
+    const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), "raising-game-switch-journal-"));
+    const child = spawn("python3", [upstreamSwitchScript, ...args], {
+      cwd: root,
+      env: {
+        ...process.env,
+        NGINX_UPSTREAM_SWITCH_LOCK: path.join(os.tmpdir(), `raising-game-nginx-switch-${process.pid}.lock`),
+        NGINX_UPSTREAM_SWITCH_JOURNAL_DIR: journalDir,
+        ...env,
+      },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+    child.on("close", (status) => {
+      fs.rmSync(journalDir, { recursive: true, force: true });
+      resolve({ status, stdout, stderr });
+    });
+  });
+}
+
 function writeUpstreamConfig(file, body = `upstream raising_game_app {
     server 127.0.0.1:4174;
     keepalive 64;
@@ -1473,5 +1496,136 @@ test("watchdog never force-kills in dry-run even with an expired pending marker"
       assert.doesNotMatch(result.stderr, /force-kill (requested|dispatched)/);
       assert.equal(fs.existsSync(pending), true);
     });
+  });
+});
+
+test("Nginx upstream tune dry-run is idempotent and preserves backup plus keepalive", async () => {
+  await withTempDir(async (dir) => {
+    const main = path.join(dir, "default");
+    const chat = path.join(dir, "chat.conf");
+    const originalMain = writeUpstreamConfig(main, `upstream raising_game_app {
+    server 127.0.0.1:4174;
+    server 127.0.0.1:4175 backup;
+    keepalive 64;
+}
+`);
+    const originalChat = writeUpstreamConfig(chat, `upstream raising_game_app_chat { server 127.0.0.1:4174; server 127.0.0.1:4175 backup; keepalive 32; }
+`);
+    await withHealthServer(async (health) => {
+      const args = [
+        "--file-tune", `${main}=raising_game_app=1:2s`,
+        "--file-tune", `${chat}=raising_game_app_chat=1:2s`,
+        "--health-url", health.url,
+      ];
+      let result = await invokeUpstreamSwitchAsync(args);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /UPSTREAM_TUNE_PLAN upstream=raising_game_app max_fails=1 fail_timeout=2s/);
+      assert.match(result.stdout, /UPSTREAM_SWITCH_FILE path=.*default changed=1/);
+      assert.equal(fs.readFileSync(main, "utf8"), originalMain);
+      assert.equal(fs.readFileSync(chat, "utf8"), originalChat);
+
+      result = await invokeUpstreamSwitchAsync([...args,
+        "--nginx-bin", "/usr/bin/true",
+        "--reload-command", "/usr/bin/true",
+        "--apply",
+      ]);
+      assert.equal(result.status, 0, result.stderr);
+      const tunedMain = fs.readFileSync(main, "utf8");
+      const tunedChat = fs.readFileSync(chat, "utf8");
+      assert.match(tunedMain, /server 127\.0\.0\.1:4174 max_fails=1 fail_timeout=2s;/);
+      assert.match(tunedMain, /server 127\.0\.0\.1:4175 backup max_fails=1 fail_timeout=2s;/);
+      assert.match(tunedMain, /keepalive 64;/);
+      assert.match(tunedChat, /server 127\.0\.0\.1:4174 max_fails=1 fail_timeout=2s; server 127\.0\.0\.1:4175 backup max_fails=1 fail_timeout=2s; keepalive 32;/);
+      assert.match(result.stdout, /UPSTREAM_TUNE_OK upstream=raising_game_app fail_timeout=2s/);
+      assert.match(result.stdout, /UPSTREAM_SWITCH_COMMIT_OK upstreams=2 files=2 health_urls=1/);
+
+      result = await invokeUpstreamSwitchAsync([...args,
+        "--nginx-bin", "/usr/bin/true",
+        "--reload-command", "/usr/bin/true",
+        "--apply",
+      ]);
+      assert.equal(result.status, 0, result.stderr);
+      assert.doesNotMatch(result.stdout, /^UPSTREAM_SWITCH_FILE/m);
+      assert.equal(fs.readFileSync(main, "utf8"), tunedMain);
+      assert.equal(fs.readFileSync(chat, "utf8"), tunedChat);
+    });
+  });
+});
+
+test("Nginx upstream tune rejects conflicting or unsupported member options without writing", async () => {
+  await withTempDir((dir) => {
+    const cases = [
+      ["conflicting max_fails", `upstream raising_game_app {\n    server 127.0.0.1:4174 max_fails=3;\n}\n`, /conflicting max_fails=3/],
+      ["conflicting fail_timeout", `upstream raising_game_app {\n    server 127.0.0.1:4174 fail_timeout=30s;\n}\n`, /conflicting fail_timeout=30s/],
+      ["unknown option", `upstream raising_game_app {\n    server 127.0.0.1:4174 weight=2;\n}\n`, /unsupported member option 'weight=2'/],
+    ];
+    for (const [name, body, error] of cases) {
+      const file = path.join(dir, `${name.replaceAll(" ", "-")}.conf`);
+      fs.writeFileSync(file, body);
+      const result = invokeUpstreamSwitch([
+        "--file", file,
+        "--tune", "raising_game_app=1:2s",
+        "--health-url", "http://127.0.0.1:48080/api/health",
+      ]);
+      assert.notEqual(result.status, 0, name);
+      assert.match(result.stderr, error, name);
+      assert.equal(fs.readFileSync(file, "utf8"), body, name);
+    }
+  });
+});
+
+test("Nginx upstream tune transaction rolls back every file when any health check fails", async () => {
+  await withTempDir(async (dir) => {
+    const main = path.join(dir, "default");
+    const chat = path.join(dir, "chat.conf");
+    const live = path.join(dir, "live.conf");
+    const mainOriginal = writeUpstreamConfig(main, `upstream raising_game_app {
+    server 127.0.0.1:4174;
+    server 127.0.0.1:4175 backup;
+    keepalive 64;
+}
+`);
+    const chatOriginal = writeUpstreamConfig(chat, `upstream raising_game_app_chat { server 127.0.0.1:4174; server 127.0.0.1:4175 backup; keepalive 32; }
+`);
+    const liveOriginal = writeUpstreamConfig(live, `upstream raising_game_app_live { server 127.0.0.1:4174; server 127.0.0.1:4175 backup; keepalive 32; }
+`);
+    const nginx = path.join(dir, "nginx");
+    const reload = path.join(dir, "reload");
+    const count = path.join(dir, "count");
+    const curl = path.join(dir, "curl");
+    writeExecutable(nginx, `#!/usr/bin/env bash
+grep -q 'max_fails=1 fail_timeout=2s' ${JSON.stringify(main)} &&
+grep -q 'max_fails=1 fail_timeout=2s' ${JSON.stringify(chat)} &&
+grep -q 'max_fails=1 fail_timeout=2s' ${JSON.stringify(live)}
+`);
+    writeExecutable(reload, `#!/usr/bin/env bash
+exit 0
+`);
+    writeExecutable(curl, `#!/usr/bin/env bash
+n=0
+[[ -f ${JSON.stringify(count)} ]] && n=$(cat ${JSON.stringify(count)})
+n=$((n + 1))
+printf '%s' "$n" > ${JSON.stringify(count)}
+[[ "$n" -eq 1 ]] && printf '200' && exit 0
+printf '503'
+exit 22
+`);
+    const result = invokeUpstreamSwitch([
+      "--file-tune", `${main}=raising_game_app=1:2s`,
+      "--file-tune", `${chat}=raising_game_app_chat=1:2s`,
+      "--file-tune", `${live}=raising_game_app_live=1:2s`,
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--health-url", "http://127.0.0.1:48080/chat/health",
+      "--health-url", "http://127.0.0.1:48080/live/health",
+      "--nginx-bin", nginx,
+      "--reload-command", reload,
+      "--apply",
+    ], { PATH: `${dir}:${process.env.PATH}` });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /HTTP 503/);
+    assert.match(result.stdout, /UPSTREAM_SWITCH_ROLLBACK files=3/);
+    assert.equal(fs.readFileSync(main, "utf8"), mainOriginal);
+    assert.equal(fs.readFileSync(chat, "utf8"), chatOriginal);
+    assert.equal(fs.readFileSync(live, "utf8"), liveOriginal);
   });
 });
