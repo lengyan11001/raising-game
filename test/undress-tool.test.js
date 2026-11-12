@@ -83,10 +83,24 @@ test("only users who have never recharged can receive the locked free image", ()
 
 test("locked free results expose no media and cannot be downloaded or added to assets", () => {
   const publicView = server.slice(server.indexOf("function publicGenerationRecord"), server.indexOf("function adminGenerationRecordView"));
+  const publicRecord = require("../server").publicGenerationRecord({
+    taskId: "locked-undress",
+    status: "succeeded",
+    source: "undress-tool-image",
+    kind: "tool-undress",
+    prompt: "private prompt",
+    mediaAssets: [{ id: "asset-1" }],
+    imageResultUrl: "https://provider.example/result.png",
+    imageResultUrls: ["https://provider.example/result.png"],
+    imageUrls: ["https://provider.example/result.png"],
+    resultLocked: true,
+  });
+  assert.equal(publicRecord.imageResultUrls.length, 0);
+  assert.equal(publicRecord.mediaAssets.length, 0);
+  assert.equal(publicRecord.prompt, "");
+  assert.equal(publicRecord.imageUrl, "");
+  assert.equal(publicRecord.sourceImageUrl, "");
   assert.match(publicView, /record\.resultLocked === true/);
-  assert.match(publicView, /publicRecord\.imageResultUrls = \[\]/);
-  assert.match(publicView, /publicRecord\.mediaAssets = \[\]/);
-  assert.match(publicView, /publicRecord\.prompt = ""/);
   assert.match(server, /code: "RESULT_LOCKED"/);
   assert.match(server, /downloadRemoteFileToBuffer\(imageUrl, \{ label: `\$\{resultLabel\} result`/);
   assert.match(server, /resultLocked: freeImageGeneration/);
