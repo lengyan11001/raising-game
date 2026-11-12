@@ -234,10 +234,46 @@ test("Seedance optimizer normalizes scripts and returns a separate optional uplo
   assert.match(req.body.messages[0].content, /图片1：主角脸部身份参考/);
   assert.match(req.body.messages[1].content, /TEXT-ONLY PROMPT MODE: No reference media supplied/);
   assert.match(req.body.messages[1].content, /full script/);
-  assert.match(req.body.messages[1].content, /no image\/video\/audio labels in optimizedPrompt/);
+  assert.match(req.body.messages[1].content, /contains no explicit labels, do not invent labels inside optimizedPrompt/);
+  assert.match(req.body.messages[1].content, /preserve those labels and their declared roles and conflict rules/);
   assert.match(req.body.messages[1].content, /referencePlan/);
   assert.match(req.body.messages[1].content, /Do not require uploads/);
   assert.doesNotMatch(req.body.messages[1].content, /exactly 5|fixed five/i);
+});
+
+test("Seedance optimizer preserves explicit source references in text-only mode", () => {
+  const prompt = [
+    "【素材绑定】",
+    "图片1：角色A的脸部身份参考，只提供脸型、五官、发际线和骨相。",
+    "图片2：角色A的全身服装参考，只提供身高、体型、服装款式和面料。",
+    "【冲突规则】",
+    "人物脸和身份发生冲突时，以图片1为准。",
+    "服装发生冲突时，以图片2为准。",
+  ].join("\n");
+  const req = helpers.seedancePromptOptimizerRequest({ prompt, provider: "seedance25", duration: 12 });
+  assert.equal(req.references.length, 0);
+  assert.match(req.body.messages[0].content, /【素材绑定】/);
+  assert.match(req.body.messages[0].content, /【冲突规则】/);
+  assert.match(req.body.messages[0].content, /【画质与约束】/);
+  assert.match(req.body.messages[0].content, /0—3秒 \/ 3—6秒 \/ 6—9秒 \/ 9—12秒/);
+  const preserved = helpers.seedancePromptOptimizerNeutralizeInvalidReferences(
+    "【素材绑定】\n图片1：角色A脸部身份参考。\n图片2：角色A服装参考。\n【冲突规则】\n脸部以图片1为准，服装以图片2为准。",
+    [],
+    prompt,
+  );
+  assert.deepEqual(preserved.invalid, []);
+  assert.match(preserved.text, /图片1/);
+  assert.match(preserved.text, /图片2/);
+});
+
+test("Seedance optimizer preserves explicit English image labels from the source", () => {
+  const preserved = helpers.seedancePromptOptimizerNeutralizeInvalidReferences(
+    "Image 1 controls facial identity. Image 2 controls wardrobe.",
+    [],
+    "Image 1: face identity reference. Image 2: full-body outfit reference.",
+  );
+  assert.deepEqual(preserved.invalid, []);
+  assert.equal(preserved.text, "Image 1 controls facial identity. Image 2 controls wardrobe.");
 });
 
 test("Seedance optimizer parses structured reference plans and never applies them to media", () => {

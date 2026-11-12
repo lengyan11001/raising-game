@@ -37,8 +37,10 @@ Return a prompt that is directly usable in Seedance:
 - LANGUAGE LOCK: Detect the dominant language of PROMPT START. Chinese prompts must stay predominantly Chinese; retain Chinese actions, descriptions, dialogue, ambience, and mood. Do not translate the whole prompt into English. Established camera/lighting terms may remain English when useful. If the source is English, keep it predominantly English.
 - REFERENCE BINDING: Use the supplied numbered media inventory and labels exactly. Refer to media as 图片1/图片2, 视频1/视频2, 音频1/音频2 (or Image N / Video N / Audio N when the prompt is English). Never refer to an asset that is not in the inventory, never invent indices, and never use [Image 1].
 - INPUT NORMALIZATION: Accept any form the user provides, including a finished prompt, a short idea, loose tags, dialogue, or a full script/story outline. Infer the stable shot content from the input and turn it into one directly executable Seedance prompt without changing the user's intent.
-- TEXT-ONLY MODE: When the media inventory says no reference media was supplied, keep image/video/audio bindings out of optimizedPrompt and do not invent reference bindings. Separately return a concise referencePlan for useful future uploads. Each item must name a future label and the exact role it would control, such as "图片1：主角脸部身份参考" or "视频1：指定动作参考". Only include roles that materially help this prompt. Do not require uploads and do not block the rewrite. Reference media may be added later; after upload, the user can optimize again to bind the supplied references.
+- TEXT-ONLY MODE: When the media inventory says no reference media was supplied, do not invent random reference labels. If PROMPT START already contains explicit labels such as 图片1/图片2/Image 1/Image 2 with their roles, preserve those labels and their roles verbatim in optimizedPrompt; the user can upload the corresponding files later. Separately return a concise referencePlan for useful future uploads. Each item must name a future label and the exact role it would control, such as "图片1：主角脸部身份参考" or "视频1：指定动作参考". Only include roles that materially help this prompt. Do not require uploads and do not block the rewrite.
 - When more than one media item is present, make each item's role explicit in the prompt: identity/face, outfit/costume, scene/location, motion/performance, camera/composition, audio/music, or style reference. State which item is authoritative for each role. If the same role has multiple sources, state the conflict priority (for example, 图片1 controls face and 图片2 cannot change facial geometry).
+- STRUCTURED PROMPT: When the input is a production brief, has multiple reference assets, or already uses section headings, output one directly executable Seedance prompt in Chinese with these headings in this order: 【素材绑定】【冲突规则】【主体与关系】【动作时间轴】【场景环境】【光影色调】【镜头运镜】【视觉风格】【画质与约束】. Omit a heading only when it is truly irrelevant. Keep every explicit reference label and conflict rule. For a Chinese prompt use 图片1/图片2/图片3/视频1; for an English prompt use Image 1/Image 2/Image 3/Video 1. If the source gives no structured format, concise prose is acceptable.
+- Follow the requested duration exactly. For a 12-second prompt, use 0—3秒 / 3—6秒 / 6—9秒 / 9—12秒 beats. Never stretch a 12-second request into 15 seconds or add a beat after the requested end time.
 - Prefer one clear identity anchor. A person multi-view sheet is weak as the sole identity source; if it is the only available face reference, bind it to facial identity while taking pose, framing, and scene from the prompt or another reference.
 - Preserve the user's requested subject count. For each visible person, state identity binding, position, clothing state, and continuity when the prompt implies them. Do not add extra people.
 - ACTION BUDGET: Make one primary continuous action for about 5 seconds, 2-3 continuous actions for 9-12 seconds, 3-5 beats for about 15 seconds, and 6-8 beats for about 30 seconds. Do not overload short clips. Use timecodes only when they improve clarity; keep beats physically continuous rather than a set of disconnected shots.
@@ -171,8 +173,9 @@ function seedancePromptOptimizerReferenceInventory(references = []) {
   }).join("\n");
 }
 
-function seedancePromptOptimizerInvalidReferences(text = "", references = []) {
+function seedancePromptOptimizerInvalidReferences(text = "", references = [], sourcePrompt = "") {
   const source = String(text || "");
+  const original = String(sourcePrompt || "");
   const allowed = new Set();
   const allowedKinds = new Set();
   const referencePattern = /(图片|图|视频|音频|文档|Image|Video|Audio|Document)\s*(\d+)/i;
@@ -182,13 +185,16 @@ function seedancePromptOptimizerInvalidReferences(text = "", references = []) {
     "音频": "audio", audio: "audio",
     "文档": "document", document: "document",
   };
-  for (const item of references) {
-    const label = String(item?.label || "").trim();
-    if (!label) continue;
-    allowed.add(label);
-    const match = label.match(referencePattern);
+  const rememberLabel = (label = "") => {
+    const normalized = String(label || "").trim();
+    if (!normalized) return;
+    allowed.add(normalized);
+    const match = normalized.match(referencePattern);
     if (match) allowedKinds.add(`${kindAliases[match[1].toLowerCase()]}:${Number(match[2])}`);
-  }
+  };
+  for (const item of references) rememberLabel(item?.label);
+  const explicitSourceLabels = original.match(/(?:图片|图|视频|音频|文档|Image|Video|Audio|Document)\s*\d+/gi) || [];
+  explicitSourceLabels.forEach(rememberLabel);
   const found = source.match(/(?:图片|图|视频|音频|文档|Image|Video|Audio|Document)\s*\d+/gi) || [];
   return [...new Set(found.filter((label) => {
     const normalized = label.replace(/\s+/g, " ").trim();
@@ -198,9 +204,9 @@ function seedancePromptOptimizerInvalidReferences(text = "", references = []) {
   }))];
 }
 
-function seedancePromptOptimizerNeutralizeInvalidReferences(text = "", references = []) {
+function seedancePromptOptimizerNeutralizeInvalidReferences(text = "", references = [], sourcePrompt = "") {
   let output = String(text || "");
-  const invalid = seedancePromptOptimizerInvalidReferences(output, references);
+  const invalid = seedancePromptOptimizerInvalidReferences(output, references, sourcePrompt);
   for (const label of invalid) {
     const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     output = output.replace(new RegExp(escaped, "gi"), references.length ? "对应素材" : "画面主体");
@@ -231,7 +237,7 @@ function seedancePromptOptimizerRequest(payload = {}, { languageCorrection = fal
         : "ACTION BUDGET: Use 6-8 beats.";
   const referenceInstruction = references.length
     ? "Do not add or remove reference media. referencePlan must be an empty array."
-    : "TEXT-ONLY PROMPT MODE: No reference media is supplied. Treat the input as any mix of finished prompt, idea, loose tags, dialogue, or full script. Rewrite it as a standalone executable prompt with no image/video/audio labels in optimizedPrompt. In referencePlan, list only the future uploads that materially help this shot, using language-appropriate labels such as 图片1/图片2/视频1 or Image 1/Image 2/Video 1 and naming the exact role. Do not require uploads and do not block the rewrite. Reference media may be added later; this request only changes the prompt text.";
+    : "TEXT-ONLY PROMPT MODE: No reference media is supplied. Treat the input as any mix of finished prompt, idea, loose tags, dialogue, or full script. If PROMPT START explicitly contains labels such as 图片1/图片2/图片3/视频1 or Image 1/Image 2/Image 3/Video 1, preserve those labels and their declared roles and conflict rules in optimizedPrompt; they are planned uploads, not invented assets. If PROMPT START contains no explicit labels, do not invent labels inside optimizedPrompt. In referencePlan, list only the future uploads that materially help this shot, using language-appropriate labels and naming the exact role. Do not require uploads and do not block the rewrite.";
   const userPrompt = [
     `Provider: ${providerLabel} (${provider})`,
     `Duration: ${duration}s`,
@@ -415,7 +421,7 @@ async function handleAdvancedPromptOptimize(req, res) {
       }
     }
     if (seedanceRequest) {
-      const referenceRepair = seedancePromptOptimizerNeutralizeInvalidReferences(optimizedPrompt, request.references);
+      const referenceRepair = seedancePromptOptimizerNeutralizeInvalidReferences(optimizedPrompt, request.references, request.originalPrompt);
       if (referenceRepair.invalid.length) {
         console.warn("[prompt-optimizer-reference-repaired]", JSON.stringify({
           ...requestContext,
