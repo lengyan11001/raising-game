@@ -32,8 +32,7 @@ test("same-style is a top-level entry with Case-first in-page tabs", () => {
   assert.doesNotMatch(html, /data-nav-group="same-style"/);
   assert.doesNotMatch(html, /data-nav-group-toggle/);
   assert.match(html, /<button class="top-tab" data-tab="cases" data-same-style-entry/);
-  assert.match(html, /class="i18n-en">Same style<\/span>/);
-  assert.match(html, /class="i18n-zh">同款<\/span>/);
+  assert.match(html, /data-i18n="nav\.sameStyle">Same style<\/span>/);
   assert.match(html, /<section class="same-style-panel" id="sameStylePanel" hidden>/);
   assert.match(html, /class="gallery-mode-tabs gallery-top-tabs" id="galleryModeTabs"/);
   assert.match(html, /document\.documentElement\.classList\.add\(`i18n-\$\{lang\}`\)/);

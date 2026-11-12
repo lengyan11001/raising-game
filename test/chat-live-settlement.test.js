@@ -330,7 +330,7 @@ test("orphan allocation cleanup only releases old reservations without a session
   assert.match(cleanupBlock, /a\.created_at <= NOW\(\) - \(\$1 \* INTERVAL '1 second'\)/);
   assert.match(cleanupBlock, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/);
   assert.match(cleanupBlock, /SELECT 1 FROM app_chat_live_sessions WHERE id = \$1/);
-  assert.match(serverSource, /setInterval\(\(\) => cleanupOrphanedChatLiveFreeAllocations\(\).*10 \* 60 \* 1000/);
+  assert.match(serverSource, /setInterval\(\(\) => runChatLiveOrphanCleanupSchedulerTick\(\), 10 \* 60 \* 1000\)/);
 });
 
 test("free allocation requires PostgreSQL and has no flat-file fallback", () => {

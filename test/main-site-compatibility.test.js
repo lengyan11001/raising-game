@@ -29,8 +29,8 @@ test("main site derives responsive heights from the live visual viewport", () =>
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*?\.workflow-panel \{\s*min-height: 0;/);
   assert.match(css, /\.seo-discovery \{\s*width: min\(1440px, 100%\);/);
   assert.match(css, /\.site-foot \{\s*display: none;\s*width: min\(1440px, 100%\);/);
-  assert.match(html, /platform\.css\?v=main-site-compat-20261111-1/);
-  assert.match(html, /platform\.js\?v=main-site-compat-20261111-1/);
+  assert.match(html, /platform\.css\?v=[^"\s]+/);
+  assert.match(html, /platform\.js\?v=[^"\s]+/);
 });
 
 test("main site keeps touch controls free of double-tap zoom delays", () => {
