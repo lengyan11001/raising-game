@@ -138,6 +138,21 @@ test("promotion status reports inventory and per-user purchase state from the se
   assert.equal(memberViewerPromo.skus.find((sku) => sku.id === "credits").owned, false);
 });
 
+test("anonymous promotion status reads inventory without a write transaction", () => {
+  const db = read("db.js");
+  const start = db.indexOf("async function getPromotionPurchaseStateInDb");
+  const end = db.indexOf("\nasync function reservePromotionPurchaseInDb", start);
+  assert.ok(start >= 0 && end > start, "promotion state reader should exist");
+  const reader = db.slice(start, end);
+  assert.match(reader, /if \(cleanUserId\) await expirePromotionReservationsInDb\(cleanCampaignId\)/);
+  assert.doesNotMatch(reader, /getPool\(\)\.connect|BEGIN|COMMIT|ROLLBACK/);
+  assert.match(reader, /reserved_until > NOW\(\)/);
+  const expireStart = db.indexOf("async function expirePromotionReservationsInDb");
+  const expireEnd = db.indexOf("\nasync function getPromotionPurchaseStateInDb", expireStart);
+  assert.ok(expireStart >= 0 && expireEnd > expireStart, "expiration helper should exist");
+  assert.match(db.slice(expireStart, expireEnd), /UPDATE app_promotion_purchases[\s\S]*?status = 'expired'/);
+});
+
 test("checkout allows unlimited credits purchases while the member SKU stays once per account", () => {
   const source = promotionServerSource();
   const db = read("db.js");
