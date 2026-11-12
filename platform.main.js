@@ -1491,6 +1491,11 @@ els.supportNavBtn?.addEventListener("click", (event) => {
   toggleNotificationPanel("nav");
 });
 document.querySelectorAll("[data-open-case-library]").forEach((entry) => {
+  if (entry.hasAttribute("data-cases-main-only") && isSiteProfile("custom-workflow")) {
+    entry.hidden = true;
+    entry.disabled = true;
+    return;
+  }
   entry.addEventListener("click", (event) => {
     event.preventDefault();
     closeMobileDrawer();

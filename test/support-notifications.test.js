@@ -133,7 +133,8 @@ test("platform UI exposes one left messages entry, unread dots, notification det
   assert.match(js, /function toggleNotificationPanel[\s\S]*?els\.notificationCenter\.hidden = false/);
   assert.match(js, /els\.notificationCenter\.hidden = false/);
   assert.match(main, /notificationSupportEntry\?\.addEventListener[\s\S]*?openSupportDialog\(\{ source: "notification_panel" \}\)/);
-  assert.match(html, /class="membership-benefit membership-benefit-row membership-benefit-link"[^>]*data-open-case-library/);
+  assert.match(html, /class="membership-benefit membership-benefit-row membership-benefit-link"[^>]*data-open-case-library[^>]*data-cases-main-only/);
+  assert.match(main, /data-cases-main-only[\s\S]*?isSiteProfile\("custom-workflow"\)[\s\S]*?entry\.hidden = true/);
   assert.match(main, /data-open-case-library[\s\S]*?event\.preventDefault\(\)[\s\S]*?setTab\("cases"\)/);
   assert.match(main, /notificationSupportEntry\?\.addEventListener/);
   assert.match(css, /\.notification-bell\[hidden\][^{]*\{[^}]*display:\s*none/);

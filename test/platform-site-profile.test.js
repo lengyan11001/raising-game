@@ -148,18 +148,17 @@ test("123vip.fans is a platform site profile, not a tool tenant", () => {
   assert.match(tenants, /defaultTab: String\(process\.env\.PLATFORM_SITE_DEFAULT_TAB \|\| "home"\)/);
   assert.match(tenants, /defaultRoute: String\(process\.env\.PLATFORM_SITE_DEFAULT_ROUTE \|\| ""\)/);
   assert.match(tenants, /hiddenNavTabs: parseCsvList\(process\.env\.PLATFORM_SITE_HIDDEN_NAV_TABS \|\| "advanced"\)/);
-  assert.match(tenants, /allowedTabs: parseCsvList\(process\.env\.PLATFORM_SITE_ALLOWED_TABS \|\| "home,cases,advanced,workflow,assets,history,topups,spending,pricing,referral,access"\)/);
+  assert.match(tenants, /allowedTabs: parseCsvList\(process\.env\.PLATFORM_SITE_ALLOWED_TABS \|\| "home,advanced,workflow,assets,history,topups,spending,pricing,referral,access"\)/);
   assert.match(tenants, /disabledTabs: parseCsvList\(process\.env\.PLATFORM_SITE_DISABLED_TABS \|\| "gallery,characters,chat"\)/);
 });
 
-test("the fans profile exposes Same style even when an older process omits cases", () => {
+test("the fans profile does not expose Same style cases", () => {
   const allowedTabs = config.slice(
     config.indexOf("function tenantAllowedTabs()"),
     config.indexOf("function tenantDefaultTabCandidate()"),
   );
-  assert.match(allowedTabs, /isSiteProfile\("custom-workflow"\)/);
-  assert.match(allowedTabs, /!allowed\.includes\("cases"\)/);
-  assert.match(allowedTabs, /allowed\.push\("cases"\)/);
+  assert.doesNotMatch(allowedTabs, /allowed\.push\("cases"\)/);
+  assert.match(main, /data-cases-main-only[\s\S]*?isSiteProfile\("custom-workflow"\)[\s\S]*?entry\.hidden = true/);
 });
 
 test("the profile keeps the shared platform tenant while changing the default tab", () => {
