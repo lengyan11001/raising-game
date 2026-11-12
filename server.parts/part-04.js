@@ -494,13 +494,14 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
         "$1hidden $2",
       );
     });
-    // Cases are a main-site navigation entry. Profile hosts keep their own
-    // reduced navigation, so hide it in the first paint before the client
-    // feature bootstrap applies allowedTabs.
-    withTenantShell = withTenantShell.replace(
-      /(<button\s+class="top-tab"\s+data-tab="cases"\s+)(type="button")/i,
-      "$1hidden $2",
-    );
+    // Case library is exposed on profile hosts as the Same style entry. Keep
+    // it in the first paint so recommendation/case links can enter #cases.
+    if (!(tenant.allowedTabs || []).includes("cases")) {
+      withTenantShell = withTenantShell.replace(
+        /(<button\s+class="top-tab"\s+data-tab="cases"\s+)(type="button")/i,
+        "$1hidden $2",
+      );
+    }
     ["playflux-video", "playflux-anime", "playflux-image"].forEach((shortcut) => {
       withTenantShell = withTenantShell.replace(
         new RegExp(`(<button\\s+class="top-tab"\\s+data-gallery-shortcut="${shortcut}"\\s+)(type="button")`, "i"),
