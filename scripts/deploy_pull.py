@@ -297,6 +297,11 @@ def main() -> None:
     parser.add_argument("--commit", help="Require the remote checkout to be exactly this commit after deployment.")
     parser.add_argument("--no-restart", action="store_true")
     parser.add_argument(
+        "--rolling",
+        action="store_true",
+        help="Reject unsafe direct rolling mode; use the dual-unit transaction runner.",
+    )
+    parser.add_argument(
         "--no-mutations",
         action="store_true",
         help="Strict code-only mode: suppress configured pre/post commands and all service/Nginx mutations.",
@@ -312,6 +317,13 @@ def main() -> None:
         help="Print the generated remote shell command and exit without opening SSH.",
     )
     args = parser.parse_args()
+    if args.rolling and (args.no_restart or args.no_mutations):
+        raise SystemExit("--rolling cannot be combined with --no-restart or --no-mutations")
+    if args.rolling:
+        raise SystemExit(
+            "--rolling is not implemented here; use the three-upstream transaction runbook "
+            "after candidate preflight and soak gates pass"
+        )
     if os.environ.get("DEPLOY_NO_RESTART") == "1":
         args.no_restart = True
     if os.environ.get("DEPLOY_NO_MUTATIONS") == "1":

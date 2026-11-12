@@ -385,8 +385,10 @@ def atomic_write(path: Path, value: str, mode: int) -> None:
         raise
 
 
-def run(command: list[str]) -> None:
-    subprocess.run(command, check=True)
+def run(command: list[str], timeout: int = 20) -> None:
+    # Every subprocess is bounded. A hung nginx validation, reload, or helper can
+    # otherwise leave the transaction journal and lock open indefinitely.
+    subprocess.run(command, check=True, timeout=timeout)
 
 
 def require_http_200(url: str) -> None:
@@ -395,6 +397,7 @@ def require_http_200(url: str) -> None:
         check=False,
         capture_output=True,
         text=True,
+        timeout=15,
     )
     status = result.stdout.strip()
     if result.returncode != 0 or status != "200":
