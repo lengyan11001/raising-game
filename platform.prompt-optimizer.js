@@ -1,5 +1,11 @@
 (() => {
   const MAX_CHARS = 5000;
+  const OPTIMIZER_MODELS = Object.freeze([
+    { id: "carrothub-papaya-1.0", label: "Papaya 1.0" },
+    { id: "qwen3.7-flash", label: "Qwen3.7 Flash" },
+    { id: "byteplus-language", label: "BytePlus Language" },
+  ]);
+  const DEFAULT_OPTIMIZER_MODEL = OPTIMIZER_MODELS[0].id;
   const WAN_PROVIDERS = new Set(["wan30", "wan30-prime", "wan27", "wan-animate", "h3-vega"]);
   const SEEDANCE_PROVIDERS = new Set(["seedance", "seedance25", "seedance-nsfw", "seedance20-vega", "seedance25-vega"]);
   let activeModal = null;
@@ -70,6 +76,7 @@
       mode: String(payload.mode || "").slice(0, 80),
       language: String(payload.language || detectPromptLanguage(prompt)).slice(0, 32),
       references: normalizeReferences(payload.references),
+      optimizerModel: String(payload.optimizerModel || DEFAULT_OPTIMIZER_MODEL).slice(0, 120),
     };
     const response = await fetch("/api/advanced/prompt-optimize", {
       method: "POST",
@@ -79,11 +86,14 @@
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result.ok === false) {
       const code = String(result.code || "");
-      const upstreamBusy = code === "PROMPT_OPTIMIZER_UPSTREAM_UNAVAILABLE" || [502, 503, 504].includes(response.status);
-      const retryHint = response.status === 429
-        ? "请求太频繁，请稍后重试。"
-        : "上游模型暂时繁忙，请稍后重试。";
-      const error = new Error(upstreamBusy ? retryHint : (result.message || `优化失败：${response.status}`));
+      const message = result.message || (
+        response.status === 429
+          ? "请求太频繁，请稍后重试。"
+          : code === "PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT"
+            ? "当前模型响应超时，请重试或更换模型。"
+            : `优化失败：${response.status}`
+      );
+      const error = new Error(message);
       error.code = code;
       error.statusCode = response.status;
       error.requestId = String(result.requestId || "");
@@ -129,6 +139,7 @@
     if (!dialog) {
       dialog = document.createElement("dialog");
       dialog.className = "modal prompt-optimizer-dialog";
+      dialog.dataset.promptOptimizerVersion = "2";
       dialog.innerHTML = `
       <form method="dialog">
         <header>
@@ -136,16 +147,22 @@
           <button class="icon-btn" type="button" data-prompt-optimizer-close aria-label="Close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body prompt-optimizer-body">
-          <div class="prompt-optimizer-loading" data-prompt-optimizer-loading>
-            <i data-lucide="sparkles"></i><span data-prompt-optimizer-loading-text>正在按模型规则优化，请稍候...</span>
-          </div>
-          <div class="prompt-optimizer-error" data-prompt-optimizer-error hidden></div>
-          <div class="prompt-optimizer-content" data-prompt-optimizer-content hidden>
+          <div class="prompt-optimizer-content" data-prompt-optimizer-content>
             <label class="prompt-optimizer-field">
-              <span>原提示词</span>
-              <textarea data-prompt-optimizer-original rows="5" readonly></textarea>
+              <span>优化模型</span>
+              <select data-prompt-optimizer-model>
+                ${OPTIMIZER_MODELS.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`).join("")}
+              </select>
             </label>
             <label class="prompt-optimizer-field">
+              <span>原提示词 <small>可以直接修改</small></span>
+              <textarea data-prompt-optimizer-original rows="6" maxlength="${MAX_CHARS}"></textarea>
+            </label>
+            <div class="prompt-optimizer-loading" data-prompt-optimizer-loading hidden>
+              <i data-lucide="sparkles"></i><span data-prompt-optimizer-loading-text>正在按模型规则优化，请稍候...</span>
+            </div>
+            <div class="prompt-optimizer-error" data-prompt-optimizer-error hidden></div>
+            <label class="prompt-optimizer-field" data-prompt-optimizer-result-field hidden>
               <span>优化结果 <small data-prompt-optimizer-count></small></span>
               <textarea data-prompt-optimizer-result rows="10" maxlength="${MAX_CHARS}"></textarea>
             </label>
@@ -158,7 +175,7 @@
         </div>
         <div class="modal-actions inline-actions">
           <button class="ghost-button" type="button" data-prompt-optimizer-cancel>取消</button>
-          <button class="ghost-button" type="button" data-prompt-optimizer-retry>重新优化</button>
+          <button class="ghost-button" type="button" data-prompt-optimizer-retry>开始优化</button>
           <button class="generate-btn" type="button" data-prompt-optimizer-apply disabled><i data-lucide="check"></i>填入提示词</button>
         </div>
       </form>`;
@@ -168,6 +185,8 @@
       dialog,
       original: dialog.querySelector("[data-prompt-optimizer-original]"),
       result: dialog.querySelector("[data-prompt-optimizer-result]"),
+      resultField: dialog.querySelector("[data-prompt-optimizer-result-field]"),
+      model: dialog.querySelector("[data-prompt-optimizer-model]"),
       count: dialog.querySelector("[data-prompt-optimizer-count]"),
       notes: dialog.querySelector("[data-prompt-optimizer-notes]"),
       referencePlan: dialog.querySelector("[data-prompt-optimizer-reference-plan]"),
@@ -178,7 +197,7 @@
       error: dialog.querySelector("[data-prompt-optimizer-error]"),
       content: dialog.querySelector("[data-prompt-optimizer-content]"),
       apply: dialog.querySelector("[data-prompt-optimizer-apply]"),
-      retry: dialog.querySelector("[data-prompt-optimizer-retry]"),
+      start: dialog.querySelector("[data-prompt-optimizer-retry]"),
       payload: null,
       onApply: null,
     };
@@ -192,7 +211,7 @@
     dialog.addEventListener("close", () => { modal.onApply = null; if (activeModal === modal) activeModal = null; });
     const updateCount = () => { modal.count.textContent = `${modal.result.value.length} / ${MAX_CHARS}`; };
     modal.result.addEventListener("input", updateCount);
-    modal.retry.addEventListener("click", () => run(modal, modal.payload, modal.onApply));
+    modal.start.addEventListener("click", () => submitCurrent(modal));
     modal.apply.addEventListener("click", () => {
       const value = modal.result.value.trim();
       if (!value) return;
@@ -204,11 +223,32 @@
     return modal;
   }
 
+  function selectedModelLabel(modal) {
+    return OPTIMIZER_MODELS.find((item) => item.id === modal.model.value)?.label || "当前模型";
+  }
+
   function setLoading(modal, loading) {
+    modal.dialog.setAttribute("aria-busy", loading ? "true" : "false");
     modal.loading.hidden = !loading;
-    modal.content.hidden = loading || Boolean(modal.error.textContent && !modal.error.hidden);
-    modal.retry.disabled = loading;
+    modal.start.disabled = loading;
+    modal.model.disabled = loading;
     modal.apply.disabled = loading || !modal.result.value.trim();
+  }
+
+  function submitCurrent(modal) {
+    const prompt = String(modal.original.value || "").trim();
+    if (!prompt) {
+      modal.error.hidden = false;
+      modal.error.textContent = "请先输入提示词。";
+      modal.original.focus();
+      return;
+    }
+    run(modal, {
+      ...(modal.payload || {}),
+      prompt,
+      optimizerModel: modal.model.value,
+      language: detectPromptLanguage(prompt),
+    }, modal.onApply);
   }
 
   async function run(modal, payload, onApply) {
@@ -217,58 +257,59 @@
     modal.error.hidden = true;
     modal.error.textContent = "";
     modal.result.value = "";
-    modal.original.value = payload.prompt;
+    modal.resultField.hidden = true;
     modal.count.textContent = `0 / ${MAX_CHARS}`;
     modal.notes.innerHTML = "";
     modal.referencePlan.hidden = true;
     modal.referenceList.innerHTML = "";
     modal.apply.disabled = true;
+    modal.start.textContent = "开始优化";
     const seedance = isSeedanceProvider(payload.provider);
     const hasReferences = Array.isArray(payload.references) && payload.references.length > 0;
     modal.kicker.textContent = seedance ? "Seedance Prompt Optimizer" : "W3 Prompt Optimizer";
-    modal.loadingText.textContent = seedance
+    const loadingHint = seedance
       ? (hasReferences
         ? "正在按 Seedance 参考素材与提示词规则优化，请稍候..."
         : "正在按 Seedance 纯文本提示词规则优化，素材可稍后添加...")
       : "正在按 W3 规则优化，请稍候...";
+    modal.loadingText.textContent = `${selectedModelLabel(modal)} · ${loadingHint} 时间可能稍长，请勿重复提交。`;
     setLoading(modal, true);
     window.lucide?.createIcons?.();
     try {
       const result = await requestOptimize(payload);
-      modal.original.value = result.originalPrompt || payload.prompt;
       modal.result.value = readableOptimizedPrompt(result.optimizedPrompt).slice(0, MAX_CHARS);
+      modal.resultField.hidden = false;
       modal.notes.innerHTML = (result.notes || []).map((note) => `<li>${escapeHtml(note)}</li>`).join("");
       const referencePlan = Array.isArray(result.referencePlan) ? result.referencePlan.filter(Boolean).slice(0, 12) : [];
       modal.referencePlan.hidden = referencePlan.length === 0;
       modal.referenceList.innerHTML = referencePlan.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
       modal.count.textContent = `${modal.result.value.length} / ${MAX_CHARS}`;
       modal.loading.hidden = true;
-      modal.content.hidden = false;
       modal.apply.disabled = !modal.result.value.trim();
-      modal.retry.disabled = false;
+      modal.start.disabled = false;
+      modal.model.disabled = false;
+      modal.start.textContent = "重新优化";
+      modal.dialog.setAttribute("aria-busy", "false");
       modal.result.focus();
     } catch (error) {
       modal.loading.hidden = true;
-      modal.content.hidden = true;
       modal.error.hidden = false;
       modal.error.textContent = error.message || String(error);
-      modal.retry.disabled = false;
+      modal.start.disabled = false;
+      modal.model.disabled = false;
       modal.apply.disabled = true;
+      modal.dialog.setAttribute("aria-busy", "false");
     }
   }
 
   function openPromptOptimizer(options = {}) {
-    const prompt = String(options.prompt ?? options.value ?? "").trim();
-    if (!prompt) {
-      window.alert?.("请先输入提示词。");
-      return Promise.resolve("");
-    }
+    let prompt = String(options.prompt ?? options.value ?? "");
     if (prompt.length > MAX_CHARS) {
       window.alert?.(`提示词不能超过 ${MAX_CHARS} 个字符。`);
       return Promise.resolve("");
     }
     const modal = ensureModal();
-    const payload = {
+    modal.payload = {
       prompt,
       provider: options.provider || "",
       providerLabel: options.providerLabel || "",
@@ -277,10 +318,31 @@
       mode: options.mode,
       references: normalizeReferences(options.references),
       language: options.language || detectPromptLanguage(prompt),
+      optimizerModel: OPTIMIZER_MODELS.some((item) => item.id === options.optimizerModel)
+        ? options.optimizerModel
+        : DEFAULT_OPTIMIZER_MODEL,
     };
-    const apply = options.onApply || (() => {});
+    modal.onApply = options.onApply || (() => {});
+    modal.original.value = prompt;
+    modal.model.value = modal.payload.optimizerModel;
+    modal.result.value = "";
+    modal.resultField.hidden = true;
+    modal.error.hidden = true;
+    modal.error.textContent = "";
+    modal.loading.hidden = true;
+    modal.notes.innerHTML = "";
+    modal.referencePlan.hidden = true;
+    modal.referenceList.innerHTML = "";
+    modal.start.textContent = "开始优化";
+    modal.start.disabled = false;
+    modal.model.disabled = false;
+    modal.apply.disabled = true;
+    modal.count.textContent = `0 / ${MAX_CHARS}`;
+    const seedance = isSeedanceProvider(modal.payload.provider);
+    modal.kicker.textContent = seedance ? "Seedance Prompt Optimizer" : "W3 Prompt Optimizer";
     if (!modal.dialog.open) modal.dialog.showModal();
-    run(modal, payload, apply);
+    modal.original.focus();
+    window.lucide?.createIcons?.();
     return Promise.resolve("");
   }
 

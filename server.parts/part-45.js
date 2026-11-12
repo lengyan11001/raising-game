@@ -1,8 +1,35 @@
 const W3_PROMPT_MAX_CHARS = 5000;
 const W3_PROMPT_OPTIMIZER_MODEL = "carrothub-papaya-1.0";
-const PROMPT_OPTIMIZER_TOTAL_BUDGET_MS = 50000;
-const PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT_MS = 25000;
+const PROMPT_OPTIMIZER_TOTAL_BUDGET_MS = 170000;
+const PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT_MS = 165000;
 const PROMPT_OPTIMIZER_UPSTREAM_MAX_ATTEMPTS = 2;
+const PROMPT_OPTIMIZER_MODELS = Object.freeze({
+  "carrothub-papaya-1.0": {
+    id: "carrothub-papaya-1.0",
+    label: "Papaya 1.0",
+    upstreamModel: W3_PROMPT_OPTIMIZER_MODEL,
+    request: (body, options) => papayaLanguageRequest(body, options),
+    configured: () => Boolean(String(process.env.MULEROUTER_API_KEY || "").trim()),
+    missingCode: "MISSING_MULEROUTER_API_KEY",
+  },
+  "qwen3.7-flash": {
+    id: "qwen3.7-flash",
+    label: "Qwen3.7 Flash",
+    upstreamModel: QWEN37_FLASH_MODEL,
+    request: (body, options) => aliyunQwen37FlashRequest(body, { ...options, maxAttempts: 1 }).catch((error) => { error.retryable = false; throw error; }),
+    configured: () => Boolean(ALIYUN_QWEN37_API_KEY),
+    missingCode: "MISSING_ALIYUN_QWEN37_API_KEY",
+  },
+  "byteplus-language": {
+    id: "byteplus-language",
+    label: "BytePlus Language",
+    upstreamModel: BYTEPLUS_LANGUAGE_MODEL,
+    request: (body, options) => byteplusLanguageRequest(body, options),
+    configured: () => Boolean(ARK_API_KEY),
+    missingCode: "MISSING_ARK_API_KEY",
+  },
+});
+const PROMPT_OPTIMIZER_DEFAULT_MODEL = "carrothub-papaya-1.0";
 const PROMPT_OPTIMIZER_RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 520, 522]);
 const SEEDANCE_PROMPT_OPTIMIZER_PROVIDERS = new Set([
   "seedance",
@@ -523,13 +550,23 @@ function w3PromptOptimizerRequest(payload = {}, { languageCorrection = false } =
 }
 
 function promptOptimizerUpstreamIsRetryable(error = {}) {
+  if (error.retryable === false) return false;
   const status = Number(error.statusCode || error.cause?.statusCode || 0);
-  if (PROMPT_OPTIMIZER_RETRYABLE_STATUS.has(status) || error.retryable === true) return true;
-  const detail = `${String(error.cause?.code || error.code || "")} ${String(error.message || "")}`;
-  return !status && /abort|timeout|timed out|fetch failed|network|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT/i.test(detail);
+  return PROMPT_OPTIMIZER_RETRYABLE_STATUS.has(status);
 }
 
-async function promptOptimizerPapayaRequest(body = {}, { deadline = Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS, requestContext = {}, usage = {} } = {}) {
+function promptOptimizerSelectedModel(value = "") {
+  const id = String(value || "").trim() || PROMPT_OPTIMIZER_DEFAULT_MODEL;
+  return PROMPT_OPTIMIZER_MODELS[id] || null;
+}
+
+function promptOptimizerTimeoutError(lastError) {
+  const code = String(lastError?.cause?.code || lastError?.code || "");
+  return /timeout|timed out|abort|ETIMEDOUT/i.test(`${code} ${String(lastError?.message || "")}`);
+}
+
+async function promptOptimizerUpstreamRequest(body = {}, { deadline = Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS, requestContext = {}, usage = {}, optimizerModel = null } = {}) {
+  const selected = optimizerModel || PROMPT_OPTIMIZER_MODELS[PROMPT_OPTIMIZER_DEFAULT_MODEL];
   let lastError = null;
   let attempts = 0;
   for (let attempt = 1; attempt <= PROMPT_OPTIMIZER_UPSTREAM_MAX_ATTEMPTS; attempt += 1) {
@@ -538,7 +575,7 @@ async function promptOptimizerPapayaRequest(body = {}, { deadline = Date.now() +
     attempts = attempt;
     usage.attempts = (Number(usage.attempts) || 0) + 1;
     try {
-      return await papayaLanguageRequest(body, {
+      return await selected.request(body, {
         timeoutMs: Math.min(PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT_MS, remainingMs),
       });
     } catch (error) {
@@ -555,14 +592,22 @@ async function promptOptimizerPapayaRequest(body = {}, { deadline = Date.now() +
       await delay(400 * attempt);
     }
   }
-  const error = new Error("Prompt optimizer upstream is temporarily unavailable.");
+  const timedOut = promptOptimizerTimeoutError(lastError);
+  const error = new Error(timedOut ? "Prompt optimizer upstream timed out." : "Prompt optimizer upstream failed.");
   error.statusCode = 503;
-  error.code = "PROMPT_OPTIMIZER_UPSTREAM_UNAVAILABLE";
+  error.code = timedOut ? "PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT" : "PROMPT_OPTIMIZER_UPSTREAM_UNAVAILABLE";
   error.upstreamStatus = Number(lastError?.statusCode || 0);
   error.upstreamCode = String(lastError?.cause?.code || lastError?.code || "");
   error.attempts = attempts;
   error.cause = lastError;
   throw error;
+}
+
+async function promptOptimizerPapayaRequest(body = {}, options = {}) {
+  return promptOptimizerUpstreamRequest(body, {
+    ...options,
+    optimizerModel: PROMPT_OPTIMIZER_MODELS[PROMPT_OPTIMIZER_DEFAULT_MODEL],
+  });
 }
 
 async function handleAdvancedPromptOptimize(req, res) {
@@ -574,14 +619,19 @@ async function handleAdvancedPromptOptimize(req, res) {
   } catch (error) {
     return sendJson(res, error.statusCode || 400, { ok: false, code: error.code || "INVALID_JSON", message: error.message || "Invalid request." });
   }
+  const optimizerModel = promptOptimizerSelectedModel(body.optimizerModel || body.optimizer_model);
+  if (!optimizerModel) {
+    return sendJson(res, 400, { ok: false, code: "PROMPT_OPTIMIZER_MODEL_UNSUPPORTED", message: "不支持的优化模型，请重新选择。" });
+  }
+  if (!optimizerModel.configured()) {
+    return sendJson(res, 503, { ok: false, code: optimizerModel.missingCode, message: `${optimizerModel.label} 尚未配置，请更换模型。` });
+  }
   const request = promptOptimizerRequestForPayload(body);
+  request.body.model = optimizerModel.upstreamModel;
   const seedanceRequest = seedancePromptOptimizerIsProvider(body.provider);
   if (!request.originalPrompt) return sendJson(res, 400, { ok: false, code: "PROMPT_REQUIRED", message: "Prompt is required." });
   if (request.originalPrompt.length > W3_PROMPT_MAX_CHARS) {
     return sendJson(res, 400, { ok: false, code: "PROMPT_TOO_LONG", message: `Prompt must be ${W3_PROMPT_MAX_CHARS} characters or fewer.` });
-  }
-  if (!String(process.env.MULEROUTER_API_KEY || "").trim()) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_MULEROUTER_API_KEY", message: "提示词优化服务暂时不可用，请稍后重试。" });
   }
   const requestId = `prompt-optimizer-${crypto.randomUUID()}`;
   const startedAt = Date.now();
@@ -591,21 +641,24 @@ async function handleAdvancedPromptOptimize(req, res) {
     requestId,
     provider: request.provider,
     seedance: seedanceRequest,
-    model: W3_PROMPT_OPTIMIZER_MODEL,
+    optimizerModel: optimizerModel.id,
+    upstreamModel: optimizerModel.upstreamModel,
     duration: request.duration,
     language: request.language,
     referenceCount: Array.isArray(request.references) ? request.references.length : 0,
   };
   try {
     let requestAttempt = request;
-    let raw = await promptOptimizerPapayaRequest(requestAttempt.body, { deadline, requestContext, usage });
+    requestAttempt.body.model = optimizerModel.upstreamModel;
+    let raw = await promptOptimizerUpstreamRequest(requestAttempt.body, { deadline, requestContext, usage, optimizerModel });
     let text = w3PromptOptimizerText(raw);
     if (!text) throw Object.assign(new Error("Prompt optimizer returned no text."), { statusCode: 502, code: "PROMPT_OPTIMIZER_EMPTY" });
     let parsed = w3ParseOptimizerJson(text);
     let optimizedPrompt = parsed?.optimizedPrompt || w3OptimizerReadablePrompt(text);
     if (request.language === "zh" && !w3PromptIsMostlyChinese(optimizedPrompt)) {
       requestAttempt = promptOptimizerRequestForPayload(body, { languageCorrection: true });
-      raw = await promptOptimizerPapayaRequest(requestAttempt.body, { deadline, requestContext, usage });
+      requestAttempt.body.model = optimizerModel.upstreamModel;
+      raw = await promptOptimizerUpstreamRequest(requestAttempt.body, { deadline, requestContext, usage, optimizerModel });
       text = w3PromptOptimizerText(raw);
       if (!text) throw Object.assign(new Error("Prompt optimizer returned no text."), { statusCode: 502, code: "PROMPT_OPTIMIZER_EMPTY" });
       parsed = w3ParseOptimizerJson(text);
@@ -618,7 +671,8 @@ async function handleAdvancedPromptOptimize(req, res) {
       const initialIssues = seedancePromptOptimizerContentIssues(optimizedPrompt, request.duration, request.originalPrompt);
       if (initialIssues.length) {
         requestAttempt = promptOptimizerRequestForPayload({ ...body, __correctionIssues: initialIssues }, { languageCorrection: request.language === "zh" && !w3PromptIsMostlyChinese(optimizedPrompt) });
-        raw = await promptOptimizerPapayaRequest(requestAttempt.body, { deadline, requestContext, usage });
+        requestAttempt.body.model = optimizerModel.upstreamModel;
+        raw = await promptOptimizerUpstreamRequest(requestAttempt.body, { deadline, requestContext, usage, optimizerModel });
         text = w3PromptOptimizerText(raw);
         if (!text) throw Object.assign(new Error("Prompt optimizer returned no text."), { statusCode: 502, code: "PROMPT_OPTIMIZER_EMPTY" });
         parsed = w3ParseOptimizerJson(text);
@@ -657,7 +711,8 @@ async function handleAdvancedPromptOptimize(req, res) {
       optimizedPrompt,
       notes: parsed?.notes || [],
       referencePlan: seedanceRequest ? (parsed?.referencePlan || []) : [],
-      model: W3_PROMPT_OPTIMIZER_MODEL,
+      model: optimizerModel.id,
+      upstreamModel: optimizerModel.upstreamModel,
       mode: seedanceRequest ? "seedance" : "w3",
     });
   } catch (error) {
@@ -673,9 +728,11 @@ async function handleAdvancedPromptOptimize(req, res) {
       attempts: Number(error.attempts || usage.attempts || 0),
       elapsedMs: Date.now() - startedAt,
     }));
-    const message = code === "PROMPT_OPTIMIZER_UPSTREAM_UNAVAILABLE"
-      ? "上游模型暂时繁忙，请稍后重试。"
-      : (error.message || "Prompt optimization failed.");
+    const message = code === "PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT"
+      ? `${optimizerModel.label} 响应超时，请重试或更换模型。`
+      : code === "PROMPT_OPTIMIZER_UPSTREAM_UNAVAILABLE"
+        ? `${optimizerModel.label} 返回了明确的上游错误，请稍后重试或更换模型。`
+        : (error.message || "Prompt optimization failed.");
     return sendJson(res, status, { ok: false, code, message, requestId });
   }
 }

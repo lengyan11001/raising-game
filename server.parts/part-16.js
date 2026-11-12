@@ -155,11 +155,12 @@ async function aliyunDashscopeRequest(pathname, {
   const queryRequest = normalizedMethod === "GET";
   const submitRequest = normalizedMethod === "POST";
   const maxAttempts = queryRequest ? 2 : (submitRequest ? 3 : 2);
+  const attemptsLimit = Math.max(1, Math.floor(Number(maxAttempts || 1) || 1));
   const requestTimeoutMs = Math.max(5000, Number(timeoutMs || (queryRequest ? 20000 : 180000)) || 180000);
   let lastError = null;
   const transientPattern = /fetch failed|timeout|timed out|abort|econn|network|socket|dns|tls|reset/i;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  for (let attempt = 1; attempt <= attemptsLimit; attempt += 1) {
     try {
       const response = await fetch(`${baseUrl}${pathname}`, {
         method: normalizedMethod,
@@ -195,7 +196,7 @@ async function aliyunDashscopeRequest(pathname, {
       const transientNetworkError = (queryRequest || submitRequest)
         && !error.statusCode
         && transientPattern.test(`${String(error.message || error)} ${causeCode}`);
-      if (attempt >= maxAttempts || (!error.retryable && !transientNetworkError)) {
+      if (attempt >= attemptsLimit || (!error.retryable && !transientNetworkError)) {
         if (!error.statusCode && transientNetworkError) {
           const wrapped = new Error(`Alibaba video request failed: ${error.message || "fetch failed"}${causeCode ? ` (${causeCode})` : ""}`);
           wrapped.statusCode = 502;
@@ -210,7 +211,7 @@ async function aliyunDashscopeRequest(pathname, {
         method: normalizedMethod,
         path: pathname,
         attempt,
-        maxAttempts,
+        maxAttempts: attemptsLimit,
         statusCode: error.statusCode || 0,
         code: causeCode || error.code || "",
         message: String(error.message || error).slice(0, 180),
@@ -233,17 +234,17 @@ function qwen37FlashChatCompletionsUrl() {
   return `${ALIYUN_QWEN37_BASE_URL}/compatible-mode/v1/chat/completions`;
 }
 
-async function aliyunQwen37FlashRequest(body = {}, { timeoutMs = 180000 } = {}) {
+async function aliyunQwen37FlashRequest(body = {}, { timeoutMs = 180000, maxAttempts = 3 } = {}) {
   if (!ALIYUN_QWEN37_API_KEY) {
     const error = new Error("Qwen3.7 Flash is not configured.");
     error.statusCode = 503;
     error.code = "MISSING_ALIYUN_QWEN37_API_KEY";
     throw error;
   }
-  const maxAttempts = 3;
+  const attemptsLimit = Math.max(1, Math.floor(Number(maxAttempts || 3) || 3));
   const transientPattern = /fetch failed|timeout|timed out|abort|econn|network|socket|dns|tls|reset/i;
   let lastError = null;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  for (let attempt = 1; attempt <= attemptsLimit; attempt += 1) {
     try {
       const response = await fetch(qwen37FlashChatCompletionsUrl(), {
         method: "POST",
@@ -276,7 +277,7 @@ async function aliyunQwen37FlashRequest(body = {}, { timeoutMs = 180000 } = {}) 
       lastError = error;
       const causeCode = String(error?.cause?.code || error?.code || "");
       const transientNetworkError = !error.statusCode && transientPattern.test(`${String(error.message || error)} ${causeCode}`);
-      if (attempt >= maxAttempts || (!error.retryable && !transientNetworkError)) {
+      if (attempt >= attemptsLimit || (!error.retryable && !transientNetworkError)) {
         if (!error.statusCode && transientNetworkError) {
           const wrapped = new Error(`Qwen3.7 Flash request failed: ${error.message || "fetch failed"}${causeCode ? ` (${causeCode})` : ""}`);
           wrapped.statusCode = 502;
@@ -288,7 +289,7 @@ async function aliyunQwen37FlashRequest(body = {}, { timeoutMs = 180000 } = {}) 
       }
       console.warn("[qwen37-flash-retry]", JSON.stringify({
         attempt,
-        maxAttempts,
+        maxAttempts: attemptsLimit,
         statusCode: error.statusCode || 0,
         code: causeCode || error.code || "",
         message: String(error.message || error).slice(0, 180),
