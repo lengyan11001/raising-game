@@ -140,8 +140,11 @@ test("character chat uses the BytePlus language endpoint with roleplay context a
 });
 
 test("chat assets bypass stale browser caches after deployment", () => {
-  assert.match(html, /platform\.js\?v=chat-inline-20261026-2/);
-  assert.match(standaloneHtml, /chat\.js\?v=chat-inline-20261026-2/);
+  // Main-platform cache busting is release-wide and may advance beyond the
+  // chat-specific suffix. Assert that both documents carry a version instead
+  // of pinning them to an old deployment timestamp.
+  assert.match(html, /platform\.js\?v=[^"'\s]+/);
+  assert.match(standaloneHtml, /chat\.js\?v=[^"'\s]+/);
 });
 
 test("standalone chat opens the created conversation and sends messages", () => {
@@ -211,6 +214,7 @@ test("chat UI exposes the three-pane workflow and character entry point", () => 
   assert.match(chat, /syncChatViewportHeight/);
   assert.match(chat, /data-chat-branch/);
   assert.match(chat, /data-chat-delete/);
+  assert.match(chat, /const liveCharacter = \(hasConversation && window\.ChatLive\?\.available\?\.\(\)/);
 });
 
 test("character chat supports generated media, state tracking and conversation branching", () => {

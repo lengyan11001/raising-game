@@ -40,7 +40,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "41.5 秒",
     expectedDuration: 41.5,
     seekMarkers: [23.0, 32.0],
-    src: "/assets/admin/voice-preview/joanna-scene-23s-a-bfa45922.m4a?v=20261030-voice-preview-12",
+    src: "/api/admin/voice-preview/joanna-scene-23s-a-bfa45922.m4a?v=20261030-voice-preview-12",
   },
   {
     id: "user-rule-f",
@@ -50,7 +50,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "46.8 秒",
     expectedDuration: 46.8,
     seekMarkers: [23.0, 32.0],
-    src: "/assets/admin/voice-preview/joanna-scene-23s-b-5c58fa85.m4a?v=20261030-voice-preview-12",
+    src: "/api/admin/voice-preview/joanna-scene-23s-b-5c58fa85.m4a?v=20261030-voice-preview-12",
   },
   {
     id: "qwen3-serena-once",
@@ -60,7 +60,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "64.2 秒",
     expectedDuration: 64.16,
     seekMarkers: [32.0, 48.0],
-    src: "/assets/admin/voice-preview/qwen3-serena-scene-once-cc25477e.m4a?v=20261031-qwen3-serena-once",
+    src: "/api/admin/voice-preview/qwen3-serena-scene-once-cc25477e.m4a?v=20261031-qwen3-serena-once",
   },
   {
     id: "qwen3-serena-more-moans-a",
@@ -70,7 +70,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "51.8 秒",
     expectedDuration: 51.84,
     seekMarkers: [16.0, 32.0],
-    src: "/assets/admin/voice-preview/qwen3-serena-more-moans-a-488ec19b.m4a?v=20261102-qwen3-serena-more-moans-a",
+    src: "/api/admin/voice-preview/qwen3-serena-more-moans-a-488ec19b.m4a?v=20261102-qwen3-serena-more-moans-a",
   },
   {
     id: "qwen3-serena-more-moans-b",
@@ -80,7 +80,7 @@ const VOICE_PREVIEW_ITEMS = [
     duration: "93.5 秒",
     expectedDuration: 93.52,
     seekMarkers: [31.0, 62.0],
-    src: "/assets/admin/voice-preview/qwen3-serena-more-moans-b-b3ec15c9.m4a?v=20261102-qwen3-serena-more-moans-b",
+    src: "/api/admin/voice-preview/qwen3-serena-more-moans-b-b3ec15c9.m4a?v=20261102-qwen3-serena-more-moans-b",
   },
 ];
 
@@ -91,6 +91,8 @@ const ROUTES = [
   { id: "characters", title: "角色管理", render: renderCharacters },
   { id: "records", title: "生成记录", render: renderGenerationRecords },
   { id: "users", title: "用户管理", render: renderUsers },
+  { id: "support-tickets", title: "客服工单", render: renderSupportTickets },
+  { id: "system-notifications", title: "系统通知", render: renderSystemNotifications },
   { id: "support", title: "站内信", render: renderSupportMessages },
   { id: "recharges", title: "充值流水", render: renderRecharges },
   { id: "wallet", title: "钱包订单", render: renderWallet },
@@ -187,13 +189,6 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function maskMiddle(value = "") {
-  const text = String(value || "");
-  if (!text) return "—";
-  if (text.length <= 16) return `${text.slice(0, 4)}...${text.slice(-4)}`;
-  return `${text.slice(0, 10)}...${text.slice(-8)}`;
-}
-
 function fmtDate(value) {
   if (!value) return "—";
   const d = new Date(value);
@@ -204,6 +199,22 @@ function fmtDate(value) {
   const hh = String(d.getHours()).padStart(2, "0");
   const mi = String(d.getMinutes()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+}
+
+function fmtCount(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number.toLocaleString("zh-CN") : "0";
+}
+
+function fmtDurationMs(value) {
+  const ms = Math.max(0, Number(value || 0));
+  if (!ms) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${rest}s`;
 }
 
 function fmtRelative(value) {
@@ -706,58 +717,152 @@ async function renderDashboard() {
   const dashboard = await api("/api/admin/dashboard");
   if (!isActiveRoute("dashboard")) return;
   const s = dashboard.stats || {};
-  const visits = dashboard.characterVisits || {};
-  const visitRows = visits.rows || [];
+  const risk = dashboard.risk || {};
+  const riskEvents = Array.isArray(risk.events) ? risk.events : [];
+  const usersByHour = Array.isArray(risk.usersByHour) ? risk.usersByHour : [];
+  const usersByChannel = Array.isArray(risk.usersByChannel) ? risk.usersByChannel : [];
+  const recentUsers = Array.isArray(risk.recentUsers) ? risk.recentUsers : [];
+  const statusRows = Array.isArray(s.generationStatuses) ? s.generationStatuses : [];
+  const modelRows = Array.isArray(s.generationModels) ? s.generationModels : [];
+  const providerRows = Array.isArray(s.generationProviders) ? s.generationProviders : [];
+  const recentFailures = Array.isArray(s.recentFailures) ? s.recentFailures : [];
+  const peakHour = usersByHour.reduce((best, row) => Number(row.count || 0) > Number(best?.count || 0) ? row : best, null);
+  const automationEvents = riskEvents.filter((row) => /automation|failed|locked|rate_limited/.test(String(row.type || ""))).reduce((sum, row) => sum + Number(row.count || 0), 0);
 
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
         <div>
           <h2>仪表盘</h2>
-          <p class="adm-muted">用户、角色、充值和系统角色访问的关键指标。</p>
+          <p class="adm-muted">用户增长、活跃情况与生成任务执行情况。</p>
         </div>
         <div class="adm-page-actions">
           <button class="adm-btn adm-btn-ghost" data-act="refresh"><i data-lucide="refresh-cw"></i>刷新</button>
         </div>
       </div>
 
+      <h3 class="adm-subhead">用户数据</h3>
       <div class="adm-grid adm-grid-4">
-        ${statCard("用户总数", s.users, `${s.admins || 0} 名管理员`, "users-round", "rose")}
-        ${statCard("系统角色", s.adminCharacters, "后台创建角色数量", "user-round", "violet")}
-        ${statCard("角色 PV", visits.pv || visits.total || 0, `${visits.home || 0} 首页进入`, "eye", "mint")}
-        ${statCard("角色 UV", visits.uv || 0, "90 天哈希位图估算", "users", "amber")}
-        ${statCard("用户自定义角色", s.userCharacters, `${s.userSceneVideos || 0} 个用户场景视频`, "user-plus", "rose")}
-        ${statCard("钱包订单", s.walletOrders, `${s.pendingOrders || 0} 待确认`, "wallet", "violet")}
-        ${statCard("生成历史", s.generationRecords, "任务记录总数", "history", "mint")}
-        ${statCard("用户素材库", s.userAssets, "上传图片素材数量", "images", "amber")}
+        ${statCard("用户总数", fmtCount(s.users), "当前有效注册账号", "users-round", "rose")}
+        ${statCard("今日新增", fmtCount(s.usersToday), peakHour ? `峰值 ${fmtDate(peakHour.hour).slice(5)} · ${fmtCount(peakHour.count)} 人` : "暂无今日注册", "user-plus", "violet")}
+        ${statCard("近 7 日新增", fmtCount(s.users7d), "滚动 7 天注册账号", "user-round", "mint")}
+        ${statCard("有效登录用户", fmtCount(s.loggedInUsers), "当前未过期会话去重用户", "log-in", "amber")}
+      </div>
+
+      <div class="adm-grid adm-grid-4">
+        ${statCard("今日生成用户", fmtCount(s.generatingUsersToday), "今天创建过生成任务", "wand-sparkles", "rose")}
+        ${statCard("近 7 日生成用户", fmtCount(s.generatingUsers7d), "7 天内有生成行为", "activity", "violet")}
+        ${statCard("近 7 日付费用户", fmtCount(s.payingUsers7d), `${fmtCount(s.pendingOrders)} 笔订单待确认`, "badge-dollar-sign", "mint")}
+        ${statCard("用户素材库", fmtCount(s.userAssets), "当前有效上传素材", "images", "amber")}
+      </div>
+
+      <h3 class="adm-subhead adm-mt">生成任务执行</h3>
+      <div class="adm-grid adm-grid-4">
+        ${statCard("任务总数", fmtCount(s.generationRecords), `近 7 日 ${fmtCount(s.generation7d)} 条`, "history", "violet")}
+        ${statCard("今日任务", fmtCount(s.generationToday), "按任务创建时间统计", "calendar-clock", "rose")}
+        ${statCard("执行中", fmtCount(s.generationRunning), "等待、排队或处理中", "loader-circle", "amber")}
+        ${statCard("近 7 日成功率", `${Number(s.successRate7d || 0).toFixed(1)}%`, "成功 /（成功 + 失败）", "circle-check-big", "mint")}
+      </div>
+
+      <div class="adm-grid adm-grid-4">
+        ${statCard("近 7 日成功", fmtCount(s.succeeded7d), `累计成功 ${fmtCount(s.generationSucceeded)}`, "circle-check", "mint")}
+        ${statCard("近 7 日失败", fmtCount(s.failed7d), `累计失败 ${fmtCount(s.generationFailed)}`, "circle-x", "rose")}
+        ${statCard("近 7 日退款", fmtCount(s.refunded7d), `累计退款 ${fmtCount(s.generationRefunded)}`, "rotate-ccw", "amber")}
+        ${statCard("近 7 日平均耗时", fmtDurationMs(s.avgDurationMs7d), "成功任务从创建到完成", "timer", "violet")}
       </div>
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>系统角色访问统计</h3>
-          <a class="adm-btn adm-btn-ghost adm-btn-sm" href="#/characters"><i data-lucide="arrow-up-right"></i>查看角色</a>
+          <h3>用户注册与登录风控（近 24 小时）</h3>
+          <div class="adm-page-actions">
+            <span class="adm-badge adm-badge-muted">${escapeHtml(risk.hours || 24)}h</span>
+            <button class="adm-btn adm-btn-ghost adm-btn-sm" data-act="risk-refresh"><i data-lucide="refresh-cw"></i>刷新</button>
+          </div>
         </header>
-        <div class="adm-card-body adm-table-wrap">
-          ${visitRows.length ? `
-            <table class="adm-table adm-dashboard-table">
-              <thead><tr><th>角色</th><th>PV</th><th>UV</th><th>首页进入</th><th>直接/外部</th><th>最后访问</th></tr></thead>
-              <tbody>
-                ${visitRows.map((row) => `
-                  <tr>
-                    <td><strong>${escapeHtml(row.name || row.id)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(row.id || "")}</span></td>
-                    <td>${escapeHtml(row.pv ?? row.total ?? 0)}</td>
-                    <td>${escapeHtml(row.uv || 0)}</td>
-                    <td>${escapeHtml(row.home || 0)}</td>
-                    <td>${escapeHtml(row.direct || 0)}</td>
-                    <td>${fmtRelative(row.lastSeen)}</td>
-                  </tr>`).join("")}
-              </tbody>
-            </table>` : '<div class="adm-empty"><i data-lucide="bar-chart-3"></i><p>暂无系统角色访问数据。</p></div>'}
+        <div class="adm-card-body">
+          <div class="adm-chip-list">
+            <span class="adm-chip">24h 新增: <strong>${fmtCount(risk.totalUsers)}</strong></span>
+            <span class="adm-chip">登录失败: <strong>${fmtCount(risk.loginFailures)}</strong></span>
+            <span class="adm-chip">锁定账号: <strong>${fmtCount(risk.lockedAccounts)}</strong></span>
+            <span class="adm-chip">风控事件: <strong>${fmtCount(automationEvents)}</strong></span>
+          </div>
+          ${usersByHour.length || usersByChannel.length || riskEvents.length ? `
+            <div class="adm-grid adm-grid-2 adm-mt">
+              <div>
+                <h4 class="adm-subhead">按小时注册量</h4>
+                ${usersByHour.length ? `<div class="adm-table-wrap"><table class="adm-table"><thead><tr><th>时间</th><th>注册数</th></tr></thead><tbody>${usersByHour.map((row) => `<tr><td>${fmtDate(row.hour)}</td><td><strong>${fmtCount(row.count)}</strong></td></tr>`).join("")}</tbody></table></div>` : '<div class="adm-empty"><p>暂无注册数据。</p></div>'}
+              </div>
+              <div>
+                <h4 class="adm-subhead">注册渠道与风控事件</h4>
+                <div class="adm-chip-list">
+                  ${usersByChannel.map((row) => `<span class="adm-chip">${escapeHtml(row.channel || "direct")}: <strong>${fmtCount(row.count)}</strong></span>`).join("")}
+                  ${riskEvents.map((row) => `<span class="adm-chip">${escapeHtml(row.type || "event")}: <strong>${fmtCount(row.count)}</strong></span>`).join("")}
+                </div>
+              </div>
+            </div>
+          ` : '<div class="adm-empty adm-mt"><i data-lucide="shield-check"></i><p>暂无风控数据。</p></div>'}
+          ${recentUsers.length ? `
+            <h4 class="adm-subhead adm-mt">最近注册账号</h4>
+            <div class="adm-table-wrap">
+              <table class="adm-table"><thead><tr><th>用户名</th><th>渠道</th><th>注册时间</th></tr></thead><tbody>
+                ${recentUsers.slice(0, 12).map((user) => `<tr><td class="adm-mono">${escapeHtml(user.username || "")}</td><td>${escapeHtml(user.channel || "direct")}</td><td>${fmtDate(user.createdAt)}</td></tr>`).join("")}
+              </tbody></table>
+            </div>
+          ` : ""}
         </div>
       </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>近 7 日任务分布</h3>
+          <span class="adm-badge adm-badge-muted">${fmtCount(s.generation7d)} 条任务</span>
+        </header>
+        <div class="adm-card-body">
+          <div class="adm-grid adm-grid-3">
+            <div>
+              <h4 class="adm-subhead">按状态</h4>
+              <div class="adm-chip-list">${statusRows.length ? statusRows.map((row) => `<span class="adm-chip">${escapeHtml(row.status || "unknown")}: <strong>${fmtCount(row.count)}</strong></span>`).join("") : '<span class="adm-muted">暂无任务</span>'}</div>
+            </div>
+            <div>
+              <h4 class="adm-subhead">按模型</h4>
+              <div class="adm-chip-list">${modelRows.length ? modelRows.map((row) => `<span class="adm-chip">${escapeHtml(shortText(row.model || "unknown", 34))}: <strong>${fmtCount(row.count)}</strong></span>`).join("") : '<span class="adm-muted">暂无任务</span>'}</div>
+            </div>
+            <div>
+              <h4 class="adm-subhead">按渠道</h4>
+              <div class="adm-chip-list">${providerRows.length ? providerRows.map((row) => `<span class="adm-chip">${escapeHtml(row.provider || "unknown")}: <strong>${fmtCount(row.count)}</strong></span>`).join("") : '<span class="adm-muted">暂无任务</span>'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>最近失败任务</h3>
+          <a class="adm-btn adm-btn-ghost adm-btn-sm" href="#/records"><i data-lucide="arrow-up-right"></i>查看生成记录</a>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          ${recentFailures.length ? `
+            <table class="adm-table adm-dashboard-table">
+              <thead><tr><th>任务</th><th>用户</th><th>模型 / 渠道</th><th>状态</th><th>错误</th><th>更新时间</th></tr></thead>
+              <tbody>
+                ${recentFailures.map((row) => `
+                  <tr>
+                    <td><code class="adm-mono" title="${escapeHtml(row.taskId || "")}">${escapeHtml(shortText(row.taskId || "-", 34))}</code><span class="adm-block adm-muted">${fmtDate(row.createdAt)}</span></td>
+                    <td><strong>${escapeHtml(row.username || row.userId || "-")}</strong><span class="adm-block adm-mono">${escapeHtml(shortText(row.userId || "", 20))}</span></td>
+                    <td>${escapeHtml(shortText(row.model || "unknown", 34))}<span class="adm-block adm-muted">${escapeHtml(row.provider || "unknown")}</span></td>
+                    <td>${statusPill(row.status)}</td>
+                    <td class="adm-record-prompt-cell" title="${escapeHtml(row.error || "")}">${escapeHtml(shortText(row.error || "-", 150))}</td>
+                    <td>${fmtRelative(row.updatedAt || row.createdAt)}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>` : '<div class="adm-empty"><i data-lucide="circle-check"></i><p>暂无失败任务。</p></div>'}
+        </div>
+      </div>
+
     </section>
   `;
   els.adminContent.querySelector('[data-act="refresh"]')?.addEventListener("click", () => routeFromHash());
+  els.adminContent.querySelector('[data-act="risk-refresh"]')?.addEventListener("click", () => routeFromHash());
   refreshIcons();
 }
 
@@ -1864,10 +1969,24 @@ function recordResultPosterUrl(record = {}) {
 }
 
 function recordMediaAssetPreviewUrl(asset = {}) {
-  return asset.adminPreviewUrl || asset.imageUrl || asset.sourceImageUrl || asset.localImageUrl || asset.thumbnailUrl || asset.posterUrl || "";
+  return [
+    asset.adminPreviewUrl,
+    asset.imageUrl,
+    asset.sourceImageUrl,
+    asset.localImageUrl,
+    asset.thumbnailUrl,
+    asset.posterUrl,
+    asset.cdnUrl,
+    asset.publicUrl,
+    asset.localUrl,
+    asset.sourceUrl,
+    asset.previewUrl,
+    asset.url,
+  ].map((value) => String(value || "").trim()).find(Boolean) || "";
 }
 
 function recordMediaAssetDownloadUrl(record = {}, asset = {}) {
+  if (asset.adminDownloadUrl) return asset.adminDownloadUrl;
   const index = Number(asset.referenceIndex);
   if (!record.taskId || !Number.isInteger(index) || index < 0) return recordMediaAssetPreviewUrl(asset);
   return `/api/admin/generation-records/${encodeURIComponent(record.taskId)}/references/${index}/media?download=1`;
@@ -1892,6 +2011,11 @@ function isPreviewableVideoUrl(url = "") {
   return Boolean(value) && !isInternalAssetUrl(value) && isVideoUrl(value);
 }
 
+function isPreviewableAudioUrl(url = "") {
+  const value = String(url || "").trim();
+  return Boolean(value) && !isInternalAssetUrl(value) && /\.(mp3|wav|m4a|aac|ogg|opus|flac)(?:[?#]|$)/i.test(value);
+}
+
 function recordMediaAssetLabel(asset = {}, index = 0) {
   if (asset.type === "first_frame" || asset.key === "firstFrame") return "First frame";
   if (asset.type === "last_frame" || asset.key === "lastFrame") return "Last frame";
@@ -1909,12 +2033,14 @@ function recordImageAssets(record = {}) {
     seen.add(url);
     images.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, images.length) });
   };
+  const nonImageTypes = ["driving_audio", "reference_audio", "first_clip", "reference_video"];
+  const isAudio = (asset) => String(asset?.mime || "").startsWith("audio/") || nonImageTypes.includes(asset?.type);
   (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
-    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
+    .filter((asset) => !isAudio(asset))
     .forEach((asset) => pushImage(asset));
   const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
   upstreamMedia
-    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
+    .filter((asset) => !isAudio(asset))
     .forEach((asset) => pushImage(asset));
   pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
   pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
@@ -1941,6 +2067,36 @@ function recordReferenceVideoAssets(record = {}) {
   return videos;
 }
 
+function recordMediaAssetAudioUrl(asset = {}) {
+  const candidates = [asset.audioUrl, asset.localAudioUrl, asset.publicUrl, asset.cdnUrl, asset.localUrl, asset.url, asset.adminPreviewUrl]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return candidates.find((url) => isPreviewableAudioUrl(url))
+    || (String(asset.mime || "").startsWith("audio/") || ["driving_audio", "reference_audio"].includes(asset.type)
+      ? candidates.find((url) => !isInternalAssetUrl(url))
+      : "")
+    || "";
+}
+
+function recordReferenceAudioAssets(record = {}) {
+  const audios = [];
+  const seen = new Set();
+  const pushAudio = (asset = {}, fallbackLabel = "") => {
+    const url = recordMediaAssetAudioUrl(asset);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    audios.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, audios.length) });
+  };
+  (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => ["driving_audio", "reference_audio"].includes(asset.type) || String(asset.mime || "").startsWith("audio/"))
+    .forEach((asset) => pushAudio(asset));
+  const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
+  upstreamMedia
+    .filter((asset) => ["driving_audio", "reference_audio"].includes(asset.type) || String(asset.mime || "").startsWith("audio/"))
+    .forEach((asset) => pushAudio(asset));
+  return audios;
+}
+
 function recordPrimaryImageUrl(record = {}) {
   const images = recordImageAssets(record);
   return toAbsoluteHttpUrl(images[0] ? recordMediaAssetPreviewUrl(images[0]) : "")
@@ -1948,13 +2104,11 @@ function recordPrimaryImageUrl(record = {}) {
 }
 
 function recordMediaAssetVideoUrl(asset = {}) {
-  const candidates = [asset.videoUrl, asset.url, asset.localUrl, asset.publicUrl]
+  const candidates = [asset.videoUrl, asset.localVideoUrl, asset.publicUrl, asset.cdnUrl, asset.localUrl, asset.url, asset.adminPreviewUrl]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
-  const adminUrl = String(asset.adminPreviewUrl || "").trim();
-  return (isPreviewableVideoUrl(adminUrl) ? adminUrl : "")
-    || candidates.find((url) => isPreviewableVideoUrl(url))
-    || candidates.find((url) => !isInternalAssetUrl(url))
+  return candidates.find((url) => isPreviewableVideoUrl(url))
+    || (String(asset.mime || "").startsWith("video/") ? candidates.find((url) => !isInternalAssetUrl(url)) : "")
     || "";
 }
 
@@ -1978,7 +2132,8 @@ function recordInputVideoPosterUrl(record = {}) {
 function recordImageAssetsHtml(record = {}) {
   const images = recordImageAssets(record);
   const videos = recordReferenceVideoAssets(record);
-  if (!images.length && !videos.length) return "";
+  const audios = recordReferenceAudioAssets(record);
+  if (!images.length && !videos.length && !audios.length) return "";
   return `
     <div class="adm-record-reference-grid">
       ${images.map((asset) => `
@@ -1991,10 +2146,26 @@ function recordImageAssetsHtml(record = {}) {
         </figure>
       `).join("")}
       ${videos.map((asset) => `
+        ${(() => {
+          const previewUrl = recordMediaAssetHref(asset, true);
+          return `
         <figure data-reference-item>
-          <button type="button" class="adm-record-reference-preview" data-reference-preview="${escapeHtml(String(asset.referenceIndex ?? ""))}" title="放大预览">
-            <video src="${escapeHtml(recordMediaAssetHref(asset, true))}" muted playsinline preload="metadata"></video>
-          </button>
+          ${adminMediaPreviewTrigger({
+            url: previewUrl,
+            kind: "video",
+            label: asset.label || "参考视频",
+            poster: asset.posterUrl || asset.imageUrl || asset.thumbnailUrl || "",
+            className: "adm-record-reference-preview",
+            preloadVideo: false,
+          })}
+          <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
+          <figcaption>${escapeHtml(asset.label || "")}</figcaption>
+        </figure>`;
+        })()}
+      `).join("")}
+      ${audios.map((asset) => `
+        <figure class="adm-record-reference-audio" data-reference-item>
+          <audio src="${escapeHtml(recordMediaAssetAudioUrl(asset))}" controls preload="metadata"></audio>
           <a class="adm-record-reference-download" data-reference-download="${escapeHtml(String(asset.referenceIndex ?? ""))}" href="${escapeHtml(recordMediaAssetDownloadUrl(record, asset))}" title="下载"><i data-lucide="download"></i></a>
           <figcaption>${escapeHtml(asset.label || "")}</figcaption>
         </figure>
@@ -2033,8 +2204,23 @@ function recordPreviewHtml(record) {
     || recordImageResultUrl(record),
   );
   const poster = adminPreviewMediaUrl(recordResultPosterUrl(record));
-  const posterAttr = poster ? ` poster="${escapeHtml(poster)}"` : "";
-  if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="metadata" playsinline${posterAttr} style="${escapeHtml(recordRatioStyle(record))}"></video>`;
+  // The list already plays the durable CDN/provider URL. The detail endpoint
+  // also exposes an admin media proxy for fallback, but routing playback through
+  // that proxy makes the server copy the whole video a second time.
+  const directVideo = adminPreviewMediaUrl(recordVideoUrl(record));
+  const playbackVideo = directVideo || localVideo;
+  if (playbackVideo) {
+    return adminMediaPreviewTrigger({
+      url: playbackVideo,
+      kind: "video",
+      label: "生成结果",
+      poster,
+      className: "adm-record-detail-media-preview",
+      style: recordRatioStyle(record),
+      preloadVideo: false,
+      inline: true,
+    });
+  }
   if (imageResult) return `<img src="${escapeHtml(imageResult)}" alt="" />`;
   if (remoteVideo) {
     return `
@@ -2740,9 +2926,24 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
       copyText(Object.prototype.hasOwnProperty.call(textMap, key) ? textMap[key] : jsonText(key));
     });
   });
+  const inlinePreview = bodyEl.querySelector("[data-admin-media-inline]");
+  if (inlinePreview) {
+    inlinePreview.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const source = String(inlinePreview.dataset.mediaUrl || "").trim();
+      const container = inlinePreview.parentElement;
+      if (!source || !container) return;
+      container.innerHTML = `<video src="${escapeHtml(source)}" controls autoplay playsinline preload="metadata" style="${escapeHtml(recordRatioStyle(record))}"></video>`;
+      const video = container.querySelector("video");
+      if (video?.play) video.play().catch(() => {});
+      refreshIcons();
+    });
+  }
   const referenceByIndex = new Map([
     ...recordImageAssets(record),
     ...recordReferenceVideoAssets(record),
+    ...recordReferenceAudioAssets(record),
   ].map((asset) => [String(asset.referenceIndex ?? ""), asset]));
   const referenceUrl = (index, download = false) => {
     const asset = referenceByIndex.get(String(index));
@@ -2788,14 +2989,11 @@ function bindGenerationRecordDetailBody(bodyEl, record = {}) {
       }
     });
   });
-  const previewVideo = bodyEl.querySelector(".adm-record-preview video");
-  if (previewVideo) previewVideo.load();
   refreshIcons();
 }
 
 async function fetchAdminGenerationRecordDetail(record = {}) {
   if (!record?.taskId) return record;
-  if (record.adminResultPreviewUrl && (record.upstreamPayload || record.createResponse || record.queryResponse)) return record;
   const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}`);
   return payload.record || record;
 }
@@ -3175,9 +3373,11 @@ async function renderUsers(pageArg = null, limitArg = null) {
   const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
   const q = sessionStorage.getItem("admUsersQuery") || "";
   const role = sessionStorage.getItem("admUsersRole") || "";
+  const riskStatus = sessionStorage.getItem("admUsersRiskStatus") || "";
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (q) params.set("q", q);
   if (role) params.set("role", role);
+  if (riskStatus) params.set("riskStatus", riskStatus);
   const payload = await api(`/api/admin/users?${params.toString()}`);
   if (!isActiveRoute("users")) return;
   const users = payload.users || [];
@@ -3196,6 +3396,11 @@ async function renderUsers(pageArg = null, limitArg = null) {
             <option value="user" ${role === "user" ? "selected" : ""}>普通用户</option>
             <option value="admin" ${role === "admin" ? "selected" : ""}>管理员</option>
           </select>
+          <select id="usersRiskFilter">
+            <option value="" ${riskStatus === "" ? "selected" : ""}>全部风险状态</option>
+            <option value="quarantined" ${riskStatus === "quarantined" ? "selected" : ""}>已隔离</option>
+            <option value="clear" ${riskStatus === "clear" ? "selected" : ""}>正常</option>
+          </select>
           <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
           <button class="adm-btn adm-btn-ghost" id="usersResetFilterBtn" type="button"><i data-lucide="x"></i>清空</button>
         </form>
@@ -3203,16 +3408,17 @@ async function renderUsers(pageArg = null, limitArg = null) {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-user-table">
-            <thead><tr><th>账号</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>会员 / API文档</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
+            <thead><tr><th>账号</th><th>风险</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>会员</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
                 <tr data-id="${escapeHtml(u.id)}">
                   <td><strong>${escapeHtml(u.username)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(u.id)}</span></td>
+                  <td>${u.riskStatus === "quarantined" ? `<span class="adm-pill is-danger" title="${escapeHtml((u.riskReasons || []).join(", "))}">已隔离</span>` : `<span class="adm-pill">正常</span>`}${Array.isArray(u.riskReasons) && u.riskReasons.length ? `<br/><span class="adm-muted">${escapeHtml(u.riskReasons.slice(0, 2).join(", "))}</span>` : ""}</td>
                   <td><strong>${escapeHtml(u.tenantId || "main")}</strong><br/><span class="adm-muted">${escapeHtml(u.registrationChannel || "-")}</span></td>
                   <td><span class="adm-pill ${u.role === "admin" ? "is-admin" : ""}">${escapeHtml(u.role)}</span></td>
                   <td><strong>${escapeHtml(u.credits)}</strong></td>
-                  <td>${statusPill(u.membership?.active ? "active" : "inactive")}<br/><span class="adm-muted">文档 ${u.apiDocs?.active ? "已解锁" : "未解锁"}</span></td>
-                  <td><span class="adm-muted adm-mono">${escapeHtml(maskMiddle(u.apiToken || ""))}</span></td>
+                  <td>${statusPill(u.membership?.active ? "active" : "inactive")}</td>
+                  <td><span class="adm-muted adm-mono">${escapeHtml(u.apiTokenPreview || "")}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.pricingMultiplier))}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.apiPricingMultiplier))}</span></td>
                   <td>${escapeHtml(u.customCharacters || 0)}</td>
@@ -3239,6 +3445,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
   const runUserFilter = () => {
     sessionStorage.setItem("admUsersQuery", els.adminContent.querySelector("#usersSearchInput")?.value.trim() || "");
     sessionStorage.setItem("admUsersRole", els.adminContent.querySelector("#usersRoleFilter")?.value || "");
+    sessionStorage.setItem("admUsersRiskStatus", els.adminContent.querySelector("#usersRiskFilter")?.value || "");
     sessionStorage.setItem("admUsersPager", JSON.stringify({ page: 1, limit }));
     renderUsers(1, limit).catch((err) => renderRouteError("users", err));
   };
@@ -3247,9 +3454,11 @@ async function renderUsers(pageArg = null, limitArg = null) {
     runUserFilter();
   });
   els.adminContent.querySelector("#usersRoleFilter")?.addEventListener("change", runUserFilter);
+  els.adminContent.querySelector("#usersRiskFilter")?.addEventListener("change", runUserFilter);
   els.adminContent.querySelector("#usersResetFilterBtn")?.addEventListener("click", () => {
     sessionStorage.removeItem("admUsersQuery");
     sessionStorage.removeItem("admUsersRole");
+    sessionStorage.removeItem("admUsersRiskStatus");
     sessionStorage.setItem("admUsersPager", JSON.stringify({ page: 1, limit }));
     renderUsers(1, limit).catch((err) => renderRouteError("users", err));
   });
@@ -3272,8 +3481,12 @@ function openEditUserDialog(id, users) {
       <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
       <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
     </select></div>
-    <div class="adm-form-row"><span>API 文档接口权限</span><label class="adm-flex" style="gap:8px;align-items:center;"><input id="editApiDocsAccess" type="checkbox" ${user.apiDocs?.active ? "checked" : ""} style="width:18px;height:18px;" /><span>${user.apiDocs?.active ? "已解锁，可调用外部 API" : "未解锁，外部 API 不可用"}</span></label><small class="adm-muted">只影响 Bearer API Token / 子 Token，不影响网站前端登录后的生成。</small></div>
-    <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
+    <div class="adm-form-row"><span>风控状态</span><select id="editRiskStatus">
+      <option value="clear" ${user.riskStatus !== "quarantined" ? "selected" : ""}>正常</option>
+      <option value="quarantined" ${user.riskStatus === "quarantined" ? "selected" : ""}>隔离（禁止登录，保留数据）</option>
+    </select></div>
+    <div class="adm-form-row"><span>强制下线</span><label class="adm-check"><input id="editForceLogout" type="checkbox" /> 同时强制下线并吊销 API 子 Token（确认是机器人时使用）</label><small class="adm-muted">默认不踢掉已经登录的用户；仅隔离会阻止新登录和 API Token 调用。</small></div>
+    <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiTokenPreview || "")}" disabled /><small class="adm-muted">后台只展示脱敏预览，完整 token 不由后台列表接口返回。</small></div>
     <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
     <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
   `;
@@ -3283,7 +3496,6 @@ function openEditUserDialog(id, users) {
     confirmText: "保存",
     onConfirm: async () => {
       const role = tpl.querySelector("#editRole").value;
-      const apiDocsAccess = Boolean(tpl.querySelector("#editApiDocsAccess")?.checked);
       const pricingMultiplier = Number(tpl.querySelector("#editPricingMultiplier").value);
       const apiPricingMultiplier = Number(tpl.querySelector("#editApiPricingMultiplier").value);
       if (!Number.isFinite(pricingMultiplier) || pricingMultiplier <= 0 || pricingMultiplier > 100) {
@@ -3294,7 +3506,11 @@ function openEditUserDialog(id, users) {
         toast("API价格折扣比例必须大于 0，且不超过 100。", "error");
         return false;
       }
-      const body = { role, apiDocsAccess };
+      const body = {
+        role,
+        riskStatus: tpl.querySelector("#editRiskStatus").value,
+        forceLogout: tpl.querySelector("#editForceLogout").checked === true,
+      };
       body.pricingMultiplier = pricingMultiplier;
       body.apiPricingMultiplier = apiPricingMultiplier;
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
@@ -3348,7 +3564,7 @@ function openResetPwdDialog(id, users) {
   const tpl = document.createElement("div");
   tpl.innerHTML = `
     <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(user.username)}" disabled /></div>
-    <div class="adm-form-row"><span>新密码（至少 6 位）</span><input id="newPwd" type="text" minlength="6" placeholder="新密码（明文，给用户）" /></div>
+    <div class="adm-form-row"><span>新密码（至少 10 位）</span><input id="newPwd" type="text" minlength="10" placeholder="新密码（明文，给用户）" /></div>
     <p class="adm-muted">操作后该用户其他设备的会话会被注销。</p>
   `;
   openDialog({
@@ -3357,7 +3573,7 @@ function openResetPwdDialog(id, users) {
     confirmText: "重置",
     onConfirm: async () => {
       const password = tpl.querySelector("#newPwd").value;
-      if (password.length < 6) { toast("密码至少 6 位。", "error"); return false; }
+      if (password.length < 10) { toast("密码至少 10 位。", "error"); return false; }
       await api(`/api/admin/users/${encodeURIComponent(id)}/password`, { method: "POST", body: { password } });
       toast("密码已重置。", "success");
     },
@@ -3860,6 +4076,410 @@ async function renderSupportMessages(pageArg = null, limitArg = null) {
   refreshIcons();
 }
 
+function supportTicketStatusLabel(status = "") {
+  return ({ open: "待处理", pending: "跟进中", closed: "已关闭" })[String(status || "open")] || String(status || "open");
+}
+
+function supportTicketPriorityLabel(priority = "") {
+  return ({ low: "低", normal: "普通", high: "高", urgent: "紧急" })[String(priority || "normal")] || String(priority || "normal");
+}
+
+function supportTicketStatusPill(status = "") {
+  const value = String(status || "open");
+  return `<span class="adm-ticket-status is-${escapeHtml(value)}">${escapeHtml(supportTicketStatusLabel(value))}</span>`;
+}
+
+function supportTicketPriorityPill(priority = "") {
+  const value = String(priority || "normal");
+  return `<span class="adm-ticket-priority is-${escapeHtml(value)}">${escapeHtml(supportTicketPriorityLabel(value))}</span>`;
+}
+
+async function renderSupportTickets(pageArg = null, limitArg = null) {
+  const routeId = "support-tickets";
+  if (!isActiveRoute(routeId)) return;
+  const savedPager = JSON.parse(sessionStorage.getItem("admTicketsPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admTicketsQuery") || "";
+  const status = sessionStorage.getItem("admTicketsStatus") || "";
+  const unreadOnly = sessionStorage.getItem("admTicketsUnread") === "1";
+  const selectedId = sessionStorage.getItem("admTicketsSelected") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  if (status) params.set("status", status);
+  if (unreadOnly) params.set("unread", "1");
+  const payload = await api(`/api/admin/support-tickets?${params.toString()}`);
+  if (!isActiveRoute(routeId)) return;
+  const tickets = Array.isArray(payload.tickets) ? payload.tickets : [];
+  sessionStorage.setItem("admTicketsPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+
+  els.adminContent.innerHTML = `
+    <section class="adm-page adm-ticket-page">
+      <div class="adm-page-head adm-ticket-page-head">
+        <div>
+          <span class="adm-ticket-eyebrow"><i data-lucide="headset"></i> Customer Care</span>
+          <h1>客服工单</h1>
+          <p>与用户在同一个会话中持续沟通，处理状态、优先级和未读回复。</p>
+        </div>
+        <div class="adm-page-actions">
+          <span class="adm-ticket-total"><strong>${Number(payload.total || 0)}</strong> 个工单</span>
+          <button class="adm-btn adm-btn-ghost" type="button" data-act="refresh"><i data-lucide="refresh-cw"></i>刷新</button>
+        </div>
+      </div>
+      <div class="adm-ticket-toolbar">
+        <form id="ticketFilterForm" class="adm-ticket-filters">
+          <label class="adm-ticket-search"><i data-lucide="search"></i><input id="ticketSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索工单、用户或邮箱" /></label>
+          <select id="ticketStatusFilter" aria-label="工单状态">
+            <option value="" ${!status ? "selected" : ""}>全部状态</option>
+            <option value="open" ${status === "open" ? "selected" : ""}>待处理</option>
+            <option value="pending" ${status === "pending" ? "selected" : ""}>跟进中</option>
+            <option value="closed" ${status === "closed" ? "selected" : ""}>已关闭</option>
+          </select>
+          <label class="adm-ticket-unread-toggle"><input id="ticketUnreadFilter" type="checkbox" ${unreadOnly ? "checked" : ""} /><span>只看未读</span></label>
+          <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="scan-search"></i>筛选</button>
+          <button class="adm-btn adm-btn-ghost" id="ticketResetFilter" type="button">清空</button>
+        </form>
+      </div>
+      <div class="adm-ticket-shell">
+        <aside class="adm-ticket-list-panel">
+          <header>
+            <div><strong>收件箱</strong><small>按未读和优先级排序</small></div>
+            <span class="adm-ticket-live-dot"><i></i>实时</span>
+          </header>
+          <div id="ticketList" class="adm-ticket-list"></div>
+          ${adminPagerHtml(payload)}
+        </aside>
+        <section id="ticketDetail" class="adm-ticket-detail" aria-live="polite">
+          <div class="adm-ticket-welcome"><span><i data-lucide="messages-square"></i></span><strong>选择一条工单</strong><p>查看完整对话并回复用户。</p></div>
+        </section>
+      </div>
+    </section>
+  `;
+
+  els.adminContent.querySelector('[data-act="refresh"]')?.addEventListener("click", () => renderSupportTickets(page, limit).catch((err) => renderRouteError(routeId, err)));
+  const runFilter = () => {
+    sessionStorage.setItem("admTicketsQuery", els.adminContent.querySelector("#ticketSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admTicketsStatus", els.adminContent.querySelector("#ticketStatusFilter")?.value || "");
+    sessionStorage.setItem("admTicketsUnread", els.adminContent.querySelector("#ticketUnreadFilter")?.checked ? "1" : "0");
+    sessionStorage.removeItem("admTicketsSelected");
+    renderSupportTickets(1, limit).catch((err) => renderRouteError(routeId, err));
+  };
+  els.adminContent.querySelector("#ticketFilterForm")?.addEventListener("submit", (event) => { event.preventDefault(); runFilter(); });
+  els.adminContent.querySelector("#ticketStatusFilter")?.addEventListener("change", runFilter);
+  els.adminContent.querySelector("#ticketUnreadFilter")?.addEventListener("change", runFilter);
+  els.adminContent.querySelector("#ticketResetFilter")?.addEventListener("click", () => {
+    ["admTicketsQuery", "admTicketsStatus", "admTicketsUnread", "admTicketsSelected"].forEach((key) => sessionStorage.removeItem(key));
+    renderSupportTickets(1, limit).catch((err) => renderRouteError(routeId, err));
+  });
+  bindAdminPager(els.adminContent, payload, ({ page: nextPage, limit: nextLimit }) => renderSupportTickets(nextPage, nextLimit).catch((err) => renderRouteError(routeId, err)));
+
+  let activeTickets = tickets.slice();
+  const detail = () => els.adminContent.querySelector("#ticketDetail");
+  const list = () => els.adminContent.querySelector("#ticketList");
+
+  const renderList = () => {
+    const root = list();
+    if (!root) return;
+    root.innerHTML = activeTickets.length ? activeTickets.map((ticket) => {
+      const isActive = ticket.id === sessionStorage.getItem("admTicketsSelected");
+      const who = ticket.username || ticket.userEmail || ticket.email || ticket.userId || "用户";
+      return `
+        <button class="adm-ticket-item ${isActive ? "is-active" : ""} ${Number(ticket.adminUnreadCount || 0) > 0 ? "has-unread" : ""}" type="button" data-ticket-id="${escapeHtml(ticket.id)}">
+          <span class="adm-ticket-item-top">
+            <strong>${escapeHtml(ticket.subject || "客服咨询")}</strong>
+            ${Number(ticket.adminUnreadCount || 0) > 0 ? `<em>${Number(ticket.adminUnreadCount)}</em>` : ""}
+          </span>
+          <span class="adm-ticket-item-user">${escapeHtml(who)} <small>${escapeHtml(ticket.userEmail || ticket.email || "")}</small></span>
+          <span class="adm-ticket-item-preview">${escapeHtml(shortText(ticket.lastMessage || "暂无消息", 72))}</span>
+          <span class="adm-ticket-item-meta">${supportTicketStatusPill(ticket.status)}${supportTicketPriorityPill(ticket.priority)}<time>${escapeHtml(fmtRelative(ticket.lastMessageAt || ticket.updatedAt || ticket.createdAt))}</time></span>
+        </button>
+      `;
+    }).join("") : '<div class="adm-empty"><i data-lucide="inbox"></i><p>没有符合条件的工单</p></div>';
+    root.querySelectorAll("[data-ticket-id]").forEach((button) => button.addEventListener("click", () => {
+      loadTicket(button.dataset.ticketId).catch((err) => renderRouteError(routeId, err));
+    }));
+    refreshIcons();
+  };
+
+  const upsertTicket = (nextTicket) => {
+    if (!nextTicket) return;
+    const index = activeTickets.findIndex((item) => item.id === nextTicket.id);
+    if (index >= 0) activeTickets[index] = { ...activeTickets[index], ...nextTicket };
+    else activeTickets.unshift(nextTicket);
+    renderList();
+  };
+
+  const renderMessages = (ticket, messages = []) => {
+    const panel = detail();
+    if (!panel) return;
+    const who = ticket.username || ticket.userEmail || ticket.email || ticket.userId || "用户";
+    panel.innerHTML = `
+      <header class="adm-ticket-detail-head">
+        <div class="adm-ticket-contact">
+          <span class="adm-ticket-avatar">${escapeHtml(String(who).slice(0, 1).toUpperCase())}</span>
+          <div><h2>${escapeHtml(ticket.subject || "客服咨询")}</h2><p>${escapeHtml(who)} · ${escapeHtml(ticket.userEmail || ticket.email || "未绑定邮箱")}</p></div>
+        </div>
+        <div class="adm-ticket-detail-controls">
+          <label><span>状态</span><select id="ticketStatusSelect">
+            ${[["open", "待处理"], ["pending", "跟进中"], ["closed", "已关闭"]].map(([value, label]) => `<option value="${value}" ${ticket.status === value ? "selected" : ""}>${label}</option>`).join("")}
+          </select></label>
+          <label><span>优先级</span><select id="ticketPrioritySelect">
+            ${[["low", "低"], ["normal", "普通"], ["high", "高"], ["urgent", "紧急"]].map(([value, label]) => `<option value="${value}" ${ticket.priority === value ? "selected" : ""}>${label}</option>`).join("")}
+          </select></label>
+        </div>
+      </header>
+      <div class="adm-ticket-context">
+        <span><i data-lucide="hash"></i>${escapeHtml(ticket.id)}</span>
+        <span><i data-lucide="radio"></i>${escapeHtml(ticket.source || "站内")}</span>
+        <span><i data-lucide="clock-3"></i>创建于 ${escapeHtml(fmtDate(ticket.createdAt))}</span>
+      </div>
+      <div class="adm-ticket-thread" id="ticketThread">
+        ${messages.length ? messages.map((message) => {
+          const isAdmin = message.senderType === "admin";
+          return `
+            <article class="adm-ticket-message ${isAdmin ? "is-admin" : "is-user"}">
+              <div class="adm-ticket-bubble">
+                <header><strong>${escapeHtml(isAdmin ? (message.senderName || "客服") : (message.senderName || who))}</strong><time>${escapeHtml(fmtDate(message.createdAt))}</time></header>
+                <p>${escapeHtml(message.body || "")}</p>
+              </div>
+              <span class="adm-ticket-bubble-avatar">${isAdmin ? "客" : escapeHtml(String(who).slice(0, 1).toUpperCase())}</span>
+            </article>
+          `;
+        }).join("") : '<div class="adm-empty"><i data-lucide="message-circle-off"></i><p>暂无对话消息</p></div>'}
+      </div>
+      <form class="adm-ticket-composer" id="ticketReplyForm">
+        <textarea id="ticketReplyText" rows="3" maxlength="5000" placeholder="回复用户，支持多行内容…"></textarea>
+        <div class="adm-ticket-composer-foot">
+          <span><i data-lucide="shield-check"></i>回复后会实时同步到用户端</span>
+          <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="send"></i>发送回复</button>
+        </div>
+      </form>
+    `;
+    refreshIcons();
+    const thread = panel.querySelector("#ticketThread");
+    if (thread) thread.scrollTop = thread.scrollHeight;
+    panel.querySelector("#ticketStatusSelect")?.addEventListener("change", async (event) => {
+      event.target.disabled = true;
+      try {
+        const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticket.id)}`, { method: "PATCH", body: { status: event.target.value } });
+        upsertTicket(result.ticket);
+        toast("工单状态已更新", "success");
+      } catch (err) {
+        event.target.value = ticket.status;
+        toast(err.message || "更新失败", "error");
+      } finally { event.target.disabled = false; }
+    });
+    panel.querySelector("#ticketPrioritySelect")?.addEventListener("change", async (event) => {
+      event.target.disabled = true;
+      try {
+        const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticket.id)}`, { method: "PATCH", body: { priority: event.target.value } });
+        upsertTicket(result.ticket);
+        toast("优先级已更新", "success");
+      } catch (err) {
+        event.target.value = ticket.priority;
+        toast(err.message || "更新失败", "error");
+      } finally { event.target.disabled = false; }
+    });
+    panel.querySelector("#ticketReplyForm")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const textarea = panel.querySelector("#ticketReplyText");
+      const text = String(textarea?.value || "").trim();
+      if (!text) { toast("请输入回复内容", "error"); textarea?.focus(); return; }
+      const submit = panel.querySelector('#ticketReplyForm button[type="submit"]');
+      submit.disabled = true;
+      try {
+        const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticket.id)}/messages`, { method: "POST", body: { message: text } });
+        upsertTicket({ ...result.ticket, adminUnreadCount: 0 });
+        await loadTicket(ticket.id, { read: false });
+        toast("回复已发送", "success");
+      } catch (err) {
+        toast(err.message || "发送失败", "error");
+      } finally { submit.disabled = false; }
+    });
+  };
+
+  const loadTicket = async (ticketId, options = {}) => {
+    if (!ticketId) return;
+    sessionStorage.setItem("admTicketsSelected", ticketId);
+    renderList();
+    const panel = detail();
+    const previous = panel?.querySelector("#ticketThread");
+    if (!previous && panel) panel.innerHTML = '<div class="adm-ticket-welcome"><div class="adm-spinner"></div><strong>正在加载对话</strong><p>请稍候…</p></div>';
+    const read = options.read !== false;
+    const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticketId)}${read ? "?read=1" : ""}`);
+    if (!isActiveRoute(routeId)) return;
+    const ticket = result.ticket || {};
+    upsertTicket({ ...ticket, adminUnreadCount: 0 });
+    renderMessages(ticket, Array.isArray(result.messages) ? result.messages : []);
+  };
+
+  renderList();
+  if (tickets.length) {
+    const initial = tickets.find((ticket) => ticket.id === selectedId) || tickets[0];
+    await loadTicket(initial.id);
+  }
+
+  refreshIcons();
+}
+
+function notificationDateTimeInput(value = "") {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function notificationDateTimePayload(value = "") {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function systemNotificationState(notification = {}) {
+  const now = Date.now();
+  if (notification.active !== true) return { key: "disabled", label: "已停用" };
+  if (notification.publishAt && new Date(notification.publishAt).getTime() > now) return { key: "scheduled", label: "待发布" };
+  if (notification.expiresAt && new Date(notification.expiresAt).getTime() <= now) return { key: "expired", label: "已过期" };
+  return { key: "active", label: "展示中" };
+}
+
+async function renderSystemNotifications() {
+  const routeId = "system-notifications";
+  if (!isActiveRoute(routeId)) return;
+  const payload = await api("/api/admin/system-notifications");
+  if (!isActiveRoute(routeId)) return;
+  const notifications = Array.isArray(payload.notifications) ? payload.notifications : [];
+  const activeCount = notifications.filter((item) => systemNotificationState(item).key === "active").length;
+  const pinnedCount = notifications.filter((item) => item.pinned).length;
+  const previewItems = notifications.filter((item) => systemNotificationState(item).key === "active").slice(0, 3);
+  els.adminContent.innerHTML = `
+    <section class="adm-page adm-notice-page">
+      <div class="adm-page-head adm-notice-page-head">
+        <div>
+          <span class="adm-ticket-eyebrow"><i data-lucide="bell-ring"></i> Broadcast Center</span>
+          <h1>系统通知</h1>
+          <p>配置用户端铃铛消息，支持置顶、定时发布、过期和启用状态。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-primary" type="button" id="createNotificationBtn"><i data-lucide="plus"></i>新建通知</button>
+        </div>
+      </div>
+      <div class="adm-notice-stats">
+        <div><span class="is-rose"><i data-lucide="bell"></i></span><p>全部通知<strong>${notifications.length}</strong></p></div>
+        <div><span class="is-mint"><i data-lucide="radio-tower"></i></span><p>展示中<strong>${activeCount}</strong></p></div>
+        <div><span class="is-amber"><i data-lucide="pin"></i></span><p>置顶消息<strong>${pinnedCount}</strong></p></div>
+      </div>
+      <div class="adm-notice-layout">
+        <section class="adm-notice-list-panel">
+          <header><div><strong>消息列表</strong><small>置顶优先，其余按发布时间倒序</small></div><button class="adm-btn adm-btn-ghost adm-btn-sm" id="refreshNotificationsBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button></header>
+          <div class="adm-notice-list">
+            ${notifications.length ? notifications.map((notification) => {
+              const state = systemNotificationState(notification);
+              return `
+                <article class="adm-notice-card ${notification.pinned ? "is-pinned" : ""}">
+                  <div class="adm-notice-card-main">
+                    <div class="adm-notice-card-badges">
+                      ${notification.pinned ? '<span class="adm-notice-badge is-pin"><i data-lucide="pin"></i>置顶</span>' : ""}
+                      <span class="adm-notice-badge is-${state.key}">${state.label}</span>
+                    </div>
+                    <h3>${escapeHtml(notification.title || "未命名通知")}</h3>
+                    <p>${escapeHtml(shortText(notification.body || "", 160))}</p>
+                    <footer><span><i data-lucide="calendar-clock"></i>${escapeHtml(fmtDate(notification.publishAt || notification.createdAt))}</span>${notification.expiresAt ? `<span>至 ${escapeHtml(fmtDate(notification.expiresAt))}</span>` : ""}</footer>
+                  </div>
+                  <div class="adm-notice-card-actions">
+                    <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-notice-edit="${escapeHtml(notification.id)}"><i data-lucide="pen-line"></i>编辑</button>
+                    <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-notice-toggle="${escapeHtml(notification.id)}"><i data-lucide="${notification.active ? "pause" : "play"}"></i>${notification.active ? "停用" : "启用"}</button>
+                    <button class="adm-btn adm-btn-ghost adm-btn-sm adm-notice-delete" type="button" data-notice-delete="${escapeHtml(notification.id)}"><i data-lucide="trash-2"></i>删除</button>
+                  </div>
+                </article>
+              `;
+            }).join("") : '<div class="adm-empty"><i data-lucide="bell-off"></i><p>还没有系统通知，创建第一条吧</p></div>'}
+          </div>
+        </section>
+        <aside class="adm-notice-preview-panel">
+          <div class="adm-notice-preview-head"><div><span>用户端预览</span><strong>消息中心</strong></div><span class="adm-notice-preview-bell"><i data-lucide="bell"></i><em>${previewItems.filter((item) => item.pinned).length || previewItems.length || ""}</em></span></div>
+          <div class="adm-notice-preview-card">
+            <header><strong>系统通知</strong><span>全部已读</span></header>
+            ${previewItems.length ? previewItems.map((item) => `
+              <div class="adm-notice-preview-item ${item.pinned ? "is-pinned" : ""}">
+                <span><i data-lucide="${item.pinned ? "pin" : "bell"}"></i></span>
+                <div><strong>${escapeHtml(item.title || "")}</strong><p>${escapeHtml(shortText(item.body || "", 64))}</p><time>${escapeHtml(fmtRelative(item.publishAt || item.createdAt))}</time></div>
+              </div>
+            `).join("") : '<div class="adm-notice-preview-empty"><i data-lucide="inbox"></i><p>暂无展示中的通知</p></div>'}
+          </div>
+          <p class="adm-notice-preview-tip"><i data-lucide="sparkles"></i>置顶通知会固定显示在列表顶部，用户点击后可查看完整内容。</p>
+        </aside>
+      </div>
+    </section>
+  `;
+  refreshIcons();
+
+  const openNotificationEditor = (notification = null) => openDialog({
+    title: notification ? "编辑系统通知" : "新建系统通知",
+    confirmText: notification ? "保存修改" : "发布通知",
+    body: `
+      <div class="adm-notice-editor">
+        <label class="adm-form-row"><span>通知标题</span><input id="noticeTitleInput" maxlength="120" value="${escapeHtml(notification?.title || "")}" placeholder="例如：服务升级通知" /></label>
+        <label class="adm-form-row"><span>通知内容</span><textarea id="noticeBodyInput" rows="7" maxlength="5000" placeholder="输入用户打开铃铛后看到的完整内容…">${escapeHtml(notification?.body || "")}</textarea></label>
+        <div class="adm-notice-editor-grid">
+          <label class="adm-form-row"><span>发布时间</span><input id="noticePublishInput" type="datetime-local" value="${escapeHtml(notificationDateTimeInput(notification?.publishAt || ""))}" /></label>
+          <label class="adm-form-row"><span>过期时间（可选）</span><input id="noticeExpiresInput" type="datetime-local" value="${escapeHtml(notificationDateTimeInput(notification?.expiresAt || ""))}" /></label>
+        </div>
+        <div class="adm-notice-editor-switches">
+          <label><input id="noticePinnedInput" type="checkbox" ${notification?.pinned ? "checked" : ""} /><span><strong>置顶消息</strong><small>固定在通知列表最上方</small></span></label>
+          <label><input id="noticeActiveInput" type="checkbox" ${!notification || notification.active ? "checked" : ""} /><span><strong>立即启用</strong><small>关闭后用户端不可见</small></span></label>
+        </div>
+        <p class="adm-notice-editor-hint"><i data-lucide="info"></i>发布时间留空表示立即发布；过期时间留空表示长期有效。</p>
+      </div>
+    `,
+    onConfirm: async () => {
+      const title = byId("noticeTitleInput")?.value.trim() || "";
+      const text = byId("noticeBodyInput")?.value.trim() || "";
+      if (!title || !text) { toast("标题和内容不能为空", "error"); return false; }
+      const body = {
+        title,
+        body: text,
+        publishAt: notificationDateTimePayload(byId("noticePublishInput")?.value || ""),
+        expiresAt: notificationDateTimePayload(byId("noticeExpiresInput")?.value || ""),
+        pinned: byId("noticePinnedInput")?.checked === true,
+        active: byId("noticeActiveInput")?.checked === true,
+      };
+      await api(notification ? `/api/admin/system-notifications/${encodeURIComponent(notification.id)}` : "/api/admin/system-notifications", {
+        method: notification ? "PATCH" : "POST",
+        body,
+      });
+      toast(notification ? "通知已更新" : "通知已发布", "success");
+      renderSystemNotifications().catch((err) => renderRouteError(routeId, err));
+    },
+  });
+
+  els.adminContent.querySelector("#createNotificationBtn")?.addEventListener("click", () => openNotificationEditor());
+  els.adminContent.querySelector("#refreshNotificationsBtn")?.addEventListener("click", () => renderSystemNotifications().catch((err) => renderRouteError(routeId, err)));
+  els.adminContent.querySelectorAll("[data-notice-edit]").forEach((button) => button.addEventListener("click", () => {
+    const notification = notifications.find((item) => item.id === button.dataset.noticeEdit);
+    if (notification) openNotificationEditor(notification);
+  }));
+  els.adminContent.querySelectorAll("[data-notice-toggle]").forEach((button) => button.addEventListener("click", async () => {
+    const notification = notifications.find((item) => item.id === button.dataset.noticeToggle);
+    if (!notification) return;
+    button.disabled = true;
+    try {
+      await api(`/api/admin/system-notifications/${encodeURIComponent(notification.id)}`, { method: "PATCH", body: { active: !notification.active } });
+      toast(notification.active ? "通知已停用" : "通知已启用", "success");
+      await renderSystemNotifications();
+    } catch (err) { toast(err.message || "更新失败", "error"); button.disabled = false; }
+  }));
+  els.adminContent.querySelectorAll("[data-notice-delete]").forEach((button) => button.addEventListener("click", async () => {
+    const notification = notifications.find((item) => item.id === button.dataset.noticeDelete);
+    if (!notification) return;
+    const ok = await confirmAction("删除通知", `确认删除「${notification.title || "未命名通知"}」？用户端也将立即移除。`, { danger: true, confirmText: "删除" });
+    if (!ok) return;
+    await api(`/api/admin/system-notifications/${encodeURIComponent(notification.id)}`, { method: "DELETE" });
+    toast("通知已删除", "success");
+    renderSystemNotifications().catch((err) => renderRouteError(routeId, err));
+  }));
+}
+
 /* ============ PRICING ============ */
 function fmtPrice(value, digits = 6) {
   const next = Number(value);
@@ -3943,16 +4563,26 @@ async function renderPricingLegacy() {
 
   const updateCredits = () => {
     els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
-      const input = tr.querySelector('[data-f="saleUsdPerSecond"]');
-      const target = tr.querySelector("[data-price-credits]");
-      const usd = Number(input?.value || 0);
-      target.textContent = Number.isFinite(usd) && usd >= 0
-        ? fmtPrice(usd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
+      const saleInput = tr.querySelector('[data-f="saleUsdPerSecond"]');
+      const purchaseInput = tr.querySelector('[data-f="purchaseUsdPerSecond"]');
+      const creditsTarget = tr.querySelector("[data-price-credits]");
+      const saleUsd = Number(saleInput?.value || 0);
+      creditsTarget.textContent = Number.isFinite(saleUsd) && saleUsd >= 0
+        ? fmtPrice(saleUsd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
         : "-";
+      const multiplierTarget = tr.querySelector("[data-price-ratio]");
+      if (multiplierTarget) {
+        const purchaseUsd = Number(purchaseInput?.value || 0);
+        const multiplier = purchaseUsd > 0 && saleUsd >= 0 ? saleUsd / purchaseUsd : null;
+        const low = isPricingMultiplierLow(multiplier);
+        multiplierTarget.innerHTML = multiplier === null
+          ? `<span class="adm-muted">-</span>`
+          : `<strong class="${low ? "adm-price-ratio-low" : ""}" data-price-multiplier>${escapeHtml(multiplier.toFixed(3))}x</strong>${low ? `<br/><small class="adm-price-ratio-low">低于 1.5x</small>` : ""}`;
+      }
     });
   };
 
-  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"]').forEach((input) => {
+  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"], [data-f="purchaseUsdPerSecond"]').forEach((input) => {
     input.addEventListener("input", updateCredits);
   });
   byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
@@ -4092,7 +4722,7 @@ function adminMediaPreviewType(url = "", kind = "") {
   return "image";
 }
 
-function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", className = "", poster = "", style = "", preloadVideo = true } = {}) {
+function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", className = "", poster = "", style = "", preloadVideo = true, inline = false } = {}) {
   const source = String(url || "").trim();
   if (!source) return '<span class="adm-media-preview-empty">未上传</span>';
   const type = adminMediaPreviewType(source, kind);
@@ -4106,7 +4736,8 @@ function adminMediaPreviewTrigger({ url = "", kind = "", label = "素材", class
       ? `<video src="${escapeHtml(thumbSource)}"${posterAttr} muted playsinline preload="metadata"></video><span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
       : `<span class="adm-media-preview-play" aria-hidden="true"><i data-lucide="play"></i></span>`
     : `<img src="${escapeHtml(source)}" alt="" draggable="false" loading="lazy" />`;
-  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}${type === "video" && !preloadVideo ? " adm-media-preview-no-preload" : ""}"${styleAttr} data-admin-media-preview data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">${type === "video" ? "播放" : "预览"}</span></button>`;
+  const previewAttribute = inline ? "data-admin-media-inline" : "data-admin-media-preview";
+  return `<button type="button" class="adm-media-preview-trigger${className ? ` ${escapeHtml(className)}` : ""}${type === "video" && !preloadVideo ? " adm-media-preview-no-preload" : ""}"${styleAttr} ${previewAttribute} data-media-url="${escapeHtml(source)}" data-media-kind="${type}" data-media-label="${escapeHtml(label || "素材")}" aria-label="预览${escapeHtml(label || "素材")}">${media}<span class="adm-media-preview-badge">${type === "video" ? "播放" : "预览"}</span></button>`;
 }
 
 function closeAdminMediaPreview() {
@@ -5698,11 +6329,13 @@ async function renderChatLive() {
           <div class="adm-form-row"><span>原价（成本）</span><input id="chatLiveCost" type="number" min="0" value="${escapeHtml(String(pricing.costCreditsPerMinute ?? 90))}" /></div>
           <div class="adm-form-row"><span>卖价</span><input id="chatLiveSale" type="number" min="0" value="${escapeHtml(String(pricing.saleCreditsPerMinute ?? 0))}" /><small class="adm-muted">0 = 未定价，此时前台不允许开播。</small></div>
           <div class="adm-form-row"><span>多人房间价</span><input id="chatLiveSharedSale" type="number" min="0" value="${escapeHtml(String(pricing.sharedRoomSaleCreditsPerMinute || ""))}" placeholder="留空则与单人卖价相同" /><small class="adm-muted">每个进入房间的人都按这个价格扣。留空或 0 = 跟单人卖价一样，当前生效 ${escapeHtml(String(Number(pricing.sharedRoomSaleCreditsPerMinute || 0) > 0 ? pricing.sharedRoomSaleCreditsPerMinute : (pricing.saleCreditsPerMinute || 0)))} 积分/分钟。</small></div>
+          <div class="adm-form-row"><span>算力中转成本</span><input id="chatLiveComputeRelayCost" type="number" min="0" value="${escapeHtml(String(pricing.computeRelayCostCreditsPerMinute ?? 90))}" /><small class="adm-muted">商家自带 LLM/ASR/TTS、平台只中转 Vidu 算力时的成本，仅后台参考。</small></div>
+          <div class="adm-form-row"><span>算力中转售价</span><input id="chatLiveComputeRelaySale" type="number" min="0" value="${escapeHtml(String(pricing.computeRelaySaleCreditsPerMinute ?? 0))}" /><small class="adm-muted">独立计费，不与实时版/组件版共用。0 = 未定价，不创建 relay 会话。</small></div>
           <div class="adm-form-row"><span>每个用户免费总时长（秒）</span><input id="chatLiveFreeSeconds" type="number" min="0" value="${escapeHtml(String(pricing.freeSeconds ?? 0))}" /><small class="adm-muted">按用户累计，不再每次连接重新赠送。进房即开始消耗；免费额度剩余不足 10 秒时，会按差额预扣付费时长，余额不足则不能进入。</small></div>
           <div class="adm-form-row"><span>单次最长（分钟）</span><input id="chatLiveMaxMinutes" type="number" min="1" max="120" value="${escapeHtml(String(pricing.maxMinutes ?? 10))}" /></div>
           <div class="adm-form-row"><span>模型版本</span><input id="chatLiveModel" value="${escapeHtml(pricing.model || "vidu-s2")}" /></div>
           <div class="adm-form-row"><span>语言模型</span><select id="chatLiveLanguageModel"><option value="byteplus" ${(pricing.languageModel||"byteplus")!=="papaya"?"selected":""}>当前模型（BytePlus）</option><option value="papaya" ${(pricing.languageModel||"")==="papaya"?"selected":""}>Papaya 1.0</option></select><small class="adm-muted">用于组件版视频对话，以及创作页用户创建角色的 AI 自动生成。实时版仍走 Vidu 内置模型。改完后新开的通话和生成请求生效。</small></div>
-          <div class="adm-form-row"><span>默认对话模式</span><select id="chatLiveDefaultMode"><option value="realtime" ${(pricing.defaultMode||"realtime")!=="component"?"selected":""}>实时版（Vidu 内置 LLM）</option><option value="component" ${(pricing.defaultMode||"")==="component"?"selected":""}>组件版（外接我们自己的 LLM）</option></select></div>
+          <div class="adm-form-row"><span>默认对话模式</span><select id="chatLiveDefaultMode"><option value="realtime" ${!["component","compute-relay"].includes(pricing.defaultMode||"realtime")?"selected":""}>实时版（Vidu 内置 LLM）</option><option value="component" ${(pricing.defaultMode||"")==="component"?"selected":""}>组件版（外接我们自己的 LLM）</option><option value="compute-relay" ${(pricing.defaultMode||"")==="compute-relay"?"selected":""}>算力中转（商家自带 LLM/ASR/TTS）</option></select></div>
           <div class="adm-form-row"><span>通话模式</span><select id="chatLiveCallMode"><option value="video" ${pricing.callMode !== "audio" ? "selected" : ""}>video（出视频）</option><option value="audio" ${pricing.callMode === "audio" ? "selected" : ""}>audio（仅语音）</option></select></div>
           <div class="adm-form-row"><span>开关</span><label style="display:flex;gap:8px;align-items:center"><input id="chatLiveEnabledSwitch" type="checkbox" ${payload.pricing && payload.pricing.enabled === false ? "" : "checked"} /> 开放前台“在线聊天”入口</label></div>
           <div class="adm-form-actions"><button class="adm-btn adm-btn-primary" id="chatLiveSavePricingBtn" type="button"><i data-lucide="save"></i>保存计费</button></div>
@@ -5911,6 +6544,8 @@ async function renderChatLive() {
           costCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveCost").value || 0),
           saleCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveSale").value || 0),
           sharedRoomSaleCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveSharedSale").value || 0),
+          computeRelayCostCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveComputeRelayCost").value || 0),
+          computeRelaySaleCreditsPerMinute: Number(els.adminContent.querySelector("#chatLiveComputeRelaySale").value || 0),
           freeSeconds: Number(els.adminContent.querySelector("#chatLiveFreeSeconds").value || 0),
           maxMinutes: Number(els.adminContent.querySelector("#chatLiveMaxMinutes").value || 10),
           model: els.adminContent.querySelector("#chatLiveModel").value,
@@ -5942,8 +6577,8 @@ function pricingRowTitle(row = {}) {
   const key = String(row.key || "");
   const provider = String(row.provider || "").toLowerCase();
   if (row.providerLabel) return row.providerLabel;
-  if (key.startsWith("seedance-fast-video-input")) return "Seedance Fast 视频输入加收";
-  if (key.startsWith("seedance-fast")) return "Seedance Fast";
+  if (key.startsWith("seedance-fast-video-input")) return "Seedance 2.0 Fast 视频输入加收";
+  if (key.startsWith("seedance-fast")) return "Seedance 2.0 Fast";
   if (key.startsWith("seedance-video-input")) return "Seedance 视频输入加收";
   if (provider === "seedance") return "Seedance 基础生成";
   return row.providerLabel || row.provider || "模型";
@@ -5960,7 +6595,122 @@ function pricingRowUsage(row = {}) {
   return "按生成视频秒数";
 }
 
-function renderPricingTable(rows = []) {
+const PRICING_MULTIPLIER_FLOOR = 1.5;
+const PRICING_MULTIPLIER_TOLERANCE = 1e-5;
+
+function isPricingMultiplierLow(multiplier) {
+  return Number.isFinite(multiplier)
+    && multiplier < PRICING_MULTIPLIER_FLOOR - PRICING_MULTIPLIER_TOLERANCE;
+}
+
+function pricingRowMultiplier(row = {}) {
+  const purchase = Number(row.purchaseUsdPerSecond);
+  const sale = Number(row.saleUsdPerSecond);
+  if (!Number.isFinite(purchase) || purchase <= 0 || !Number.isFinite(sale) || sale < 0) return null;
+  return sale / purchase;
+}
+
+function pricingMultiplierHtml(row = {}) {
+  const multiplier = pricingRowMultiplier(row);
+  if (multiplier === null) return `<span class="adm-muted">-</span>`;
+  const low = isPricingMultiplierLow(multiplier);
+  return `<strong class="${low ? "adm-price-ratio-low" : ""}" data-price-multiplier>${escapeHtml(multiplier.toFixed(3))}x</strong>${low ? `<br/><small class="adm-price-ratio-low">低于 1.5x</small>` : ""}`;
+}
+
+const PRICING_MODEL_DEFAULT_LABELS = {
+  "seedance-standard": "Seedance Standard",
+  "seedance-fast": "Seedance 2.0 Fast",
+  "seedance25": "Seedance 2.5（官转）",
+  "seedance-nsfw": "Seedance 2.5（NSFW）",
+  "seedance20-vega": "seedance2.0（vega）",
+  "seedance25-vega": "seedance2.5vega",
+  "h3-vega": "wan（vega）",
+  "vega10-lite": "h3（vega）",
+  "wan30": "W3.0",
+  "wan30-prime": "W3.0-Prime",
+  "wan30-pro": "W3.0-Pro",
+  "wan30-prime-pro": "W3.0-VSR-Prime",
+};
+
+function pricingModelFilterKey(row = {}) {
+  const configured = String(row.modelKey || "").trim().toLowerCase();
+  if (configured) return configured;
+  const provider = String(row.provider || "").trim().toLowerCase();
+  const key = String(row.key || "").trim().toLowerCase();
+  if (provider === "seedance") {
+    const fast = String(row.seedanceTier || "").trim().toLowerCase() === "fast" || key.includes("seedance-fast");
+    return fast ? "seedance-fast" : "seedance-standard";
+  }
+  if (provider === "seedance25") return "seedance25";
+  if (provider === "seedance-nsfw") return "seedance-nsfw";
+  if (provider === "wan30") {
+    const capability = String(row.capability || "").trim().toLowerCase();
+    if (capability === "wan30-video-prime-pro") return "wan30-prime-pro";
+    if (capability === "wan30-video-pro") return "wan30-pro";
+    if (capability === "wan30-video-prime" || key.includes("wan30-prime")) return "wan30-prime";
+    return "wan30";
+  }
+  return provider || key || "other";
+}
+
+function pricingModelSetting(pricing = {}, key = "") {
+  const source = pricing?.modelSettings && typeof pricing.modelSettings === "object" ? pricing.modelSettings : {};
+  const setting = source[String(key || "").toLowerCase()];
+  return setting && typeof setting === "object" ? setting : {};
+}
+
+function pricingModelFilterLabel(row = {}, pricing = {}) {
+  const key = pricingModelFilterKey(row);
+  const setting = pricingModelSetting(pricing, key);
+  const configuredName = String(setting.displayName || row.modelDisplayName || "").trim();
+  if (configuredName) return configuredName;
+  if (PRICING_MODEL_DEFAULT_LABELS[key]) return PRICING_MODEL_DEFAULT_LABELS[key];
+  const label = String(row.providerLabel || row.provider || "")
+    .replace(/\s*\+\s*(?:Video|Image)\s*$/i, "")
+    .replace(/\s+(?:视频输入加收|Reference)$/i, "")
+    .trim();
+  return label || key;
+}
+
+function pricingModelSubtitle(row = {}, pricing = {}) {
+  const key = pricingModelFilterKey(row);
+  const setting = pricingModelSetting(pricing, key);
+  return String(setting.subtitle || row.modelSubtitle || row.model || row.providerLabel || key).trim();
+}
+
+function pricingModelDiscount(row = {}, pricing = {}) {
+  const setting = pricingModelSetting(pricing, pricingModelFilterKey(row));
+  const value = Number(setting.discount);
+  return Number.isFinite(value) && value >= 0.01 && value <= 10 ? value : 1;
+}
+
+function pricingConfiguredSaleUsd(row = {}) {
+  const configured = Number(row.configuredSaleUsdPerSecond);
+  if (Number.isFinite(configured) && configured >= 0) return configured;
+  const sale = Number(row.saleUsdPerSecond);
+  return Number.isFinite(sale) ? sale : 0;
+}
+
+function pricingModelCard(row, pricing, count) {
+  const key = pricingModelFilterKey(row);
+  const discount = pricingModelDiscount(row, pricing);
+  return `
+    <div class="adm-pricing-model-card" role="button" tabindex="0" data-pricing-model="${escapeHtml(key)}" aria-label="查看 ${escapeHtml(pricingModelFilterLabel(row, pricing))} 的价格详情">
+      <span class="adm-pricing-model-icon"><i data-lucide="${isImagePricingRow(row) ? "image" : "clapperboard"}"></i></span>
+      <span class="adm-pricing-model-copy">
+        <strong>${escapeHtml(pricingModelFilterLabel(row, pricing))}</strong>
+        <small>${escapeHtml(pricingModelSubtitle(row, pricing))}</small>
+        <em>${count} 个计费项 · 折扣 ${escapeHtml(fmtPrice(discount, 4))}x</em>
+      </span>
+      <span class="adm-pricing-model-actions">
+        <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-pricing-detail="${escapeHtml(key)}">详情</button>
+        <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-pricing-config="${escapeHtml(key)}"><i data-lucide="settings-2"></i>配置</button>
+      </span>
+    </div>
+  `;
+}
+
+function renderPricingTable(rows = [], pricing = {}) {
   if (!rows.length) return `<div class="adm-empty">暂无价格项</div>`;
   return `
     <div class="adm-table-wrap">
@@ -5970,32 +6720,44 @@ function renderPricingTable(rows = []) {
             <th>计费项</th>
             <th>分辨率</th>
             <th>采购价</th>
-            <th>对外价</th>
-            <th>积分</th>
+            <th>折扣前售价</th>
+            <th>实际售价</th>
+            <th>倍率 / 积分</th>
           </tr>
         </thead>
         <tbody>
-          ${rows.map((row) => `
-            <tr data-provider="${escapeHtml(row.provider)}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}" data-unit="${escapeHtml(row.unit || "")}">
-              <td><strong>${escapeHtml(pricingRowTitle(row))}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.model || row.key || row.provider || "")}</small></td>
-              <td>${escapeHtml(row.resolution)}<br/><small class="adm-muted">${escapeHtml(pricingRowUsage(row))}</small></td>
-              <td>
-                ${row.purchaseEditable ? `
-                  <input class="adm-price-input" data-f="purchaseUsdPerSecond" type="number" min="0.000001" step="0.000001" value="${escapeHtml(fmtPrice(row.purchaseUsdPerSecond, 8))}" />
-                  <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))}</small>
-                ` : `
-                  <strong>${row.purchaseUsdPerSecondRange ? fmtPriceRange(row.purchaseUsdPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseUsdPerSecond === null || row.purchaseUsdPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseUsdPerSecond)} ${rowPriceUnit(row)}`}</strong>
-                  <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, ` ${rowPriceUnit(row, true)}`) : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} ${rowPriceUnit(row, true)}`} · ${escapeHtml(row.purchaseSource || "")}</small>
-                `}
-                ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
-              </td>
-              <td>
-                <input class="adm-price-input" data-f="saleUsdPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleUsdPerSecond))}" />
-                <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))}</small>
-              </td>
-              <td class="adm-mono" data-price-credits>${escapeHtml(fmtPrice(row.saleCreditsPerSecond))}</td>
-            </tr>
-          `).join("")}
+          ${rows.map((row, index) => {
+            const key = pricingModelFilterKey(row);
+            const discount = pricingModelDiscount(row, pricing);
+            const configuredSaleUsd = pricingConfiguredSaleUsd(row);
+            const effectiveSaleUsd = configuredSaleUsd * discount;
+            const rowKey = String(row.key || `${row.provider || "row"}-${index}`);
+            return `
+              <tr data-provider="${escapeHtml(row.provider)}" data-pricing-model="${escapeHtml(key)}" data-row-key="${escapeHtml(rowKey)}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}" data-unit="${escapeHtml(row.unit || "")}">
+                <td><strong>${escapeHtml(pricingRowTitle(row))}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.model || row.key || row.provider || "")}</small></td>
+                <td>${escapeHtml(row.resolution)}<br/><small class="adm-muted">${escapeHtml(pricingRowUsage(row))}</small></td>
+                <td>
+                  ${row.purchaseEditable ? `
+                    <input class="adm-price-input" data-f="purchaseUsdPerSecond" type="number" min="0.000001" step="0.000001" value="${escapeHtml(fmtPrice(row.purchaseUsdPerSecond, 8))}" />
+                    <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))}</small>
+                  ` : `
+                    <strong>${row.purchaseUsdPerSecondRange ? fmtPriceRange(row.purchaseUsdPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseUsdPerSecond === null || row.purchaseUsdPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseUsdPerSecond)} ${rowPriceUnit(row)}`}</strong>
+                    <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, ` ${rowPriceUnit(row, true)}`) : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} ${rowPriceUnit(row, true)}`} · ${escapeHtml(row.purchaseSource || "")}</small>
+                  `}
+                  ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
+                </td>
+                <td>
+                  <input class="adm-price-input" data-f="saleUsdPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(configuredSaleUsd))}" />
+                  <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))} · 基础售价</small>
+                </td>
+                <td>
+                  <strong data-price-effective>${escapeHtml(fmtPrice(effectiveSaleUsd))} ${escapeHtml(rowPriceUnit(row))}</strong>
+                  <br/><small class="adm-muted">折扣 <span data-price-discount>${escapeHtml(fmtPrice(discount, 4))}x</span> · <span data-price-credits>${escapeHtml(fmtPrice(effectiveSaleUsd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD)))}</span> 积分</small>
+                </td>
+                <td class="adm-mono" data-price-ratio>${pricingMultiplierHtml({ ...row, saleUsdPerSecond: effectiveSaleUsd })}</td>
+              </tr>
+            `;
+          }).join("")}
         </tbody>
       </table>
     </div>
@@ -6006,103 +6768,219 @@ async function renderPricing() {
   const payload = await api("/api/admin/pricing");
   if (!isActiveRoute("pricing")) return;
   const pricing = payload.pricing || {};
-  const rows = pricing.rows || [];
-  const seedanceOutputRows = rows.filter((row) => String(row.provider || "").toLowerCase() === "seedance" && String(row.rateKind || "output") !== "video_input");
-  const seedanceInputRows = rows.filter((row) => String(row.provider || "").toLowerCase() === "seedance" && String(row.rateKind || "") === "video_input");
-  const otherRows = rows.filter((row) => String(row.provider || "").toLowerCase() !== "seedance");
+  const pricingRows = (pricing.rows || []).map((row, index) => {
+    const configuredSaleUsdPerSecond = pricingConfiguredSaleUsd(row);
+    return {
+      ...row,
+      configuredSaleUsdPerSecond,
+      saleUsdPerSecond: configuredSaleUsdPerSecond * pricingModelDiscount(row, pricing),
+      _pricingKey: String(row.key || `${row.provider || "row"}-${index}`),
+    };
+  });
+  const visiblePricingRows = pricingRows.filter((row) => row.pricingVisible !== false);
+  const modelGroups = new Map();
+  for (const row of visiblePricingRows) {
+    const key = pricingModelFilterKey(row);
+    const current = modelGroups.get(key) || { key, row, count: 0 };
+    current.count += 1;
+    modelGroups.set(key, current);
+  }
+  const models = Array.from(modelGroups.values());
+  if (!state.pricingModelKey || !modelGroups.has(state.pricingModelKey)) {
+    state.pricingModelKey = models[0]?.key || "";
+  }
 
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
         <div>
           <h2>价格配置</h2>
-          <p class="adm-muted">配置 Advanced 采购价和对外价格。Wan3 新模型支持分别配置采购价与对外价；Seedance 视频输入任务按两段计费。</p>
+          <p class="adm-muted">先选择模型，再查看该模型的采购价、基础售价、模型折扣和折后实际售价。模型折扣只影响对外售价。</p>
         </div>
         <div class="adm-page-actions">
           <button class="adm-btn adm-btn-ghost" id="reloadPricingBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
-          <button class="adm-btn adm-btn-primary" id="savePricingBtn" type="button"><i data-lucide="save"></i>保存</button>
+          <button class="adm-btn adm-btn-primary" id="savePricingBtn" type="button"><i data-lucide="save"></i>保存全部价格</button>
         </div>
       </div>
-      <div class="adm-card">
-        <div class="adm-card-head">
-          <div>
-            <h3>Advanced 价格</h3>
-            <p class="adm-muted">计费单位：1 USD = ${escapeHtml(String(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))} 积分。采购来源：${escapeHtml(pricing.upstreamMode || "direct")}</p>
+      <div class="adm-pricing-layout">
+        <aside class="adm-card adm-pricing-model-panel">
+          <div class="adm-card-head">
+            <div>
+              <h3>模型</h3>
+              <p class="adm-muted">共 ${models.length} 个上线模型，${visiblePricingRows.length} 个计费项</p>
+            </div>
           </div>
-        </div>
-        <div class="adm-pricing-formula">
-          Seedance 视频输入任务总扣费 = 基础生成对外价 x 生成视频秒数 + 视频输入加收价 x 输入视频秒数。
-        </div>
-        <div class="adm-pricing-groups">
-          <section class="adm-pricing-section">
-            <div class="adm-pricing-section-head">
-              <div>
-                <h4>Seedance 基础生成价格</h4>
-                <p class="adm-muted">所有 Seedance 任务都会按生成出来的视频秒数收这一段。</p>
-              </div>
-            </div>
-            ${renderPricingTable(seedanceOutputRows)}
-          </section>
-          <section class="adm-pricing-section">
-            <div class="adm-pricing-section-head">
-              <div>
-                <h4>Seedance 视频输入加收价格</h4>
-                <p class="adm-muted">仅在传入视频作为参考、编辑、续写等输入时，按输入视频秒数额外加收。这里不是总价。</p>
-              </div>
-            </div>
-            ${renderPricingTable(seedanceInputRows)}
-          </section>
-          <section class="adm-pricing-section">
-            <div class="adm-pricing-section-head">
-              <div>
-                <h4>Wan 3.0、HappyHorse 与图片模型价格</h4>
-                <p class="adm-muted">W3.0、W3.0-Pro、W3.0-Prime、W3.0-VSR-Prime、HappyHorse 及图片模型。Wan3 采购价和对外价均可配置。</p>
-              </div>
-            </div>
-            ${renderPricingTable(otherRows)}
-          </section>
-        </div>
+          <label class="adm-pricing-filter adm-pricing-model-search">
+            <span>查找模型</span>
+            <input id="pricingModelSearch" type="search" placeholder="名称、副标题或模型 ID" autocomplete="off" />
+          </label>
+          <div class="adm-pricing-model-list" id="pricingModelList">
+            ${models.map((item) => pricingModelCard(item.row, pricing, item.count)).join("")}
+          </div>
+        </aside>
+        <section class="adm-card adm-pricing-detail-panel" id="pricingModelDetail"></section>
       </div>
+      <div class="adm-pricing-formula">实际售价 = 折扣前售价 × 模型折扣。采购价保持不变；模型折扣可在“配置”中调整。</div>
     </section>
   `;
   refreshIcons();
 
-  const updateCredits = () => {
-    els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
-      const input = tr.querySelector('[data-f="saleUsdPerSecond"]');
-      const target = tr.querySelector("[data-price-credits]");
-      const usd = Number(input?.value || 0);
-      target.textContent = Number.isFinite(usd) && usd >= 0
-        ? fmtPrice(usd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
-        : "-";
+  const detail = byId("pricingModelDetail");
+  const renderDetail = (modelKey) => {
+    const group = modelGroups.get(modelKey);
+    if (!group || !detail) return;
+    state.pricingModelKey = modelKey;
+    const rows = visiblePricingRows.filter((row) => pricingModelFilterKey(row) === modelKey);
+    const discount = pricingModelDiscount(group.row, pricing);
+    detail.innerHTML = `
+      <div class="adm-card-head adm-pricing-detail-head">
+        <div>
+          <h3>${escapeHtml(pricingModelFilterLabel(group.row, pricing))}</h3>
+          <p class="adm-muted">${escapeHtml(pricingModelSubtitle(group.row, pricing))} · 模型折扣 ${escapeHtml(fmtPrice(discount, 4))}x</p>
+        </div>
+        <button class="adm-btn adm-btn-ghost" type="button" data-pricing-config="${escapeHtml(modelKey)}"><i data-lucide="settings-2"></i>配置模型</button>
+      </div>
+      ${renderPricingTable(rows, pricing)}
+    `;
+    refreshIcons();
+    detail.querySelectorAll("tr[data-row-key]").forEach((tr) => {
+      const row = pricingRows.find((item) => item._pricingKey === tr.dataset.rowKey);
+      if (!row) return;
+      const saleInput = tr.querySelector('[data-f="saleUsdPerSecond"]');
+      const purchaseInput = tr.querySelector('[data-f="purchaseUsdPerSecond"]');
+      const refreshRow = () => {
+        const modelDiscount = pricingModelDiscount(row, pricing);
+        const configuredSaleUsd = Number(saleInput?.value || 0);
+        const purchaseUsd = Number(purchaseInput?.value || row.purchaseUsdPerSecond || 0);
+        row.configuredSaleUsdPerSecond = configuredSaleUsd;
+        row.saleUsdPerSecond = configuredSaleUsd * modelDiscount;
+        if (purchaseInput) row.purchaseUsdPerSecond = purchaseUsd;
+        const effective = tr.querySelector("[data-price-effective]");
+        const credits = tr.querySelector("[data-price-credits]");
+        const discountTarget = tr.querySelector("[data-price-discount]");
+        const ratioTarget = tr.querySelector("[data-price-ratio]");
+        if (effective) effective.textContent = `${fmtPrice(row.saleUsdPerSecond)} ${rowPriceUnit(row)}`;
+        if (credits) credits.textContent = fmtPrice(row.saleUsdPerSecond * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD));
+        if (discountTarget) discountTarget.textContent = `${fmtPrice(modelDiscount, 4)}x`;
+        if (ratioTarget) ratioTarget.innerHTML = pricingMultiplierHtml(row);
+      };
+      saleInput?.addEventListener("input", refreshRow);
+      purchaseInput?.addEventListener("input", refreshRow);
+    });
+    byId("pricingModelList")?.querySelectorAll(":scope > [data-pricing-model]").forEach((card) => {
+      card.classList.toggle("is-active", card.dataset.pricingModel === modelKey);
     });
   };
 
-  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"]').forEach((input) => {
-    input.addEventListener("input", updateCredits);
+  const savePricing = async (nextSettings = pricing.modelSettings || {}) => {
+    const nextRows = pricingRows.map((row) => {
+      const purchaseInput = row.purchaseEditable
+        ? detail?.querySelector(`tr[data-row-key="${CSS.escape(row._pricingKey)}"] [data-f="purchaseUsdPerSecond"]`)
+        : null;
+      if (purchaseInput) row.purchaseUsdPerSecond = Number(purchaseInput.value || 0);
+      return {
+        provider: row.provider,
+        resolution: row.resolution,
+        rateKind: row.rateKind,
+        key: row.key,
+        unit: row.unit,
+        saleUsdPerSecond: Number(row.configuredSaleUsdPerSecond ?? pricingConfiguredSaleUsd(row)),
+        ...(row.purchaseEditable ? { purchaseUsdPerSecond: Number(row.purchaseUsdPerSecond || 0) } : {}),
+      };
+    });
+    const result = await api("/api/admin/pricing", {
+      method: "PUT",
+      body: { rows: nextRows, modelSettings: nextSettings },
+    });
+    state.config = result.config || null;
+    toast("价格与模型配置已保存。", "success");
+    await renderPricing();
+  };
+
+  byId("pricingModelSearch")?.addEventListener("input", (event) => {
+    const query = String(event.target.value || "").trim().toLowerCase();
+    byId("pricingModelList")?.querySelectorAll(":scope > [data-pricing-model]").forEach((card) => {
+      const model = modelGroups.get(card.dataset.pricingModel);
+      const text = [
+        pricingModelFilterLabel(model.row, pricing),
+        pricingModelSubtitle(model.row, pricing),
+        model.key,
+      ].join(" ").toLowerCase();
+      card.hidden = Boolean(query) && !text.includes(query);
+    });
   });
+
+  const pricingLayout = els.adminContent.querySelector(".adm-pricing-layout");
+  const openModelConfig = async (modelKey) => {
+    const group = modelGroups.get(modelKey);
+    if (!group) return;
+    const current = { ...pricingModelSetting(pricing, modelKey) };
+    const result = await openDialog({
+      title: "配置模型展示与折扣",
+      confirmText: "保存配置",
+      body: `
+        <div class="adm-form-row"><label><span>显示名称</span><input id="pricingModelDisplayName" maxlength="80" value="${escapeHtml(current.displayName || pricingModelFilterLabel(group.row, pricing))}" placeholder="${escapeHtml(PRICING_MODEL_DEFAULT_LABELS[modelKey] || group.row.providerLabel || modelKey)}" /></label></div>
+        <div class="adm-form-row"><label><span>副标题</span><input id="pricingModelSubtitle" maxlength="160" value="${escapeHtml(current.subtitle || group.row.modelSubtitle || "")}" placeholder="例如：高质量视频生成" /></label></div>
+        <div class="adm-form-row"><label><span>模型折扣（对外售价倍率）</span><input id="pricingModelDiscount" type="number" min="0.01" max="10" step="0.0001" value="${escapeHtml(fmtPrice(current.discount ?? 1, 4))}" /></label><small class="adm-muted">例如 0.9 表示 9 折，1 表示原价。只乘对外售价，不影响采购价。</small></div>
+      `,
+      onConfirm: async () => {
+        const displayName = String(byId("pricingModelDisplayName")?.value || "").trim();
+        const subtitle = String(byId("pricingModelSubtitle")?.value || "").trim();
+        const discount = Number(byId("pricingModelDiscount")?.value || 0);
+        if (!(discount >= 0.01 && discount <= 10)) {
+          toast("模型折扣必须在 0.01 到 10 之间。", "error");
+          return false;
+        }
+        const nextSettings = {
+          ...(pricing.modelSettings || {}),
+          [modelKey]: { displayName, subtitle, discount },
+        };
+        try {
+          await savePricing(nextSettings);
+        } catch (err) {
+          toast(err.message || "保存失败。", "error");
+          return false;
+        }
+      },
+    });
+    return result;
+  };
+
+  pricingLayout?.addEventListener("click", async (event) => {
+    const configButton = event.target.closest("[data-pricing-config]");
+    if (configButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      await openModelConfig(configButton.dataset.pricingConfig);
+      return;
+    }
+    const detailButton = event.target.closest("[data-pricing-detail]");
+    if (detailButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      renderDetail(detailButton.dataset.pricingDetail);
+      return;
+    }
+    const card = event.target.closest("#pricingModelList > [data-pricing-model]");
+    if (card) renderDetail(card.dataset.pricingModel);
+  });
+  pricingLayout?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const card = event.target.closest("#pricingModelList > [data-pricing-model]");
+    if (!card || event.target.closest("[data-pricing-config], [data-pricing-detail]")) return;
+    event.preventDefault();
+    renderDetail(card.dataset.pricingModel);
+  });
+
   byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
   byId("savePricingBtn")?.addEventListener("click", async () => {
     try {
-      const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map((tr) => ({
-        provider: tr.dataset.provider,
-        resolution: tr.dataset.resolution,
-        rateKind: tr.dataset.rateKind,
-        key: tr.dataset.key,
-        unit: tr.dataset.unit,
-        saleUsdPerSecond: Number(tr.querySelector('[data-f="saleUsdPerSecond"]')?.value || 0),
-      }));
-      const result = await api("/api/admin/pricing", {
-        method: "PUT",
-        body: { rows: nextRows },
-      });
-      state.config = result.config || null;
-      toast("价格已保存。", "success");
-      renderPricing();
+      await savePricing(pricing.modelSettings || {});
     } catch (err) {
-      toast(err.message, "error");
+      toast(err.message || "保存失败。", "error");
     }
   });
+  renderDetail(state.pricingModelKey);
 }
 
 /* ============ PLATFORM ============ */
@@ -6998,7 +7876,9 @@ async function loadVoicePreviewAudio(audio) {
     if (status) status.textContent = `正在载入完整音频（约 ${expectedDuration.toFixed(1)} 秒）...`;
     // Download the whole short audition file before playback. Browser range decoding
     // of long WAV files was stopping the admin player after only a few seconds.
-    const response = await fetch(source);
+    const response = await fetch(source, {
+      headers: state.token ? { authorization: `Bearer ${state.token}` } : {},
+    });
     if (!response.ok) throw new Error(`音频请求失败（HTTP ${response.status}）`);
     const bytes = await response.arrayBuffer();
     if (bytes.byteLength < 100000) throw new Error(`音频下载不完整（${bytes.byteLength} 字节）`);
@@ -8416,25 +9296,90 @@ async function fetchGeoCheck(check = {}) {
 }
 
 /* ============ boot ============ */
+function showBootstrapUnavailable(message = "") {
+  if (!els.appLoadingScreen) return;
+  els.appLoadingScreen.classList.remove("is-hidden");
+  els.appLoadingScreen.style.display = "";
+  els.appLoadingScreen.style.pointerEvents = "";
+  els.appLoadingScreen.innerHTML = `
+    <div class="adm-app-loading-card">
+      <div class="adm-spinner"></div>
+      <strong>管理后台暂时连接不上</strong>
+      <p>${escapeHtml(message || "服务繁忙，登录状态已保留，请稍后重试。")}</p>
+      <button type="button" class="adm-btn adm-btn-primary" id="bootstrapRetryBtn">重新连接</button>
+    </div>
+  `;
+  els.appLoadingScreen.querySelector("#bootstrapRetryBtn")?.addEventListener("click", () => {
+    els.appLoadingScreen.innerHTML = '<div class="adm-spinner"></div>';
+    bootstrap();
+  });
+}
+
+async function fetchBootstrapMe(retries = 3) {
+  let lastError = null;
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      const response = await fetch("/api/auth/me", {
+        headers: { authorization: `Bearer ${state.token}` },
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) return { response, payload };
+      const code = String(payload?.code || "");
+      // Only an explicit session rejection is definitive. Permission/quarantine
+      // responses, 5xx, 502/504, rate limits and network failures must keep the
+      // browser token so a temporary outage cannot sign an admin out.
+      if (response.status === 401 || code === "LOGIN_REQUIRED" || code === "SESSION_REPLACED") {
+        return { response, payload };
+      }
+      lastError = new Error(payload?.message || `请求失败（${response.status}）`);
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < retries - 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError || new Error("服务暂时不可用");
+}
+
 async function bootstrap() {
   if (!state.token) {
     showLogin();
     return;
   }
   try {
-    const me = await fetch("/api/auth/me", {
-      headers: { authorization: `Bearer ${state.token}` },
-    }).then((r) => r.json()).catch(() => ({}));
-    if (!me?.user || me.user.role !== "admin") {
-      throw new Error(me?.message || "需要管理员账号");
+    const { response, payload } = await fetchBootstrapMe();
+    if (!response.ok) {
+      const code = String(payload?.code || "");
+      const sessionRejected = response.status === 401 || code === "LOGIN_REQUIRED" || code === "SESSION_REPLACED";
+      if (sessionRejected) {
+        state.token = "";
+        state.user = null;
+        localStorage.removeItem(TOKEN_KEY);
+        showLogin();
+        els.loginError.textContent = payload?.message || "登录已过期，请重新登录。";
+        els.loginError.hidden = false;
+        return;
+      }
+      showBootstrapUnavailable(payload?.message || `管理服务暂时不可用（${response.status}）`);
+      return;
     }
-    state.user = me.user;
+    if (!payload?.user || payload.user.role !== "admin") {
+      // A successful response means the token itself is valid, but this is not
+      // an administrator account. Do not leave the admin portal in a loop.
+      state.token = "";
+      state.user = null;
+      localStorage.removeItem(TOKEN_KEY);
+      showLogin();
+      els.loginError.textContent = payload?.message || "需要管理员账号";
+      els.loginError.hidden = false;
+      return;
+    }
+    state.user = payload.user;
     showApp();
   } catch (err) {
-    state.token = "";
-    state.user = null;
-    localStorage.removeItem(TOKEN_KEY);
-    showLogin();
+    showBootstrapUnavailable(err?.message || "服务繁忙，登录状态已保留，请稍后重试。");
   }
 }
 

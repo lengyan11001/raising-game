@@ -66,6 +66,18 @@ real_ip_recursive on;
 NGINX
 }
 
+write_private_media_limits() {
+  mkdir -p /etc/nginx/conf.d
+  cat > /etc/nginx/conf.d/raising-game-private-media-limits.conf <<'NGINX'
+# managed by raising-game production tuning
+# Bound authenticated private-media bursts per client IP. Keep this generous
+# enough for normal galleries while preventing one client from exhausting the
+# origin with repeated full-resolution downloads.
+limit_conn_zone $binary_remote_addr zone=raising_private_media_conns_per_ip:10m;
+limit_req_zone $binary_remote_addr zone=raising_private_media_rate_per_ip:10m rate=20r/s;
+NGINX
+}
+
 write_mainland_geo() {
   mkdir -p "$NGINX_GEO_DIR"
   local tmp_file="${CN_GEO_FILE}.tmp"
@@ -262,21 +274,21 @@ server {
     }
 
     location ^~ /assets/admin/voice-preview/ {
-        alias /opt/raising-game-demo/assets/admin/voice-preview/;
-        access_log off;
-        types {
-            audio/wav wav;
-            audio/mp4 m4a;
-        }
-        default_type application/octet-stream;
-        add_header Accept-Ranges bytes always;
-        add_header Cache-Control "public, max-age=3600" always;
-        add_header X-Content-Type-Options "nosniff" always;
-        try_files $uri =404;
+        proxy_pass http://raising_game_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+        limit_conn raising_private_media_conns_per_ip 8;
+        limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;
     }
 
-    location ^~ /assets/admin/ {
-        alias /opt/raising-game-demo/assets/admin/;
+    location ^~ /assets/admin/home/ {
+        alias /opt/raising-game-demo/assets/admin/home/;
         access_log off;
         expires 1h;
         add_header Cache-Control "public, max-age=3600" always;
@@ -291,28 +303,57 @@ server {
         try_files $uri =404;
     }
 
-    location ^~ /assets/user-uploads/ {
-        alias /opt/raising-game-demo/assets/user-uploads/;
-        access_log off;
-        expires 1h;
-        add_header Cache-Control "public, max-age=3600" always;
-        try_files $uri =404;
-    }
-
-    location ^~ /assets/generated/characters/ {
-        alias /opt/raising-game-demo/assets/generated/characters/;
+    location ^~ /assets/admin/platform-templates/ {
+        alias /opt/raising-game-demo/assets/admin/platform-templates/;
         access_log off;
         expires 7d;
         add_header Cache-Control "public, max-age=604800, immutable" always;
         try_files $uri =404;
+    }
+
+    location ^~ /assets/user-uploads/ {
+        proxy_pass http://raising_game_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+        limit_conn raising_private_media_conns_per_ip 8;
+        limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;
+    }
+
+    # Generated character/panorama media may contain private user content.
+    # Proxy through Node and reuse the signed-media allowlist instead of
+    # exposing a broad direct-file directory from Nginx.
+    location ^~ /assets/generated/characters/ {
+        proxy_pass http://raising_game_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+        limit_conn raising_private_media_conns_per_ip 8;
+        limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;
     }
 
     location ^~ /assets/generated/panoramas/ {
-        alias /opt/raising-game-demo/assets/generated/panoramas/;
-        access_log off;
-        expires 7d;
-        add_header Cache-Control "public, max-age=604800, immutable" always;
-        try_files $uri =404;
+        proxy_pass http://raising_game_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+        limit_conn raising_private_media_conns_per_ip 8;
+        limit_req zone=raising_private_media_rate_per_ip burst=40 nodelay;
     }
 
     location ^~ /__protected_assets__/ {
@@ -436,14 +477,17 @@ upsert_env MAINLAND_BYPASS_QUERY_PARAM "${MAINLAND_BYPASS_QUERY_PARAM:-cnpass}"
 upsert_env MAINLAND_BYPASS_COOKIE "${MAINLAND_BYPASS_COOKIE:-cnpass}"
 upsert_env MAINLAND_BYPASS_MAX_AGE_SECONDS "${MAINLAND_BYPASS_MAX_AGE_SECONDS:-86400}"
 ensure_secret_env MAINLAND_BYPASS_TOKEN 24
+ensure_secret_env MEDIA_URL_SIGNING_SECRET 32
 
 backup_file "$NGINX_MAIN"
 backup_file "$NGINX_SITE"
 backup_file "$CF_REAL_IP_FILE"
 backup_file "$CN_GEO_FILE"
+backup_file /etc/nginx/conf.d/raising-game-private-media-limits.conf
 write_cloudflare_real_ip
 write_mainland_geo
 write_mainland_bypass_token
+write_private_media_limits
 write_nginx_main
 write_nginx_site
 write_systemd_override

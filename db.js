@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const { Pool } = require("pg");
 
 const DEFAULT_TENANT_ID = "main";
@@ -22,6 +23,7 @@ function clone(value) {
 }
 
 let pool;
+let schedulerPool;
 let schemaPromise;
 
 function getPool() {
@@ -46,6 +48,26 @@ function getPool() {
   return pool;
 }
 
+function getSchedulerPool() {
+  if (!dbEnabled()) return null;
+  if (!schedulerPool) {
+    schedulerPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.PGSSLMODE === "disable" ? false : undefined,
+      max: Number(process.env.PGSCHEDULER_POOL_MAX || 12),
+      idleTimeoutMillis: Number(process.env.PGSCHEDULER_POOL_IDLE_TIMEOUT_MS || 30000),
+      connectionTimeoutMillis: Number(process.env.PGSCHEDULER_POOL_CONNECTION_TIMEOUT_MS || 5000),
+      maxUses: Number(process.env.PGSCHEDULER_POOL_MAX_USES || 7500),
+    });
+    schedulerPool.on("error", (error) => {
+      const code = String(error?.code || "").trim();
+      const message = String(error?.message || error || "scheduler database connection error").trim();
+      console.error(`[db-scheduler-pool-error]${code ? ` ${code}` : ""} ${message}`);
+    });
+  }
+  return schedulerPool;
+}
+
 async function query(text, params = []) {
   const p = getPool();
   if (!p) throw new Error("DATABASE_URL is not configured");
@@ -55,30 +77,666 @@ async function query(text, params = []) {
 async function ensureSchema() {
   if (!dbEnabled()) return;
   if (schemaPromise) return schemaPromise;
-  schemaPromise = ensureSchemaInner().catch((error) => {
+  const mode = String(process.env.DB_SCHEMA_MIGRATION_MODE || "verify").trim().toLowerCase();
+  schemaPromise = (mode === "bootstrap" ? ensureSchemaInner() : assertSchemaReady()).catch((error) => {
     schemaPromise = null;
     throw error;
   });
   return schemaPromise;
 }
 
-async function ensureSchemaInner() {
+async function ensureWebhookDeliveriesSchema({ client = null } = {}) {
+  const run = async (sql, params = []) => (
+    client ? client.query(sql, params) : query(sql, params)
+  );
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_webhook_deliveries (
+      provider TEXT NOT NULL,
+      delivery_id TEXT NOT NULL,
+      event_type TEXT NOT NULL DEFAULT '',
+      task_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'completed',
+      claim_token TEXT NOT NULL DEFAULT '',
+      lease_until TIMESTAMPTZ,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT NOT NULL DEFAULT '',
+      received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ,
+      PRIMARY KEY (provider, delivery_id)
+    );
+  `);
+  await run(`
+    ALTER TABLE app_webhook_deliveries
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'completed',
+      ADD COLUMN IF NOT EXISTS claim_token TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_webhook_deliveries_received_idx ON app_webhook_deliveries (received_at);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_webhook_deliveries_recovery_idx ON app_webhook_deliveries (status, lease_until) WHERE status = 'claimed';`);
+}
+
+async function ensureRequestIdempotencySchema({ client = null } = {}) {
+  const run = async (sql, params = []) => (
+    client ? client.query(sql, params) : query(sql, params)
+  );
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_request_idempotency (
+      user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'claimed',
+      claim_token TEXT NOT NULL DEFAULT '',
+      lease_until TIMESTAMPTZ,
+      task_id TEXT NOT NULL DEFAULT '',
+      result_payload JSONB,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ,
+      PRIMARY KEY (user_id, action, idempotency_key)
+    );
+  `);
+  await run(`
+    ALTER TABLE app_request_idempotency
+      ADD COLUMN IF NOT EXISTS payload_hash TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'claimed',
+      ADD COLUMN IF NOT EXISTS claim_token TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS task_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS result_payload JSONB,
+      ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_request_idempotency_recovery_idx ON app_request_idempotency (status, lease_until) WHERE status = 'claimed';`);
+  await run(`CREATE INDEX IF NOT EXISTS app_request_idempotency_completed_idx ON app_request_idempotency (completed_at DESC) WHERE status = 'completed';`);
+}
+
+async function ensureGenerationSubmitJobsSchema({ client = null } = {}) {
+  const run = async (sql, params = []) => (
+    client ? client.query(sql, params) : query(sql, params)
+  );
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_generation_submit_jobs (
+      task_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'platform-template',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'queued',
+      claim_token TEXT NOT NULL DEFAULT '',
+      lease_until TIMESTAMPTZ,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 5,
+      submit_state TEXT NOT NULL DEFAULT 'pending',
+      submit_attempt_id TEXT NOT NULL DEFAULT '',
+      available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      last_error TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`
+    ALTER TABLE app_generation_submit_jobs
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'platform-template',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'queued',
+      ADD COLUMN IF NOT EXISTS claim_token TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 5,
+      ADD COLUMN IF NOT EXISTS submit_state TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS submit_attempt_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_ready_idx ON app_generation_submit_jobs (status, available_at, created_at) WHERE status IN ('queued', 'retry');`);
+  await run(`CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_lease_idx ON app_generation_submit_jobs (status, lease_until) WHERE status = 'processing';`);
+  await run(`CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_unknown_idx ON app_generation_submit_jobs (updated_at DESC) WHERE status = 'unknown';`);
+}
+
+function generationSubmitJobFromRow(row = {}) {
+  if (!row) return null;
+  return {
+    taskId: String(row.task_id || ""),
+    userId: String(row.user_id || ""),
+    kind: String(row.kind || "platform-template"),
+    payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+    status: String(row.status || "queued"),
+    claimToken: String(row.claim_token || ""),
+    leaseUntil: row.lease_until || null,
+    attempts: Number(row.attempts || 0),
+    maxAttempts: Number(row.max_attempts || 5),
+    submitState: String(row.submit_state || "pending"),
+    submitAttemptId: String(row.submit_attempt_id || ""),
+    availableAt: row.available_at || null,
+    startedAt: row.started_at || null,
+    completedAt: row.completed_at || null,
+    lastError: String(row.last_error || ""),
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+async function enqueueGenerationSubmitJobInDb(taskId = "", {
+  userId = "",
+  kind = "platform-template",
+  payload = {},
+  maxAttempts = 5,
+  client = null,
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim().slice(0, 240);
+  if (!id) throw new Error("Generation submit job taskId is required.");
+  if (!client) await ensureSchema();
+  const run = client ? client.query.bind(client) : query;
+  const attempts = Math.max(1, Math.min(20, Math.trunc(Number(maxAttempts) || 5)));
+  const { rows } = await run(
+    `INSERT INTO app_generation_submit_jobs(
+       task_id, user_id, kind, payload, status, claim_token, lease_until,
+       attempts, max_attempts, submit_state, submit_attempt_id, available_at,
+       started_at, completed_at, last_error, created_at, updated_at
+     )
+     VALUES ($1, $2, $3, $4::jsonb, 'queued', '', NULL, 0, $5, 'pending', '', NOW(), NULL, NULL, '', NOW(), NOW())
+     ON CONFLICT (task_id) DO NOTHING
+     RETURNING *`,
+    [id, String(userId || "").slice(0, 240), String(kind || "platform-template").slice(0, 120), JSON.stringify(payload && typeof payload === "object" ? payload : {}), attempts],
+  );
+  if (rows.length === 1) return { inserted: true, job: generationSubmitJobFromRow(rows[0]) };
+  const existing = await run(`SELECT * FROM app_generation_submit_jobs WHERE task_id = $1`, [id]);
+  return { inserted: false, job: generationSubmitJobFromRow(existing.rows[0]) };
+}
+
+async function claimNextGenerationSubmitJobsInDb({
+  limit = 1,
+  leaseMs = 2 * 60 * 1000,
+  claimToken = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  await ensureSchema();
+  const count = Math.max(1, Math.min(20, Math.trunc(Number(limit) || 1)));
+  const lease = Math.max(5_000, Math.min(30 * 60 * 1000, Math.trunc(Number(leaseMs) || 2 * 60 * 1000)));
+  const token = String(claimToken || crypto.randomUUID()).trim().slice(0, 120);
+  if (!token) throw new Error("Generation submit job claimToken is required.");
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    /*
+     * A durable record with an upstream task id is proof that the provider
+     * accepted the request. Close the queue row before considering lease
+     * takeover so a crash between record persistence and job completion can
+     * never cause a duplicate provider submission.
+     */
+    const accepted = await client.query(
+      `UPDATE app_generation_submit_jobs jobs
+       SET status = 'completed',
+           submit_state = 'accepted',
+           claim_token = '',
+           lease_until = NULL,
+           payload = jobs.payload || jsonb_build_object('upstreamTaskId', records.payload->>'upstreamTaskId'),
+           completed_at = NOW(),
+           last_error = '',
+           updated_at = NOW()
+       FROM app_generation_records records
+       WHERE records.task_id = jobs.task_id
+         AND jobs.status IN ('queued', 'retry', 'processing')
+         AND jobs.submit_state IN ('pending', 'submitting')
+         AND COALESCE(records.payload->>'upstreamTaskId', '') <> ''
+       RETURNING jobs.*`,
+    );
+    /*
+     * Conversely, a terminal generation record is proof that this attempt has
+     * already been finalized. It must not be submitted again even if the
+     * worker died before closing the job row.
+     */
+    const rejected = await client.query(
+      `UPDATE app_generation_submit_jobs jobs
+       SET status = 'failed',
+           submit_state = 'failed',
+           claim_token = '',
+           lease_until = NULL,
+           available_at = 'infinity'::timestamptz,
+           completed_at = NOW(),
+           last_error = CASE WHEN jobs.last_error = '' THEN 'Generation record was already terminal before queue completion.' ELSE jobs.last_error END,
+           updated_at = NOW()
+       FROM app_generation_records records
+       WHERE records.task_id = jobs.task_id
+         AND jobs.status IN ('queued', 'retry', 'processing')
+         AND jobs.submit_state IN ('pending', 'submitting')
+         AND COALESCE(records.payload->>'upstreamTaskId', '') = ''
+         AND LOWER(COALESCE(records.payload->>'status', '')) IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed')
+       RETURNING jobs.*`,
+    );
+    const unknown = await client.query(
+      `UPDATE app_generation_submit_jobs
+       SET status = 'unknown',
+           submit_state = 'unknown',
+           submit_attempt_id = claim_token,
+           claim_token = '',
+           lease_until = NULL,
+           last_error = CASE WHEN last_error = '' THEN 'Worker lease expired after provider submission started; outcome requires reconciliation.' ELSE last_error END,
+           updated_at = NOW()
+       WHERE status = 'processing'
+         AND lease_until IS NOT NULL
+         AND lease_until <= NOW()
+         AND submit_state = 'submitting'
+       RETURNING *`,
+    );
+    const { rows } = await client.query(
+      `WITH candidates AS (
+         SELECT task_id
+         FROM app_generation_submit_jobs
+         WHERE (
+           (status IN ('queued', 'retry') AND available_at <= NOW())
+           OR (
+             status = 'processing'
+             AND lease_until IS NOT NULL
+             AND lease_until <= NOW()
+             AND submit_state = 'pending'
+           )
+         )
+         ORDER BY available_at ASC, created_at ASC
+         FOR UPDATE SKIP LOCKED
+         LIMIT $1
+       )
+       UPDATE app_generation_submit_jobs jobs
+       SET status = 'processing',
+           claim_token = $2,
+           lease_until = NOW() + ($3::int * INTERVAL '1 millisecond'),
+           attempts = jobs.attempts + 1,
+           submit_state = 'pending',
+           submit_attempt_id = $2,
+           started_at = NOW(),
+           completed_at = NULL,
+           last_error = '',
+           updated_at = NOW()
+       FROM candidates
+       WHERE jobs.task_id = candidates.task_id
+       RETURNING jobs.*`,
+      [count, token, lease],
+    );
+    await client.query("COMMIT");
+    return {
+      claimToken: token,
+      leaseUntil: rows[0]?.lease_until || null,
+      jobs: rows.map(generationSubmitJobFromRow),
+      unknownJobs: unknown.rows.map(generationSubmitJobFromRow),
+      recoveredAcceptedJobs: accepted.rows.map(generationSubmitJobFromRow),
+      recoveredFailedJobs: rejected.rows.map(generationSubmitJobFromRow),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function markGenerationSubmitJobSubmittingInDb({
+  taskId = "",
+  claimToken = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !token) throw new Error("Generation submit transition requires taskId and claimToken.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_generation_submit_jobs
+     SET submit_state = 'submitting',
+         submit_attempt_id = claim_token,
+         updated_at = NOW()
+     WHERE task_id = $1
+       AND status = 'processing'
+       AND claim_token = $2
+       AND submit_state = 'pending'
+     RETURNING *`,
+    [id, token],
+  );
+  return { marked: rows.length === 1, job: generationSubmitJobFromRow(rows[0]) };
+}
+
+async function completeGenerationSubmitJobInDb({
+  taskId = "",
+  claimToken = "",
+  upstreamTaskId = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !token) throw new Error("Generation submit completion requires taskId and claimToken.");
+  await ensureSchema();
+  const cleanUpstreamTaskId = String(upstreamTaskId || "").trim().slice(0, 240);
+  const { rows } = await query(
+    `UPDATE app_generation_submit_jobs
+     SET status = 'completed',
+         submit_state = 'accepted',
+         claim_token = '',
+         lease_until = NULL,
+         payload = CASE WHEN $3::text = '' THEN payload ELSE payload || jsonb_build_object('upstreamTaskId', $3::text) END,
+         completed_at = NOW(),
+         last_error = '',
+         updated_at = NOW()
+     WHERE task_id = $1
+       AND status = 'processing'
+       AND claim_token = $2
+       AND submit_state = 'submitting'
+     RETURNING *`,
+    [id, token, cleanUpstreamTaskId],
+  );
+  if (rows.length === 1) return { completed: true, job: generationSubmitJobFromRow(rows[0]) };
+  const existing = await query(`SELECT * FROM app_generation_submit_jobs WHERE task_id = $1`, [id]);
+  const job = generationSubmitJobFromRow(existing.rows[0]);
+  const storedUpstreamTaskId = String(job?.payload?.upstreamTaskId || "").trim();
+  const alreadyCompleted = job?.status === "completed"
+    && job?.submitState === "accepted"
+    && (!cleanUpstreamTaskId || !storedUpstreamTaskId || storedUpstreamTaskId === cleanUpstreamTaskId);
+  return { completed: alreadyCompleted, alreadyCompleted, job };
+}
+
+async function retryGenerationSubmitJobInDb({
+  taskId = "",
+  claimToken = "",
+  error = "",
+  retryAfterMs = 60_000,
+  safeToRetry = false,
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !token) throw new Error("Generation submit retry requires taskId and claimToken.");
+  await ensureSchema();
+  const delay = Math.max(1_000, Math.min(24 * 60 * 60 * 1000, Math.trunc(Number(retryAfterMs) || 60_000)));
+  const { rows } = await query(
+    `UPDATE app_generation_submit_jobs
+     SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'retry' END,
+         submit_state = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
+         claim_token = '',
+         lease_until = NULL,
+         available_at = CASE WHEN attempts >= max_attempts THEN 'infinity'::timestamptz ELSE NOW() + ($4::int * INTERVAL '1 millisecond') END,
+         completed_at = CASE WHEN attempts >= max_attempts THEN NOW() ELSE NULL END,
+         last_error = $3,
+         updated_at = NOW()
+     WHERE task_id = $1
+       AND status = 'processing'
+       AND claim_token = $2
+       AND submit_state IN ('pending', 'submitting')
+       AND ($5::boolean = true OR submit_state = 'pending')
+     RETURNING *`,
+    [id, token, String(error || "").slice(0, 2000), delay, safeToRetry === true],
+  );
+  return { retried: rows.length === 1, job: generationSubmitJobFromRow(rows[0]) };
+}
+
+async function failGenerationSubmitJobInDb({
+  taskId = "",
+  claimToken = "",
+  error = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !token) throw new Error("Generation submit failure requires taskId and claimToken.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_generation_submit_jobs
+     SET status = 'failed',
+         submit_state = 'failed',
+         claim_token = '',
+         lease_until = NULL,
+         available_at = 'infinity'::timestamptz,
+         completed_at = NOW(),
+         last_error = $3,
+         updated_at = NOW()
+     WHERE task_id = $1
+       AND status = 'processing'
+       AND claim_token = $2
+       AND submit_state IN ('pending', 'submitting')
+     RETURNING *`,
+    [id, token, String(error || "").slice(0, 2000)],
+  );
+  return { failed: rows.length === 1, job: generationSubmitJobFromRow(rows[0]) };
+}
+
+async function getGenerationSubmitJobsNeedingReconciliationInDb({ limit = 20 } = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for generation submit reconciliation.");
+  await ensureSchema();
+  const count = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 20)));
+  const { rows } = await query(
+    `SELECT jobs.*, records.payload AS record_payload
+     FROM app_generation_submit_jobs jobs
+     JOIN app_generation_records records ON records.task_id = jobs.task_id
+     WHERE jobs.status = 'failed'
+       AND COALESCE(records.payload->>'upstreamTaskId', '') = ''
+       AND (
+         LOWER(COALESCE(records.payload->>'status', '')) NOT IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed')
+         OR (
+           COALESCE((records.payload->>'preDeductedCredits')::numeric, 0) > 0
+           AND LOWER(COALESCE(records.payload->>'billingStatus', '')) <> 'refunded'
+         )
+       )
+     ORDER BY jobs.updated_at ASC
+     LIMIT $1`,
+    [count],
+  );
+  return rows.map((row) => ({
+    job: generationSubmitJobFromRow(row),
+    record: row.record_payload && typeof row.record_payload === "object" ? row.record_payload : {},
+  }));
+}
+
+async function prepareGenerationSubmitInDb({
+  record = {},
+  charge = null,
+  subtoken = null,
+  job = {},
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for atomic generation preparation.");
+  const taskId = String(record?.taskId || job?.taskId || "").trim().slice(0, 240);
+  if (!taskId) throw new Error("Generation preparation taskId is required.");
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
+       VALUES ($1, $2::jsonb, COALESCE(NULLIF($2::jsonb->>'createdAt', '')::timestamptz, NOW()), NOW())
+       ON CONFLICT (task_id) DO NOTHING`,
+      [taskId, JSON.stringify({ ...record, taskId })],
+    );
+    if (charge && Number(charge.delta || 0) !== 0) {
+      const chargeId = String(charge.id || "").trim();
+      const chargeUserId = String(charge.userId || "").trim();
+      if (!chargeId || !chargeUserId) {
+        throw Object.assign(new Error("Generation preparation charge requires id and userId."), { statusCode: 400 });
+      }
+      // Lock the user first. A concurrent retry with the same ledger id must
+      // observe the committed ledger row after it acquires this lock.
+      const { rows: balances } = await client.query(
+        `SELECT * FROM app_users WHERE id = $1 FOR UPDATE`,
+        [chargeUserId],
+      );
+      const row = balances[0];
+      if (!row) throw Object.assign(new Error("User not found for billing."), { statusCode: 404 });
+      const { rows: existing } = await client.query(
+        `SELECT * FROM app_credit_ledger WHERE id = $1 FOR UPDATE`,
+        [chargeId],
+      );
+      if (!existing.length) {
+        const next = creditNumber(creditNumber(row.credits || 0) + Number(charge.delta || 0));
+        if (next < -0.000001) {
+          throw Object.assign(new Error("Not enough credits. Please top up and try again."), {
+            statusCode: 402,
+            code: "INSUFFICIENT_CREDITS",
+            credits: creditNumber(row.credits || 0),
+          });
+        }
+        const now = new Date().toISOString();
+        const meta = charge.meta && typeof charge.meta === "object" ? charge.meta : {};
+        await client.query(
+          `UPDATE app_users
+           SET credits = $2::numeric,
+               payload = COALESCE(payload, '{}'::jsonb) || jsonb_build_object('credits', $2::numeric, 'updatedAt', $3::text),
+               updated_at = $3::timestamptz
+           WHERE id = $1`,
+          [String(charge.userId || ""), next, now],
+        );
+        await client.query(
+          `INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
+           VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            chargeId,
+            chargeUserId,
+            Number(charge.delta || 0),
+            next,
+            String(charge.type || "generation_pre_deduct"),
+            JSON.stringify(meta),
+            JSON.stringify({ ...meta, id: String(charge.id || ""), userId: String(charge.userId || ""), delta: Number(charge.delta || 0), balanceAfter: next }),
+            now,
+          ],
+        );
+      }
+    }
+    if (subtoken && subtoken.tokenId && subtoken.eventKey) {
+      const { rows: tokenRows } = await client.query(
+        `SELECT * FROM app_api_subtokens WHERE id = $1 FOR UPDATE`,
+        [String(subtoken.tokenId)],
+      );
+      if (!tokenRows.length) throw Object.assign(new Error("Subtoken not found."), { statusCode: 404, code: "SUBTOKEN_NOT_FOUND" });
+      const token = normalizeApiSubtokenRecord(tokenRows[0]);
+      const { rows: usageRows } = await client.query(
+        `SELECT 1 FROM app_api_subtoken_usage WHERE token_id = $1 AND event_key = $2`,
+        [token.id, String(subtoken.eventKey)],
+      );
+      if (!usageRows.length) {
+        const amount = roundCredits(subtoken.deltaAmount || 0);
+        const count = Math.trunc(Number(subtoken.deltaCount || 0) || 0);
+        const nextAmount = Math.max(0, roundCredits(Number(token.usedAmount || 0) + amount));
+        const nextCount = Math.max(0, Math.round(Number(token.usedCount || 0) + count));
+        if (token.quotaType === "amount" && nextAmount - Number(token.quotaLimit || 0) > 0.000001) {
+          throw Object.assign(new Error("Subtoken quota exceeded."), { statusCode: 402, code: "SUBTOKEN_QUOTA_EXCEEDED" });
+        }
+        if (token.quotaType === "count" && nextCount - Number(token.quotaLimit || 0) > 0.000001) {
+          throw Object.assign(new Error("Subtoken quota exceeded."), { statusCode: 402, code: "SUBTOKEN_QUOTA_EXCEEDED" });
+        }
+        await client.query(
+          `INSERT INTO app_api_subtoken_usage(token_id, event_key, parent_user_id, delta_amount, delta_count, meta, created_at, updated_at)
+           VALUES ($1, $2, $3, $4::numeric, $5::int, $6::jsonb, NOW(), NOW())`,
+          [token.id, String(subtoken.eventKey), token.parentUserId || String(subtoken.parentUserId || ""), amount, count, JSON.stringify(subtoken.meta || {})],
+        );
+        await client.query(
+          `UPDATE app_api_subtokens SET used_amount = $2::numeric, used_count = $3::int, last_used_at = NOW(), updated_at = NOW() WHERE id = $1`,
+          [token.id, nextAmount, nextCount],
+        );
+      }
+    }
+    const queued = await enqueueGenerationSubmitJobInDb(taskId, {
+      userId: String(job.userId || record.userId || ""),
+      kind: String(job.kind || "platform-template"),
+      payload: job.payload || { taskId },
+      maxAttempts: job.maxAttempts || 5,
+      client,
+    });
+    const { rows: records } = await client.query(`SELECT payload FROM app_generation_records WHERE task_id = $1`, [taskId]);
+    await client.query("COMMIT");
+    return { taskId, record: records[0]?.payload || null, job: queued.job, jobInserted: queued.inserted };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getGenerationSubmitResumeStateInDb(taskId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim().slice(0, 240);
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT
+       records.payload AS record,
+       jobs.task_id, jobs.user_id, jobs.kind, jobs.payload, jobs.status,
+       jobs.claim_token, jobs.lease_until, jobs.attempts, jobs.max_attempts,
+       jobs.submit_state, jobs.submit_attempt_id, jobs.available_at,
+       jobs.started_at, jobs.completed_at, jobs.last_error, jobs.created_at, jobs.updated_at
+     FROM app_generation_records records
+     LEFT JOIN app_generation_submit_jobs jobs ON jobs.task_id = records.task_id
+     WHERE records.task_id = $1`,
+    [id],
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    taskId: id,
+    record: row.record || null,
+    job: row.task_id ? generationSubmitJobFromRow(row) : null,
+  };
+}
+
+async function markGenerationSubmitJobUnknownInDb({
+  taskId = "",
+  claimToken = "",
+  error = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for durable generation submit jobs.");
+  const id = String(taskId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !token) throw new Error("Generation submit unknown transition requires taskId and claimToken.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_generation_submit_jobs
+     SET status = 'unknown',
+         submit_state = 'unknown',
+         claim_token = '',
+         lease_until = NULL,
+         last_error = $3,
+         updated_at = NOW()
+     WHERE task_id = $1
+       AND status = 'processing'
+       AND claim_token = $2
+       AND submit_state = 'submitting'
+     RETURNING *`,
+    [id, token, String(error || "Provider submission outcome is unknown; manual reconciliation is required.").slice(0, 2000)],
+  );
+  return { markedUnknown: rows.length === 1, job: generationSubmitJobFromRow(rows[0]) };
+}
+
+async function ensureSchemaInner({ client = null } = {}) {
+  const run = async (sql, params = []) => (
+    client ? client.query(sql, params) : query(sql, params)
+  );
   const createUniqueIndex = async (sql) => {
     try {
-      await query(sql);
+      await run(sql);
     } catch (error) {
       if (String(error.code || "") !== "23505") throw error;
       console.warn("[db-schema] skipped unique index because existing duplicate rows need cleanup:", error.constraint || error.message);
     }
   };
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_kv (
       key TEXT PRIMARY KEY,
       value JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_catalog_entries (
       id TEXT NOT NULL,
       catalog TEXT NOT NULL,
@@ -93,7 +751,7 @@ async function ensureSchemaInner() {
       PRIMARY KEY (catalog, id)
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_catalog_entries
       ADD COLUMN IF NOT EXISTS catalog TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT '',
@@ -105,22 +763,29 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_catalog_entries_catalog_scope_order_idx ON app_catalog_entries (catalog, scope, sort_order ASC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_catalog_entries_catalog_scope_order_idx ON app_catalog_entries (catalog, scope, sort_order ASC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_runtime_settings (
       key TEXT PRIMARY KEY,
       value JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_catalog_migration_state (
       migration_key TEXT PRIMARY KEY,
       imported_count INTEGER NOT NULL DEFAULT 0,
       migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  if (client) {
+    await run(`
+      ALTER TABLE app_catalog_migration_state
+        ADD COLUMN IF NOT EXISTS imported_count INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    `);
+  }
+  await run(`
     CREATE TABLE IF NOT EXISTS app_users (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL DEFAULT 'main',
@@ -137,7 +802,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_users
       ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
       ADD COLUMN IF NOT EXISTS username TEXT NOT NULL DEFAULT '',
@@ -152,49 +817,113 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`
+  await run(`
     UPDATE app_users
     SET username = COALESCE(NULLIF(username, ''), NULLIF(payload->>'username', ''), id)
     WHERE username = '';
   `);
-  await query(`
+  await run(`
     UPDATE app_users
     SET tenant_id = COALESCE(NULLIF(tenant_id, ''), NULLIF(payload->>'tenantId', ''), NULLIF(payload->>'tenant_id', ''), 'main')
     WHERE tenant_id = '';
   `);
-  await query(`ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_username_key;`);
-  await query(`DROP INDEX IF EXISTS app_users_username_uidx;`);
-  await query(`CREATE INDEX IF NOT EXISTS app_users_created_idx ON app_users (created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_users_tenant_created_idx ON app_users (tenant_id, created_at DESC);`);
+  await run(`ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_username_key;`);
+  await run(`DROP INDEX IF EXISTS app_users_username_uidx;`);
+  await run(`CREATE INDEX IF NOT EXISTS app_users_created_idx ON app_users (created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_users_tenant_created_idx ON app_users (tenant_id, created_at DESC);`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_google_uidx ON app_users (tenant_id, (payload->>'googleId')) WHERE deleted_at IS NULL AND COALESCE(payload->>'googleId', '') <> '';`);
+  // Application-level lookup prevents duplicates in the normal path. This
+  // expression index closes the concurrent-login race between Google and
+  // email-code identities. Existing duplicates must be merged first.
+  await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_verified_email_uidx ON app_users (tenant_id, (LOWER(COALESCE(NULLIF(payload->>'email', ''), NULLIF(payload->>'googleEmail', ''))))) WHERE deleted_at IS NULL AND COALESCE(NULLIF(payload->>'email', ''), NULLIF(payload->>'googleEmail', '')) <> '';`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_username_uidx ON app_users (tenant_id, username) WHERE deleted_at IS NULL;`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_api_token_uidx ON app_users (api_token) WHERE api_token IS NOT NULL AND api_token <> '';`);
-  await query(`
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_email_challenges (
+      challenge_key TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      email TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_email_challenges_expires_idx ON app_email_challenges (expires_at);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_sessions (
       token TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       tenant_id TEXT NOT NULL DEFAULT 'main',
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      expires_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_sessions_user_device_idx ON app_sessions (user_id, tenant_id, (payload->>'deviceId'));`);
+  await run(`
     ALTER TABLE app_sessions
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_sessions_expires_idx ON app_sessions (expires_at) WHERE expires_at IS NOT NULL;`);
+  await run(`
     UPDATE app_sessions
     SET tenant_id = COALESCE(NULLIF(tenant_id, ''), NULLIF(payload->>'tenantId', ''), NULLIF(payload->>'tenant_id', ''), 'main')
     WHERE tenant_id = '';
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_sessions_user_idx ON app_sessions (user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_sessions_tenant_user_idx ON app_sessions (tenant_id, user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_sessions_user_idx ON app_sessions (user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_sessions_tenant_user_idx ON app_sessions (tenant_id, user_id, created_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_risk_events (
+      id BIGSERIAL PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      scope_key TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      subject_hash TEXT NOT NULL DEFAULT '',
+      ip_hash TEXT NOT NULL DEFAULT '',
+      user_agent_hash TEXT NOT NULL DEFAULT '',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_risk_events_lookup_idx ON app_risk_events (event_type, scope_key, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_risk_events_ip_idx ON app_risk_events (ip_hash, created_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_login_failures (
+      failure_key TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      username TEXT NOT NULL,
+      ip_hash TEXT NOT NULL,
+      failures INTEGER NOT NULL DEFAULT 0,
+      first_failed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_failed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      locked_until TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_login_failures_username_idx ON app_login_failures (tenant_id, username, last_failed_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_login_failures_ip_idx ON app_login_failures (ip_hash, last_failed_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_rate_limits (
+      bucket_key TEXT PRIMARY KEY,
+      window_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      hits INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_rate_limits_updated_idx ON app_rate_limits (updated_at);`);
+  await ensureWebhookDeliveriesSchema({ client });
+  await ensureRequestIdempotencySchema({ client });
+  await ensureGenerationSubmitJobsSchema({ client });
+  await run(`
     CREATE TABLE IF NOT EXISTS app_wallet_orders (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -207,7 +936,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_wallet_orders
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
@@ -218,8 +947,52 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_wallet_orders_user_created_idx ON app_wallet_orders (user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_wallet_orders_status_idx ON app_wallet_orders (status, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_wallet_orders_user_created_idx ON app_wallet_orders (user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_wallet_orders_status_idx ON app_wallet_orders (status, created_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_promotion_purchases (
+      id BIGSERIAL PRIMARY KEY,
+      campaign_id TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      order_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      reserved_until TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`
+    DO $$
+    DECLARE
+      primary_key_name text;
+      primary_key_columns text[];
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'app_promotion_purchases' AND column_name = 'id'
+      ) THEN
+        ALTER TABLE app_promotion_purchases ADD COLUMN id BIGSERIAL;
+      END IF;
+      SELECT c.conname, array_agg(a.attname ORDER BY key_column.ordinality)
+      INTO primary_key_name, primary_key_columns
+      FROM pg_constraint c
+      CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS key_column(attnum, ordinality)
+      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = key_column.attnum
+      WHERE c.conrelid = 'app_promotion_purchases'::regclass AND c.contype = 'p'
+      GROUP BY c.conname;
+      IF primary_key_name IS NULL THEN
+        ALTER TABLE app_promotion_purchases ADD PRIMARY KEY (id);
+      ELSIF primary_key_columns IS DISTINCT FROM ARRAY['id']::text[] THEN
+        EXECUTE format('ALTER TABLE app_promotion_purchases DROP CONSTRAINT %I', primary_key_name);
+        ALTER TABLE app_promotion_purchases ADD PRIMARY KEY (id);
+      END IF;
+    END $$;
+  `);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_member_once_uidx ON app_promotion_purchases (campaign_id, user_id) WHERE sku = 'member' AND status = 'paid';`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS app_promotion_purchases_order_uidx ON app_promotion_purchases (order_id) WHERE order_id <> '';`);
+  await run(`CREATE INDEX IF NOT EXISTS app_promotion_purchases_campaign_status_idx ON app_promotion_purchases (campaign_id, sku, status, reserved_until);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_promotion_purchases_user_idx ON app_promotion_purchases (user_id, campaign_id);`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_wallet_orders_chain_tx_uidx
       ON app_wallet_orders (chain, transaction_hash)
@@ -230,7 +1003,7 @@ async function ensureSchemaInner() {
       ON app_wallet_orders (paypal_order_id)
       WHERE paypal_order_id <> '';
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_referral_withdrawals (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -242,7 +1015,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`ALTER TABLE app_referral_withdrawals
+  await run(`ALTER TABLE app_referral_withdrawals
     ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'processing',
     ADD COLUMN IF NOT EXISTS amount_usd NUMERIC(24, 6) NOT NULL DEFAULT 0,
@@ -250,9 +1023,9 @@ async function ensureSchemaInner() {
     ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
-  await query(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_user_created_idx ON app_referral_withdrawals (user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_status_created_idx ON app_referral_withdrawals (status, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_user_created_idx ON app_referral_withdrawals (user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_referral_withdrawals_status_created_idx ON app_referral_withdrawals (status, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_creator_earning_ledger (
       id TEXT PRIMARY KEY,
       creator_user_id TEXT NOT NULL DEFAULT '',
@@ -269,7 +1042,7 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`ALTER TABLE app_creator_earning_ledger
+  await run(`ALTER TABLE app_creator_earning_ledger
     ADD COLUMN IF NOT EXISTS creator_user_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS viewer_user_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
@@ -282,15 +1055,15 @@ async function ensureSchemaInner() {
     ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb,
     ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
-  await query(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_creator_created_idx ON app_creator_earning_ledger (creator_user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_character_created_idx ON app_creator_earning_ledger (character_id, created_at DESC);`);
-  await query(`DROP INDEX IF EXISTS app_creator_earning_session_uidx;`);
+  await run(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_creator_created_idx ON app_creator_earning_ledger (creator_user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_creator_earning_ledger_character_created_idx ON app_creator_earning_ledger (character_id, created_at DESC);`);
+  await run(`DROP INDEX IF EXISTS app_creator_earning_session_uidx;`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_creator_earning_session_uidx
       ON app_creator_earning_ledger (type, session_id)
       WHERE session_id <> '';
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_creator_withdrawals (
       id TEXT PRIMARY KEY,
       creator_user_id TEXT NOT NULL DEFAULT '',
@@ -308,7 +1081,7 @@ async function ensureSchemaInner() {
       processed_at TIMESTAMPTZ
     );
   `);
-  await query(`ALTER TABLE app_creator_withdrawals
+  await run(`ALTER TABLE app_creator_withdrawals
     ADD COLUMN IF NOT EXISTS creator_user_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS amount_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT 'USDT-TRC20',
@@ -322,9 +1095,9 @@ async function ensureSchemaInner() {
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;`);
-  await query(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_creator_created_idx ON app_creator_withdrawals (creator_user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_status_created_idx ON app_creator_withdrawals (status, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_creator_created_idx ON app_creator_withdrawals (creator_user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_creator_withdrawals_status_created_idx ON app_creator_withdrawals (status, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_billing_plans (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL,
@@ -340,8 +1113,8 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_billing_plans_tenant_status_idx ON app_billing_plans (tenant_id, status, updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_billing_plans_tenant_status_idx ON app_billing_plans (tenant_id, status, updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_user_subscriptions (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL,
@@ -359,12 +1132,12 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_user_subscriptions_user_idx ON app_user_subscriptions (tenant_id, user_id, updated_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_user_subscriptions_user_idx ON app_user_subscriptions (tenant_id, user_id, updated_at DESC);`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_user_subscriptions_tenant_user_uidx
       ON app_user_subscriptions (tenant_id, user_id);
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_membership_activation_codes (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL DEFAULT 'main',
@@ -381,13 +1154,13 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`ALTER TABLE app_membership_activation_codes ADD COLUMN IF NOT EXISTS code_value TEXT NOT NULL DEFAULT '';`);
+  await run(`ALTER TABLE app_membership_activation_codes ADD COLUMN IF NOT EXISTS code_value TEXT NOT NULL DEFAULT '';`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_membership_activation_codes_hash_uidx
       ON app_membership_activation_codes (tenant_id, code_hash);
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_membership_activation_codes_created_idx ON app_membership_activation_codes (tenant_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_membership_activation_codes_created_idx ON app_membership_activation_codes (tenant_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_membership_activation_redemptions (
       id TEXT PRIMARY KEY,
       code_id TEXT NOT NULL,
@@ -401,8 +1174,8 @@ async function ensureSchemaInner() {
     CREATE UNIQUE INDEX IF NOT EXISTS app_membership_activation_redemptions_code_user_uidx
       ON app_membership_activation_redemptions (code_id, user_id);
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_membership_activation_redemptions_user_idx ON app_membership_activation_redemptions (tenant_id, user_id, redeemed_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_membership_activation_redemptions_user_idx ON app_membership_activation_redemptions (tenant_id, user_id, redeemed_at DESC);`);
+  await run(`
     INSERT INTO app_billing_plans (
       id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload
     ) VALUES (
@@ -431,7 +1204,7 @@ async function ensureSchemaInner() {
       payload = app_billing_plans.payload || EXCLUDED.payload,
       updated_at = NOW();
   `);
-  await query(`
+  await run(`
     INSERT INTO app_billing_plans (id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload)
     VALUES
       ('plan-tool-chat-monthly', 'tool-chat-5vips', '月度会员', 'active', 'USD', 29.9, 'month', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources'))),
@@ -439,14 +1212,14 @@ async function ensureSchemaInner() {
       ('plan-tool-chat-yearly', 'tool-chat-5vips', '年度会员', 'active', 'USD', 99.9, 'year', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources')))
     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, currency = EXCLUDED.currency, amount = EXCLUDED.amount, interval_unit = EXCLUDED.interval_unit, interval_count = EXCLUDED.interval_count, payload = app_billing_plans.payload || EXCLUDED.payload, updated_at = NOW();
   `);
-  await query(`
+  await run(`
     INSERT INTO app_billing_plans (id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload)
     VALUES ('plan-tool-chat-weekly', 'tool-chat-5vips', '周卡', 'active', 'USD', 9.9, 'week', 1, 0, jsonb_build_object('benefits', jsonb_build_array('undress', 'private_resources')))
     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = 'active', currency = EXCLUDED.currency, amount = EXCLUDED.amount, interval_unit = EXCLUDED.interval_unit, interval_count = EXCLUDED.interval_count, payload = app_billing_plans.payload || EXCLUDED.payload, updated_at = NOW();
   `);
-  await query(`UPDATE app_billing_plans SET status = 'inactive', updated_at = NOW() WHERE id = 'plan-tool-chat-quarterly' AND tenant_id = 'tool-chat-5vips';`);
+  await run(`UPDATE app_billing_plans SET status = 'inactive', updated_at = NOW() WHERE id = 'plan-tool-chat-quarterly' AND tenant_id = 'tool-chat-5vips';`);
 
-  await query(`
+  await run(`
     INSERT INTO app_billing_plans (
       id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload
     )
@@ -475,7 +1248,7 @@ async function ensureSchemaInner() {
     ]) AS tenant_id
     ON CONFLICT (id) DO NOTHING;
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_credit_ledger (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -487,7 +1260,7 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_credit_ledger
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS delta NUMERIC(24, 6) NOT NULL DEFAULT 0,
@@ -497,7 +1270,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_credit_ledger_user_created_idx ON app_credit_ledger (user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_credit_ledger_user_created_idx ON app_credit_ledger (user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_credit_ledger_gift_user_created_idx ON app_credit_ledger (user_id, created_at DESC) WHERE delta < 0 AND LOWER(type) LIKE '%gift%';`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_credit_ledger_order_event_uidx
       ON app_credit_ledger (type, (meta->>'orderId'))
@@ -508,7 +1282,7 @@ async function ensureSchemaInner() {
       ON app_credit_ledger (type, (meta->>'taskId'))
       WHERE COALESCE(meta->>'taskId', '') <> '';
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_user_assets (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -519,7 +1293,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_user_assets
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS mime TEXT NOT NULL DEFAULT '',
@@ -528,8 +1302,40 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_user_assets_user_created_idx ON app_user_assets (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_user_assets_user_created_idx ON app_user_assets (user_id, created_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_vega_media_library (
+      user_id TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      sub_app_id BIGINT NOT NULL,
+      category TEXT NOT NULL DEFAULT '',
+      file_id TEXT NOT NULL DEFAULT '',
+      asset_id TEXT NOT NULL DEFAULT '',
+      asset_uri TEXT NOT NULL DEFAULT '',
+      vod_task_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, source_url, sub_app_id)
+    );
+  `);
+  await run(`
+    ALTER TABLE app_vega_media_library
+      ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS file_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS asset_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS asset_uri TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS vod_task_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_vega_media_library_user_updated_idx ON app_vega_media_library (user_id, updated_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_vega_media_library_file_id_idx ON app_vega_media_library (file_id) WHERE file_id <> '';`);
+  await run(`CREATE INDEX IF NOT EXISTS app_vega_media_library_asset_id_idx ON app_vega_media_library (asset_id) WHERE asset_id <> '';`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_user_characters (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -539,7 +1345,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_user_characters
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -547,8 +1353,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_user_characters_user_created_idx ON app_user_characters (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_user_characters_user_created_idx ON app_user_characters (user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_conversations (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -559,8 +1365,8 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_conversations_user_updated_idx ON app_chat_conversations (user_id, updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_conversations_user_updated_idx ON app_chat_conversations (user_id, updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_messages (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL REFERENCES app_chat_conversations(id) ON DELETE CASCADE,
@@ -571,10 +1377,10 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_conversation_created_idx ON app_chat_messages (conversation_id, created_at ASC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_conversation_created_id_idx ON app_chat_messages (user_id, conversation_id, created_at ASC, id ASC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_role_created_idx ON app_chat_messages (user_id, role, created_at);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_messages_conversation_created_idx ON app_chat_messages (conversation_id, created_at ASC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_conversation_created_id_idx ON app_chat_messages (user_id, conversation_id, created_at ASC, id ASC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_messages_user_role_created_idx ON app_chat_messages (user_id, role, created_at);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_characters (
       id TEXT PRIMARY KEY,
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -585,7 +1391,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_chat_live_characters
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS looks JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -595,13 +1401,13 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_characters_order_idx ON app_chat_live_characters (deleted_at, sort_order ASC, created_at ASC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_characters_order_idx ON app_chat_live_characters (deleted_at, sort_order ASC, created_at ASC);`);
+  await run(`
     CREATE INDEX IF NOT EXISTS app_chat_live_characters_creator_created_idx
       ON app_chat_live_characters ((payload->>'createdByUserId'), created_at)
       WHERE deleted_at IS NULL;
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_sessions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -613,7 +1419,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_chat_live_sessions
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
@@ -623,16 +1429,16 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_created_idx ON app_chat_live_sessions (user_id, created_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_updated_idx ON app_chat_live_sessions (user_id, updated_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_live_idx ON app_chat_live_sessions (live_id);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_created_idx ON app_chat_live_sessions (created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_created_idx ON app_chat_live_sessions (user_id, created_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_user_updated_idx ON app_chat_live_sessions (user_id, updated_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_live_idx ON app_chat_live_sessions (live_id);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_sessions_created_idx ON app_chat_live_sessions (created_at DESC);`);
+  await run(`
     CREATE INDEX IF NOT EXISTS app_chat_live_sessions_unsettled_idx
       ON app_chat_live_sessions (updated_at ASC)
       WHERE live_id <> '' AND COALESCE(payload->>'settled', 'false') NOT IN ('true', '1');
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_free_usage (
       tenant_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -641,7 +1447,7 @@ async function ensureSchemaInner() {
       PRIMARY KEY (tenant_id, user_id)
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_free_allocations (
       session_id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL,
@@ -653,8 +1459,8 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_free_allocations_user_idx ON app_chat_live_free_allocations (tenant_id, user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_free_allocations_user_idx ON app_chat_live_free_allocations (tenant_id, user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_character_memories (
       user_id TEXT NOT NULL,
       character_id TEXT NOT NULL,
@@ -663,8 +1469,8 @@ async function ensureSchemaInner() {
       PRIMARY KEY (user_id, character_id)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_character_memories_updated_idx ON app_chat_character_memories (updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_character_memories_updated_idx ON app_chat_character_memories (updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_character_relationships (
       user_id TEXT NOT NULL,
       character_id TEXT NOT NULL,
@@ -678,8 +1484,8 @@ async function ensureSchemaInner() {
       PRIMARY KEY (user_id, character_id)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_character_relationships_user_updated_idx ON app_character_relationships (user_id, updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_character_relationships_user_updated_idx ON app_character_relationships (user_id, updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_user_guides (
       user_id TEXT NOT NULL,
       guide_key TEXT NOT NULL,
@@ -690,8 +1496,8 @@ async function ensureSchemaInner() {
       PRIMARY KEY (user_id, guide_key)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_user_guides_user_updated_idx ON app_user_guides (user_id, updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_user_guides_user_updated_idx ON app_user_guides (user_id, updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_rooms (
       id TEXT PRIMARY KEY,
       character_id TEXT NOT NULL DEFAULT '',
@@ -702,16 +1508,16 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`ALTER TABLE app_chat_live_rooms
+  await run(`ALTER TABLE app_chat_live_rooms
     ADD COLUMN IF NOT EXISTS character_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
     ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE,
     ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_character_idx ON app_chat_live_rooms (character_id, enabled, status);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_updated_idx ON app_chat_live_rooms (updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_character_idx ON app_chat_live_rooms (character_id, enabled, status);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_rooms_updated_idx ON app_chat_live_rooms (updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_room_members (
       room_id TEXT NOT NULL REFERENCES app_chat_live_rooms(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL,
@@ -721,9 +1527,9 @@ async function ensureSchemaInner() {
       PRIMARY KEY (room_id, user_id)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_seen_idx ON app_chat_live_room_members (room_id, last_seen_at DESC);`);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_user_seen_idx ON app_chat_live_room_members (user_id, joined_at, last_seen_at);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_seen_idx ON app_chat_live_room_members (room_id, last_seen_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_room_members_user_seen_idx ON app_chat_live_room_members (user_id, joined_at, last_seen_at);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_chat_live_room_messages (
       id TEXT PRIMARY KEY,
       room_id TEXT NOT NULL REFERENCES app_chat_live_rooms(id) ON DELETE CASCADE,
@@ -734,8 +1540,8 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_chat_live_room_messages_room_idx ON app_chat_live_room_messages (room_id, created_at ASC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_chat_live_room_messages_room_idx ON app_chat_live_room_messages (room_id, created_at ASC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_user_unlocks (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -744,7 +1550,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_user_unlocks
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -752,8 +1558,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_user_unlocks_user_created_idx ON app_user_unlocks (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_user_unlocks_user_created_idx ON app_user_unlocks (user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_admin_home_items (
       id TEXT PRIMARY KEY,
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -762,15 +1568,15 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_admin_home_items
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_admin_home_items_created_idx ON app_admin_home_items (created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_admin_home_items_created_idx ON app_admin_home_items (created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_workflow_presets (
       id TEXT PRIMARY KEY,
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -780,7 +1586,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_workflow_presets
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
@@ -788,8 +1594,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_workflow_presets_sort_idx ON app_workflow_presets (sort_order ASC, updated_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_workflow_presets_sort_idx ON app_workflow_presets (sort_order ASC, updated_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_workflow_canvases (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -799,7 +1605,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_workflow_canvases
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '',
@@ -807,8 +1613,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_workflow_canvases_user_updated_idx ON app_workflow_canvases (user_id, updated_at DESC, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_workflow_canvases_user_updated_idx ON app_workflow_canvases (user_id, updated_at DESC, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_support_messages (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -818,7 +1624,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_support_messages
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -826,8 +1632,8 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_support_messages_user_created_idx ON app_support_messages (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_support_messages_user_created_idx ON app_support_messages (user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_live_notifications (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -841,7 +1647,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     ALTER TABLE app_live_notifications
       ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'system',
       ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '',
@@ -852,8 +1658,99 @@ async function ensureSchemaInner() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_live_notifications_user_pinned_idx ON app_live_notifications (user_id, pinned DESC, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_live_notifications_user_pinned_idx ON app_live_notifications (user_id, pinned DESC, created_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_support_tickets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      email TEXT NOT NULL DEFAULT '',
+      subject TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'open',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      source TEXT NOT NULL DEFAULT '',
+      last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      user_last_read_at TIMESTAMPTZ,
+      admin_last_read_at TIMESTAMPTZ,
+      assigned_user_id TEXT NOT NULL DEFAULT '',
+      context_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`
+    ALTER TABLE app_support_tickets
+      ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
+      ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS subject TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'open',
+      ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'normal',
+      ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS user_last_read_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS admin_last_read_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS assigned_user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS context_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_support_tickets_user_last_idx ON app_support_tickets (user_id, last_message_at DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_support_tickets_status_last_idx ON app_support_tickets (status, last_message_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_support_ticket_messages (
+      id TEXT PRIMARY KEY,
+      ticket_id TEXT NOT NULL,
+      sender_type TEXT NOT NULL DEFAULT 'user',
+      sender_user_id TEXT NOT NULL DEFAULT '',
+      sender_name TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_ticket_created_idx ON app_support_ticket_messages (ticket_id, created_at ASC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_ticket_sender_created_idx ON app_support_ticket_messages (ticket_id, sender_type, created_at ASC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_support_ticket_messages_sender_ticket_created_idx ON app_support_ticket_messages (sender_type, ticket_id, created_at ASC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_system_notifications (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      pinned BOOLEAN NOT NULL DEFAULT FALSE,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      publish_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ,
+      created_by_user_id TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`
+    ALTER TABLE app_system_notifications
+      ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
+      ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS body TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS publish_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_by_user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_system_notifications_active_publish_idx ON app_system_notifications (active, publish_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_system_notification_reads (
+      notification_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      read_version TEXT NOT NULL DEFAULT '',
+      read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (notification_id, user_id)
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_system_notification_reads_user_idx ON app_system_notification_reads (user_id, read_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_live_checkins (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -863,8 +1760,8 @@ async function ensureSchemaInner() {
       UNIQUE (user_id, checkin_date)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_live_checkins_user_created_idx ON app_live_checkins (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_live_checkins_user_created_idx ON app_live_checkins (user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_live_daily_task_claims (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -876,8 +1773,8 @@ async function ensureSchemaInner() {
       UNIQUE (user_id, task_date, task_key)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_live_daily_task_claims_user_created_idx ON app_live_daily_task_claims (user_id, created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_live_daily_task_claims_user_created_idx ON app_live_daily_task_claims (user_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_generation_records (
       task_id TEXT PRIMARY KEY,
       payload JSONB NOT NULL,
@@ -885,20 +1782,122 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
-    ALTER TABLE app_generation_records
-      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  await run(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'app_generation_records'
+          AND column_name = 'created_at'
+      ) THEN
+        ALTER TABLE app_generation_records
+          ADD COLUMN created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'app_generation_records'
+          AND column_name = 'updated_at'
+      ) THEN
+        ALTER TABLE app_generation_records
+          ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+      END IF;
+    END
+    $$;
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_generation_records_created_at_idx
       ON app_generation_records (created_at DESC);
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_generation_records_user_created_idx
       ON app_generation_records ((payload->>'userId'), created_at DESC);
   `);
-  await query(`
+  await run(`
+    CREATE INDEX IF NOT EXISTS app_generation_records_awaiting_submit_created_idx
+      ON app_generation_records (created_at ASC)
+      WHERE payload->>'awaitingUpstreamTask' = 'true'
+        AND COALESCE(payload->>'upstreamTaskId', '') = '';
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS app_generation_records_advanced_download_pending_idx
+      ON app_generation_records (task_id)
+      WHERE payload->>'advancedDownloadStatus' IN ('preparing', 'queued', 'processing');
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS app_generation_records_poster_maintenance_pending_v2_idx
+      ON app_generation_records (created_at DESC, updated_at DESC)
+      WHERE COALESCE(payload->>'deletedAt', '') = ''
+        AND COALESCE(payload->>'r2PurgedAt', '') = ''
+        AND COALESCE(payload->>'cdnPosterUrl', '') = ''
+        AND COALESCE(payload->>'localPosterUrl', '') = ''
+        AND COALESCE(payload->>'posterMaintenanceTerminalAt', '') = ''
+        AND COALESCE(NULLIF(payload->>'posterMaintenanceAttempts', '')::int, 0) < 3
+        AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+        AND LOWER(COALESCE(payload->>'advancedDownloadStatus', '')) <> 'failed'
+        AND LOWER(COALESCE(payload->>'tokenSource', '')) NOT IN ('api_token', 'subtoken')
+        AND LOWER(COALESCE(payload->>'apiTokenSource', '')) NOT IN ('api_token', 'subtoken')
+        AND COALESCE(payload->>'kind', '') NOT ILIKE '%image%'
+        AND COALESCE(payload->>'provider', '') NOT ILIKE '%image%'
+        AND (
+          COALESCE(payload->>'remoteVideoUrl', '') <> ''
+          OR COALESCE(payload->>'providerVideoUrl', '') <> ''
+          OR COALESCE(payload->>'upstreamVideoUrl', '') <> ''
+          OR COALESCE(payload->>'localVideoUrl', '') <> ''
+          OR COALESCE(payload->'queryResponse'->'content'->>'video_url', '') <> ''
+          OR COALESCE(payload->'createResponse'->'content'->>'video_url', '') <> ''
+        );
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS app_generation_records_r2_recovery_pending_idx
+      ON app_generation_records (updated_at DESC)
+      WHERE COALESCE(payload->>'deletedAt', '') = ''
+        AND COALESCE(payload->>'r2PurgedAt', '') = ''
+        AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+        AND (
+          (
+            COALESCE(payload->>'cdnVideoUrl', '') = ''
+            AND (
+              COALESCE(payload->>'localVideoUrl', '') <> ''
+              OR COALESCE(payload->>'remoteVideoUrl', '') <> ''
+            )
+          )
+          OR (
+            COALESCE(payload->>'cdnImageUrl', '') = ''
+            AND (
+              COALESCE(payload->>'localImageUrl', '') <> ''
+              OR COALESCE(payload->>'localImagePath', '') <> ''
+              OR COALESCE(payload->>'remoteImageUrl', '') <> ''
+            )
+          )
+        );
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_media_ingest_jobs (
+      task_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'advanced_download',
+      source_url TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'queued',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      storage_provider TEXT NOT NULL DEFAULT '',
+      storage_key TEXT NOT NULL DEFAULT '',
+      cdn_url TEXT NOT NULL DEFAULT '',
+      bytes BIGINT NOT NULL DEFAULT 0,
+      error TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`
+    CREATE INDEX IF NOT EXISTS app_media_ingest_jobs_status_available_idx
+      ON app_media_ingest_jobs (status, available_at, created_at);
+  `);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_web_vitals (
       event_id TEXT PRIMARY KEY,
       hostname TEXT NOT NULL,
@@ -913,15 +1912,15 @@ async function ensureSchemaInner() {
       CHECK (device IN ('mobile', 'desktop', 'tablet', 'unknown'))
     );
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_web_vitals_created_idx
       ON app_web_vitals (created_at DESC);
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_web_vitals_dimensions_idx
       ON app_web_vitals (hostname, page_path, device, metric, created_at DESC);
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_visitor_ips (
       ip_hash TEXT PRIMARY KEY,
       first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -929,21 +1928,21 @@ async function ensureSchemaInner() {
       visit_count BIGINT NOT NULL DEFAULT 0
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_visitor_paths (
       page_path TEXT PRIMARY KEY,
       visit_count BIGINT NOT NULL DEFAULT 0,
       last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_visitor_countries (
       country TEXT PRIMARY KEY,
       visit_count BIGINT NOT NULL DEFAULT 0,
       last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_visitor_recent (
       id BIGSERIAL PRIMARY KEY,
       page_path TEXT NOT NULL DEFAULT '',
@@ -953,8 +1952,8 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_geo_visitor_recent_created_idx ON app_geo_visitor_recent (created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_geo_visitor_recent_created_idx ON app_geo_visitor_recent (created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_crawler_bots (
       bot TEXT PRIMARY KEY,
       visit_count BIGINT NOT NULL DEFAULT 0,
@@ -963,14 +1962,14 @@ async function ensureSchemaInner() {
       last_user_agent TEXT NOT NULL DEFAULT ''
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_crawler_paths (
       page_path TEXT PRIMARY KEY,
       visit_count BIGINT NOT NULL DEFAULT 0,
       last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_crawler_path_bots (
       page_path TEXT NOT NULL,
       bot TEXT NOT NULL,
@@ -979,7 +1978,7 @@ async function ensureSchemaInner() {
       PRIMARY KEY (page_path, bot)
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_crawler_recent (
       id BIGSERIAL PRIMARY KEY,
       bot TEXT NOT NULL DEFAULT '',
@@ -989,8 +1988,8 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_geo_crawler_recent_created_idx ON app_geo_crawler_recent (created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_geo_crawler_recent_created_idx ON app_geo_crawler_recent (created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_character_daily (
       character_id TEXT NOT NULL,
       visit_date DATE NOT NULL,
@@ -1002,8 +2001,8 @@ async function ensureSchemaInner() {
       PRIMARY KEY (character_id, visit_date)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_date_idx ON app_geo_character_daily (visit_date DESC, pv DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_date_idx ON app_geo_character_daily (visit_date DESC, pv DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_character_daily_ips (
       character_id TEXT NOT NULL,
       visit_date DATE NOT NULL,
@@ -1011,8 +2010,8 @@ async function ensureSchemaInner() {
       PRIMARY KEY (character_id, visit_date, ip_hash)
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_ips_date_idx ON app_geo_character_daily_ips (visit_date DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_geo_character_daily_ips_date_idx ON app_geo_character_daily_ips (visit_date DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_character_meta (
       character_id TEXT PRIMARY KEY,
       name TEXT NOT NULL DEFAULT '',
@@ -1022,8 +2021,8 @@ async function ensureSchemaInner() {
       last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`ALTER TABLE app_geo_character_meta ADD COLUMN IF NOT EXISTS uv_legacy INTEGER NOT NULL DEFAULT 0;`);
-  await query(`
+  await run(`ALTER TABLE app_geo_character_meta ADD COLUMN IF NOT EXISTS uv_legacy INTEGER NOT NULL DEFAULT 0;`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_character_recent (
       id BIGSERIAL PRIMARY KEY,
       character_id TEXT NOT NULL DEFAULT '',
@@ -1034,14 +2033,14 @@ async function ensureSchemaInner() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`CREATE INDEX IF NOT EXISTS app_geo_character_recent_created_idx ON app_geo_character_recent (created_at DESC);`);
-  await query(`
+  await run(`CREATE INDEX IF NOT EXISTS app_geo_character_recent_created_idx ON app_geo_character_recent (created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_geo_migration_state (
       migration_key TEXT PRIMARY KEY,
       migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_api_subtokens (
       id TEXT PRIMARY KEY,
       token TEXT NOT NULL UNIQUE,
@@ -1058,7 +2057,7 @@ async function ensureSchemaInner() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await query(`
+  await run(`
     CREATE TABLE IF NOT EXISTS app_api_subtoken_usage (
       id BIGSERIAL PRIMARY KEY,
       token_id TEXT NOT NULL REFERENCES app_api_subtokens(id) ON DELETE CASCADE,
@@ -1072,15 +2071,15 @@ async function ensureSchemaInner() {
       UNIQUE (token_id, event_key)
     );
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_api_subtokens_parent_created_idx
       ON app_api_subtokens (parent_user_id, created_at DESC);
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_api_subtokens_created_idx
       ON app_api_subtokens (created_at DESC);
   `);
-  await query(`
+  await run(`
     CREATE INDEX IF NOT EXISTS app_api_subtoken_usage_token_created_idx
       ON app_api_subtoken_usage (token_id, created_at DESC);
   `);
@@ -1172,6 +2171,7 @@ function sessionFromRow(row = {}) {
     token: String(row.token || payload.token || ""),
     userId: String(row.user_id || payload.userId || ""),
     tenantId: normalizeTenantId(row.tenant_id || payload.tenantId || payload.tenant_id || DEFAULT_TENANT_ID),
+    expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : (payload.expiresAt || ""),
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
   };
@@ -1376,6 +2376,21 @@ async function getCatalogMigrationStateInDb(key = "") {
   return rows[0] || null;
 }
 
+async function listCatalogMigrationStatesInDb() {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT migration_key, imported_count, migrated_at
+    FROM app_catalog_migration_state
+    ORDER BY migration_key ASC
+  `);
+  return rows.map((row) => ({
+    migrationKey: String(row.migration_key || ""),
+    importedCount: Number(row.imported_count || 0),
+    migratedAt: row.migrated_at ? new Date(row.migrated_at).toISOString() : "",
+  }));
+}
+
 async function markCatalogMigrationInDb(key = "", importedCount = 0) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -1409,42 +2424,43 @@ async function readAppDbFromTables(defaultDb = {}, options = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
   const includeUserAssets = options.includeUserAssets !== false;
-  const [
-    users,
-    sessions,
-    walletOrders,
-    referralWithdrawals,
-    creditLedger,
-    userAssets,
-    userCharacters,
-    userUnlocks,
-    adminHomeItems,
-    supportMessages,
-  ] = await Promise.all([
-    query(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`),
-    query(`SELECT * FROM app_sessions ORDER BY created_at ASC`),
-    query(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`),
-    query(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`),
-    query(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`),
-    includeUserAssets ? query(`SELECT * FROM app_user_assets ORDER BY created_at DESC`) : Promise.resolve({ rows: [] }),
-    query(`SELECT * FROM app_user_characters ORDER BY created_at DESC`),
-    query(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`),
-    query(`SELECT * FROM app_admin_home_items ORDER BY created_at DESC`),
-    query(`SELECT * FROM app_support_messages ORDER BY created_at DESC`),
-  ]);
-  return {
-    users: users.rows.map(userFromRow),
-    sessions: sessions.rows.map(sessionFromRow),
-    walletOrders: walletOrders.rows.map(walletOrderFromRow),
-    referralWithdrawals: referralWithdrawals.rows.map(referralWithdrawalFromRow),
-    creditLedger: creditLedger.rows.map(ledgerFromRow),
-    userAssets: userAssets.rows.map(recordFromPayloadRow),
-    userCharacters: userCharacters.rows.map(recordFromPayloadRow),
-    userUnlocks: userUnlocks.rows.map(recordFromPayloadRow),
-    adminHomeItems: adminHomeItems.rows.map(recordFromPayloadRow),
-    supportMessages: supportMessages.rows.map(recordFromPayloadRow),
-    apiSubtokens: Array.isArray(defaultDb.apiSubtokens) ? defaultDb.apiSubtokens : [],
-  };
+  // A full application snapshot used to issue every table query through the
+  // shared pool at once. Two callers could therefore consume all 20 pool slots
+  // before either one finished, starving auth, notifications, and generation.
+  // Keep the broad snapshot for legacy callers, but read it through one pooled
+  // connection so one request costs one slot regardless of table count.
+  const client = await getPool().connect();
+  try {
+    const readRows = async (sql, params = []) => (await client.query(sql, params)).rows;
+    const users = await readRows(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`);
+    const sessions = await readRows(`SELECT * FROM app_sessions ORDER BY created_at ASC`);
+    const walletOrders = await readRows(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`);
+    const referralWithdrawals = await readRows(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`);
+    const creditLedger = await readRows(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`);
+    const userAssets = includeUserAssets
+      ? await readRows(`SELECT * FROM app_user_assets ORDER BY created_at DESC`)
+      : [];
+    const userCharacters = await readRows(`SELECT * FROM app_user_characters ORDER BY created_at DESC`);
+    const userUnlocks = await readRows(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`);
+    // Admin home items and support messages have dedicated paginated readers.
+    // They were previously queried here and then discarded by readDb(), wasting
+    // two sequential round trips and transferring payloads nobody consumed.
+    return {
+      users: users.map(userFromRow),
+      sessions: sessions.map(sessionFromRow),
+      walletOrders: walletOrders.map(walletOrderFromRow),
+      referralWithdrawals: referralWithdrawals.map(referralWithdrawalFromRow),
+      creditLedger: creditLedger.map(ledgerFromRow),
+      userAssets: userAssets.map(recordFromPayloadRow),
+      userCharacters: userCharacters.map(recordFromPayloadRow),
+      userUnlocks: userUnlocks.map(recordFromPayloadRow),
+      adminHomeItems: [],
+      supportMessages: [],
+      apiSubtokens: Array.isArray(defaultDb.apiSubtokens) ? defaultDb.apiSubtokens : [],
+    };
+  } finally {
+    client.release();
+  }
 }
 
 async function replaceAppDbTables(db = {}, options = {}) {
@@ -1462,6 +2478,7 @@ async function replaceAppDbTables(db = {}, options = {}) {
       await client.query("DELETE FROM app_user_assets");
       await client.query("DELETE FROM app_credit_ledger");
       await client.query("DELETE FROM app_wallet_orders");
+      await client.query("DELETE FROM app_promotion_purchases");
       await client.query("DELETE FROM app_referral_withdrawals");
       await client.query("DELETE FROM app_sessions");
       await client.query("DELETE FROM app_users");
@@ -1532,11 +2549,11 @@ async function replaceAppDbTables(db = {}, options = {}) {
       const payload = { ...session, tenantId };
       await client.query(
         `
-          INSERT INTO app_sessions(token, user_id, tenant_id, payload, created_at, updated_at)
-          VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz)
-          ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, tenant_id = EXCLUDED.tenant_id, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at
+          INSERT INTO app_sessions(token, user_id, tenant_id, payload, expires_at, created_at, updated_at)
+          VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz, $7::timestamptz)
+          ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, tenant_id = EXCLUDED.tenant_id, payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at, updated_at = EXCLUDED.updated_at
         `,
-        [String(session.token || ""), String(session.userId || ""), tenantId, JSON.stringify(payload), payloadCreatedAt(payload), payloadUpdatedAt(payload)],
+        [String(session.token || ""), String(session.userId || ""), tenantId, JSON.stringify(payload), session.expiresAt || null, payloadCreatedAt(payload), payloadUpdatedAt(payload)],
       );
     }
     for (const order of Array.isArray(db.walletOrders) ? db.walletOrders : []) {
@@ -1675,9 +2692,9 @@ async function replaceUserSessionInDb(session = {}) {
     const tenantId = normalizeTenantId(session.tenantId || session.tenant_id || DEFAULT_TENANT_ID);
     const payload = { ...session, tenantId };
     await client.query(
-      `INSERT INTO app_sessions(token, user_id, tenant_id, payload, created_at, updated_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz)`,
-      [token, userId, tenantId, JSON.stringify(payload), payloadCreatedAt(payload), payloadUpdatedAt(payload)],
+      `INSERT INTO app_sessions(token, user_id, tenant_id, payload, expires_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz, $7::timestamptz)`,
+      [token, userId, tenantId, JSON.stringify(payload), session.expiresAt || null, payloadCreatedAt(payload), payloadUpdatedAt(payload)],
     );
     await client.query("COMMIT");
     return session;
@@ -1687,6 +2704,18 @@ async function replaceUserSessionInDb(session = {}) {
   } finally {
     client.release();
   }
+}
+
+async function revokeUserCredentialsInDb(userId = "") {
+  if (!dbEnabled()) return { sessions: 0, subtokens: 0 };
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { sessions: 0, subtokens: 0 };
+  await ensureSchema();
+  const [sessions, subtokens] = await Promise.all([
+    query("DELETE FROM app_sessions WHERE user_id = $1", [cleanUserId]),
+    query("UPDATE app_api_subtokens SET revoked_at = COALESCE(revoked_at, NOW()), updated_at = NOW() WHERE parent_user_id = $1 AND revoked_at IS NULL", [cleanUserId]),
+  ]);
+  return { sessions: Number(sessions.rowCount || 0), subtokens: Number(subtokens.rowCount || 0) };
 }
 
 async function deleteSessionByTokenInDb(token = "") {
@@ -1776,6 +2805,98 @@ async function getUserByUsernameInDb(username = "", tenantId = DEFAULT_TENANT_ID
   return rows[0] ? userFromRow(rows[0]) : null;
 }
 
+function emailChallengeDbKey(kind, email, tenantId) {
+  return `${String(kind || "login").trim()}:${normalizeTenantId(tenantId)}:${String(email || "").trim().toLowerCase()}`;
+}
+
+async function upsertEmailChallengeInDb({
+  kind = "login",
+  email = "",
+  tenantId = DEFAULT_TENANT_ID,
+  codeHash = "",
+  sentAt = new Date(),
+  expiresAt,
+  minimumIntervalMs = 60_000,
+} = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for email verification codes.");
+  const challengeKey = emailChallengeDbKey(kind, email, tenantId);
+  await ensureSchema();
+  const effectiveSentAt = sentAt instanceof Date ? sentAt : new Date(sentAt);
+  const effectiveExpiresAt = expiresAt instanceof Date ? expiresAt : new Date(expiresAt || effectiveSentAt.getTime() + 10 * 60_000);
+  const intervalMs = Math.max(0, Number(minimumIntervalMs) || 0);
+  const result = await query(
+    `
+      INSERT INTO app_email_challenges(challenge_key, kind, tenant_id, email, code_hash, attempts, sent_at, expires_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, 0, $6::timestamptz, $7::timestamptz, NOW())
+      ON CONFLICT (challenge_key) DO UPDATE SET
+        kind = EXCLUDED.kind,
+        tenant_id = EXCLUDED.tenant_id,
+        email = EXCLUDED.email,
+        code_hash = EXCLUDED.code_hash,
+        attempts = 0,
+        sent_at = EXCLUDED.sent_at,
+        expires_at = EXCLUDED.expires_at,
+        updated_at = NOW()
+      WHERE app_email_challenges.sent_at <= $6::timestamptz - ($8::double precision * INTERVAL '1 millisecond')
+    `,
+    [challengeKey, String(kind), normalizeTenantId(tenantId), String(email).trim().toLowerCase(), String(codeHash), effectiveSentAt, effectiveExpiresAt, intervalMs],
+  );
+  if (!result.rowCount) return null;
+  return { key: challengeKey, sentAt: effectiveSentAt.getTime(), expiresAt: effectiveExpiresAt.getTime() };
+}
+
+async function consumeEmailChallengeInDb({ kind = "login", email = "", tenantId = DEFAULT_TENANT_ID, code = "" } = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for email verification codes.");
+  const challengeKey = emailChallengeDbKey(kind, email, tenantId);
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `SELECT * FROM app_email_challenges WHERE challenge_key = $1 AND expires_at > NOW() FOR UPDATE`,
+      [challengeKey],
+    );
+    if (!rows.length) {
+      await client.query("COMMIT");
+      return false;
+    }
+    const challenge = rows[0];
+    const attempts = Number(challenge.attempts || 0);
+    if (attempts >= 5) {
+      await client.query(`DELETE FROM app_email_challenges WHERE challenge_key = $1`, [challengeKey]);
+      await client.query("COMMIT");
+      return false;
+    }
+    const actual = crypto.createHash("sha256").update(String(code || "").trim()).digest("hex");
+    const expected = String(challenge.code_hash || "");
+    const matches = actual.length === expected.length && crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+    if (!matches) {
+      await client.query(`UPDATE app_email_challenges SET attempts = attempts + 1, updated_at = NOW() WHERE challenge_key = $1`, [challengeKey]);
+      await client.query("COMMIT");
+      return false;
+    }
+    await client.query(`DELETE FROM app_email_challenges WHERE challenge_key = $1`, [challengeKey]);
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteEmailChallengeInDb({ kind = "login", email = "", tenantId = DEFAULT_TENANT_ID, codeHash = "" } = {}) {
+  if (!dbEnabled()) return;
+  const challengeKey = emailChallengeDbKey(kind, email, tenantId);
+  await ensureSchema();
+  if (codeHash) {
+    await query(`DELETE FROM app_email_challenges WHERE challenge_key = $1 AND code_hash = $2`, [challengeKey, String(codeHash)]);
+    return;
+  }
+  await query(`DELETE FROM app_email_challenges WHERE challenge_key = $1`, [challengeKey]);
+}
+
 async function getUserByTelegramIdInDb(telegramUserId = "", tenantId = DEFAULT_TENANT_ID) {
   if (!dbEnabled()) return null;
   const cleanTelegramUserId = String(telegramUserId || "").trim();
@@ -1834,6 +2955,502 @@ async function getUserByIdInDb(userId = "") {
   return rows[0] ? userFromRow(rows[0]) : null;
 }
 
+async function hasAnyActiveUserInDb() {
+  if (!dbEnabled()) return false;
+  await ensureSchema();
+  const { rows } = await query(`SELECT EXISTS (SELECT 1 FROM app_users WHERE deleted_at IS NULL) AS present`);
+  return rows[0]?.present === true;
+}
+
+function riskHash(value = "") {
+  const text = String(value || "").trim();
+  return text ? crypto.createHash("sha256").update(text).digest("hex").slice(0, 40) : "";
+}
+
+async function incrementRateLimitInDb(bucketKey = "", { windowMs = 60_000, amount = 1 } = {}) {
+  if (!dbEnabled()) return { allowed: true, hits: 0, remaining: Number.MAX_SAFE_INTEGER, retryAfterSeconds: 0 };
+  const key = String(bucketKey || "").trim();
+  if (!key) throw new Error("Rate limit bucket key is required.");
+  const window = Math.max(1000, Number(windowMs) || 60_000);
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      "SELECT * FROM app_rate_limits WHERE bucket_key = $1 FOR UPDATE",
+      [key],
+    );
+    const now = new Date();
+    const current = rows[0] || null;
+    const expiresAt = current ? new Date(current.window_started_at).getTime() + window : 0;
+    const reset = !current || expiresAt <= now.getTime();
+    const hits = reset ? amount : Number(current.hits || 0) + amount;
+    const startedAt = reset ? now : new Date(current.window_started_at);
+    if (!current) {
+      await client.query(
+        "INSERT INTO app_rate_limits(bucket_key, window_started_at, hits, updated_at) VALUES ($1, $2::timestamptz, $3, NOW())",
+        [key, startedAt, hits],
+      );
+    } else if (reset) {
+      await client.query(
+        "UPDATE app_rate_limits SET window_started_at = $2::timestamptz, hits = $3, updated_at = NOW() WHERE bucket_key = $1",
+        [key, startedAt, hits],
+      );
+    } else {
+      await client.query(
+        "UPDATE app_rate_limits SET hits = $2, updated_at = NOW() WHERE bucket_key = $1",
+        [key, hits],
+      );
+    }
+    await client.query("COMMIT");
+    return {
+      hits,
+      windowStartedAt: startedAt.toISOString(),
+      retryAfterSeconds: Math.max(1, Math.ceil((startedAt.getTime() + window - now.getTime()) / 1000)),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function normalizeWebhookDeliveryKey({ provider = "", deliveryId = "" } = {}) {
+  const cleanProvider = String(provider || "").trim().slice(0, 80);
+  const cleanDeliveryId = String(deliveryId || "").trim().slice(0, 240);
+  if (!cleanProvider || !cleanDeliveryId) throw new Error("Webhook provider and delivery ID are required.");
+  return { provider: cleanProvider, deliveryId: cleanDeliveryId };
+}
+
+async function claimWebhookDeliveryInDb({
+  provider = "",
+  deliveryId = "",
+  eventType = "",
+  taskId = "",
+  claimToken = "",
+  // A webhook may perform a provider query plus a 15-minute remote media
+  // download/upload. Keep ownership beyond the full handler timeout so a
+  // slower but healthy request cannot be taken over by another process.
+  leaseMs = 20 * 60 * 1000,
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for webhook delivery deduplication.");
+  const key = normalizeWebhookDeliveryKey({ provider, deliveryId });
+  const token = String(claimToken || crypto.randomUUID()).trim().slice(0, 120);
+  const lease = Math.max(5_000, Math.min(30 * 60 * 1000, Number(leaseMs) || 20 * 60 * 1000));
+  if (!token) throw new Error("Webhook claim token is required.");
+  await ensureSchema();
+  const { rows } = await query(
+    `INSERT INTO app_webhook_deliveries(
+       provider, delivery_id, event_type, task_id, status, claim_token,
+       lease_until, attempts, last_error, received_at, updated_at, completed_at
+     )
+     VALUES ($1, $2, $3, $4, 'claimed', $5, NOW() + ($6::int * INTERVAL '1 millisecond'), 1, '', NOW(), NOW(), NULL)
+     ON CONFLICT (provider, delivery_id) DO UPDATE SET
+       event_type = EXCLUDED.event_type,
+       task_id = EXCLUDED.task_id,
+       status = 'claimed',
+       claim_token = EXCLUDED.claim_token,
+       lease_until = EXCLUDED.lease_until,
+       attempts = app_webhook_deliveries.attempts + 1,
+       last_error = '',
+       updated_at = NOW(),
+       completed_at = NULL
+     WHERE app_webhook_deliveries.status = 'retry'
+        OR (
+          app_webhook_deliveries.status = 'claimed'
+          AND COALESCE(app_webhook_deliveries.lease_until, app_webhook_deliveries.updated_at) <= NOW()
+        )
+     RETURNING provider, delivery_id, status, claim_token, lease_until, attempts, received_at`,
+    [key.provider, key.deliveryId, String(eventType || "").slice(0, 120), String(taskId || "").slice(0, 240), token, Math.trunc(lease)],
+  );
+  if (rows.length === 1) {
+    return {
+      claimed: true,
+      claimToken: token,
+      status: "claimed",
+      leaseUntil: rows[0].lease_until,
+      attempts: Number(rows[0].attempts || 1),
+      receivedAt: rows[0].received_at,
+    };
+  }
+  const current = await query(
+    `SELECT status, lease_until, attempts, received_at
+     FROM app_webhook_deliveries
+     WHERE provider = $1 AND delivery_id = $2`,
+    [key.provider, key.deliveryId],
+  );
+  return {
+    claimed: false,
+    claimToken: "",
+    status: String(current.rows[0]?.status || "unknown"),
+    leaseUntil: current.rows[0]?.lease_until || null,
+    attempts: Number(current.rows[0]?.attempts || 0),
+    receivedAt: current.rows[0]?.received_at || null,
+  };
+}
+
+async function releaseWebhookDeliveryClaimInDb({
+  provider = "",
+  deliveryId = "",
+  claimToken = "",
+  error = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for webhook delivery recovery.");
+  const key = normalizeWebhookDeliveryKey({ provider, deliveryId });
+  const token = String(claimToken || "").trim();
+  if (!token) throw new Error("Webhook claim token is required.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_webhook_deliveries
+     SET status = 'retry',
+         claim_token = '',
+         lease_until = NULL,
+         last_error = $4,
+         updated_at = NOW()
+     WHERE provider = $1 AND delivery_id = $2 AND claim_token = $3 AND status = 'claimed'
+     RETURNING provider, delivery_id, status, attempts, updated_at`,
+    [key.provider, key.deliveryId, token, String(error || "").slice(0, 2000)],
+  );
+  return { released: rows.length === 1, status: rows[0]?.status || "", attempts: Number(rows[0]?.attempts || 0) };
+}
+
+async function completeWebhookDeliveryClaimInDb({ provider = "", deliveryId = "", claimToken = "" } = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for webhook delivery completion.");
+  const key = normalizeWebhookDeliveryKey({ provider, deliveryId });
+  const token = String(claimToken || "").trim();
+  if (!token) throw new Error("Webhook claim token is required.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_webhook_deliveries
+     SET status = 'completed',
+         claim_token = '',
+         lease_until = NULL,
+         last_error = '',
+         completed_at = NOW(),
+         updated_at = NOW()
+     WHERE provider = $1 AND delivery_id = $2 AND claim_token = $3 AND status = 'claimed'
+     RETURNING provider, delivery_id, status, completed_at`,
+    [key.provider, key.deliveryId, token],
+  );
+  return { completed: rows.length === 1, status: rows[0]?.status || "", completedAt: rows[0]?.completed_at || null };
+}
+
+async function claimRequestIdempotencyInDb({
+  userId = "",
+  action = "",
+  idempotencyKey = "",
+  payloadHash = "",
+  claimToken = "",
+  taskId = "",
+  leaseMs = 2 * 60 * 1000,
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for request idempotency.");
+  const user = String(userId || "").trim().slice(0, 240);
+  const routeAction = String(action || "").trim().slice(0, 160);
+  const key = String(idempotencyKey || "").trim().slice(0, 240);
+  const hash = String(payloadHash || "").trim().slice(0, 128);
+  const token = String(claimToken || crypto.randomUUID()).trim().slice(0, 120);
+  const generationTaskId = String(taskId || "").trim().slice(0, 240);
+  if (!user || !routeAction || !key || !hash || !token) {
+    throw new Error("Request idempotency requires userId, action, key, payloadHash, and claimToken.");
+  }
+  await ensureSchema();
+  const lease = Math.max(5_000, Math.min(30 * 60 * 1000, Number(leaseMs) || 2 * 60 * 1000));
+  const { rows } = await query(
+    `INSERT INTO app_request_idempotency(
+       user_id, action, idempotency_key, payload_hash, status, claim_token,
+       lease_until, task_id, result_payload, attempts, last_error,
+       created_at, updated_at, completed_at
+     )
+     VALUES ($1, $2, $3, $4, 'claimed', $5, NOW() + ($6::int * INTERVAL '1 millisecond'), $7, NULL, 1, '', NOW(), NOW(), NULL)
+     ON CONFLICT (user_id, action, idempotency_key) DO UPDATE SET
+       status = 'claimed',
+       claim_token = EXCLUDED.claim_token,
+       lease_until = EXCLUDED.lease_until,
+       task_id = CASE WHEN app_request_idempotency.task_id = '' THEN EXCLUDED.task_id ELSE app_request_idempotency.task_id END,
+       result_payload = NULL,
+       attempts = app_request_idempotency.attempts + 1,
+       last_error = '',
+       updated_at = NOW(),
+       completed_at = NULL
+     WHERE app_request_idempotency.payload_hash = EXCLUDED.payload_hash
+       AND (
+         app_request_idempotency.status = 'retry'
+         OR (
+           app_request_idempotency.status = 'claimed'
+           AND COALESCE(app_request_idempotency.lease_until, app_request_idempotency.updated_at) <= NOW()
+         )
+       )
+     RETURNING user_id, action, idempotency_key, payload_hash, status, claim_token,
+               lease_until, task_id, result_payload, attempts, completed_at`,
+    [user, routeAction, key, hash, token, Math.trunc(lease), generationTaskId],
+  );
+  if (rows.length === 1) {
+    return {
+      claimed: true,
+      conflict: false,
+      claimToken: token,
+      status: "claimed",
+      taskId: String(rows[0].task_id || ""),
+      leaseUntil: rows[0].lease_until,
+      attempts: Number(rows[0].attempts || 1),
+    };
+  }
+  const { rows: currentRows } = await query(
+    `SELECT user_id, action, idempotency_key, payload_hash, status, claim_token,
+            lease_until, task_id, result_payload, attempts, last_error, completed_at
+     FROM app_request_idempotency
+     WHERE user_id = $1 AND action = $2 AND idempotency_key = $3`,
+    [user, routeAction, key],
+  );
+  const current = currentRows[0];
+  if (!current) return { claimed: false, conflict: false, status: "missing", claimToken: "", taskId: "", attempts: 0 };
+  if (String(current.payload_hash || "") !== hash) {
+    return {
+      claimed: false,
+      conflict: true,
+      status: "conflict",
+      claimToken: "",
+      taskId: String(current.task_id || ""),
+      attempts: Number(current.attempts || 0),
+    };
+  }
+  return {
+    claimed: false,
+    conflict: false,
+    status: String(current.status || "unknown"),
+    claimToken: "",
+    taskId: String(current.task_id || ""),
+    resultPayload: current.result_payload || null,
+    leaseUntil: current.lease_until || null,
+    attempts: Number(current.attempts || 0),
+    lastError: String(current.last_error || ""),
+    completedAt: current.completed_at || null,
+  };
+}
+
+async function completeRequestIdempotencyInDb({
+  userId = "",
+  action = "",
+  idempotencyKey = "",
+  claimToken = "",
+  taskId = "",
+  resultPayload = {},
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for request idempotency completion.");
+  const user = String(userId || "").trim().slice(0, 240);
+  const routeAction = String(action || "").trim().slice(0, 160);
+  const key = String(idempotencyKey || "").trim().slice(0, 240);
+  const token = String(claimToken || "").trim().slice(0, 120);
+  if (!user || !routeAction || !key || !token) throw new Error("Request idempotency completion requires user, action, key, and claimToken.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_request_idempotency
+     SET status = 'completed',
+         claim_token = '',
+         lease_until = NULL,
+         task_id = CASE WHEN $5::text <> '' THEN $5::text ELSE task_id END,
+         result_payload = $6::jsonb,
+         last_error = '',
+         completed_at = NOW(),
+         updated_at = NOW()
+     WHERE user_id = $1 AND action = $2 AND idempotency_key = $3
+       AND claim_token = $4 AND status = 'claimed'
+     RETURNING user_id, action, idempotency_key, status, task_id, result_payload, completed_at`,
+    [user, routeAction, key, token, String(taskId || "").trim().slice(0, 240), JSON.stringify(resultPayload || {})],
+  );
+  return {
+    completed: rows.length === 1,
+    status: rows[0]?.status || "",
+    taskId: String(rows[0]?.task_id || ""),
+    resultPayload: rows[0]?.result_payload || null,
+    completedAt: rows[0]?.completed_at || null,
+  };
+}
+
+async function releaseRequestIdempotencyClaimInDb({
+  userId = "",
+  action = "",
+  idempotencyKey = "",
+  claimToken = "",
+  error = "",
+} = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for request idempotency recovery.");
+  const user = String(userId || "").trim().slice(0, 240);
+  const routeAction = String(action || "").trim().slice(0, 160);
+  const key = String(idempotencyKey || "").trim().slice(0, 240);
+  const token = String(claimToken || "").trim().slice(0, 120);
+  if (!user || !routeAction || !key || !token) throw new Error("Request idempotency release requires user, action, key, and claimToken.");
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_request_idempotency
+     SET status = 'retry',
+         claim_token = '',
+         lease_until = NULL,
+         last_error = $5,
+         updated_at = NOW()
+     WHERE user_id = $1 AND action = $2 AND idempotency_key = $3
+       AND claim_token = $4 AND status = 'claimed'
+     RETURNING user_id, action, idempotency_key, status, task_id, attempts, updated_at`,
+    [user, routeAction, key, token, String(error || "").slice(0, 2000)],
+  );
+  return {
+    released: rows.length === 1,
+    status: rows[0]?.status || "",
+    taskId: String(rows[0]?.task_id || ""),
+    attempts: Number(rows[0]?.attempts || 0),
+  };
+}
+
+async function recordRiskEventInDb({ eventType = "", scopeKey = "", tenantId = DEFAULT_TENANT_ID, subject = "", ip = "", userAgent = "", metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const type = String(eventType || "").trim().slice(0, 80);
+  if (!type) throw new Error("Risk event type is required.");
+  await ensureSchema();
+  const { rows } = await query(
+    `INSERT INTO app_risk_events(event_type, scope_key, tenant_id, subject_hash, ip_hash, user_agent_hash, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) RETURNING id, created_at`,
+    [
+      type,
+      String(scopeKey || "").trim().slice(0, 300),
+      normalizeTenantId(tenantId),
+      riskHash(subject),
+      riskHash(ip),
+      riskHash(userAgent),
+      JSON.stringify(metadata && typeof metadata === "object" ? metadata : {}),
+    ],
+  );
+  return { id: String(rows[0]?.id || ""), createdAt: toIsoString(rows[0]?.created_at) };
+}
+
+async function getLoginFailureStateInDb({ tenantId = DEFAULT_TENANT_ID, username = "", ip = "", lockMs = 15 * 60_000, maxFailures = 5, ipMaxFailures = 20, ipWindowMs = 15 * 60_000 } = {}) {
+  if (!dbEnabled()) return { lockedUntil: null, failures: 0, accountFailures: 0, ipFailures: 0 };
+  await ensureSchema();
+  const tenant = normalizeTenantId(tenantId);
+  const user = String(username || "").trim().toLowerCase().slice(0, 64);
+  const ipHash = riskHash(ip);
+  const window = Math.max(60_000, Number(ipWindowMs) || 15 * 60_000);
+  const windowStart = new Date(Date.now() - window);
+  const [accountRows, ipRows] = await Promise.all([
+    user ? query(
+      `SELECT COALESCE(SUM(failures), 0)::int AS failures, MAX(locked_until) AS locked_until
+       FROM app_login_failures
+       WHERE tenant_id = $1 AND username = $2 AND last_failed_at >= $3::timestamptz`,
+      [tenant, user, windowStart],
+    ) : { rows: [{ failures: 0, locked_until: null }] },
+    ipHash ? query(
+      `SELECT COALESCE(SUM(failures), 0)::int AS failures, MAX(locked_until) AS locked_until
+       FROM app_login_failures
+       WHERE ip_hash = $1 AND tenant_id = $2 AND last_failed_at >= $3::timestamptz`,
+      [ipHash, tenant, windowStart],
+    ) : { rows: [{ failures: 0, locked_until: null }] },
+  ]);
+  const accountFailures = Number(accountRows.rows[0]?.failures || 0);
+  const ipFailures = Number(ipRows.rows[0]?.failures || 0);
+  const storedLockedUntil = [accountRows.rows[0]?.locked_until, ipRows.rows[0]?.locked_until]
+    .map((value) => value ? new Date(value).getTime() : 0)
+    .filter((value) => value > Date.now());
+  let lockedUntil = storedLockedUntil.length ? new Date(Math.max(...storedLockedUntil)).toISOString() : null;
+  if (!lockedUntil && (accountFailures >= Math.max(1, Number(maxFailures) || 5) || ipFailures >= Math.max(1, Number(ipMaxFailures) || 20))) {
+    lockedUntil = new Date(Date.now() + Math.max(60_000, Number(lockMs) || 900_000)).toISOString();
+  }
+  return {
+    lockedUntil,
+    retryAfterSeconds: lockedUntil ? Math.max(1, Math.ceil((Date.parse(lockedUntil) - Date.now()) / 1000)) : 0,
+    failures: accountFailures,
+    accountFailures,
+    ipFailures,
+  };
+}
+
+async function recordLoginFailureInDb({ tenantId = DEFAULT_TENANT_ID, username = "", ip = "", maxFailures = 5, lockMs = 15 * 60_000 } = {}) {
+  if (!dbEnabled()) return { failures: 0, lockedUntil: null };
+  await ensureSchema();
+  const tenant = normalizeTenantId(tenantId);
+  const user = String(username || "").trim().toLowerCase().slice(0, 64);
+  const ipHash = riskHash(ip);
+  const key = `${tenant}:${user}:${ipHash}`;
+  const max = Math.max(1, Math.min(100, Number(maxFailures) || 5));
+  const lock = Math.max(60_000, Math.min(24 * 60 * 60_000, Number(lockMs) || 900_000));
+  const { rows } = await query(
+    `INSERT INTO app_login_failures(failure_key, tenant_id, username, ip_hash, failures, first_failed_at, last_failed_at, locked_until, updated_at)
+     VALUES ($1, $2, $3, $4, 1, NOW(), NOW(), NULL, NOW())
+     ON CONFLICT (failure_key) DO UPDATE SET
+       failures = CASE WHEN app_login_failures.last_failed_at < NOW() - INTERVAL '15 minutes' THEN 1 ELSE app_login_failures.failures + 1 END,
+       first_failed_at = CASE WHEN app_login_failures.last_failed_at < NOW() - INTERVAL '15 minutes' THEN NOW() ELSE app_login_failures.first_failed_at END,
+       locked_until = CASE WHEN (CASE WHEN app_login_failures.last_failed_at < NOW() - INTERVAL '15 minutes' THEN 1 ELSE app_login_failures.failures + 1 END) >= $5 THEN NOW() + ($6::bigint * INTERVAL '1 millisecond') ELSE NULL END,
+       last_failed_at = NOW(),
+       updated_at = NOW()
+     RETURNING failures, locked_until`,
+    [key, tenant, user, ipHash, max, lock],
+  );
+  return {
+    failures: Number(rows[0]?.failures || 0),
+    lockedUntil: rows[0]?.locked_until ? toIsoString(rows[0].locked_until) : null,
+  };
+}
+
+async function clearLoginFailuresInDb({ tenantId = DEFAULT_TENANT_ID, username = "", ip = "" } = {}) {
+  if (!dbEnabled()) return;
+  await ensureSchema();
+  const tenant = normalizeTenantId(tenantId);
+  const user = String(username || "").trim().toLowerCase().slice(0, 64);
+  const ipHash = riskHash(ip);
+  if (user) {
+    await query(`DELETE FROM app_login_failures WHERE tenant_id = $1 AND username = $2`, [tenant, user]);
+  } else if (ipHash) {
+    await query(`DELETE FROM app_login_failures WHERE tenant_id = $1 AND ip_hash = $2`, [tenant, ipHash]);
+  }
+}
+
+async function getRiskSummaryFromDb({ sinceHours = 24 } = {}) {
+  if (!dbEnabled()) return { enabled: false, events: [], recentUsers: [], usersByHour: [], usersByChannel: [], loginFailures: 0, lockedAccounts: 0, totalUsers: 0 };
+  await ensureSchema();
+  const hours = Math.max(1, Math.min(30 * 24, Number(sinceHours) || 24));
+  const since = new Date(Date.now() - hours * 60 * 60_000);
+  const [events, recentUsers, usersByHour, usersByChannel, failures, limits] = await Promise.all([
+    query(`SELECT event_type, COUNT(*)::int AS count FROM app_risk_events WHERE created_at >= $1::timestamptz GROUP BY event_type ORDER BY count DESC`, [since]),
+    query(`SELECT id, username, role, created_at, COALESCE(NULLIF(payload->>'registrationChannel',''), NULLIF(payload->'registrationAttribution'->>'channel',''), 'direct') AS channel FROM app_users WHERE deleted_at IS NULL AND created_at >= $1::timestamptz ORDER BY created_at DESC LIMIT 30`, [since]),
+    query(`SELECT date_trunc('hour', created_at AT TIME ZONE 'Asia/Bangkok') AS hour, COUNT(*)::int AS count FROM app_users WHERE deleted_at IS NULL AND created_at >= $1::timestamptz GROUP BY 1 ORDER BY 1`, [since]),
+    query(`SELECT COALESCE(NULLIF(payload->>'registrationChannel',''), NULLIF(payload->'registrationAttribution'->>'channel',''), 'direct') AS channel, COUNT(*)::int AS count FROM app_users WHERE deleted_at IS NULL AND created_at >= $1::timestamptz GROUP BY 1 ORDER BY count DESC`, [since]),
+    query(`SELECT COALESCE(SUM(failures), 0)::int AS failures, COUNT(*) FILTER (WHERE locked_until > NOW())::int AS locked_accounts FROM app_login_failures WHERE last_failed_at >= $1::timestamptz`, [since]),
+    query(`SELECT COUNT(*)::int AS locked_accounts FROM app_login_failures WHERE locked_until > NOW()`),
+  ]);
+  return {
+    enabled: true,
+    hours,
+    events: events.rows.map((row) => ({ type: row.event_type, count: Number(row.count) })),
+    recentUsers: recentUsers.rows.map((row) => ({
+      id: String(row.id || ""),
+      username: String(row.username || ""),
+      role: String(row.role || "user"),
+      channel: String(row.channel || "direct"),
+      createdAt: toIsoString(row.created_at),
+    })),
+    usersByHour: usersByHour.rows.map((row) => ({ hour: toIsoString(row.hour), count: Number(row.count) })),
+    usersByChannel: usersByChannel.rows.map((row) => ({ channel: row.channel, count: Number(row.count) })),
+    totalUsers: usersByHour.rows.reduce((sum, row) => sum + Number(row.count || 0), 0),
+    loginFailures: Number(failures.rows[0]?.failures || 0),
+    lockedAccounts: Number(limits.rows[0]?.locked_accounts || 0),
+  };
+}
+
+async function cleanupAuthRiskDataInDb({ rateLimitHours = 48, riskEventDays = 90, loginFailureDays = 30, limit = 5000 } = {}) {
+  if (!dbEnabled()) return { rateLimits: 0, riskEvents: 0, loginFailures: 0 };
+  await ensureSchema();
+  const max = Math.max(1, Math.min(50000, Number(limit) || 5000));
+  const rateHours = Math.max(1, Math.min(24 * 30, Number(rateLimitHours) || 48));
+  const eventDays = Math.max(1, Math.min(365, Number(riskEventDays) || 90));
+  const failureDays = Math.max(1, Math.min(365, Number(loginFailureDays) || 30));
+  const [rateLimits, riskEvents, loginFailures] = await Promise.all([
+    query(`DELETE FROM app_rate_limits WHERE bucket_key IN (SELECT bucket_key FROM app_rate_limits WHERE updated_at < NOW() - ($1::int * INTERVAL '1 hour') LIMIT $2)`, [rateHours, max]),
+    query(`DELETE FROM app_risk_events WHERE id IN (SELECT id FROM app_risk_events WHERE created_at < NOW() - ($1::int * INTERVAL '1 day') LIMIT $2)`, [eventDays, max]),
+    query(`DELETE FROM app_login_failures WHERE failure_key IN (SELECT failure_key FROM app_login_failures WHERE last_failed_at < NOW() - ($1::int * INTERVAL '1 day') LIMIT $2)`, [failureDays, max]),
+  ]);
+  return { rateLimits: Number(rateLimits.rowCount || 0), riskEvents: Number(riskEvents.rowCount || 0), loginFailures: Number(loginFailures.rowCount || 0) };
+}
+
 async function createSessionInDb(session = {}) {
   if (!dbEnabled()) return null;
   const token = String(session.token || "").trim();
@@ -1843,11 +3460,13 @@ async function createSessionInDb(session = {}) {
   const payload = { ...session, tenantId };
   await query(
     `
-      INSERT INTO app_sessions(token, user_id, tenant_id, payload, created_at, updated_at)
-      VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz)
-      ON CONFLICT (token) DO NOTHING
+      INSERT INTO app_sessions(token, user_id, tenant_id, payload, expires_at, created_at, updated_at)
+      VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz, $7::timestamptz)
+      ON CONFLICT (token) DO UPDATE SET
+        expires_at = app_sessions.expires_at,
+        updated_at = EXCLUDED.updated_at
     `,
-    [token, String(session.userId || ""), tenantId, JSON.stringify(payload), payloadCreatedAt(payload), payloadUpdatedAt(payload)],
+    [token, String(session.userId || ""), tenantId, JSON.stringify(payload), session.expiresAt || null, payloadCreatedAt(payload), payloadUpdatedAt(payload)],
   );
   return session;
 }
@@ -1878,8 +3497,334 @@ async function getSessionByTokenInDb(token = "") {
   const cleanToken = String(token || "").trim();
   if (!cleanToken) return null;
   await ensureSchema();
-  const { rows } = await query(`SELECT * FROM app_sessions WHERE token = $1`, [cleanToken]);
+  const { rows } = await query(
+    `SELECT * FROM app_sessions WHERE token = $1 AND (expires_at IS NULL OR expires_at > NOW())`,
+    [cleanToken],
+  );
   return rows[0] ? sessionFromRow(rows[0]) : null;
+}
+
+async function getSessionByUserDeviceInDb(userId = "", tenantId = DEFAULT_TENANT_ID, deviceId = "") {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanDeviceId = String(deviceId || "").trim().slice(0, 128);
+  if (!cleanUserId || !cleanDeviceId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_sessions
+     WHERE user_id = $1 AND tenant_id = $2 AND payload->>'deviceId' = $3
+       AND (expires_at IS NULL OR expires_at > NOW())
+     ORDER BY created_at ASC LIMIT 1`,
+    [cleanUserId, normalizeTenantId(tenantId), cleanDeviceId],
+  );
+  return rows[0] ? sessionFromRow(rows[0]) : null;
+}
+
+async function getUserByVerifiedEmailInDb(email = "", tenantId = DEFAULT_TENANT_ID) {
+  if (!dbEnabled()) return null;
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!normalized) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_users
+     WHERE tenant_id = $1 AND deleted_at IS NULL
+       AND LOWER(COALESCE(NULLIF(payload->>'email', ''), NULLIF(payload->>'googleEmail', ''))) = $2
+     ORDER BY created_at ASC LIMIT 1`,
+    [normalizeTenantId(tenantId), normalized],
+  );
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+async function getWalletChainScanDataFromDb({ minCreatedAt = null, status = "pending", limit = 500 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanStatus = String(status || "pending").trim().toLowerCase();
+  const safeLimit = Math.max(1, Math.min(1000, Math.trunc(Number(limit || 500) || 500)));
+  const params = [cleanStatus, safeLimit];
+  let timeClause = "";
+  let timeClauseForPaid = "";
+  const minMs = Date.parse(minCreatedAt || "");
+  if (Number.isFinite(minMs)) {
+    params.push(new Date(minMs).toISOString());
+    timeClause = `AND o.created_at >= $${params.length}::timestamptz`;
+    timeClauseForPaid = `AND p.created_at >= $${params.length}::timestamptz`;
+  }
+  const { rows } = await query(`
+    WITH used_transactions AS MATERIALIZED (
+      SELECT COALESCE(NULLIF(p.transaction_hash, ''), NULLIF(p.payload->>'transactionHash', ''), NULLIF(p.payload->>'txHash', '')) AS hash,
+             COALESCE(NULLIF(p.chain, ''), NULLIF(p.payload->>'chain', ''), NULLIF(p.payload->>'network', '')) AS chain
+      FROM app_wallet_orders p
+      WHERE p.status = 'paid'
+        ${timeClauseForPaid}
+      UNION ALL
+      SELECT NULLIF(tx->>'hash', ''),
+             COALESCE(NULLIF(tx->>'chain', ''), NULLIF(p.chain, ''), NULLIF(p.payload->>'chain', ''), NULLIF(p.payload->>'network', ''))
+      FROM app_wallet_orders p
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(p.payload->'matchedTransactions') = 'array'
+             THEN p.payload->'matchedTransactions'
+             ELSE '[]'::jsonb END
+      ) AS tx
+      WHERE p.status = 'paid'
+        ${timeClauseForPaid}
+    ), used_json AS MATERIALIZED (
+      SELECT COALESCE(jsonb_agg(DISTINCT jsonb_build_array(chain, hash)), '[]'::jsonb) AS value
+      FROM used_transactions
+      WHERE COALESCE(hash, '') <> ''
+    )
+    SELECT
+      o.*,
+      used_json.value AS used_transactions
+    FROM app_wallet_orders o
+    CROSS JOIN used_json
+    WHERE o.status = $1
+      AND (
+        COALESCE(o.payload->>'paymentProvider', '') = ''
+        OR COALESCE(o.payload->>'paymentProvider', '') = 'manual'
+      )
+      AND COALESCE(o.payload->>'address', '') <> ''
+      AND COALESCE(o.payload->>'payableAmountText', '') <> ''
+      ${timeClause}
+    ORDER BY o.created_at DESC
+    LIMIT $2
+  `, params);
+  const userIds = [...new Set(rows.map((row) => String(row.user_id || "")).filter(Boolean))];
+  const userMap = new Map();
+  if (userIds.length) {
+    const users = await query(
+      `SELECT * FROM app_users WHERE id = ANY($1::text[]) AND deleted_at IS NULL`,
+      [userIds],
+    );
+    users.rows.map(userFromRow).forEach((user) => userMap.set(user.id, user));
+  }
+  return {
+    users: [...userMap.values()],
+    walletOrders: rows.map(walletOrderFromRow),
+    usedTransactions: rows.flatMap((row) => Array.isArray(row.used_transactions) ? row.used_transactions : []),
+  };
+}
+
+async function getTelegramPaymentNotificationScanDataFromDb({ limit = 50 } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit || 50) || 50)));
+  const { rows } = await query(`
+    SELECT o.*
+    FROM app_wallet_orders o
+    WHERE o.status = 'paid'
+      AND COALESCE(o.payload->>'telegramPaymentNotificationPendingAt', '') <> ''
+      AND COALESCE(o.payload->>'telegramPaymentNotificationStatus', '') <> 'sent'
+    ORDER BY o.created_at DESC
+    LIMIT $1
+  `, [safeLimit]);
+  const userIds = [...new Set(rows.map((row) => String(row.user_id || "")).filter(Boolean))];
+  const userMap = new Map();
+  if (userIds.length) {
+    const users = await query(
+      `SELECT * FROM app_users WHERE id = ANY($1::text[]) AND deleted_at IS NULL`,
+      [userIds],
+    );
+    users.rows.map(userFromRow).forEach((user) => userMap.set(user.id, user));
+  }
+  return {
+    users: [...userMap.values()],
+    walletOrders: rows.map(walletOrderFromRow),
+  };
+}
+
+async function claimTelegramPaymentNotificationRecipientInDb(orderId = "", chatId = "", claimToken = "") {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-payment:${id}:${chat}`]);
+    const currentRows = await client.query(`SELECT * FROM app_wallet_orders WHERE id = $1`, [id]);
+    const current = currentRows.rows[0];
+    if (!current || current.status !== "paid") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const currentOrder = walletOrderFromRow(current);
+    const claimStatus = currentOrder.telegramPaymentNotificationRecipientClaims?.[chat]?.status || "";
+    if (
+      !currentOrder.telegramPaymentNotificationPendingAt
+      || currentOrder.telegramPaymentNotificationStatus === "sent"
+      || claimStatus === "sending"
+      || claimStatus === "sent"
+    ) {
+      await client.query("ROLLBACK");
+      return { order: currentOrder, claimed: false };
+    }
+    const nextOrder = {
+      ...currentOrder,
+      telegramPaymentNotificationRecipientClaims: {
+        ...(currentOrder.telegramPaymentNotificationRecipientClaims || {}),
+        [chat]: { claimToken: token, claimedAt: now, status: "sending" },
+      },
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_wallet_orders
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE id = $1
+        AND status = 'paid'
+      RETURNING *
+    `, [id, JSON.stringify(nextOrder), now]);
+    if (!rows[0]) {
+      await client.query("ROLLBACK");
+      return { order: currentOrder, claimed: false };
+    }
+    await client.query("COMMIT");
+    return { order: walletOrderFromRow(rows[0]), claimed: true };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function confirmTelegramPaymentNotificationRecipientInDb(orderId = "", chatId = "", claimToken = "") {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-payment:${id}:${chat}`]);
+    const { rows: currentRows } = await client.query(`SELECT * FROM app_wallet_orders WHERE id = $1`, [id]);
+    const current = currentRows[0];
+    if (!current || current.status !== "paid") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const currentOrder = walletOrderFromRow(current);
+    const claim = currentOrder.telegramPaymentNotificationRecipientClaims?.[chat];
+    if (!claim || claim.claimToken !== token || claim.status !== "sending") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const sentChatIds = Array.from(new Set([
+      ...(Array.isArray(currentOrder.telegramPaymentNotificationSentChatIds) ? currentOrder.telegramPaymentNotificationSentChatIds : []),
+      chat,
+    ]));
+    const nextOrder = {
+      ...currentOrder,
+      telegramPaymentNotificationRecipientClaims: {
+        ...(currentOrder.telegramPaymentNotificationRecipientClaims || {}),
+        [chat]: { ...claim, completedAt: now, status: "sent" },
+      },
+      telegramPaymentNotificationSentChatIds: sentChatIds,
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_wallet_orders
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE id = $1 AND status = 'paid'
+      RETURNING *
+    `, [id, JSON.stringify(nextOrder), now]);
+    await client.query("COMMIT");
+    return rows[0] ? walletOrderFromRow(rows[0]) : null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function releaseTelegramPaymentNotificationRecipientClaimInDb(orderId = "", chatId = "", claimToken = "", errorMessage = "") {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-payment:${id}:${chat}`]);
+    const { rows: currentRows } = await client.query(`SELECT * FROM app_wallet_orders WHERE id = $1`, [id]);
+    const current = currentRows[0];
+    if (!current || current.status !== "paid") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const currentOrder = walletOrderFromRow(current);
+    const claim = currentOrder.telegramPaymentNotificationRecipientClaims?.[chat];
+    if (!claim || claim.claimToken !== token || claim.status !== "sending") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const nextOrder = {
+      ...currentOrder,
+      telegramPaymentNotificationRecipientClaims: {
+        ...(currentOrder.telegramPaymentNotificationRecipientClaims || {}),
+        [chat]: { ...claim, failedAt: now, error: String(errorMessage || "").slice(0, 1000), status: "retry" },
+      },
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_wallet_orders
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE id = $1 AND status = 'paid'
+      RETURNING *
+    `, [id, JSON.stringify(nextOrder), now]);
+    await client.query("COMMIT");
+    return rows[0] ? walletOrderFromRow(rows[0]) : null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function recordTelegramPaymentNotificationStateInDb(orderId = "", {
+  status = "",
+  error = "",
+  sentAt = "",
+  attempted = false,
+} = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  const notificationStatus = String(status || "").trim();
+  if (!id || !notificationStatus) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const { rows } = await query(`
+    UPDATE app_wallet_orders
+    SET payload = payload || jsonb_build_object(
+          'telegramPaymentNotificationStatus', $2::text,
+          'telegramPaymentNotificationError', $3::text,
+          'telegramPaymentNotificationSentAt',
+            CASE WHEN $4::text <> '' THEN to_jsonb($4::text) ELSE COALESCE(payload->'telegramPaymentNotificationSentAt', '""'::jsonb) END,
+          'telegramPaymentNotificationLastAttemptAt',
+            CASE WHEN $5::boolean THEN to_jsonb($6::text) ELSE payload->'telegramPaymentNotificationLastAttemptAt' END,
+          'telegramPaymentNotificationAttempts',
+            CASE WHEN $5::boolean THEN to_jsonb(COALESCE(NULLIF(payload->>'telegramPaymentNotificationAttempts', '')::int, 0) + 1)
+                 ELSE COALESCE(payload->'telegramPaymentNotificationAttempts', '0'::jsonb) END,
+          'updatedAt', to_jsonb($6::text)
+        ),
+        updated_at = $6::timestamptz
+    WHERE id = $1 AND status = 'paid'
+    RETURNING *
+  `, [id, notificationStatus, String(error || "").slice(0, 1000), String(sentAt || ""), Boolean(attempted), now]);
+  return rows[0] ? walletOrderFromRow(rows[0]) : null;
 }
 
 async function getWalletOrderByIdInDb(orderId = "") {
@@ -2292,12 +4237,13 @@ function adminPageArgs({ page = 1, limit = 20 } = {}, maxLimit = 100) {
   return { safeLimit, safePage, safeOffset: (safePage - 1) * safeLimit };
 }
 
-async function getAdminUsersPageFromDb({ page = 1, limit = 20, queryText = "", role = "" } = {}) {
+async function getAdminUsersPageFromDb({ page = 1, limit = 20, queryText = "", role = "", riskStatus = "" } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
   const { safeLimit, safePage, safeOffset } = adminPageArgs({ page, limit });
   const q = String(queryText || "").trim().toLowerCase();
   const cleanRole = String(role || "").trim().toLowerCase();
+  const cleanRiskStatus = String(riskStatus || "").trim().toLowerCase();
   const { rows } = await query(`
     SELECT u.*, COUNT(*) OVER()::int AS total_count,
       (SELECT COUNT(*) FROM app_user_characters c WHERE c.user_id = u.id AND c.deleted_at IS NULL)::int AS custom_characters,
@@ -2306,9 +4252,10 @@ async function getAdminUsersPageFromDb({ page = 1, limit = 20, queryText = "", r
     WHERE u.deleted_at IS NULL
       AND ($1 = '' OR LOWER(u.role) = $1)
       AND ($2 = '' OR LOWER(CONCAT_WS(' ', u.username, u.id, u.tenant_id, u.api_token, u.role, u.payload->>'registrationChannel', u.payload->'registrationAttribution'->>'host')) LIKE '%' || $2 || '%')
+      AND ($5 = '' OR COALESCE(NULLIF(u.payload->>'riskStatus', ''), 'clear') = $5)
     ORDER BY u.created_at DESC
     LIMIT $3 OFFSET $4
-  `, [cleanRole, q, safeLimit, safeOffset]);
+  `, [cleanRole, q, safeLimit, safeOffset, cleanRiskStatus]);
   return { items: rows.map((row) => ({ ...userFromRow(row), customCharacters: Number(row.custom_characters || 0), walletOrders: Number(row.wallet_orders || 0) })), total: Number(rows[0]?.total_count || 0), page: safePage, limit: safeLimit };
 }
 
@@ -2679,6 +4626,183 @@ async function redeemMembershipActivationCodeInDb({ tenantId = DEFAULT_TENANT_ID
   }
 }
 
+function promotionPurchaseFromRow(row = {}) {
+  return {
+    campaignId: String(row.campaign_id || ""),
+    sku: String(row.sku || ""),
+    userId: String(row.user_id || ""),
+    orderId: String(row.order_id || ""),
+    status: String(row.status || "pending"),
+    reservedUntil: row.reserved_until ? new Date(row.reserved_until).toISOString() : "",
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+async function getPromotionPurchaseStateInDb(campaignId = "", userId = "", skus = []) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
+  const cleanCampaignId = String(campaignId || "").trim();
+  if (!cleanCampaignId) throw new Error("campaignId is required");
+  const cleanUserId = String(userId || "").trim();
+  const cleanSkus = [...new Set((Array.isArray(skus) ? skus : []).map((sku) => String(sku || "").trim()).filter(Boolean))];
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`
+      UPDATE app_promotion_purchases
+      SET status = 'expired', updated_at = NOW()
+      WHERE campaign_id = $1
+        AND status = 'pending'
+        AND reserved_until IS NOT NULL
+        AND reserved_until <= NOW()
+    `, [cleanCampaignId]);
+    const inventory = await client.query(`
+      SELECT sku,
+        COUNT(*) FILTER (WHERE status = 'paid')::int AS paid,
+        COUNT(*) FILTER (WHERE status = 'pending' AND reserved_until > NOW())::int AS pending
+      FROM app_promotion_purchases
+      WHERE campaign_id = $1
+        AND ($2::text[] = '{}'::text[] OR sku = ANY($2::text[]))
+      GROUP BY sku
+    `, [cleanCampaignId, cleanSkus]);
+    let purchases = [];
+    if (cleanUserId) {
+      const result = await client.query(`
+        SELECT * FROM app_promotion_purchases
+        WHERE campaign_id = $1 AND user_id = $2
+          AND ($3::text[] = '{}'::text[] OR sku = ANY($3::text[]))
+        ORDER BY created_at ASC
+      `, [cleanCampaignId, cleanUserId, cleanSkus]);
+      purchases = result.rows.map(promotionPurchaseFromRow);
+    }
+    await client.query("COMMIT");
+    return {
+      inventory: inventory.rows.map((row) => ({
+        sku: String(row.sku || ""),
+        paid: Number(row.paid || 0),
+        pending: Number(row.pending || 0),
+      })),
+      purchases,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function reservePromotionPurchaseInDb({ campaignId = "", sku = "", userId = "", orderId = "", capacity = 0, reservationSeconds = 1500 } = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
+  const cleanCampaignId = String(campaignId || "").trim();
+  const cleanSku = String(sku || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  const maxInventory = Math.max(0, Math.trunc(Number(capacity || 0) || 0));
+  const holdSeconds = Math.max(60, Math.min(3600, Math.trunc(Number(reservationSeconds || 1500) || 1500)));
+  if (!cleanCampaignId || !cleanSku || !cleanUserId || !cleanOrderId) throw new Error("campaignId, sku, userId and orderId are required");
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    // Purchases are row-per-order. Only the lifetime member SKU is limited to one paid purchase per account.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`promotion-purchase:${cleanCampaignId}:${cleanSku}:${cleanUserId}`]);
+    await client.query(`
+      UPDATE app_promotion_purchases
+      SET status = 'expired', updated_at = NOW()
+      WHERE campaign_id = $1 AND sku = $2 AND user_id = $3
+        AND status = 'pending' AND reserved_until IS NOT NULL AND reserved_until <= NOW()
+    `, [cleanCampaignId, cleanSku, cleanUserId]);
+    const existingResult = await client.query(
+      `SELECT * FROM app_promotion_purchases
+       WHERE campaign_id = $1 AND sku = $2 AND user_id = $3 AND status IN ('paid', 'pending')
+       ORDER BY status = 'paid' DESC, created_at DESC`,
+      [cleanCampaignId, cleanSku, cleanUserId],
+    );
+    const rows = existingResult.rows.map(promotionPurchaseFromRow);
+    const paid = rows.find((item) => item.status === "paid") || null;
+    const pending = rows.find((item) => item.status === "pending" && Date.parse(item.reservedUntil || "") > Date.now()) || null;
+    if (cleanSku === "member" && paid) {
+      await client.query("COMMIT");
+      return { status: "purchased", purchase: paid };
+    }
+    if (pending) {
+      await client.query("COMMIT");
+      return { status: "pending", purchase: pending };
+    }
+    if (maxInventory > 0) {
+      const countResult = await client.query(`
+        SELECT COUNT(*)::int AS used
+        FROM app_promotion_purchases
+        WHERE campaign_id = $1 AND sku = $2
+          AND (status = 'paid' OR (status = 'pending' AND reserved_until > NOW()))
+      `, [cleanCampaignId, cleanSku]);
+      if (Number(countResult.rows[0]?.used || 0) >= maxInventory) {
+        await client.query("COMMIT");
+        return { status: "sold_out", purchase: paid };
+      }
+    }
+    const reservedUntil = new Date(Date.now() + holdSeconds * 1000).toISOString();
+    const saved = await client.query(`
+      INSERT INTO app_promotion_purchases(campaign_id, sku, user_id, order_id, status, reserved_until, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'pending', $5::timestamptz, NOW(), NOW())
+      RETURNING *
+    `, [cleanCampaignId, cleanSku, cleanUserId, cleanOrderId, reservedUntil]);
+    await client.query("COMMIT");
+    return { status: "reserved", purchase: promotionPurchaseFromRow(saved.rows[0]) };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function markPromotionPurchasePaidInDb({ campaignId = "", orderId = "" } = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
+  const cleanCampaignId = String(campaignId || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  if (!cleanCampaignId || !cleanOrderId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    UPDATE app_promotion_purchases
+    SET status = 'paid', reserved_until = NULL, updated_at = NOW()
+    WHERE campaign_id = $1 AND order_id = $2 AND status <> 'paid'
+    RETURNING *
+  `, [cleanCampaignId, cleanOrderId]);
+  return rows[0] ? promotionPurchaseFromRow(rows[0]) : null;
+}
+
+async function markPromotionPurchaseFailedInDb({ campaignId = "", orderId = "", status = "failed" } = {}) {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
+  const cleanCampaignId = String(campaignId || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  const cleanStatus = ["failed", "cancelled", "expired"].includes(String(status || "")) ? String(status) : "failed";
+  if (!cleanCampaignId || !cleanOrderId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    UPDATE app_promotion_purchases
+    SET status = $3, reserved_until = NULL, updated_at = NOW()
+    WHERE campaign_id = $1 AND order_id = $2 AND status = 'pending'
+    RETURNING *
+  `, [cleanCampaignId, cleanOrderId, cleanStatus]);
+  return rows[0] ? promotionPurchaseFromRow(rows[0]) : null;
+}
+
+async function getPromotionPurchaseByOrderInDb(campaignId = "", orderId = "") {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
+  const cleanCampaignId = String(campaignId || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  if (!cleanCampaignId || !cleanOrderId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_promotion_purchases WHERE campaign_id = $1 AND order_id = $2 LIMIT 1`,
+    [cleanCampaignId, cleanOrderId],
+  );
+  return rows[0] ? promotionPurchaseFromRow(rows[0]) : null;
+}
+
 async function updateWalletOrderInDb(order = {}) {
   if (!dbEnabled()) return null;
   const id = String(order.id || "").trim();
@@ -2712,6 +4836,25 @@ async function updateWalletOrderInDb(order = {}) {
     ],
   );
   return order;
+}
+
+/* Merge only selected user payload fields so unrelated concurrent updates
+   (credits, memberships, entitlements) cannot be rolled back by an old snapshot. */
+async function patchUserPayloadInDb(userId = "", patch = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(userId || "").trim();
+  if (!id || !patch || typeof patch !== "object" || Array.isArray(patch)) return null;
+  await ensureSchema();
+  const updatedAt = new Date().toISOString();
+  const cleanPatch = { ...patch, updatedAt };
+  const { rows } = await query(`
+    UPDATE app_users
+    SET payload = payload || $2::jsonb,
+        updated_at = $3::timestamptz
+    WHERE id = $1 AND deleted_at IS NULL
+    RETURNING *
+  `, [id, JSON.stringify(cleanPatch), updatedAt]);
+  return rows[0] ? userFromRow(rows[0]) : null;
 }
 
 async function updateUserInDb(user = {}) {
@@ -2794,6 +4937,214 @@ async function getUserAssetFromDb(assetId = "") {
   await ensureSchema();
   const { rows } = await query(`SELECT * FROM app_user_assets WHERE id = $1 AND deleted_at IS NULL`, [id]);
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function getUserAssetsForUserFromDb(userId = "") {
+  if (!dbEnabled()) return [];
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT *
+    FROM app_user_assets
+    WHERE user_id = $1
+      AND deleted_at IS NULL
+    ORDER BY created_at DESC
+  `, [cleanUserId]);
+  return rows.map(recordFromPayloadRow);
+}
+
+async function getUserAuthSummaryFromDb(userId = "") {
+  if (!dbEnabled()) return { walletOrders: [], userCharacters: [], creditLedger: [], giftsReceived: 0 };
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { walletOrders: [], userCharacters: [], creditLedger: [], giftsReceived: 0 };
+  await ensureSchema();
+  // /api/auth/me is polled by every signed-in client. Return only the current
+  // account summary and an aggregate gift count. Historical ledger rows are
+  // intentionally not serialized on this hot path.
+  const { rows } = await query(`
+    WITH owned_characters AS (
+      SELECT id
+      FROM app_user_characters
+      WHERE user_id = $1 AND deleted_at IS NULL
+    )
+    SELECT
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(o) ORDER BY o.created_at DESC)
+        FROM app_wallet_orders o
+        WHERE o.user_id = $1
+          AND o.status = 'paid'
+          AND UPPER(COALESCE(o.payload->>'currency', 'USD')) = 'USD'
+          AND COALESCE(o.payload->>'orderKind', 'topup') = 'topup'
+      ), '[]'::jsonb) AS wallet_orders,
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(c) ORDER BY c.created_at DESC)
+        FROM app_user_characters c
+        WHERE c.user_id = $1 AND c.deleted_at IS NULL
+      ), '[]'::jsonb) AS user_characters,
+      (
+        SELECT COUNT(*)::int
+        FROM app_credit_ledger l
+        WHERE l.user_id = $1
+          AND l.delta < 0
+          AND LOWER(l.type) LIKE '%gift%'
+          AND COALESCE(NULLIF(l.meta->>'characterId', ''), NULLIF(l.meta->>'creatorCharacterId', '')) IN (SELECT id FROM owned_characters)
+      ) AS gifts_received
+  `, [cleanUserId]);
+  const row = rows[0] || {};
+  return {
+    walletOrders: (Array.isArray(row.wallet_orders) ? row.wallet_orders : []).map(walletOrderFromRow),
+    userCharacters: (Array.isArray(row.user_characters) ? row.user_characters : []).map(recordFromPayloadRow),
+    creditLedger: [],
+    giftsReceived: Math.max(0, Number(row.gifts_received || 0)),
+  };
+}
+
+async function getUserAssetsByIdsFromDb({ userId = "", assetIds = [] } = {}) {
+  if (!dbEnabled()) return [];
+  const cleanUserId = String(userId || "").trim();
+  const cleanAssetIds = [...new Set((Array.isArray(assetIds) ? assetIds : [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean))].slice(0, 200);
+  if (!cleanUserId || !cleanAssetIds.length) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT *
+    FROM app_user_assets
+    WHERE user_id = $1
+      AND id = ANY($2::text[])
+      AND deleted_at IS NULL
+    ORDER BY created_at DESC
+  `, [cleanUserId, cleanAssetIds]);
+  return rows.map(recordFromPayloadRow);
+}
+
+function vegaMediaLibraryEntryFromRow(row = {}) {
+  return {
+    userId: String(row.user_id || ""),
+    sourceUrl: String(row.source_url || ""),
+    subAppId: Number(row.sub_app_id || 0),
+    category: String(row.category || ""),
+    fileId: String(row.file_id || ""),
+    assetId: String(row.asset_id || ""),
+    assetUri: String(row.asset_uri || ""),
+    vodTaskId: String(row.vod_task_id || ""),
+    status: String(row.status || ""),
+    payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+async function getVegaMediaLibraryEntryFromDb({ userId = "", sourceUrl = "", subAppId } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanSourceUrl = String(sourceUrl || "").trim();
+  const cleanSubAppId = Number(subAppId);
+  if (!cleanUserId || !cleanSourceUrl || !Number.isInteger(cleanSubAppId) || cleanSubAppId <= 0) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_vega_media_library WHERE user_id = $1 AND source_url = $2 AND sub_app_id = $3`,
+    [cleanUserId, cleanSourceUrl, cleanSubAppId],
+  );
+  return rows[0] ? vegaMediaLibraryEntryFromRow(rows[0]) : null;
+}
+
+async function upsertVegaMediaLibraryEntryInDb(entry = {}) {
+  if (!dbEnabled()) return null;
+  const userId = String(entry.userId || "").trim();
+  const sourceUrl = String(entry.sourceUrl || "").trim();
+  const subAppId = Number(entry.subAppId);
+  if (!userId || !sourceUrl || !Number.isInteger(subAppId) || subAppId <= 0) return null;
+  await ensureSchema();
+  const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : {};
+  const { rows } = await query(
+    `
+      INSERT INTO app_vega_media_library(user_id, source_url, sub_app_id, category, file_id, asset_id, asset_uri, vod_task_id, status, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW(), NOW())
+      ON CONFLICT (user_id, source_url, sub_app_id) DO UPDATE SET
+        category = EXCLUDED.category,
+        file_id = CASE WHEN EXCLUDED.status = 'succeeded' THEN EXCLUDED.file_id ELSE app_vega_media_library.file_id END,
+        asset_id = CASE WHEN EXCLUDED.status = 'succeeded' THEN EXCLUDED.asset_id ELSE app_vega_media_library.asset_id END,
+        asset_uri = CASE WHEN EXCLUDED.status = 'succeeded' THEN EXCLUDED.asset_uri ELSE app_vega_media_library.asset_uri END,
+        vod_task_id = CASE WHEN EXCLUDED.vod_task_id <> '' THEN EXCLUDED.vod_task_id ELSE app_vega_media_library.vod_task_id END,
+        status = CASE WHEN app_vega_media_library.status = 'succeeded' AND EXCLUDED.status <> 'succeeded' THEN app_vega_media_library.status ELSE EXCLUDED.status END,
+        payload = CASE WHEN app_vega_media_library.status = 'succeeded' AND EXCLUDED.status <> 'succeeded' THEN app_vega_media_library.payload ELSE EXCLUDED.payload END,
+        updated_at = NOW()
+      RETURNING *
+    `,
+    [
+      userId,
+      sourceUrl,
+      subAppId,
+      String(entry.category || ""),
+      String(entry.fileId || ""),
+      String(entry.assetId || ""),
+      String(entry.assetUri || ""),
+      String(entry.vodTaskId || ""),
+      String(entry.status || "pending"),
+      JSON.stringify(payload),
+    ],
+  );
+  return rows[0] ? vegaMediaLibraryEntryFromRow(rows[0]) : null;
+}
+
+async function getVegaMediaLibrarySourceUrlsByAssetUrisFromDb({ userId = "", assetUris = [] } = {}) {
+  if (!dbEnabled()) return {};
+  const cleanUserId = String(userId || "").trim();
+  const cleanAssetUris = [...new Set((Array.isArray(assetUris) ? assetUris : [])
+    .map((assetUri) => String(assetUri || "").trim())
+    .filter(Boolean))].slice(0, 100);
+  if (!cleanUserId || !cleanAssetUris.length) return {};
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT asset_uri, source_url
+    FROM app_vega_media_library
+    WHERE user_id = $1
+      AND asset_uri = ANY($2::text[])
+      AND status = 'succeeded'
+      AND source_url <> ''
+    ORDER BY updated_at DESC
+  `, [cleanUserId, cleanAssetUris]);
+  const sourceUrlsByAssetUri = {};
+  rows.forEach((row) => {
+    const assetUri = String(row?.asset_uri || "").trim();
+    const sourceUrl = String(row?.source_url || "").trim();
+    if (assetUri && sourceUrl && !sourceUrlsByAssetUri[assetUri]) sourceUrlsByAssetUri[assetUri] = sourceUrl;
+  });
+  return sourceUrlsByAssetUri;
+}
+
+async function getUserAssetIdsByUrlsFromDb({ userId = "", urls = [] } = {}) {
+  if (!dbEnabled()) return {};
+  const cleanUserId = String(userId || "").trim();
+  const cleanUrls = [...new Set((Array.isArray(urls) ? urls : []).map((url) => String(url || "").trim()).filter(Boolean))].slice(0, 100);
+  if (!cleanUserId || !cleanUrls.length) return {};
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT id, payload
+    FROM app_user_assets
+    WHERE user_id = $1
+      AND deleted_at IS NULL
+      AND (
+        payload->>'localUrl' = ANY($2::text[])
+        OR payload->>'publicUrl' = ANY($2::text[])
+        OR payload->>'cdnUrl' = ANY($2::text[])
+        OR payload->>'previewUrl' = ANY($2::text[])
+        OR payload->>'url' = ANY($2::text[])
+        OR payload->>'sourceImageUrl' = ANY($2::text[])
+      )
+    ORDER BY created_at DESC
+  `, [cleanUserId, cleanUrls]);
+  const idsByUrl = {};
+  rows.forEach((row) => {
+    const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+    ["localUrl", "publicUrl", "cdnUrl", "previewUrl", "url", "sourceImageUrl"].forEach((key) => {
+      const url = String(payload[key] || "").trim();
+      if (url && !idsByUrl[url]) idsByUrl[url] = String(row.id || payload.id || "").trim();
+    });
+  });
+  return idsByUrl;
 }
 
 async function upsertUserCharacterInDb(character = {}) {
@@ -3146,6 +5497,50 @@ async function upsertChatLiveCharacterInDb(character = {}) {
   return payload;
 }
 
+async function listChatLiveCharactersByOwnerInDb(ownerMerchantUserId = "", { includeDisabled = true } = {}) {
+  if (!dbEnabled()) return [];
+  const owner = String(ownerMerchantUserId || "").trim();
+  if (!owner) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload, looks FROM app_chat_live_characters
+    WHERE deleted_at IS NULL AND COALESCE(payload->>'ownerMerchantUserId', payload->>'embedMerchantId') = $1
+    ${includeDisabled ? "" : "AND enabled = TRUE"}
+    ORDER BY sort_order ASC, created_at ASC
+  `, [owner]);
+  return rows.map((row) => ({ ...(row.payload || {}), looks: row.looks || [] }));
+}
+
+async function getChatLiveCharacterByOwnerInDb(ownerMerchantUserId = "", id = "") {
+  if (!dbEnabled()) return null;
+  const owner = String(ownerMerchantUserId || "").trim();
+  const characterId = String(id || "").trim();
+  if (!owner || !characterId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload, looks FROM app_chat_live_characters
+    WHERE id = $1 AND deleted_at IS NULL
+      AND COALESCE(payload->>'ownerMerchantUserId', payload->>'embedMerchantId') = $2
+  `, [characterId, owner]);
+  return rows[0] ? { ...(rows[0].payload || {}), looks: rows[0].looks || [] } : null;
+}
+
+async function listActiveChatLiveSessionsByCharacterIdInDb(characterId = "") {
+  if (!dbEnabled()) return [];
+  const id = String(characterId || "").trim();
+  if (!id) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT payload FROM app_chat_live_sessions
+    WHERE character_id = $1
+      AND COALESCE(payload->>'settled', 'false') NOT IN ('true', '1')
+      AND COALESCE(payload->>'status', 'pending') NOT IN ('ended', 'failed', 'cancelled', 'expired')
+    ORDER BY created_at DESC
+    LIMIT 50
+  `, [id]);
+  return rows.map((row) => row.payload || {});
+}
+
 async function softDeleteChatLiveCharacterInDb(id = "", deletedAt = new Date().toISOString()) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -3216,6 +5611,77 @@ async function updateChatLiveSessionInDb(session = {}) {
     payload.updatedAt || new Date().toISOString(),
   ]);
   return payload;
+}
+
+/* Serialize read/modify/write updates for one user snapshot. The callback must
+   return { user } for an update or { value } for a read-only result. */
+async function withUserMutationLockInDb(userId = "", handler = null) {
+  const id = String(userId || "").trim();
+  if (!dbEnabled()) return null;
+  if (!id || typeof handler !== "function") return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  const lockKey = `user-mutation:${id}`;
+  let locked = false;
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+    locked = true;
+    const current = await getUserByIdInDb(id);
+    const result = await handler(current);
+    if (result?.user?.id) await updateUserInDb(result.user);
+    return result?.value === undefined ? result : result.value;
+  } finally {
+    if (locked) await client.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]).catch(() => {});
+    client.release();
+  }
+}
+
+/* Serialize all settlement work that mutates one payer. Unlike the generic
+   user mutation lock this does not read or rewrite a user snapshot, so callers
+   can safely compose it with other user/referral locks. */
+async function withWalletUserSettlementLockInDb(userId = "", handler = null) {
+  if (!dbEnabled()) return null;
+  const id = String(userId || "").trim();
+  if (!id || typeof handler !== "function") return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  const lockKey = `wallet-user-settlement:${id}`;
+  let locked = false;
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+    locked = true;
+    return await handler();
+  } finally {
+    if (locked) await client.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]).catch(() => {});
+    client.release();
+  }
+}
+
+/* Serialize payment settlement across every webhook/scanner/admin path.
+   This is a session-level lock because settlement itself uses the normal pool
+   write helpers; a transaction-level lock would be released too early. */
+async function withWalletOrderSettlementLockInDb(orderId = "", handler = null) {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  if (!id || typeof handler !== "function") return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  const lockKey = `wallet-order-settlement:${id}`;
+  let locked = false;
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+    locked = true;
+    const current = await getWalletOrderByIdInDb(id);
+    const result = await handler(current);
+    if (result?.order?.id) await updateWalletOrderInDb(result.order);
+    return result?.value === undefined ? result : result.value;
+  } finally {
+    if (locked) await client.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]).catch(() => {});
+    client.release();
+  }
 }
 
 /* Serialize a whole read/settle/write transaction for one chat-live session.
@@ -4033,7 +6499,7 @@ async function listWorkflowCanvasesFromDb(userId = "") {
   await ensureSchema();
   const { rows } = await query(
     `
-      SELECT id, user_id, name, created_at, updated_at FROM app_workflow_canvases
+      SELECT id, user_id, name, payload, created_at, updated_at FROM app_workflow_canvases
       WHERE user_id = $1
       ORDER BY updated_at DESC, created_at DESC
     `,
@@ -4232,6 +6698,377 @@ async function markAllLiveNotificationsReadInDb(userId = "") {
     SET read_at = COALESCE(read_at, NOW()), updated_at = NOW()
     WHERE user_id = $1 AND read_at IS NULL
   `, [String(userId || "")]);
+  return Number(rowCount || 0);
+}
+
+
+function supportTicketFromRow(row = {}) {
+  const count = (key) => Number(row[key] || 0);
+  return {
+    id: String(row.id || ""),
+    userId: String(row.user_id || ""),
+    tenantId: String(row.tenant_id || "main"),
+    email: String(row.email || ""),
+    subject: String(row.subject || ""),
+    status: String(row.status || "open"),
+    priority: String(row.priority || "normal"),
+    source: String(row.source || ""),
+    lastMessageAt: row.last_message_at ? new Date(row.last_message_at).toISOString() : "",
+    userLastReadAt: row.user_last_read_at ? new Date(row.user_last_read_at).toISOString() : "",
+    adminLastReadAt: row.admin_last_read_at ? new Date(row.admin_last_read_at).toISOString() : "",
+    assignedUserId: String(row.assigned_user_id || ""),
+    context: row.context_payload && typeof row.context_payload === "object" ? row.context_payload : {},
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+    messageCount: count("message_count"),
+    userUnreadCount: count("user_unread_count"),
+    adminUnreadCount: count("admin_unread_count"),
+    lastMessage: String(row.last_message || ""),
+    lastSenderType: String(row.last_sender_type || ""),
+    username: String(row.username || ""),
+    userEmail: String(row.user_email || ""),
+  };
+}
+
+function supportTicketMessageFromRow(row = {}) {
+  return {
+    id: String(row.id || ""),
+    ticketId: String(row.ticket_id || ""),
+    senderType: String(row.sender_type || "user"),
+    senderUserId: String(row.sender_user_id || ""),
+    senderName: String(row.sender_name || ""),
+    body: String(row.body || ""),
+    meta: row.meta && typeof row.meta === "object" ? row.meta : {},
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+  };
+}
+
+const SUPPORT_TICKET_SELECT = `
+  SELECT t.*,
+    u.username,
+    COALESCE(NULLIF(u.payload->>'email',''), t.email) AS user_email,
+    COALESCE(ms.message_count, 0)::int AS message_count,
+    COALESCE(ms.user_unread_count, 0)::int AS user_unread_count,
+    COALESCE(ms.admin_unread_count, 0)::int AS admin_unread_count,
+    COALESCE(lm.last_message, '') AS last_message,
+    COALESCE(lm.last_sender_type, '') AS last_sender_type
+  FROM app_support_tickets t
+  LEFT JOIN app_users u ON u.id = t.user_id
+  LEFT JOIN LATERAL (
+    SELECT
+      COUNT(*)::int AS message_count,
+      COUNT(*) FILTER (
+        WHERE tm.sender_type = 'admin'
+          AND (t.user_last_read_at IS NULL OR tm.created_at > t.user_last_read_at)
+      )::int AS user_unread_count,
+      COUNT(*) FILTER (
+        WHERE tm.sender_type = 'user'
+          AND (t.admin_last_read_at IS NULL OR tm.created_at > t.admin_last_read_at)
+      )::int AS admin_unread_count
+    FROM app_support_ticket_messages tm
+    WHERE tm.ticket_id = t.id
+  ) ms ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT tm.body AS last_message, tm.sender_type AS last_sender_type
+    FROM app_support_ticket_messages tm
+    WHERE tm.ticket_id = t.id
+    ORDER BY tm.created_at DESC, tm.id DESC
+    LIMIT 1
+  ) lm ON TRUE
+`;
+
+async function createSupportTicketInDb({ id = "", userId = "", tenantId = "main", email = "", subject = "", source = "", context = {}, createdAt = "", message = null } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanId || !cleanUserId) return null;
+  await ensureSchema();
+  const now = createdAt || new Date().toISOString();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`
+      INSERT INTO app_support_tickets(id, user_id, tenant_id, email, subject, source, context_payload, last_message_at, user_last_read_at, admin_last_read_at, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, NULL, NULL, $8::timestamptz, $8::timestamptz)
+    `, [cleanId, cleanUserId, String(tenantId || "main"), String(email || ""), String(subject || ""), String(source || ""), JSON.stringify(context || {}), now]);
+    if (message?.body) {
+      await client.query(`
+        INSERT INTO app_support_ticket_messages(id, ticket_id, sender_type, sender_user_id, sender_name, body, meta, created_at)
+        VALUES ($1, $2, 'user', $3, $4, $5, $6::jsonb, $7::timestamptz)
+      `, [String(message.id || `${cleanId}-m1`), cleanId, cleanUserId, String(message.senderName || ""), String(message.body || ""), JSON.stringify(message.meta || {}), now]);
+    }
+    const result = await client.query(`${SUPPORT_TICKET_SELECT} WHERE t.id = $1 LIMIT 1`, [cleanId]);
+    await client.query("COMMIT");
+    return result.rows[0] ? supportTicketFromRow(result.rows[0]) : null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+
+async function countUserSupportUnreadFromDb(userId = "") {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT COUNT(*)::int AS unread
+    FROM app_support_ticket_messages tm
+    JOIN app_support_tickets t ON t.id = tm.ticket_id
+    WHERE t.user_id = $1
+      AND tm.sender_type = 'admin'
+      AND (t.user_last_read_at IS NULL OR tm.created_at > t.user_last_read_at)
+  `, [String(userId || "")]);
+  return Number(rows[0]?.unread || 0);
+}
+
+async function listUserSupportTicketsInDb(userId = "", limit = 30) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 30));
+  const { rows } = await query(`${SUPPORT_TICKET_SELECT}
+    WHERE t.user_id = $1
+    ORDER BY (t.status = 'closed') ASC, t.last_message_at DESC
+    LIMIT $2
+  `, [String(userId || ""), safeLimit]);
+  return rows.map(supportTicketFromRow);
+}
+
+async function getSupportTicketForUserFromDb(userId = "", ticketId = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`${SUPPORT_TICKET_SELECT} WHERE t.id = $1 AND t.user_id = $2 LIMIT 1`, [String(ticketId || ""), String(userId || "")]);
+  return rows[0] ? supportTicketFromRow(rows[0]) : null;
+}
+
+async function getSupportTicketForAdminFromDb(ticketId = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`${SUPPORT_TICKET_SELECT} WHERE t.id = $1 LIMIT 1`, [String(ticketId || "")]);
+  return rows[0] ? supportTicketFromRow(rows[0]) : null;
+}
+
+async function listSupportTicketMessagesFromDb(ticketId = "", limit = 200) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 200));
+  const { rows } = await query(`
+    SELECT * FROM app_support_ticket_messages WHERE ticket_id = $1
+    ORDER BY created_at ASC, id ASC LIMIT $2
+  `, [String(ticketId || ""), safeLimit]);
+  return rows.map(supportTicketMessageFromRow);
+}
+
+async function appendSupportTicketMessageInDb({ id = "", ticketId = "", senderType = "user", senderUserId = "", senderName = "", body = "", meta = {}, createdAt = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanTicketId = String(ticketId || "").trim();
+  const cleanBody = String(body || "").trim();
+  if (!cleanTicketId || !cleanBody) return null;
+  await ensureSchema();
+  const now = createdAt || new Date().toISOString();
+  const cleanSender = senderType === "admin" ? "admin" : "user";
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const message = await client.query(`
+      INSERT INTO app_support_ticket_messages(id, ticket_id, sender_type, sender_user_id, sender_name, body, meta, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz)
+      RETURNING *
+    `, [String(id || ""), cleanTicketId, cleanSender, String(senderUserId || ""), String(senderName || ""), cleanBody, JSON.stringify(meta || {}), now]);
+    const readColumn = cleanSender === "admin" ? "admin_last_read_at" : "user_last_read_at";
+    await client.query(`
+      UPDATE app_support_tickets SET
+        status = CASE WHEN status = 'closed' AND $2 = 'user' THEN 'open' ELSE status END,
+        last_message_at = $3::timestamptz,
+        ${readColumn} = $3::timestamptz,
+        updated_at = $3::timestamptz
+      WHERE id = $1
+    `, [cleanTicketId, cleanSender, now]);
+    await client.query("COMMIT");
+    return message.rows[0] ? supportTicketMessageFromRow(message.rows[0]) : null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function markSupportTicketReadInDb({ ticketId = "", userId = "", readerType = "user", readAt = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const hasReadAt = Boolean(readAt);
+  const admin = readerType === "admin";
+  const updateSql = admin
+    ? `UPDATE app_support_tickets SET admin_last_read_at = CASE WHEN $3::boolean THEN $2::timestamptz ELSE NOW() END, updated_at = NOW() WHERE id = $1 RETURNING *`
+    : `UPDATE app_support_tickets SET user_last_read_at = CASE WHEN $4::boolean THEN $3::timestamptz ELSE NOW() END, updated_at = NOW() WHERE id = $1 AND user_id = $2 RETURNING *`;
+  const params = admin
+    ? [String(ticketId || ""), readAt || null, hasReadAt]
+    : [String(ticketId || ""), String(userId || ""), readAt || null, hasReadAt];
+  const { rows } = await query(updateSql, params);
+  return rows[0] ? supportTicketFromRow(rows[0]) : null;
+}
+
+async function updateSupportTicketInDb({ ticketId = "", status = "", priority = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const nextStatus = ["open", "pending", "closed"].includes(String(status || "")) ? String(status) : "";
+  const nextPriority = ["low", "normal", "high", "urgent"].includes(String(priority || "")) ? String(priority) : "";
+  const { rows } = await query(`
+    UPDATE app_support_tickets SET
+      status = CASE WHEN $2 <> '' THEN $2 ELSE status END,
+      priority = CASE WHEN $3 <> '' THEN $3 ELSE priority END,
+      updated_at = NOW()
+    WHERE id = $1 RETURNING *
+  `, [String(ticketId || ""), nextStatus, nextPriority]);
+  return rows[0] ? getSupportTicketForAdminFromDb(ticketId) : null;
+}
+
+async function getAdminSupportTicketsPageFromDb({ page = 1, limit = 20, queryText = "", status = "", unreadOnly = false } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safePage = Math.max(1, Number(page) || 1);
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+  const params = [];
+  const clauses = ["1=1"];
+  if (status) { params.push(String(status)); clauses.push(`t.status = $${params.length}`); }
+  if (queryText) {
+    params.push(`%${String(queryText).toLowerCase()}%`);
+    clauses.push(`LOWER(CONCAT_WS(' ', t.id, t.subject, t.email, u.username, u.payload->>'email')) LIKE $${params.length}`);
+  }
+  if (unreadOnly) clauses.push("(t.admin_last_read_at IS NULL OR EXISTS (SELECT 1 FROM app_support_ticket_messages tm WHERE tm.ticket_id=t.id AND tm.sender_type='user' AND tm.created_at > t.admin_last_read_at))");
+  const where = clauses.join(" AND ");
+  const countResult = await query(`SELECT COUNT(*)::int AS total FROM app_support_tickets t LEFT JOIN app_users u ON u.id=t.user_id WHERE ${where}`, params);
+  const total = Number(countResult.rows[0]?.total || 0);
+  params.push(safeLimit, (safePage - 1) * safeLimit);
+  const { rows } = await query(`${SUPPORT_TICKET_SELECT}
+    WHERE ${where}
+    ORDER BY
+      CASE WHEN (t.admin_last_read_at IS NULL OR EXISTS (SELECT 1 FROM app_support_ticket_messages tm WHERE tm.ticket_id=t.id AND tm.sender_type='user' AND tm.created_at > t.admin_last_read_at)) THEN 0 ELSE 1 END,
+      CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+      t.last_message_at DESC
+    LIMIT $${params.length - 1} OFFSET $${params.length}
+  `, params);
+  return { items: rows.map(supportTicketFromRow), page: safePage, limit: safeLimit, total, totalPages: Math.max(1, Math.ceil(total / safeLimit)) };
+}
+
+function systemNotificationFromRow(row = {}) {
+  return {
+    id: String(row.id || ""),
+    title: String(row.title || ""),
+    body: String(row.body || ""),
+    pinned: row.pinned === true,
+    active: row.active === true,
+    publishAt: row.publish_at ? new Date(row.publish_at).toISOString() : "",
+    expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : "",
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+    readAt: row.read_at ? new Date(row.read_at).toISOString() : "",
+    readVersion: String(row.read_version || ""),
+  };
+}
+
+async function listSystemNotificationsForUserFromDb(userId = "", tenantId = "main") {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return [];
+  const { rows } = await query(`
+    SELECT n.*, r.read_at, r.read_version
+    FROM app_system_notifications n
+    LEFT JOIN app_system_notification_reads r ON r.notification_id = n.id AND r.user_id = $1
+    WHERE n.tenant_id = $2 AND n.active = TRUE
+      AND n.publish_at <= NOW()
+      AND (n.expires_at IS NULL OR n.expires_at > NOW())
+    ORDER BY n.pinned DESC, n.publish_at DESC, n.created_at DESC
+    LIMIT 50
+  `, [cleanUserId, String(tenantId || "main")]);
+  return rows.map(systemNotificationFromRow).map((item) => ({
+    ...item,
+    unread: !item.readAt || item.readVersion !== item.updatedAt,
+  }));
+}
+
+async function listAdminSystemNotificationsFromDb(tenantId = "main") {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT * FROM app_system_notifications WHERE tenant_id = $1
+    ORDER BY pinned DESC, publish_at DESC, created_at DESC LIMIT 200
+  `, [String(tenantId || "main")]);
+  return rows.map(systemNotificationFromRow);
+}
+
+async function createSystemNotificationInDb(record = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const id = String(record.id || "").trim();
+  if (!id) return null;
+  const now = new Date().toISOString();
+  const { rows } = await query(`
+    INSERT INTO app_system_notifications(id, tenant_id, title, body, pinned, active, publish_at, expires_at, created_by_user_id, created_at, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7::timestamptz,$8::timestamptz,$9,$10::timestamptz,$10::timestamptz)
+    RETURNING *
+  `, [id, String(record.tenantId || "main"), String(record.title || ""), String(record.body || ""), record.pinned === true, record.active !== false, record.publishAt || now, record.expiresAt || null, String(record.createdByUserId || ""), now]);
+  return rows[0] ? systemNotificationFromRow(rows[0]) : null;
+}
+
+async function updateSystemNotificationInDb(notificationId = "", patch = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const hasExpiresAt = Object.prototype.hasOwnProperty.call(patch, "expiresAt");
+  const { rows } = await query(`
+    UPDATE app_system_notifications SET
+      title = COALESCE($2, title), body = COALESCE($3, body),
+      pinned = COALESCE($4, pinned), active = COALESCE($5, active),
+      publish_at = COALESCE($6::timestamptz, publish_at),
+      expires_at = CASE WHEN $8::boolean THEN $7::timestamptz ELSE expires_at END,
+      updated_at = NOW()
+    WHERE id = $1 RETURNING *
+  `, [String(notificationId || ""), patch.title === undefined ? null : String(patch.title || ""), patch.body === undefined ? null : String(patch.body || ""), typeof patch.pinned === "boolean" ? patch.pinned : null, typeof patch.active === "boolean" ? patch.active : null, patch.publishAt || null, hasExpiresAt ? (patch.expiresAt || null) : null, hasExpiresAt]);
+  return rows[0] ? systemNotificationFromRow(rows[0]) : null;
+}
+
+async function deleteSystemNotificationInDb(notificationId = "") {
+  if (!dbEnabled()) return false;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM app_system_notification_reads WHERE notification_id = $1`, [String(notificationId || "")]);
+    const result = await client.query(`DELETE FROM app_system_notifications WHERE id = $1`, [String(notificationId || "")]);
+    await client.query("COMMIT");
+    return Number(result.rowCount || 0) > 0;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally { client.release(); }
+}
+
+async function markSystemNotificationReadInDb(userId = "", notificationId = "", version = "") {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    INSERT INTO app_system_notification_reads(notification_id, user_id, read_version, read_at)
+    VALUES ($1,$2,$3,NOW())
+    ON CONFLICT (notification_id, user_id) DO UPDATE SET read_version=EXCLUDED.read_version, read_at=NOW()
+    RETURNING *
+  `, [String(notificationId || ""), String(userId || ""), String(version || "")]);
+  return rows[0] ? { notificationId: rows[0].notification_id, userId: rows[0].user_id, readAt: new Date(rows[0].read_at).toISOString(), readVersion: rows[0].read_version } : null;
+}
+
+async function markAllSystemNotificationsReadInDb(userId = "", tenantId = "main") {
+  if (!dbEnabled()) return 0;
+  await ensureSchema();
+  const { rowCount } = await query(`
+    INSERT INTO app_system_notification_reads(notification_id, user_id, read_version, read_at)
+    SELECT n.id, $1, n.updated_at::text, NOW()
+    FROM app_system_notifications n
+    WHERE n.tenant_id = $2 AND n.active = TRUE AND n.publish_at <= NOW()
+      AND (n.expires_at IS NULL OR n.expires_at > NOW())
+    ON CONFLICT (notification_id, user_id) DO UPDATE SET read_version=EXCLUDED.read_version, read_at=NOW()
+  `, [String(userId || ""), String(tenantId || "main")]);
   return Number(rowCount || 0);
 }
 
@@ -5026,7 +7863,7 @@ async function createUserSupportMessageInDb(record = {}) {
   if (!dbEnabled()) return null;
   const id = String(record.id || "").trim();
   const userId = String(record.userId || "").trim();
-  if (!id || !userId) return null;
+  if (!id) return null;
   await ensureSchema();
   const payload = { ...record, id, userId };
   const createdAt = record.createdAt || new Date().toISOString();
@@ -5043,24 +7880,48 @@ async function createUserSupportMessageInDb(record = {}) {
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
 }
 
+async function getSupportMessageByIdInDb(messageId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(messageId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT * FROM app_support_messages
+    WHERE id = $1 AND deleted_at IS NULL
+    LIMIT 1
+  `, [id]);
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
 async function updateUserSupportMessageInDb(messageId = "", patch = {}) {
   if (!dbEnabled()) return null;
   const id = String(messageId || "").trim();
   if (!id) return null;
   await ensureSchema();
   const updatedAt = patch.updatedAt || new Date().toISOString();
+  const userId = String(patch.userId || "").trim();
   const cleanPatch = { ...(patch || {}), updatedAt };
   const { rows } = await query(`
     UPDATE app_support_messages
-    SET payload = payload || $2::jsonb,
-        updated_at = $3::timestamptz
+    SET user_id = CASE WHEN $2 <> '' THEN $2 ELSE user_id END,
+        payload = payload || $3::jsonb,
+        updated_at = $4::timestamptz
     WHERE id = $1 AND deleted_at IS NULL
     RETURNING *
-  `, [id, JSON.stringify(cleanPatch), updatedAt]);
+  `, [id, userId, JSON.stringify(cleanPatch), updatedAt]);
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
 }
 
-async function applyCreditDeltaInDb({ id = "", userId = "", delta = 0, type = "", meta = {}, payload = {} } = {}) {
+async function applyCreditDeltaInDb({
+  id = "",
+  userId = "",
+  delta = 0,
+  type = "",
+  meta = {},
+  payload = {},
+  requireTaskCharge = false,
+  refundTypes = [],
+} = {}) {
   if (!dbEnabled()) return null;
   const cleanUserId = String(userId || "").trim();
   const cleanType = String(type || "").trim();
@@ -5115,6 +7976,38 @@ async function applyCreditDeltaInDb({ id = "", userId = "", delta = 0, type = ""
       const existingUser = await userById(existingAfterLock.rows[0].user_id || cleanUserId);
       return { user: existingUser || userFromRow(row), ledger: existingAfterLock.rows[0].payload, inserted: false };
     }
+    if (requireTaskCharge && amount > 0) {
+      if (!eventTaskId) {
+        const error = new Error("A task id is required before refunding task-scoped credits.");
+        error.statusCode = 409;
+        error.code = "REFUND_TASK_REQUIRED";
+        throw error;
+      }
+      const chargeResult = await client.query(`
+        SELECT COALESCE(SUM(CASE WHEN delta < 0 THEN -delta ELSE 0 END), 0)::numeric AS charged,
+               COALESCE(SUM(CASE WHEN delta > 0 AND (
+                 type = ANY($3::text[]) OR type ILIKE '%refund%' OR type ILIKE '%reversal%'
+               ) THEN delta ELSE 0 END), 0)::numeric AS refunded
+        FROM app_credit_ledger
+        WHERE user_id = $1
+          AND meta->>'taskId' = $2
+      `, [cleanUserId, eventTaskId, [...new Set([cleanType, ...refundTypes].filter(Boolean))]]);
+      const charged = creditNumber(chargeResult.rows[0]?.charged || 0);
+      const refunded = creditNumber(chargeResult.rows[0]?.refunded || 0);
+      if (charged <= 0.000001) {
+        await client.query("COMMIT");
+        return { user: userFromRow(row), ledger: null, inserted: false, skipped: true, reason: "charge-not-found" };
+      }
+      if (refunded + amount > charged + 0.000001) {
+        const error = new Error(`Refund would exceed the amount charged for this task. charged=${charged}, refunded=${refunded}, requested=${amount}.`);
+        error.statusCode = 409;
+        error.code = "REFUND_EXCEEDS_CHARGE";
+        error.charged = charged;
+        error.refunded = refunded;
+        error.requested = amount;
+        throw error;
+      }
+    }
     const current = creditNumber(row.credits || 0);
     const nextCredits = creditNumber(current + amount);
     if (nextCredits < -0.000001) {
@@ -5157,7 +8050,7 @@ async function applyCreditDeltaInDb({ id = "", userId = "", delta = 0, type = ""
     );
     if (!inserted.rows.length) {
       await client.query("ROLLBACK");
-      return await applyCreditDeltaInDb({ id: cleanId, userId: cleanUserId, delta: amount, type: cleanType, meta, payload });
+      return await applyCreditDeltaInDb({ id: cleanId, userId: cleanUserId, delta: amount, type: cleanType, meta, payload, requireTaskCharge, refundTypes });
     }
     const updatedRows = await client.query(`SELECT * FROM app_users WHERE id = $1`, [cleanUserId]);
     await client.query("COMMIT");
@@ -5177,38 +8070,170 @@ async function generationRecordsTableCount() {
   return rows[0]?.count || 0;
 }
 
+const SCHEMA_MIGRATION_KEYS = Object.freeze([
+  "2026-11-11-schema-bootstrap-v1",
+  "2026-11-11-webhook-deliveries-v1",
+  "2026-11-11-request-idempotency-v1",
+  "2026-11-11-generation-submit-jobs-v1",
+]);
+const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
+const REQUIRED_SCHEMA_TABLES = Object.freeze([
+  "app_kv",
+  "app_catalog_entries",
+  "app_runtime_settings",
+  "app_catalog_migration_state",
+  "app_users",
+  "app_sessions",
+  "app_wallet_orders",
+  "app_credit_ledger",
+  "app_user_assets",
+  "app_user_characters",
+  "app_generation_records",
+  "app_webhook_deliveries",
+  "app_request_idempotency",
+  "app_generation_submit_jobs",
+]);
+
+async function schemaMigrationStatus() {
+  if (!dbEnabled()) return { available: false, database: false, schemaVersion: "", requiredTables: REQUIRED_SCHEMA_TABLES, requiredMigrations: SCHEMA_MIGRATION_KEYS, missingTables: REQUIRED_SCHEMA_TABLES, missingMigrations: SCHEMA_MIGRATION_KEYS, migrationApplied: false };
+  const { rows: tableRows } = await query(`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = current_schema()
+      AND table_type = 'BASE TABLE'
+      AND table_name = ANY($1::text[])
+  `, [REQUIRED_SCHEMA_TABLES]);
+  const present = new Set(tableRows.map((row) => String(row.table_name || "")));
+  const missingTables = REQUIRED_SCHEMA_TABLES.filter((table) => !present.has(table));
+  const ledgerPresent = present.has("app_catalog_migration_state");
+  let completedMigrations = [];
+  if (ledgerPresent) {
+    const { rows } = await query(
+      `SELECT migration_key FROM app_catalog_migration_state WHERE migration_key = ANY($1::text[])`,
+      [SCHEMA_MIGRATION_KEYS],
+    );
+    const completed = new Set(rows.map((row) => String(row.migration_key || "")));
+    completedMigrations = SCHEMA_MIGRATION_KEYS.filter((key) => completed.has(key));
+  }
+  const completed = new Set(completedMigrations);
+  const missingMigrations = SCHEMA_MIGRATION_KEYS.filter((key) => !completed.has(key));
+  const migrationApplied = missingMigrations.length === 0;
+  return {
+    available: true,
+    database: true,
+    schemaVersion: migrationApplied ? SCHEMA_MIGRATION_KEY : (completedMigrations.at(-1) || ""),
+    requiredTables: REQUIRED_SCHEMA_TABLES,
+    requiredMigrations: SCHEMA_MIGRATION_KEYS,
+    missingTables,
+    missingMigrations,
+    migrationApplied,
+    ready: missingTables.length === 0 && migrationApplied,
+  };
+}
+
+async function assertSchemaReady() {
+  const status = await schemaMigrationStatus();
+  if (!status.ready) {
+    const error = new Error(`PostgreSQL schema is not migrated: missing tables=${status.missingTables.join(",") || "none"}; missing migrations=${status.missingMigrations?.join(",") || "unknown"}. Run ops/run-db-migrations.js --apply before restart.`);
+    error.code = "DATABASE_SCHEMA_NOT_READY";
+    error.schema = status;
+    throw error;
+  }
+  return status;
+}
+
+const GENERATION_RECORDS_KV_MIGRATION_KEY = "generation_records_kv_v1";
+const GENERATION_RECORDS_KV_LOCK_TIMEOUT_MS = Math.min(
+  30000,
+  Math.max(100, Number(process.env.DATABASE_MIGRATION_LOCK_TIMEOUT_MS || 5000) || 5000),
+);
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function generationRecordsKvFingerprint(records = []) {
+  const valid = (Array.isArray(records) ? records : [])
+    .filter((record) => String(record?.taskId || "").trim())
+    .map((record) => ({ taskId: String(record.taskId).trim(), record }))
+    .sort((left, right) => left.taskId.localeCompare(right.taskId));
+  return crypto.createHash("sha256").update(canonicalJson(valid)).digest("hex");
+}
+
 async function migrateGenerationRecordsKvToTable() {
   if (!dbEnabled()) return { migrated: 0, skipped: true };
   await ensureSchema();
   const existing = await generationRecordsTableCount();
-  let records = await getKv("generation_records", []);
-  if (!Array.isArray(records) || !records.length) return { migrated: 0, existing };
-  let migrated = 0;
-  for (const record of records) {
-    const taskId = String(record?.taskId || "").trim();
-    if (!taskId) continue;
-    const result = await query(
-      `
-        INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
-        VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz)
-        ON CONFLICT (task_id)
-        DO UPDATE SET
-          payload = EXCLUDED.payload,
-          created_at = LEAST(app_generation_records.created_at, EXCLUDED.created_at),
-          updated_at = EXCLUDED.updated_at
-        WHERE EXCLUDED.updated_at > app_generation_records.updated_at
-        RETURNING task_id
-      `,
-      [
-        taskId,
-        JSON.stringify(record),
-        generationRecordCreatedAt(record),
-        generationRecordUpdatedAt(record),
-      ],
-    );
-    migrated += result.rowCount || 0;
+  const records = await getKv("generation_records", []);
+  if (!Array.isArray(records) || !records.length) {
+    return { migrated: 0, existing, skipped: true, reason: "empty-source" };
   }
-  return { migrated, existing };
+  const fingerprint = generationRecordsKvFingerprint(records);
+  const migrationKey = `${GENERATION_RECORDS_KV_MIGRATION_KEY}:${fingerprint}`;
+  const prior = await getCatalogMigrationStateInDb(migrationKey);
+  if (prior) return { migrated: 0, existing, skipped: true, migrationKey };
+
+  const pool = getPool();
+  const client = await pool.connect();
+  let migrated = 0;
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('lock_timeout', $1, true)", [`${GENERATION_RECORDS_KV_LOCK_TIMEOUT_MS}ms`]);
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [GENERATION_RECORDS_KV_MIGRATION_KEY]);
+    const priorInLock = await client.query(
+      `SELECT 1 FROM app_catalog_migration_state WHERE migration_key = $1 LIMIT 1`,
+      [migrationKey],
+    );
+    if (priorInLock.rows.length) {
+      await client.query("COMMIT");
+      return { migrated: 0, existing, skipped: true, migrationKey };
+    }
+    for (const record of records) {
+      const taskId = String(record?.taskId || "").trim();
+      if (!taskId) continue;
+      const result = await client.query(
+        `
+          INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
+          VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz)
+          ON CONFLICT (task_id)
+          DO UPDATE SET
+            payload = EXCLUDED.payload,
+            created_at = LEAST(app_generation_records.created_at, EXCLUDED.created_at),
+            updated_at = EXCLUDED.updated_at
+          WHERE EXCLUDED.updated_at > app_generation_records.updated_at
+          RETURNING task_id
+        `,
+        [
+          taskId,
+          JSON.stringify(record),
+          generationRecordCreatedAt(record),
+          generationRecordUpdatedAt(record),
+        ],
+      );
+      migrated += result.rowCount || 0;
+    }
+    await client.query(
+      `
+        INSERT INTO app_catalog_migration_state(migration_key, imported_count, migrated_at)
+        VALUES ($1, $2, NOW())
+        ON CONFLICT (migration_key) DO UPDATE SET
+          imported_count = EXCLUDED.imported_count,
+          migrated_at = EXCLUDED.migrated_at
+      `,
+      [migrationKey, migrated],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return { migrated, existing, skipped: false, migrationKey };
 }
 
 async function getGenerationRecordsFromDb({ limit = 500, userId = "", includeDeleted = true } = {}) {
@@ -5238,28 +8263,53 @@ async function getGenerationRecordsFromDb({ limit = 500, userId = "", includeDel
   return rows.map((row) => row.payload);
 }
 
-async function getStalePreSubmitGenerationRecordsFromDb({ olderThanMs = 0, limit = 10, providers = [] } = {}) {
+async function getStalePreSubmitGenerationRecordsFromDb({ olderThanMs = 0, limit = 10, providers = [], timeoutMs = 0 } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
   const safeLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit || 10) || 10)));
   const safeOlderThanMs = Math.max(0, Number(olderThanMs || 0));
+  const safeTimeoutMs = Math.max(0, Math.trunc(Number(timeoutMs || 0) || 0));
   const cleanProviders = [...new Set((Array.isArray(providers) ? providers : [])
     .map((value) => String(value || '').trim().toLowerCase())
     .filter(Boolean))];
   if (!cleanProviders.length) return [];
-  const { rows } = await query(`
+  const text = `
     SELECT payload
     FROM app_generation_records
     WHERE COALESCE(payload->>'deletedAt', '') = ''
       AND COALESCE(payload->>'userId', '') <> ''
-      AND COALESCE(payload->>'awaitingUpstreamTask', 'false') = 'true'
+      AND payload->>'awaitingUpstreamTask' = 'true'
       AND COALESCE(payload->>'upstreamTaskId', '') = ''
       AND LOWER(COALESCE(payload->>'provider', '')) = ANY($1::text[])
       AND LOWER(COALESCE(payload->>'status', '')) IN ('preparing', 'submitting', 'submitted', 'running', 'processing', 'queued', 'pending')
       AND created_at <= NOW() - ($2::bigint * INTERVAL '1 millisecond')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM app_generation_submit_jobs jobs
+        WHERE jobs.task_id = app_generation_records.task_id
+          AND jobs.status IN ('queued', 'retry', 'processing', 'unknown')
+      )
     ORDER BY created_at ASC
     LIMIT $3
-  `, [cleanProviders, safeOlderThanMs, safeLimit]);
+  `;
+  const params = [cleanProviders, safeOlderThanMs, safeLimit];
+  let rows;
+  if (safeTimeoutMs) {
+    const client = await getPool().connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`SET LOCAL statement_timeout = ${safeTimeoutMs}`);
+      ({ rows } = await client.query(text, params));
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  } else {
+    ({ rows } = await query(text, params));
+  }
   return rows.map((row) => row.payload).filter(Boolean);
 }
 
@@ -5277,14 +8327,57 @@ async function getGenerationRecordsForScheduledMaintenanceFromDb({ maxAgeMs = 24
         LOWER(COALESCE(payload->>'status', '')) IN ('submitting', 'preparing', 'submitted', 'queued', 'pending', 'running', 'processing', 'generating')
         OR (
           LOWER(COALESCE(payload->>'status', '')) IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed', 'unknown')
-          AND LOWER(COALESCE(payload->>'billingStatus', '')) <> 'refunded'
+          AND LOWER(COALESCE(payload->>'billingStatus', '')) IN ('pre_deducted', 'refund_failed')
           AND COALESCE(NULLIF(payload->>'preDeductedCredits', '')::numeric, 0) > 0
-          AND COALESCE(NULLIF(payload->>'finalCredits', '')::numeric, COALESCE(NULLIF(payload->>'preDeductedCredits', '')::numeric, 0)) > 0
         )
       )
     ORDER BY created_at ASC, updated_at ASC
     LIMIT $2
   `, [safeMaxAgeMs, safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
+async function getGenerationRecordsNeedingPosterMaintenanceFromDb({
+  limit = 4,
+  maxAttempts = 3,
+  retryDelayMs = 30 * 60 * 1000,
+} = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(20, Math.trunc(Number(limit || 4) || 4)));
+  const safeMaxAttempts = Math.max(1, Math.min(10, Math.trunc(Number(maxAttempts || 3) || 3)));
+  const safeRetryDelayMs = Math.max(60000, Number(retryDelayMs || 30 * 60 * 1000));
+  const retryBefore = new Date(Date.now() - safeRetryDelayMs).toISOString();
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND COALESCE(payload->>'r2PurgedAt', '') = ''
+      AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+      AND LOWER(COALESCE(payload->>'tokenSource', '')) NOT IN ('api_token', 'subtoken')
+      AND LOWER(COALESCE(payload->>'apiTokenSource', '')) NOT IN ('api_token', 'subtoken')
+      AND COALESCE(payload->>'cdnPosterUrl', '') = ''
+      AND COALESCE(payload->>'localPosterUrl', '') = ''
+      AND (
+        COALESCE(payload->>'remoteVideoUrl', '') <> ''
+        OR COALESCE(payload->>'providerVideoUrl', '') <> ''
+        OR COALESCE(payload->>'upstreamVideoUrl', '') <> ''
+        OR COALESCE(payload->>'localVideoUrl', '') <> ''
+        OR COALESCE(payload->'queryResponse'->'content'->>'video_url', '') <> ''
+        OR COALESCE(payload->'createResponse'->'content'->>'video_url', '') <> ''
+      )
+      AND COALESCE(payload->>'kind', '') NOT ILIKE '%image%'
+      AND COALESCE(payload->>'provider', '') NOT ILIKE '%image%'
+      AND LOWER(COALESCE(payload->>'advancedDownloadStatus', '')) <> 'failed'
+      AND COALESCE(payload->>'posterMaintenanceTerminalAt', '') = ''
+      AND COALESCE(NULLIF(payload->>'posterMaintenanceAttempts', '')::int, 0) < $1
+      AND (
+        COALESCE(payload->>'posterMaintenanceRetryAt', '') = ''
+        OR payload->>'posterMaintenanceRetryAt' <= $2
+      )
+    ORDER BY created_at DESC, updated_at DESC
+    LIMIT $3
+  `, [safeMaxAttempts, retryBefore, safeLimit]);
   return rows.map((row) => row.payload).filter(Boolean);
 }
 
@@ -5326,7 +8419,7 @@ async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit
     FROM app_generation_records
     WHERE payload->>'userId' = $1
       AND COALESCE(payload->>'deletedAt', '') = ''
-    ORDER BY created_at DESC, updated_at DESC
+    ORDER BY created_at DESC, task_id DESC
     LIMIT $2 OFFSET $3
   `, [cleanUserId, safeLimit, offset]);
   const total = Number(rows[0]?.total_count || 0);
@@ -5337,12 +8430,147 @@ async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit
       SELECT payload, COUNT(*) OVER()::int AS total_count
       FROM app_generation_records
       WHERE payload->>'userId' = $1 AND COALESCE(payload->>'deletedAt', '') = ''
-      ORDER BY created_at DESC, updated_at DESC
+      ORDER BY created_at DESC, task_id DESC
       LIMIT $2 OFFSET $3
     `, [cleanUserId, safeLimit, (actualPage - 1) * safeLimit]);
     return { records: retry.rows.map((row) => row.payload), total: Number(retry.rows[0]?.total_count || total), page: actualPage, limit: safeLimit, totalPages };
   }
   return { records: rows.map((row) => row.payload), total, page: actualPage, limit: safeLimit, totalPages };
+}
+
+async function getAdminDashboardStatsFromDb() {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const [summary, generationSummary, generationStatuses, generationModels, generationProviders, recentFailures] = await Promise.all([
+    query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL) AS users,
+        (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'Asia/Bangkok') AT TIME ZONE 'Asia/Bangkok') AS users_today,
+        (SELECT COUNT(*)::int FROM app_users WHERE deleted_at IS NULL AND created_at >= NOW() - INTERVAL '7 days') AS users_7d,
+        (SELECT COUNT(DISTINCT user_id)::int FROM app_sessions WHERE user_id <> '' AND (expires_at IS NULL OR expires_at > NOW())) AS logged_in_users,
+        (SELECT COUNT(DISTINCT payload->>'userId')::int FROM app_generation_records WHERE COALESCE(payload->>'userId', '') <> '' AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'Asia/Bangkok') AT TIME ZONE 'Asia/Bangkok') AS generating_users_today,
+        (SELECT COUNT(DISTINCT payload->>'userId')::int FROM app_generation_records WHERE COALESCE(payload->>'userId', '') <> '' AND created_at >= NOW() - INTERVAL '7 days') AS generating_users_7d,
+        (SELECT COUNT(DISTINCT user_id)::int FROM app_wallet_orders WHERE status = 'paid' AND created_at >= NOW() - INTERVAL '7 days') AS paying_users_7d,
+        (SELECT COUNT(*)::int FROM app_wallet_orders) AS wallet_orders,
+        (SELECT COUNT(*)::int FROM app_wallet_orders WHERE status = 'pending') AS pending_orders,
+        (SELECT COUNT(*)::int FROM app_user_assets WHERE deleted_at IS NULL) AS user_assets,
+        (SELECT COALESCE(SUM(credits), 0) FROM app_users WHERE deleted_at IS NULL) AS total_credits
+    `),
+    query(`
+      WITH records AS (
+        SELECT
+          LOWER(COALESCE(payload->>'status', '')) AS status,
+          LOWER(COALESCE(NULLIF(payload->>'billingStatus', ''), NULLIF(payload->'billing'->>'status', ''))) AS billing_status,
+          created_at,
+          updated_at
+        FROM app_generation_records
+      )
+      SELECT
+        COUNT(*)::int AS generation_records,
+        COUNT(*) FILTER (WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'Asia/Bangkok') AT TIME ZONE 'Asia/Bangkok')::int AS generation_today,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS generation_7d,
+        COUNT(*) FILTER (WHERE status IN ('succeeded', 'success', 'done', 'completed'))::int AS generation_succeeded,
+        COUNT(*) FILTER (WHERE status IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed', 'unknown', 'reference_failed', 'rejected'))::int AS generation_failed,
+        COUNT(*) FILTER (WHERE status IN ('queued', 'pending', 'submitted', 'running', 'processing', 'generating', 'submitting', 'preparing', 'image_uploaded'))::int AS generation_running,
+        COUNT(*) FILTER (WHERE billing_status = 'refunded' OR status = 'refunded')::int AS generation_refunded,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND status IN ('succeeded', 'success', 'done', 'completed'))::int AS succeeded_7d,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND status IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed', 'unknown', 'reference_failed', 'rejected'))::int AS failed_7d,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND (billing_status = 'refunded' OR status = 'refunded'))::int AS refunded_7d,
+        ROUND(AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) * 1000) FILTER (
+          WHERE created_at >= NOW() - INTERVAL '7 days'
+            AND status IN ('succeeded', 'success', 'done', 'completed')
+            AND updated_at >= created_at
+        ))::bigint AS avg_duration_ms_7d
+      FROM records
+    `),
+    query(`
+      SELECT LOWER(COALESCE(NULLIF(payload->>'status', ''), 'unknown')) AS status, COUNT(*)::int AS count
+      FROM app_generation_records
+      WHERE created_at >= NOW() - INTERVAL '7 days'
+      GROUP BY 1
+      ORDER BY count DESC, status ASC
+    `),
+    query(`
+      SELECT COALESCE(
+        NULLIF(payload->>'model', ''),
+        NULLIF(payload->'params'->>'model', ''),
+        NULLIF(payload->>'modelVersion', ''),
+        'unknown'
+      ) AS model, COUNT(*)::int AS count
+      FROM app_generation_records
+      WHERE created_at >= NOW() - INTERVAL '7 days'
+      GROUP BY 1
+      ORDER BY count DESC, model ASC
+      LIMIT 20
+    `),
+    query(`
+      SELECT COALESCE(
+        NULLIF(payload->>'provider', ''),
+        CASE WHEN COALESCE(payload->>'source', '') LIKE '%platform%' THEN 'apiz' ELSE 'seedance' END
+      ) AS provider, COUNT(*)::int AS count
+      FROM app_generation_records
+      WHERE created_at >= NOW() - INTERVAL '7 days'
+      GROUP BY 1
+      ORDER BY count DESC, provider ASC
+      LIMIT 20
+    `),
+    query(`
+      SELECT task_id, payload->>'userId' AS user_id, payload->>'username' AS username,
+        COALESCE(NULLIF(payload->>'model', ''), NULLIF(payload->'params'->>'model', ''), 'unknown') AS model,
+        COALESCE(NULLIF(payload->>'provider', ''), 'unknown') AS provider,
+        LOWER(COALESCE(payload->>'status', 'unknown')) AS status,
+        COALESCE(payload->>'error', '') AS error,
+        created_at,
+        updated_at
+      FROM app_generation_records
+      WHERE LOWER(COALESCE(payload->>'status', '')) IN ('failed', 'error', 'cancelled', 'canceled', 'image_failed', 'unknown', 'reference_failed', 'rejected')
+      ORDER BY updated_at DESC
+      LIMIT 10
+    `),
+  ]);
+  const row = summary.rows[0] || {};
+  const generation = generationSummary.rows[0] || {};
+  const succeeded7d = Number(generation.succeeded_7d || 0);
+  const failed7d = Number(generation.failed_7d || 0);
+  return {
+    users: Number(row.users || 0),
+    usersToday: Number(row.users_today || 0),
+    users7d: Number(row.users_7d || 0),
+    loggedInUsers: Number(row.logged_in_users || 0),
+    generatingUsersToday: Number(row.generating_users_today || 0),
+    generatingUsers7d: Number(row.generating_users_7d || 0),
+    payingUsers7d: Number(row.paying_users_7d || 0),
+    totalCredits: Number(row.total_credits || 0),
+    walletOrders: Number(row.wallet_orders || 0),
+    pendingOrders: Number(row.pending_orders || 0),
+    generationRecords: Number(generation.generation_records || 0),
+    generationToday: Number(generation.generation_today || 0),
+    generation7d: Number(generation.generation_7d || 0),
+    generationSucceeded: Number(generation.generation_succeeded || 0),
+    generationFailed: Number(generation.generation_failed || 0),
+    generationRunning: Number(generation.generation_running || 0),
+    generationRefunded: Number(generation.generation_refunded || 0),
+    succeeded7d,
+    failed7d,
+    refunded7d: Number(generation.refunded_7d || 0),
+    successRate7d: succeeded7d + failed7d > 0 ? Math.round((succeeded7d / (succeeded7d + failed7d)) * 1000) / 10 : 0,
+    avgDurationMs7d: Number(generation.avg_duration_ms_7d || 0),
+    generationStatuses: generationStatuses.rows.map((item) => ({ status: String(item.status || 'unknown'), count: Number(item.count || 0) })),
+    generationModels: generationModels.rows.map((item) => ({ model: String(item.model || 'unknown'), count: Number(item.count || 0) })),
+    generationProviders: generationProviders.rows.map((item) => ({ provider: String(item.provider || 'unknown'), count: Number(item.count || 0) })),
+    recentFailures: recentFailures.rows.map((item) => ({
+      taskId: String(item.task_id || ''),
+      userId: String(item.user_id || ''),
+      username: String(item.username || ''),
+      model: String(item.model || 'unknown'),
+      provider: String(item.provider || 'unknown'),
+      status: String(item.status || 'unknown'),
+      error: String(item.error || ''),
+      createdAt: toIsoString(item.created_at),
+      updatedAt: toIsoString(item.updated_at),
+    })),
+    userAssets: Number(row.user_assets || 0),
+  };
 }
 
 async function getAdminGenerationRecordsPageFromDb({
@@ -5366,66 +8594,171 @@ async function getAdminGenerationRecordsPageFromDb({
     NULLIF(records.payload->>'provider', ''),
     CASE WHEN COALESCE(records.payload->>'source', '') LIKE '%platform%' THEN 'apiz' ELSE 'seedance' END
   )`;
-  const cleanSearch = String(search || "").trim().toLowerCase();
+  const cleanSearch = String(search || "").trim();
+  const normalizedSearch = cleanSearch.toLowerCase();
+  let needsUserJoin = false;
+  let exactSearchMatched = false;
+  let exactUserIds = [];
   if (cleanSearch) {
-    const placeholder = addParam(`%${cleanSearch}%`);
-    where.push(`LOWER(CONCAT_WS(' ',
-      records.task_id,
-      records.payload->>'upstreamTaskId',
-      records.payload->>'userId',
-      records.payload->>'username',
-      users.username,
-      records.payload->>'source',
-      records.payload->>'kind',
-      records.payload->>'provider',
-      records.payload->>'status',
-      records.payload->>'templateId',
-      records.payload->>'templateTitle',
-      records.payload->>'sceneId',
-      records.payload->>'sceneName',
-      records.payload->>'sceneEntryId',
-      records.payload->>'sceneEntryName',
-      records.payload->>'companionId',
-      records.payload->>'companionName',
-      records.payload->>'prompt',
-      records.payload->>'finalPrompt',
-      records.payload->>'model',
-      records.payload->>'error'
-    )) LIKE ${placeholder}`);
+    // User IDs and usernames are the common admin lookup. Resolve them to a
+    // single indexed userId predicate instead of scanning every generation
+    // payload and concatenating large JSON strings for a LIKE query.
+    const userMatches = await query(
+      `SELECT id FROM app_users
+       WHERE (id = $1 OR username = $1 OR LOWER(username) = LOWER($1))
+         AND deleted_at IS NULL
+       ORDER BY (id = $1) DESC, created_at DESC`,
+      [cleanSearch],
+    );
+    exactUserIds = userMatches.rows.map((row) => String(row.id || "").trim()).filter(Boolean);
+    if (exactUserIds.length) {
+      // Usernames are not globally unique across tenants, so a username search
+      // must include every matching account instead of silently choosing one.
+      where.push(`records.payload->>'userId' = ANY(${addParam(exactUserIds)}::text[])`);
+      exactSearchMatched = true;
+    } else {
+      // A full task ID is another high-frequency exact lookup and can use the
+      // primary key directly.
+      const taskMatch = await query(`SELECT 1 FROM app_generation_records WHERE task_id = $1 LIMIT 1`, [cleanSearch]);
+      if (taskMatch.rowCount) {
+        where.push(`records.task_id = ${addParam(cleanSearch)}`);
+        exactSearchMatched = true;
+      }
+    }
+    if (!exactSearchMatched) {
+      needsUserJoin = true;
+      const placeholder = addParam(`%${normalizedSearch}%`);
+      where.push(`LOWER(CONCAT_WS(' ',
+        records.task_id,
+        records.payload->>'upstreamTaskId',
+        records.payload->>'userId',
+        records.payload->>'username',
+        users.username,
+        records.payload->>'source',
+        records.payload->>'kind',
+        records.payload->>'provider',
+        records.payload->>'status',
+        records.payload->>'templateId',
+        records.payload->>'templateTitle',
+        records.payload->>'sceneId',
+        records.payload->>'sceneName',
+        records.payload->>'sceneEntryId',
+        records.payload->>'sceneEntryName',
+        records.payload->>'companionId',
+        records.payload->>'companionName',
+        records.payload->>'prompt',
+        records.payload->>'finalPrompt',
+        records.payload->>'model',
+        records.payload->>'error'
+      )) LIKE ${placeholder}`);
+    }
   }
   if (provider) where.push(`${providerExpression} = ${addParam(String(provider))}`);
   if (status) where.push(`LOWER(COALESCE(records.payload->>'status', '')) = ${addParam(String(status).toLowerCase())}`);
   if (kind) where.push(`COALESCE(records.payload->>'kind', '') = ${addParam(String(kind))}`);
   const fromSql = `
     FROM app_generation_records records
-    LEFT JOIN app_users users ON users.id = records.payload->>'userId'
+    ${needsUserJoin ? "LEFT JOIN app_users users ON users.id = records.payload->>'userId'" : ""}
   `;
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const [totalResult, filteredResult] = await Promise.all([
-    query(`SELECT COUNT(*)::int AS count FROM app_generation_records`),
-    query(`SELECT COUNT(*)::int AS count ${fromSql} ${whereSql}`, params),
-  ]);
-  const total = totalResult.rows[0]?.count || 0;
-  const filtered = filteredResult.rows[0]?.count || 0;
-  const totalPages = Math.max(1, Math.ceil(filtered / safeLimit));
-  const safePage = Math.min(totalPages, Math.max(1, Number(page || 1)));
-  const pageParams = [...params, safeLimit, (safePage - 1) * safeLimit];
-  const rows = await query(
+  // The list only needs the fields that drive its columns and thumbnails.
+  // Request/response bodies and pricing snapshots routinely contain megabytes
+  // of JSON and are loaded by the detail endpoint when the admin opens a row.
+  const listPayloadSql = `((records.payload - ARRAY[
+    'upstreamPayload', 'createResponse', 'queryResponse', 'pricingEstimate',
+    'params', 'mediaAssets', 'usage', 'referenceMedia', 'inputMedia'
+  ]::text[]) || jsonb_build_object(
+    'pricingEstimate', jsonb_strip_nulls(jsonb_build_object(
+      'source', records.payload->'pricingEstimate'->'source'
+    )),
+    'params', CASE WHEN jsonb_typeof(records.payload->'params') = 'object' THEN jsonb_strip_nulls(jsonb_build_object(
+      'provider', records.payload->'params'->'provider',
+      'ratio', records.payload->'params'->'ratio',
+      'aspect_ratio', records.payload->'params'->'aspect_ratio',
+      'resolution', records.payload->'params'->'resolution',
+      'duration', records.payload->'params'->'duration',
+      'mediaMode', records.payload->'params'->'mediaMode',
+      'seed', records.payload->'params'->'seed'
+    )) ELSE NULL END
+  ))`;
+  const requestedPage = Math.max(1, Math.trunc(Number(page || 1)));
+  // Exact user lookups are common in admin support work. Do not use a window
+  // count here: PostgreSQL otherwise scans every matching row and builds the
+  // stripped payload before it can return the first page. Counting and paging
+  // separately lets both queries use the (userId, createdAt) index.
+  if (exactSearchMatched && exactUserIds.length > 0 && provider === "" && status === "" && kind === "") {
+    const countResult = await query(`SELECT COUNT(*)::int AS count ${fromSql} ${whereSql}`, params);
+    const filtered = Number(countResult.rows[0]?.count || 0);
+    const totalPages = Math.max(1, Math.ceil(filtered / safeLimit));
+    const safePage = Math.min(totalPages, requestedPage);
+    let pageRows = [];
+    if (safePage === requestedPage || requestedPage > 1) {
+      pageRows = (await query(
+        `
+          SELECT ${listPayloadSql} AS payload
+          ${fromSql}
+          ${whereSql}
+          ORDER BY records.created_at DESC, records.task_id DESC
+          LIMIT $${params.length + 1}
+          OFFSET $${params.length + 2}
+        `,
+        [...params, safeLimit, (safePage - 1) * safeLimit],
+      )).rows;
+    }
+    return {
+      records: pageRows.map((row) => row.payload),
+      page: safePage,
+      limit: safeLimit,
+      total: filtered,
+      filtered,
+      totalPages,
+    };
+  }
+  const pageParams = [...params, safeLimit, (requestedPage - 1) * safeLimit];
+  // Count and page rows in one pass. This is especially important for a user
+  // lookup: PostgreSQL can range-scan that user's index and return the first
+  // page immediately instead of first counting the entire table.
+  const pageResult = await query(
     `
-      SELECT records.payload
+      SELECT ${listPayloadSql} AS payload, COUNT(*) OVER()::int AS total_count
       ${fromSql}
       ${whereSql}
-      ORDER BY records.created_at DESC, records.updated_at DESC
+      ORDER BY records.created_at DESC, records.task_id DESC
       LIMIT $${params.length + 1}
       OFFSET $${params.length + 2}
     `,
     pageParams,
   );
+  let filtered = Number(pageResult.rows[0]?.total_count || 0);
+  if (!pageResult.rows.length && requestedPage > 1) {
+    const countResult = await query(`SELECT COUNT(*)::int AS count ${fromSql} ${whereSql}`, params);
+    filtered = Number(countResult.rows[0]?.count || 0);
+  }
+  const totalPages = Math.max(1, Math.ceil(filtered / safeLimit));
+  const safePage = Math.min(totalPages, requestedPage);
+  let pageRows = pageResult.rows;
+  if (safePage !== requestedPage) {
+    const retryParams = [...params, safeLimit, (safePage - 1) * safeLimit];
+    pageRows = (await query(
+      `
+        SELECT ${listPayloadSql} AS payload, COUNT(*) OVER()::int AS total_count
+        ${fromSql}
+        ${whereSql}
+        ORDER BY records.created_at DESC, records.task_id DESC
+        LIMIT $${params.length + 1}
+        OFFSET $${params.length + 2}
+      `,
+      retryParams,
+    )).rows;
+    filtered = Number(pageRows[0]?.total_count || filtered);
+  }
   return {
-    records: rows.rows.map((row) => row.payload),
+    records: pageRows.map((row) => row.payload),
     page: safePage,
     limit: safeLimit,
-    total,
+    // The filtered count is the only count needed by the admin pager. Avoid a
+    // second full-table count on every filtered lookup.
+    total: filtered,
     filtered,
     totalPages,
   };
@@ -5462,34 +8795,41 @@ async function upsertGenerationRecordInDb(nextRecord) {
             jsonb_set(
               jsonb_set(
                 jsonb_set(
-                  app_generation_records.payload || EXCLUDED.payload || jsonb_build_object(
-                    'taskId', EXCLUDED.task_id,
-                    'createdAt', COALESCE(app_generation_records.payload->>'createdAt', EXCLUDED.payload->>'createdAt', $3::text),
-                    'updatedAt', $3::text,
-                    'deletedAt', COALESCE(EXCLUDED.payload->'deletedAt', app_generation_records.payload->'deletedAt', to_jsonb(''::text))
+                  jsonb_set(
+                    app_generation_records.payload || EXCLUDED.payload || jsonb_build_object(
+                      'taskId', EXCLUDED.task_id,
+                      'createdAt', COALESCE(app_generation_records.payload->>'createdAt', EXCLUDED.payload->>'createdAt', $3::text),
+                      'updatedAt', $3::text,
+                      'deletedAt', COALESCE(EXCLUDED.payload->'deletedAt', app_generation_records.payload->'deletedAt', to_jsonb(''::text))
+                    ),
+                    '{cdnVideoUrl}',
+                    CASE WHEN NULLIF(EXCLUDED.payload->>'cdnVideoUrl', '') IS NOT NULL
+                      THEN EXCLUDED.payload->'cdnVideoUrl'
+                      ELSE COALESCE(app_generation_records.payload->'cdnVideoUrl', to_jsonb(''::text)) END,
+                    true
                   ),
-                  '{cdnVideoUrl}',
-                  CASE WHEN NULLIF(EXCLUDED.payload->>'cdnVideoUrl', '') IS NOT NULL
-                    THEN EXCLUDED.payload->'cdnVideoUrl'
-                    ELSE COALESCE(app_generation_records.payload->'cdnVideoUrl', to_jsonb(''::text)) END,
+                  '{cdnPosterUrl}',
+                  CASE WHEN NULLIF(EXCLUDED.payload->>'cdnPosterUrl', '') IS NOT NULL
+                    THEN EXCLUDED.payload->'cdnPosterUrl'
+                    ELSE COALESCE(app_generation_records.payload->'cdnPosterUrl', to_jsonb(''::text)) END,
                   true
                 ),
-                '{cdnPosterUrl}',
-                CASE WHEN NULLIF(EXCLUDED.payload->>'cdnPosterUrl', '') IS NOT NULL
-                  THEN EXCLUDED.payload->'cdnPosterUrl'
-                  ELSE COALESCE(app_generation_records.payload->'cdnPosterUrl', to_jsonb(''::text)) END,
+                '{cdnImageUrl}',
+                CASE WHEN NULLIF(EXCLUDED.payload->>'cdnImageUrl', '') IS NOT NULL
+                  THEN EXCLUDED.payload->'cdnImageUrl'
+                  ELSE COALESCE(app_generation_records.payload->'cdnImageUrl', to_jsonb(''::text)) END,
                 true
               ),
-              '{cdnImageUrl}',
-              CASE WHEN NULLIF(EXCLUDED.payload->>'cdnImageUrl', '') IS NOT NULL
-                THEN EXCLUDED.payload->'cdnImageUrl'
-                ELSE COALESCE(app_generation_records.payload->'cdnImageUrl', to_jsonb(''::text)) END,
+              '{cdnImageUrls}',
+              CASE WHEN jsonb_typeof(EXCLUDED.payload->'cdnImageUrls') = 'array' AND jsonb_array_length(EXCLUDED.payload->'cdnImageUrls') > 0
+                THEN EXCLUDED.payload->'cdnImageUrls'
+                ELSE COALESCE(app_generation_records.payload->'cdnImageUrls', '[]'::jsonb) END,
               true
             ),
-            '{cdnImageUrls}',
-            CASE WHEN jsonb_typeof(EXCLUDED.payload->'cdnImageUrls') = 'array' AND jsonb_array_length(EXCLUDED.payload->'cdnImageUrls') > 0
-              THEN EXCLUDED.payload->'cdnImageUrls'
-              ELSE COALESCE(app_generation_records.payload->'cdnImageUrls', '[]'::jsonb) END,
+            '{cdnImageStorageKeys}',
+            CASE WHEN jsonb_typeof(EXCLUDED.payload->'cdnImageStorageKeys') = 'array' AND jsonb_array_length(EXCLUDED.payload->'cdnImageStorageKeys') > 0
+              THEN EXCLUDED.payload->'cdnImageStorageKeys'
+              ELSE COALESCE(app_generation_records.payload->'cdnImageStorageKeys', '[]'::jsonb) END,
             true
           )
         ),
@@ -5498,6 +8838,558 @@ async function upsertGenerationRecordInDb(nextRecord) {
     `,
     [taskId, JSON.stringify(nextRecord), now],
   );
+  return rows[0]?.payload || null;
+}
+
+async function claimTelegramGenerationNotificationInDb(taskId = "", stage = "", chatId = "", claimToken = "") {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  const notificationStage = String(stage || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !notificationStage || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const staleBefore = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const key = `${notificationStage}:${chat}`;
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-generation:${id}:${key}`]);
+    const currentRows = await client.query(`SELECT payload FROM app_generation_records WHERE task_id = $1`, [id]);
+    const current = currentRows.rows[0]?.payload;
+    if (!current || current.deletedAt) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const claim = current.telegramNotificationClaims?.[key];
+    if (claim?.status === "sent") {
+      await client.query("ROLLBACK");
+      return { record: current, claimed: false };
+    }
+    if (claim?.status === "sending") {
+      if (String(claim.claimedAt || "") < staleBefore) {
+        const stale = await client.query(`
+          UPDATE app_generation_records
+          SET payload = jsonb_set(
+                jsonb_set(
+                  payload,
+                  ARRAY['telegramNotificationClaims', $2::text, 'status'],
+                  to_jsonb('unknown'::text),
+                  true
+                ),
+                ARRAY['telegramNotificationClaims', $2::text, 'staleAt'],
+                to_jsonb($3::text),
+                true
+              ),
+              updated_at = $3::timestamptz
+          WHERE task_id = $1
+          RETURNING payload
+        `, [id, key, now]);
+        await client.query("COMMIT");
+        console.warn("[telegram-generation-notify-stale-claim]", id, notificationStage, chat);
+        return { record: stale.rows[0].payload, claimed: false, stale: true };
+      }
+      await client.query("ROLLBACK");
+      return { record: current, claimed: false };
+    }
+    if (claim?.status === "unknown") {
+      await client.query("ROLLBACK");
+      return { record: current, claimed: false };
+    }
+    const nextRecord = {
+      ...current,
+      telegramNotificationClaims: {
+        ...(current.telegramNotificationClaims || {}),
+        [key]: { claimToken: token, claimedAt: now, status: "sending" },
+      },
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_generation_records
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE task_id = $1
+      RETURNING payload
+    `, [id, JSON.stringify(nextRecord), now]);
+    if (!rows[0]) {
+      await client.query("ROLLBACK");
+      return { record: current, claimed: false };
+    }
+    await client.query("COMMIT");
+    return { record: rows[0].payload, claimed: true };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function confirmTelegramGenerationNotificationInDb(taskId = "", stage = "", chatId = "", claimToken = "") {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  const notificationStage = String(stage || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !notificationStage || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const key = `${notificationStage}:${chat}`;
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-generation:${id}:${key}`]);
+    const { rows: currentRows } = await client.query(`SELECT payload FROM app_generation_records WHERE task_id = $1`, [id]);
+    const current = currentRows[0]?.payload;
+    const claim = current?.telegramNotificationClaims?.[key];
+    if (!current || !claim || claim.claimToken !== token || claim.status !== "sending") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const nextRecord = {
+      ...current,
+      telegramNotificationClaims: {
+        ...(current.telegramNotificationClaims || {}),
+        [key]: { ...claim, completedAt: now, status: "sent" },
+      },
+      telegramNotificationStages: {
+        ...(current.telegramNotificationStages || {}),
+        [notificationStage]: now,
+      },
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_generation_records
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE task_id = $1
+      RETURNING payload
+    `, [id, JSON.stringify(nextRecord), now]);
+    await client.query("COMMIT");
+    return rows[0]?.payload || null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function releaseTelegramGenerationNotificationClaimInDb(taskId = "", stage = "", chatId = "", claimToken = "", errorMessage = "") {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  const notificationStage = String(stage || "").trim();
+  const chat = String(chatId || "").trim();
+  const token = String(claimToken || "").trim();
+  if (!id || !notificationStage || !chat || !token) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const key = `${notificationStage}:${chat}`;
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`telegram-generation:${id}:${key}`]);
+    const { rows: currentRows } = await client.query(`SELECT payload FROM app_generation_records WHERE task_id = $1`, [id]);
+    const current = currentRows[0]?.payload;
+    const claim = current?.telegramNotificationClaims?.[key];
+    if (!current || !claim || claim.claimToken !== token || claim.status !== "sending") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const nextRecord = {
+      ...current,
+      telegramNotificationClaims: {
+        ...(current.telegramNotificationClaims || {}),
+        [key]: { ...claim, failedAt: now, error: String(errorMessage || "").slice(0, 1000), status: "retry" },
+      },
+      updatedAt: now,
+    };
+    const { rows } = await client.query(`
+      UPDATE app_generation_records
+      SET payload = $2::jsonb,
+          updated_at = $3::timestamptz
+      WHERE task_id = $1
+      RETURNING payload
+    `, [id, JSON.stringify(nextRecord), now]);
+    await client.query("COMMIT");
+    return rows[0]?.payload || null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function enqueueMediaIngestJobInDb(taskId = "", {
+  userId = "",
+  kind = "advanced_download",
+  sourceUrl = "",
+} = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) throw new Error("Media ingest taskId is required");
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      INSERT INTO app_media_ingest_jobs(task_id, user_id, kind, source_url, status, available_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'queued', NOW(), NOW())
+      ON CONFLICT (task_id) DO UPDATE SET
+        user_id = CASE WHEN EXCLUDED.user_id <> '' THEN EXCLUDED.user_id ELSE app_media_ingest_jobs.user_id END,
+        kind = EXCLUDED.kind,
+        source_url = CASE WHEN EXCLUDED.source_url <> '' THEN EXCLUDED.source_url ELSE app_media_ingest_jobs.source_url END,
+        status = CASE
+          WHEN app_media_ingest_jobs.status IN ('ready', 'processing') THEN app_media_ingest_jobs.status
+          ELSE 'queued'
+        END,
+        attempts = CASE
+          WHEN app_media_ingest_jobs.status = 'failed' THEN 0
+          ELSE app_media_ingest_jobs.attempts
+        END,
+        started_at = CASE
+          WHEN app_media_ingest_jobs.status = 'failed' THEN NULL
+          ELSE app_media_ingest_jobs.started_at
+        END,
+        completed_at = CASE
+          WHEN app_media_ingest_jobs.status = 'failed' THEN NULL
+          ELSE app_media_ingest_jobs.completed_at
+        END,
+        available_at = CASE
+          WHEN app_media_ingest_jobs.status IN ('ready', 'processing') THEN app_media_ingest_jobs.available_at
+          ELSE NOW()
+        END,
+        error = CASE WHEN app_media_ingest_jobs.status = 'ready' THEN app_media_ingest_jobs.error ELSE '' END,
+        updated_at = NOW()
+      RETURNING *
+    `,
+    [id, String(userId || ""), String(kind || "advanced_download"), String(sourceUrl || "")],
+  );
+  return rows[0] || null;
+}
+
+async function claimMediaIngestJobInDb(taskId = "", { staleMinutes = 20 } = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const stale = Math.max(1, Math.min(240, Number(staleMinutes) || 20));
+  const { rows } = await query(
+    `
+      UPDATE app_media_ingest_jobs
+      SET status = 'processing',
+          attempts = attempts + 1,
+          started_at = NOW(),
+          updated_at = NOW(),
+          error = ''
+      WHERE task_id = $1
+        AND (
+          status = 'queued'
+          OR (status = 'processing' AND updated_at < NOW() - ($2::int * INTERVAL '1 minute'))
+          OR (status = 'failed' AND available_at <= NOW())
+        )
+      RETURNING *
+    `,
+    [id, stale],
+  );
+  return rows[0] || null;
+}
+
+async function claimNextMediaIngestJobsInDb(limit = 1, { staleMinutes = 20 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const count = Math.max(1, Math.min(10, Number(limit) || 1));
+  const stale = Math.max(1, Math.min(240, Number(staleMinutes) || 20));
+  const { rows } = await query(
+    `
+      WITH candidates AS (
+        SELECT task_id
+        FROM app_media_ingest_jobs
+        WHERE (
+          status = 'queued'
+          OR (status = 'processing' AND updated_at < NOW() - ($2::int * INTERVAL '1 minute'))
+          OR (status = 'failed' AND available_at <= NOW())
+        )
+        AND attempts < 5
+        ORDER BY available_at ASC, created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT $1
+      )
+      UPDATE app_media_ingest_jobs jobs
+      SET status = 'processing',
+          attempts = attempts + 1,
+          started_at = NOW(),
+          updated_at = NOW(),
+          error = ''
+      FROM candidates
+      WHERE jobs.task_id = candidates.task_id
+      RETURNING jobs.*
+    `,
+    [count, stale],
+  );
+  return rows;
+}
+
+async function completeMediaIngestJobInDb(taskId = "", {
+  storageProvider = "",
+  storageKey = "",
+  cdnUrl = "",
+  bytes = 0,
+} = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      UPDATE app_media_ingest_jobs
+      SET status = 'ready',
+          completed_at = NOW(),
+          updated_at = NOW(),
+          error = '',
+          storage_provider = $2,
+          storage_key = $3,
+          cdn_url = $4,
+          bytes = $5
+      WHERE task_id = $1
+      RETURNING *
+    `,
+    [id, String(storageProvider || ""), String(storageKey || ""), String(cdnUrl || ""), Math.max(0, Number(bytes) || 0)],
+  );
+  return rows[0] || null;
+}
+
+async function expireExhaustedMediaIngestJobsInDb(maxAttempts = 5, { staleMinutes = 20 } = {}) {
+  if (!dbEnabled()) return [];
+  const max = Math.max(1, Math.min(20, Number(maxAttempts) || 5));
+  const stale = Math.max(1, Math.min(240, Number(staleMinutes) || 20));
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      WITH expired AS (
+        UPDATE app_media_ingest_jobs
+        SET status = 'failed',
+            updated_at = NOW(),
+            available_at = 'infinity'::timestamptz,
+            error = CASE
+              WHEN error = '' THEN 'Transfer retry limit reached.'
+              ELSE error
+            END
+        WHERE (
+            (status = 'queued' AND attempts >= $1)
+            OR (status = 'processing' AND attempts >= $1
+                AND updated_at < NOW() - ($2::int * INTERVAL '1 minute'))
+          )
+        RETURNING task_id, error
+      ), synced_records AS (
+        UPDATE app_generation_records records
+        SET payload = jsonb_set(
+          jsonb_set(
+            records.payload,
+            '{advancedDownloadStatus}',
+            to_jsonb('failed'::text),
+            true
+          ),
+          '{advancedDownloadError}',
+          to_jsonb(expired.error),
+          true
+        )
+        FROM expired
+        WHERE records.task_id = expired.task_id
+          AND COALESCE(records.payload->>'advancedDownloadStatus', '') <> 'ready'
+        RETURNING records.task_id
+      )
+      SELECT task_id FROM expired
+    `,
+    [max, stale],
+  );
+  return rows;
+}
+
+async function syncFailedMediaIngestRecordStatusesInDb(limit = 1000) {
+  if (!dbEnabled()) return [];
+  const count = Math.max(1, Math.min(5000, Number(limit) || 1000));
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      WITH targets AS (
+        SELECT jobs.task_id, jobs.error
+        FROM app_media_ingest_jobs jobs
+        JOIN app_generation_records records ON records.task_id = jobs.task_id
+        WHERE jobs.status = 'failed'
+          AND records.payload->>'advancedDownloadStatus' IN ('preparing', 'queued', 'processing')
+        ORDER BY jobs.updated_at ASC
+        LIMIT $1
+        FOR UPDATE OF jobs SKIP LOCKED
+      )
+      UPDATE app_generation_records records
+      SET payload = jsonb_set(
+        jsonb_set(
+          records.payload,
+          '{advancedDownloadStatus}',
+          to_jsonb('failed'::text),
+          true
+        ),
+        '{advancedDownloadError}',
+        to_jsonb(COALESCE(NULLIF(targets.error, ''), 'Advanced download preparation failed.')),
+        true
+      )
+      FROM targets
+      WHERE records.task_id = targets.task_id
+      RETURNING records.task_id
+    `,
+    [count],
+  );
+  return rows;
+}
+
+async function failMediaIngestJobInDb(taskId = "", error = "", {
+  retryAfterSeconds = 60,
+  maxAttempts = 5,
+  retryable = true,
+} = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const delay = Math.max(5, Math.min(24 * 60 * 60, Number(retryAfterSeconds) || 60));
+  const max = Math.max(1, Math.min(20, Number(maxAttempts) || 5));
+  const { rows } = await query(
+    `
+      UPDATE app_media_ingest_jobs
+      SET status = CASE WHEN $5::boolean = false OR attempts >= $3 THEN 'failed' ELSE 'queued' END,
+          available_at = CASE
+            WHEN $5::boolean = false OR attempts >= $3 THEN 'infinity'::timestamptz
+            ELSE NOW() + ($2::int * INTERVAL '1 second')
+          END,
+          updated_at = NOW(),
+          error = $4
+      WHERE task_id = $1
+      RETURNING *
+    `,
+    [id, delay, max, String(error || "").slice(0, 1000), retryable !== false],
+  );
+  return rows[0] || null;
+}
+
+async function getGenerationRecordsNeedingMediaPersistenceFromDb({
+  limit = 6,
+  maxAgeMs = 7 * 24 * 60 * 60 * 1000,
+  maxAttempts = 3,
+  retryDelayMs = 5 * 60 * 1000,
+} = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(20, Math.trunc(Number(limit || 6) || 6)));
+  const safeMaxAgeMs = Math.max(60 * 60 * 1000, Number(maxAgeMs || 7 * 24 * 60 * 60 * 1000));
+  const safeMaxAttempts = Math.max(1, Math.min(10, Math.trunc(Number(maxAttempts || 3) || 3)));
+  const safeRetryDelayMs = Math.max(60000, Number(retryDelayMs || 5 * 60 * 1000));
+  const retryBefore = new Date(Date.now() - safeRetryDelayMs).toISOString();
+  const { rows } = await query(`
+    SELECT payload
+    FROM app_generation_records
+    WHERE COALESCE(payload->>'deletedAt', '') = ''
+      AND created_at > NOW() - ($1::bigint * INTERVAL '1 millisecond')
+      AND LOWER(COALESCE(payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+      AND LOWER(COALESCE(payload->>'tokenSource', '')) NOT IN ('api_token', 'subtoken')
+      AND LOWER(COALESCE(payload->>'apiTokenSource', '')) NOT IN ('api_token', 'subtoken')
+      AND COALESCE(payload->>'cdnVideoUrl', '') = ''
+      AND COALESCE(payload->>'localVideoUrl', '') = ''
+      AND COALESCE(payload->>'mediaPersistenceTerminalAt', '') = ''
+      AND COALESCE(NULLIF(payload->>'mediaPersistenceAttempts', '')::int, 0) < $2
+      AND (
+        COALESCE(payload->>'mediaPersistenceRetryAt', '') = ''
+        OR payload->>'mediaPersistenceRetryAt' <= $3
+      )
+      AND LOWER(COALESCE(payload->>'advancedDownloadStatus', '')) NOT IN ('preparing', 'queued', 'processing', 'ready', 'failed')
+      AND (
+        COALESCE(payload->>'remoteVideoUrl', '') <> ''
+        OR COALESCE(payload->>'providerVideoUrl', '') <> ''
+        OR COALESCE(payload->>'upstreamVideoUrl', '') <> ''
+        OR COALESCE(payload->'queryResponse'->'content'->>'video_url', '') <> ''
+        OR COALESCE(payload->'createResponse'->'content'->>'video_url', '') <> ''
+      )
+      AND COALESCE(payload->>'kind', '') NOT ILIKE '%image%'
+      AND COALESCE(payload->>'provider', '') NOT ILIKE '%image%'
+    ORDER BY created_at DESC, updated_at DESC
+    LIMIT $4
+  `, [safeMaxAgeMs, safeMaxAttempts, retryBefore, safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
+async function getGenerationRecordsNeedingResultAssetMediaBackfillFromDb({ limit = 25 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit || 25) || 25)));
+  const { rows } = await query(`
+    SELECT records.payload
+    FROM app_generation_records records
+    JOIN app_user_assets assets
+      ON assets.user_id = records.payload->>'userId'
+     AND assets.id = records.payload->>'resultAssetId'
+     AND assets.deleted_at IS NULL
+    WHERE COALESCE(records.payload->>'deletedAt', '') = ''
+      AND LOWER(COALESCE(records.payload->>'status', '')) IN ('succeeded', 'completed', 'success', 'done')
+      AND COALESCE(records.payload->>'resultAssetId', '') <> ''
+      AND (
+        COALESCE(records.payload->>'cdnVideoUrl', '') = ''
+        OR COALESCE(records.payload->>'cdnPosterUrl', '') = ''
+        OR COALESCE(records.payload->>'cdnImageUrl', '') = ''
+      )
+      AND COALESCE(records.payload->>'resultAssetMediaBackfillCompletedAt', '') = ''
+    ORDER BY records.created_at DESC, records.task_id DESC
+    LIMIT $1
+  `, [safeLimit]);
+  return rows.map((row) => row.payload).filter(Boolean);
+}
+
+async function backfillGenerationRecordResultAssetMediaFieldsInDb(taskId = "", fields = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  const allowedKeys = [
+    "localVideoUrl",
+    "cdnVideoUrl",
+    "videoUrl",
+    "storageProvider",
+    "storageKey",
+    "localPosterUrl",
+    "cdnPosterUrl",
+    "posterUrl",
+    "posterStorageProvider",
+    "posterStorageKey",
+    "localImageUrl",
+    "cdnImageUrl",
+    "imageResultUrl",
+    "resultAssetMediaBackfillCompletedAt",
+  ];
+  const entries = allowedKeys
+    .filter((key) => Object.prototype.hasOwnProperty.call(fields || {}, key))
+    .map((key) => [key, String(fields[key] || "").trim()])
+    .filter(([, value]) => value);
+  if (!entries.length) return getGenerationRecordFromDb(id);
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const params = [id];
+  const values = entries.map(([key, value]) => {
+    params.push(value);
+    const index = params.length;
+    return `'${key}', COALESCE(NULLIF(payload->>'${key}', ''), $${index}::text)`;
+  });
+  params.push(now);
+  const nowIndex = params.length;
+  const sql = [
+    "UPDATE app_generation_records",
+    "SET payload = payload || jsonb_build_object(",
+    `      ${values.join(",\n      ")}`,
+    `      , 'updatedAt', $${nowIndex}::text`,
+    "      , 'lastUpdateReason', 'result-asset-media-backfill'",
+    "    ),",
+    `    updated_at = $${nowIndex}::timestamptz`,
+    "WHERE task_id = $1",
+    "RETURNING payload",
+  ].join("\n");
+  const { rows } = await query(sql, params);
   return rows[0]?.payload || null;
 }
 
@@ -5513,8 +9405,13 @@ async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates =
     "playbackOptimizedAt",
     "cdnVideoUrl",
     "cdnPosterUrl",
+    "storageProvider",
+    "storageKey",
+    "posterStorageProvider",
+    "posterStorageKey",
     "cdnImageUrl",
     "cdnImageUrls",
+    "cdnImageStorageKeys",
     "localImageUrl",
     "localImagePath",
     "imageResultUrl",
@@ -5522,6 +9419,10 @@ async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates =
     "advancedDownloadPreparedAt",
     "advancedDownloadStatus",
     "advancedDownloadError",
+    "mediaPersistenceAttempts",
+    "mediaPersistenceRetryAt",
+    "mediaPersistenceTerminalAt",
+    "mediaPersistenceLastAttemptAt",
   ];
   const patch = Object.fromEntries(
     allowedKeys
@@ -6263,7 +10164,7 @@ async function createApiSubtokenInDb(record) {
     VALUES (
       $1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::int,
       NULLIF($9, '')::timestamptz, NULLIF($10, '')::timestamptz, NULLIF($11, '')::timestamptz,
-      NULLIF($12, '')::timestamptz, NULLIF($13, '')::timestamptz
+      COALESCE(NULLIF($12, '')::timestamptz, NOW()), COALESCE(NULLIF($13, '')::timestamptz, NOW())
     )
     RETURNING *
   `, [
@@ -6586,6 +10487,14 @@ module.exports = {
   normalizeTenantId,
   dbEnabled,
   ensureSchema,
+  ensureSchemaInner,
+  ensureWebhookDeliveriesSchema,
+  ensureRequestIdempotencySchema,
+  ensureGenerationSubmitJobsSchema,
+  schemaMigrationStatus,
+  assertSchemaReady,
+  getPool,
+  getSchedulerPool,
   query,
   readAppDbFromTables,
   replaceAppDbTables,
@@ -6593,6 +10502,7 @@ module.exports = {
   countCatalogEntriesInDb,
   listCatalogEntriesFromDb,
   getCatalogMigrationStateInDb,
+  listCatalogMigrationStatesInDb,
   markCatalogMigrationInDb,
   getRuntimeSettingFromDb,
   setRuntimeSettingInDb,
@@ -6600,18 +10510,36 @@ module.exports = {
   deleteUserSessionsInDb,
   replaceUserSessionInDb,
   deleteSessionByTokenInDb,
+  revokeUserCredentialsInDb,
   deleteUserWalletOrdersInDb,
   createWalletOrderInDb,
   createManualWalletOrderInDb,
   getUserByUsernameInDb,
+  upsertEmailChallengeInDb,
+  consumeEmailChallengeInDb,
+  deleteEmailChallengeInDb,
   getUserByTelegramIdInDb,
   getUserByGoogleIdInDb,
   getUserByIdInDb,
+  hasAnyActiveUserInDb,
   getUserByApiTokenInDb,
   getUsersByIdsInDb,
   createSessionInDb,
   getSessionByTokenInDb,
+  getSessionByUserDeviceInDb,
+  getUserByVerifiedEmailInDb,
+  getWalletChainScanDataFromDb,
+  getTelegramPaymentNotificationScanDataFromDb,
+  claimTelegramPaymentNotificationRecipientInDb,
+  confirmTelegramPaymentNotificationRecipientInDb,
+  releaseTelegramPaymentNotificationRecipientClaimInDb,
+  recordTelegramPaymentNotificationStateInDb,
   getWalletOrderByIdInDb,
+  getPromotionPurchaseStateInDb,
+  reservePromotionPurchaseInDb,
+  markPromotionPurchasePaidInDb,
+  markPromotionPurchaseFailedInDb,
+  getPromotionPurchaseByOrderInDb,
   getWalletOrderByPaypalIdInDb,
   createReferralWithdrawalInDb,
   updateReferralWithdrawalInDb,
@@ -6635,6 +10563,23 @@ module.exports = {
   getAdminUserCharactersPageFromDb,
   getUserCharactersPageFromDb,
   getAdminSupportMessagesPageFromDb,
+  createSupportTicketInDb,
+  listUserSupportTicketsInDb,
+  countUserSupportUnreadFromDb,
+  getSupportTicketForUserFromDb,
+  getSupportTicketForAdminFromDb,
+  listSupportTicketMessagesFromDb,
+  appendSupportTicketMessageInDb,
+  markSupportTicketReadInDb,
+  updateSupportTicketInDb,
+  getAdminSupportTicketsPageFromDb,
+  listSystemNotificationsForUserFromDb,
+  listAdminSystemNotificationsFromDb,
+  createSystemNotificationInDb,
+  updateSystemNotificationInDb,
+  deleteSystemNotificationInDb,
+  markSystemNotificationReadInDb,
+  markAllSystemNotificationsReadInDb,
   listUserSupportMessagesInDb,
   listLiveNotificationsInDb,
   createLiveNotificationInDb,
@@ -6657,14 +10602,23 @@ module.exports = {
   getAdminCreatorWithdrawalsPageFromDb,
   updateCreatorWithdrawalInDb,
   createUserSupportMessageInDb,
+  getSupportMessageByIdInDb,
   updateUserSupportMessageInDb,
   hasReferralRewardInDb,
   setMembershipActivationCodeStatusInDb,
   redeemMembershipActivationCodeInDb,
   updateWalletOrderInDb,
   updateUserInDb,
+  patchUserPayloadInDb,
   upsertUserAssetInDb,
   getUserAssetFromDb,
+  getUserAssetsForUserFromDb,
+  getUserAuthSummaryFromDb,
+  getUserAssetsByIdsFromDb,
+  getVegaMediaLibraryEntryFromDb,
+  getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,
+  upsertVegaMediaLibraryEntryInDb,
+  getUserAssetIdsByUrlsFromDb,
   upsertUserCharacterInDb,
   listChatConversationsInDb,
   findChatConversationByCharacterInDb,
@@ -6682,9 +10636,12 @@ module.exports = {
   deleteChatMessageInDb,
   deleteChatMessagesAfterInDb,
   listChatLiveCharactersInDb,
+  listChatLiveCharactersByOwnerInDb,
   getChatLiveCharacterInDb,
+  getChatLiveCharacterByOwnerInDb,
   upsertChatLiveCharacterInDb,
   softDeleteChatLiveCharacterInDb,
+  listActiveChatLiveSessionsByCharacterIdInDb,
   createChatLiveSessionInDb,
   getChatLiveSessionInDb,
   getChatLiveSessionByLiveIdInDb,
@@ -6692,6 +10649,9 @@ module.exports = {
   upsertChatCharacterMemoryInDb,
   updateChatLiveSessionInDb,
   withChatLiveSessionSettlementLockInDb,
+  withWalletOrderSettlementLockInDb,
+  withWalletUserSettlementLockInDb,
+  withUserMutationLockInDb,
   allocateChatLiveFreeSecondsInDb,
   finalizeChatLiveFreeAllocationInDb,
   cancelChatLiveFreeAllocationInDb,
@@ -6743,18 +10703,122 @@ module.exports = {
   getKv,
   setKv,
   getKvUpdatedAt,
+  checkDatabaseReadiness,
   migrateGenerationRecordsKvToTable,
   getGenerationRecordsFromDb,
   getStalePreSubmitGenerationRecordsFromDb,
   getGenerationRecordsForScheduledMaintenanceFromDb,
+  getGenerationRecordsNeedingPosterMaintenanceFromDb,
+  getGenerationRecordsNeedingMediaPersistenceFromDb,
   getGenerationRecordsNeedingR2RecoveryFromDb,
   getUserGenerationRecordsPageFromDb,
   getAdminGenerationRecordsPageFromDb,
+  getAdminDashboardStatsFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
   updateGenerationRecordAdvancedDownloadInDb,
+  backfillGenerationRecordResultAssetMediaFieldsInDb,
+  getGenerationRecordsNeedingResultAssetMediaBackfillFromDb,
+  claimTelegramGenerationNotificationInDb,
+  confirmTelegramGenerationNotificationInDb,
+  releaseTelegramGenerationNotificationClaimInDb,
+  enqueueMediaIngestJobInDb,
+  claimMediaIngestJobInDb,
+  claimNextMediaIngestJobsInDb,
+  completeMediaIngestJobInDb,
+  expireExhaustedMediaIngestJobsInDb,
+  failMediaIngestJobInDb,
+  syncFailedMediaIngestRecordStatusesInDb,
+  incrementRateLimitInDb,
+  recordRiskEventInDb,
+  claimWebhookDeliveryInDb,
+  releaseWebhookDeliveryClaimInDb,
+  completeWebhookDeliveryClaimInDb,
+  claimRequestIdempotencyInDb,
+  releaseRequestIdempotencyClaimInDb,
+  completeRequestIdempotencyInDb,
+  enqueueGenerationSubmitJobInDb,
+  claimNextGenerationSubmitJobsInDb,
+  markGenerationSubmitJobSubmittingInDb,
+  completeGenerationSubmitJobInDb,
+  retryGenerationSubmitJobInDb,
+  failGenerationSubmitJobInDb,
+  getGenerationSubmitJobsNeedingReconciliationInDb,
+  prepareGenerationSubmitInDb,
+  markGenerationSubmitJobUnknownInDb,
+  getGenerationSubmitResumeStateInDb,
+  getLoginFailureStateInDb,
+  recordLoginFailureInDb,
+  clearLoginFailuresInDb,
+  cleanupAuthRiskDataInDb,
+  getRiskSummaryFromDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,
   insertWebVitalSamplesInDb,
   getWebVitalsSummaryFromDb,
+  checkDatabaseStartup,
 };
+
+async function checkDatabaseReadiness({ timeoutMs = 1500 } = {}) {
+  if (!dbEnabled()) {
+    const error = new Error("DATABASE_URL is not configured");
+    error.code = "DATABASE_UNAVAILABLE";
+    throw error;
+  }
+  const waitMs = Math.max(250, Number(timeoutMs) || 1500);
+  const pool = getPool();
+  let client;
+  let timer;
+  try {
+    const connection = pool.connect();
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(`Database readiness check timed out after ${waitMs}ms`);
+        error.code = "DATABASE_READINESS_TIMEOUT";
+        reject(error);
+      }, waitMs);
+    });
+    client = await Promise.race([connection, deadline]);
+    await client.query({
+      text: "SELECT 1",
+      query_timeout: waitMs,
+    });
+    return { ok: true };
+  } finally {
+    clearTimeout(timer);
+    client?.release();
+  }
+}
+
+function startupRetryDelay(attempt = 0, baseMs = 250, maxMs = 2000) {
+  const cleanAttempt = Math.max(0, Number(attempt) || 0);
+  return Math.min(Math.max(1, Number(maxMs) || 2000), Math.max(1, Number(baseMs) || 250) * (2 ** cleanAttempt));
+}
+
+async function checkDatabaseStartup({
+  timeoutMs = 5000,
+  attempts = 5,
+  baseDelayMs = 250,
+  maxDelayMs = 2000,
+  check = checkDatabaseReadiness,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  const totalAttempts = Math.max(1, Number(attempts) || 1);
+  let lastError;
+  for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+    try {
+      return await check({ timeoutMs });
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 >= totalAttempts) break;
+      console.warn("[database-startup-retry]", {
+        attempt: attempt + 1,
+        maxAttempts: totalAttempts,
+        code: error?.code || "",
+        message: error?.message || String(error),
+      });
+      await wait(startupRetryDelay(attempt, baseDelayMs, maxDelayMs));
+    }
+  }
+  throw lastError;
+}

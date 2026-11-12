@@ -34,14 +34,16 @@ test("Undress alone gets a responsive idle-loaded ambient background", () => {
   assert.match(server, /home-ambient-poster\.webp" as="image" fetchpriority="high"/);
 });
 
-test("login and registration share one form and one endpoint", () => {
+test("password login stays available without password registration", () => {
   assert.match(html, /<form method="dialog" id="loginForm">/);
   assert.match(html, /data-i18n="auth\.autoRegisterHint"/);
   assert.doesNotMatch(html, /toggleLoginMode/);
   assert.doesNotMatch(config, /loginMode|toggleLoginMode/);
-  assert.match(create, /requestJson\("\/api\/auth\/login-or-register"/);
+  assert.match(create, /requestJson\("\/api\/auth\/login"/);
+  assert.doesNotMatch(create, /requestJson\("\/api\/auth\/login-or-register"/);
   assert.match(main, /els\.loginForm\?\.addEventListener\("submit"/);
-  assert.match(server, /if \(!user && registerIfMissing\) \{\s*return registerWithBody\(req, res, body\);/);
+  assert.match(server, /code: "PASSWORD_REGISTRATION_DISABLED"/);
+  assert.doesNotMatch(server, /if \(!user && registerIfMissing\)/);
   assert.match(server, /url\.pathname === "\/api\/auth\/login-or-register"/);
 });
 
@@ -54,7 +56,8 @@ test("mobile drawer shows one authentication entry while logged out", () => {
   assert.match(config, /mobileDrawerLogoutBtn: document\.querySelector\("#mobileDrawerLogoutBtn"\)/);
   assert.match(ui, /els\.mobileDrawerLogoutBtn\.hidden = !loggedIn/);
   assert.match(main, /els\.mobileDrawerLogoutBtn\?\.addEventListener\("click", logout\)/);
-  assert.match(create, /function logout\(\) \{\s*closeMobileDrawer\(\);/);
+  assert.match(create, /async function logout\(\) \{[\s\S]*?showInlineDialog\(\{[\s\S]*?account\.logoutConfirmTitle[\s\S]*?account\.logoutConfirmBody[\s\S]*?\}\) === "confirm";[\s\S]*?if \(!confirmed\) return;/);
+  assert.match(create, /closeMobileDrawer\(\);[\s\S]*?clearClientAuthState\(\);/);
 });
 
 test("account dropdown avoids duplicate top-up and referral entries", () => {
@@ -111,8 +114,16 @@ test("mobile history opens one preview stream", () => {
   assert.match(create, /if \(allowInlinePreview\) \{[\s\S]*?addEventListener\("focus", showVideo/);
   assert.match(html, /id="previewVideo" controls playsinline preload="metadata"/);
   assert.match(explore, /document\.querySelectorAll\("\.history-media video"\)\.forEach\(\(video\) => video\.pause\(\)\)/);
-  assert.match(explore, /function playPreview\(\{ title = "", previewUrl = "", posterUrl = "", ratio = "16:9" \}/);
-  assert.match(create, /posterUrl: generationPosterUrl\(record\)/);
+  assert.match(explore, /function playPreview\(\{ title = "", previewUrl = "", posterUrl = "", ratio = "16:9", record = null \}/);
+  assert.match(create, /posterUrl: generationPosterUrl\(record\),[\s\S]*?record,/);
+});
+
+test("preview dialog close and download use explicit actions", () => {
+  assert.match(html, /id="previewCloseBtn"[^>]*type="button"/);
+  assert.match(html, /<button class="copy-btn" id="previewDownloadBtn" type="button">/);
+  assert.match(main, /els\.previewCloseBtn\?\.addEventListener\("click"[\s\S]*?previewDialog\.close\("cancel"\)/);
+  assert.match(main, /els\.previewDownloadBtn\?\.addEventListener\("click"[\s\S]*?downloadGenerationRecord\(state\.previewDownloadRecord\)/);
+  assert.match(explore, /state\.previewDownloadRecord = record \|\| null/);
 });
 
 test("history play icon stays centered after Lucide replaces its placeholder", () => {

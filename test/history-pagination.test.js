@@ -7,6 +7,7 @@ const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
 const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
+const copy = fs.readFileSync(path.join(root, "platform.copy.js"), "utf8");
 const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 const explore = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 
@@ -22,12 +23,25 @@ test("history keeps the page the visitor is reading", () => {
   assert.match(create, /await loadHistory\(\{ silent: true, page: currentHistoryPage\(\), preserveMobile: true \}\)/);
 });
 
-test("history completion does not run in the background", () => {
+test("history short cache only absorbs rapid navigation bursts", () => {
+  assert.match(copy, /const HISTORY_SHORT_CACHE_MS = 3 \* 1000;/);
+  assert.match(copy, /const historyShortCache = new Map\(\);/);
+  assert.match(create, /const cached = refresh \|\| append \? null : historyShortCache\.get\(cacheKey\);/);
+  assert.match(create, /Date\.now\(\) - cached\.at <= HISTORY_SHORT_CACHE_MS/);
+  assert.match(create, /if \(!refresh && !append\) historyShortCache\.set\(cacheKey, \{ at: Date\.now\(\), payload \}\);/);
+  assert.doesNotMatch(create, /localStorage\.setItem\([^\n]*history/i);
+});
+
+test("generation completion polls on a visibility-aware dynamic schedule", () => {
   const poller = ui.match(/function syncGenerationCompletionRefresh\(\)[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(poller, "syncGenerationCompletionRefresh should exist");
-  assert.doesNotMatch(poller, /setInterval/);
+  assert.match(poller, /generationCompletionCanPoll\(\)/);
+  assert.match(poller, /scheduleGenerationCompletionRefresh/);
   assert.doesNotMatch(poller, /loadHistory\(/);
-  assert.doesNotMatch(create, /delayMs: 15000/);
+  assert.match(ui, /const GENERATION_COMPLETION_REFRESH_INTERVAL_MS = 15 \* 1000;/);
+  assert.match(ui, /const GENERATION_COMPLETION_IDLE_REFRESH_INTERVAL_MS = 120 \* 1000;/);
+  assert.match(ui, /document\.visibilityState !== "visible"/);
+  assert.match(ui, /GENERATION_COMPLETION_LEADER_STORAGE_KEY/);
 });
 
 test("a page that disappeared steps back instead of rendering empty", () => {

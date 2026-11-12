@@ -15,7 +15,11 @@ const html = read("platform.html");
 const frontend = read("platform.undress-tool.js");
 const ui = read("platform.ui.js");
 const admin = read("admin.js");
-const history = read("platform.create.js");
+const history = fs.readdirSync(path.join(root, "platform.create.parts"))
+  .filter((file) => /^part-\d+\.js$/.test(file))
+  .sort()
+  .map((file) => read(path.join("platform.create.parts", file)))
+  .join("\n");
 const css = read("tool-undress.css");
 const videoTools = read("video-tools.js");
 
@@ -46,7 +50,7 @@ test("tool public requests avoid loading the full home catalog and anonymous dat
   assert.match(publicConfigHandler, /const isToolOnly = Boolean\(tenantOptions\.toolOnly\)/);
   assert.match(publicConfigHandler, /if \(!isToolOnly\) \{[\s\S]*?ensureSceneEntriesPersisted[\s\S]*?refreshCompletedHomeVideoItems/);
   assert.match(publicConfigHandler, /const auth = getBearerToken\(req\) \? await getAuth\(req(?:, \{ loadDb: false \})?\) : \{ user: null \}/);
-  assert.match(server, /if \(!requestTenantOptions\(req\)\.toolOnly\) await recordGeoVisitStats\(req, url\)/);
+  assert.match(server, /if \(!requestTenantOptions\(req\)\.toolOnly\) \{[\s\S]*?recordGeoVisitStats\(req, url\)\.catch\(/);
 });
 
 test("the first image claim is atomic, persistent, and released only after a failed claim", () => {
@@ -84,7 +88,8 @@ test("locked free results expose no media and cannot be downloaded or added to a
   assert.match(publicView, /publicRecord\.mediaAssets = \[\]/);
   assert.match(publicView, /publicRecord\.prompt = ""/);
   assert.match(server, /code: "RESULT_LOCKED"/);
-  assert.match(server, /saveGeneratedImageFile\(taskId, downloaded\.bytes, mime, \{ publish: false, forceLocal: true \}\)/);
+  assert.match(server, /downloadRemoteFileToBuffer\(imageUrl, \{ label: `\$\{resultLabel\} result`/);
+  assert.match(server, /resultLocked: freeImageGeneration/);
   assert.match(server, /lockedRecord\?\.resultLocked === true/);
   assert.match(server, /objectStoragePath\("generated", "images", fileName\)/);
   assert.match(server, /async function handleUnlockUndressToolResult/);
@@ -216,7 +221,7 @@ test("generated Undress videos are fast-started and show their poster while prev
   assert.match(server, /await ensureGeneratedVideoFastStart\(localVideoPath\)/);
   assert.match(server, /fastStartUpdated \|\| !cdnVideoUrl/);
   assert.match(server, /cacheBustedMediaUrl\(cdn\.cdnVideoUrl \|\| cdnVideoUrl, Date\.now\(\)\)/);
-  assert.match(server, /function generationRecordNeedsMediaMaintenance\(record = \{\}\)[\s\S]*?!record\.playbackOptimizedAt/);
+  assert.match(server, /function generationRecordNeedsMediaMaintenance\(record = \{\}\)[\s\S]*?!videoReady \|\| !posterReady/);
   assert.match(server, /playbackOptimizedAt: finalMedia\.playbackOptimizedAt \|\| completedAt/);
   assert.match(history, /posterUrl: generationPosterUrl\(record\)/);
 });
@@ -261,13 +266,13 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(css, /\.history-undress-result-actions[\s\S]*?border-radius: 10px/);
   assert.match(css, /\.history-undress-result-actions button[\s\S]*?width: 34px[\s\S]*?border-radius: 8px/);
   assert.match(css, /\.history-panel \.history-list[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
-  assert.match(server, /r2KeyFromPublicDownloadUrl\(target\.objectStorageUrl\)/);
+  assert.match(server, /objectStorageDownloadKey\(target\)/);
   assert.match(server, /left\[0\] < right\[0\] \? -1 : 1/);
   assert.doesNotMatch(server, /left\[0\]\.localeCompare\(right\[0\]\)/);
-  assert.match(server, /source: signedUrl \? "r2_signed" : "authenticated_proxy"/);
-  assert.match(ui, /href = payload\.url/);
-  assert.match(ui, /download-url\?quality=r2/);
-  assert.match(ui, /await saveDownloadFromFetch\(href, fileName\)/);
+  assert.ok(server.includes("${storage.provider}_signed"));
+  assert.match(ui, /href = String\(payload\.url \|\| ""\)\.trim\(\)/);
+  assert.match(ui, /download-url\?\$\{query\}/);
+  assert.match(ui, /triggerBrowserDownload\(href, fileName\)/);
   assert.match(history, /setAdvancedDownloadButtonState\(button, "transferring"\)/);
   assert.match(history, /setAdvancedDownloadButtonState\(button, ok \? "ready" : "failed"\)/);
   assert.match(history, /data-history-download[\s\S]*?button\.disabled = true[\s\S]*?await downloadGenerationRecord\(record\)[\s\S]*?button\.disabled = false/);

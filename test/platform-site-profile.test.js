@@ -9,11 +9,13 @@ const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8
 const tenants = fs.readFileSync(path.resolve(__dirname, "..", "lib-tenants.js"), "utf8");
 const tenantRuntime = require(path.resolve(__dirname, "..", "lib-tenants.js"));
 const config = fs.readFileSync(path.resolve(__dirname, "..", "platform.config.js"), "utf8");
+const html = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
 const ui = fs.readFileSync(path.resolve(__dirname, "..", "platform.ui.js"), "utf8");
 const create = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.js"), "utf8");
 const explore = fs.readFileSync(path.resolve(__dirname, "..", "platform.explore.js"), "utf8");
 const main = fs.readFileSync(path.resolve(__dirname, "..", "platform.main.js"), "utf8");
 const copy = fs.readFileSync(path.resolve(__dirname, "..", "platform.copy.js"), "utf8");
+const platformCss = fs.readFileSync(path.resolve(__dirname, "..", "platform.css"), "utf8");
 
 // server.js is a single module, so a pure helper is lifted out of the real
 // source text and exercised directly.
@@ -32,6 +34,49 @@ function extractFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
+test("navigation and page sub-tabs share the Character pink tab system", () => {
+  const selectors = [
+    ".top-tabs .top-tab",
+    ".top-tabs .top-tab-child",
+    ".top-nav-group-toggle",
+    ".gallery-mode-tabs .gallery-mode-tab",
+    ".case-category-tab",
+    ".advanced-create-kind",
+    ".advanced-create-mode",
+    ".advanced-preset-source-tab",
+    ".advanced-case-tab",
+    ".advanced-mobile-tab",
+    ".advanced-side-tab",
+    ".auth-method-tab",
+    ".topup-method-tab",
+    ".playflux-template-tab",
+    ".playflux-source-modes button",
+    ".creator-segment button",
+    ".access-mode-tab",
+    ".access-tab",
+    ".workflow-node-tabs button",
+    ".undress-case-tab",
+  ];
+
+  assert.match(platformCss, /--tab-pink:\s*#ff4fa3;/);
+  for (const selector of selectors) {
+    assert.ok(platformCss.includes(selector), `shared tab styles are missing ${selector}`);
+  }
+  assert.match(platformCss, /\)\.is-active \{\s*border-color: var\(--tab-pink-border\);\s*color: #fff;\s*background: linear-gradient\(135deg, rgba\(255, 79, 163, \.28\), var\(--tab-pink-surface\)\);\s*box-shadow: var\(--tab-pink-glow\);/);
+});
+
+test("site-specific themes keep the shared pink navigation state", () => {
+  for (const file of ["tool-video.css", "tool-undress.css", "site-123vipfans.css"]) {
+    const css = fs.readFileSync(path.resolve(__dirname, "..", file), "utf8");
+    const marker = file === "tool-undress.css" ? "Shared tab language" : "Shared navigation tab language";
+    const sharedStart = css.indexOf(marker);
+    const sharedCss = file === "site-123vipfans.css" ? css : css.slice(Math.max(sharedStart, 0));
+    assert.ok(sharedStart >= 0 || file === "site-123vipfans.css", `${file} has no shared tab block`);
+    assert.match(sharedCss, /\.top-tab\.is-active[\s\S]*?border-color: rgba\(255,79,163,\.72\);[\s\S]*?color: #fff;[\s\S]*?background: linear-gradient\(135deg, rgba\(255,79,163,\.28\)/, `${file} overrides the pink tab state`);
+  }
+});
+
+
 test("only 123vipeak.com uses the standalone landing page", () => {
   assert.equal(tenantRuntime.defaultPageForHostname("123vipeak.com"), "/site-landing.html");
   assert.equal(tenantRuntime.defaultPageForHostname("www.123vipeak.com"), "/site-landing.html");
@@ -40,6 +85,49 @@ test("only 123vipeak.com uses the standalone landing page", () => {
   assert.equal(tenantRuntime.defaultPageForHostname("www.123vips.com"), "/platform.html");
   assert.equal(tenantRuntime.defaultPageForHostname("123vip.fans"), "/platform.html");
   assert.equal(tenantRuntime.defaultPageForHostname("667zui.video"), "/platform.html");
+});
+
+test("123vip.fans reuses the shared Generate surface without profile overrides", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
+  const profileCss = fs.readFileSync(path.resolve(__dirname, "..", "site-123vipfans.css"), "utf8");
+
+  assert.equal(tenantRuntime.defaultPageForHostname("123vip.fans"), "/platform.html");
+  assert.equal(tenantRuntime.defaultPageForHostname("www.123vip.fans"), "/platform.html");
+  assert.match(html, /id="advancedWorkspace"/);
+  assert.match(html, /id="advancedParameterChips"/);
+  assert.match(html, /id="advancedSubmitBtn"/);
+
+  for (const selector of [
+    "advanced-generator-toolbar",
+    "advanced-parameter",
+    "advanced-form-card",
+    "advanced-workspace",
+    "advancedSubmitBtn",
+  ]) {
+    assert.doesNotMatch(profileCss, new RegExp(selector), `profile CSS must not override shared Generate selector: ${selector}`);
+  }
+});
+
+test("Generate parameter pickers close after selection and duration uses a slider", () => {
+  const createSource = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.parts", "part-02.js"), "utf8");
+  const start = createSource.indexOf("function renderAdvancedParameterPanel(");
+  const end = createSource.indexOf("function openAdvancedParameterPanel(", start);
+  assert.ok(start >= 0 && end > start);
+  const picker = createSource.slice(start, end);
+  assert.match(picker, /data-advanced-parameter-duration-range/);
+  assert.doesNotMatch(picker, /advanced-parameter-duration-shortcuts/);
+  assert.doesNotMatch(picker, /data-advanced-parameter-option-kind="duration"/);
+  assert.doesNotMatch(picker, /advanced-parameter-panel-head/);
+  assert.doesNotMatch(picker, /advanced-parameter-panel-close/);
+  assert.doesNotMatch(picker, /advanced-parameter-option-check/);
+  assert.match(createSource, /dataset\.advancedParameterPlacement = openUp \? "up" : "down"/);
+
+  const setter = createSource.slice(
+    createSource.indexOf("function setAdvancedParameterValue("),
+    createSource.indexOf("function handleAdvancedParameterTriggerClick("),
+  );
+  assert.match(setter, /select\.value = String\(value\);\s*closeAdvancedParameterPanel\(\);/);
+  assert.doesNotMatch(setter, /keepPanelOpen/);
 });
 
 test("the www host serves the same site profile as the apex", () => {
@@ -90,7 +178,7 @@ test("a non-tool host honours its explicit default tab before local storage", ()
   );
   assert.match(initialTab, /if \(bootstrapTenantFeature\("toolOnly", false\)\) return initialTenantDefaultTab\(\)/);
   assert.match(initialTab, /const siteDefaultTab = bootstrapTenantFeatures\(\)\.defaultTab/);
-  assert.match(initialTab, /return normalizePlatformTab\(siteDefaultTab\)/);
+  assert.match(initialTab, /return publicTab\(siteDefaultTab\)/);
   assert.ok(
     initialTab.indexOf("siteDefaultTab") < initialTab.indexOf("localStorage.getItem(TAB_KEY)"),
     "the explicit site default tab must win over the remembered tab",
@@ -104,11 +192,20 @@ test("gallery shortcut tabs disappear when the profile hides the gallery", () =>
   assert.match(explore, /const disabled = !galleryAllowed \|\| !isGalleryModeAllowed\(button\.dataset\.galleryShortcut \|\| ""\)/);
 });
 
+test("advanced stays available internally but its user-facing route is hidden", () => {
+  assert.match(html, /<button class="top-tab" data-tab="advanced" type="button" hidden>/);
+  assert.match(config, /return tab === "advanced" \? "custom" : tab;/);
+  assert.match(explore, /platformHashParts\(tab\)\.tab === "advanced"\) tab = "custom"/);
+  assert.match(explore, /const customActive = state\.tab === "advanced";/);
+  assert.match(ui, /element\.hidden = tab === "advanced" \|\| hiddenByToolGallery \|\| !isTabAllowed\(tab\)/);
+});
+
 test("the profile lands on its own route and can hide a nav entry without disabling the panel", () => {
   assert.match(server, /const activeNavTab = tenant\.defaultRoute === "custom" \? "custom" : profileTab/);
   assert.match(server, /\(tenant\.hiddenNavTabs \|\| \[\]\)\.forEach\(\(tab\) =>/);
   assert.match(ui, /const hiddenNavTabs = tenantListFeature\("hiddenNavTabs"\)/);
   assert.match(ui, /if \(hiddenNavTabs\.includes\(element\.dataset\.tab \|\| ""\)\) element\.hidden = true/);
+  assert.match(ui, /element\.hidden = tab === "advanced" \|\| hiddenByToolGallery \|\| !isTabAllowed\(tab\)/);
   assert.match(create, /setTab\(window\.location\.hash \|\| tenantStringFeature\("defaultRoute", ""\) \|\| state\.tab\)/);
 });
 

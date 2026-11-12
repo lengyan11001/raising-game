@@ -1,17 +1,56 @@
+/* Main-site viewport compatibility. Keep visualViewport height authoritative on
+   mobile so address-bar and keyboard changes do not rely on stale 100vh. */
+let platformViewportFrame = 0;
+function syncPlatformViewportMetrics() {
+  platformViewportFrame = 0;
+  const root = document.documentElement;
+  const viewport = window.visualViewport;
+  const height = Math.max(1, Math.round(viewport?.height || window.innerHeight || root.clientHeight || 0));
+  const width = Math.max(1, Math.round(viewport?.width || window.innerWidth || root.clientWidth || 0));
+  const keyboardInset = Math.max(0, Math.round((window.innerHeight || height) - height));
+  root.style.setProperty("--app-height", `${height}px`);
+  root.style.setProperty("--app-width", `${width}px`);
+  root.style.setProperty("--app-keyboard-inset", `${keyboardInset}px`);
+  document.body?.classList.toggle("app-keyboard-open", keyboardInset >= 120);
+}
+function schedulePlatformViewportSync() {
+  if (platformViewportFrame) return;
+  platformViewportFrame = window.requestAnimationFrame(syncPlatformViewportMetrics);
+}
+window.PlatformViewport = { sync: syncPlatformViewportMetrics };
+syncPlatformViewportMetrics();
+window.addEventListener("resize", schedulePlatformViewportSync, { passive: true });
+window.addEventListener("orientationchange", schedulePlatformViewportSync, { passive: true });
+window.visualViewport?.addEventListener("resize", schedulePlatformViewportSync, { passive: true });
+window.visualViewport?.addEventListener("scroll", schedulePlatformViewportSync, { passive: true });
+
 /* holiday-referral-nav */
 async function startPlatform() {
   const allowed = await ensureAgeGate();
   if (!allowed) return;
   await bootstrap();
-  initChatOnboarding();
+  const hydrate = () => initChatOnboarding();
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(hydrate, { timeout: 1200 });
+  } else {
+    window.setTimeout(hydrate, 300);
+  }
 }
 
 document.addEventListener("click", (event) => {
-  if (event.target.closest("#sideNavMoreMenu [data-tab]")) {
-    const menu = document.getElementById("sideNavMoreMenu");
-    const moreButton = document.getElementById("sideNavMoreBtn");
-    if (menu) menu.hidden = true;
-    moreButton?.setAttribute("aria-expanded", "false");
+  // Video tools load in the idle phase. If the user beats that loader, wait
+  // for the module and open the selected tool instead of dropping the click.
+  const deferredVideoTool = event.target.closest("[data-video-tool-action]");
+  if (deferredVideoTool && typeof openVideoToolDialog !== "function") {
+    event.preventDefault();
+    event.stopPropagation();
+    const action = deferredVideoTool.dataset.videoToolAction || "";
+    window.PlatformDeferredModules?.load?.()
+      .then(() => {
+        if (typeof openVideoToolDialog === "function") openVideoToolDialog(action);
+      })
+      .catch((error) => console.warn("video tool module unavailable", error.message || error));
+    return;
   }
   const homeAction = event.target.closest("[data-home-action]");
   if (homeAction) {
@@ -23,6 +62,16 @@ document.addEventListener("click", (event) => {
       return;
     }
     if (typeof openLogin === "function") openLogin();
+    return;
+  }
+  const galleryTopTab = event.target.closest("[data-gallery-top-tab]");
+  if (galleryTopTab) {
+    const mode = galleryTopTab.dataset.galleryTopTab || "cases";
+    state.routeCharacterId = "";
+    state.routeCharacterSource = "";
+    state.activeGalleryCharacterId = "";
+    if (mode === "cases") setTab("cases");
+    else setGalleryMode(mode);
     return;
   }
   const galleryShortcut = event.target.closest("[data-gallery-shortcut]");
@@ -68,7 +117,12 @@ els.wan30LaunchClose?.addEventListener("click", () => {
 syncWan30LaunchVisibility(false);
 els.mobileDrawerToggle?.addEventListener("click", toggleMobileDrawer);
 els.mobileDrawerBackdrop?.addEventListener("click", closeMobileDrawer);
-window.addEventListener("hashchange", () => setTab(window.location.hash));
+window.addEventListener("hashchange", () => {
+  // The React canvas owns history while a project detail is open. Resolve the
+  // back gesture inside the canvas first so the shell does not hide #workflow.
+  if (window.handleWorkflowCanvasHistoryBack?.()) return;
+  setTab(window.location.hash);
+});
 els.templateImage?.addEventListener("change", async () => {
   const file = els.templateImage.files?.[0];
   if (!file) return;
@@ -80,6 +134,10 @@ els.advancedImage?.addEventListener("change", async () => {
   const provider = currentAdvancedProvider();
   const files = Array.from(els.advancedImage.files || []);
   if (!files.length) return;
+  if (isVegaAdvancedProvider(provider)) {
+    await handleAdvancedVegaLocalFiles(files);
+    return;
+  }
   const localPresetUpload = state.advancedLocalUploadSlot === "character"
     && state.advancedCreateKind !== "custom"
     && advancedCreateModeActivePresetSlots().includes("character");
@@ -452,6 +510,13 @@ els.advancedImage?.addEventListener("change", async () => {
 els.advancedSeedanceFirstFrame?.addEventListener("change", async () => {
   const file = els.advancedSeedanceFirstFrame.files?.[0];
   if (!file) return;
+  if (isVegaAdvancedProvider()) {
+    state.advancedAssetTarget = "primary";
+    await handleAdvancedVegaLocalFiles([file], { preserveTarget: true });
+    els.advancedSeedanceFirstFrame.value = "";
+    updateAdvancedModelControls();
+    return;
+  }
   if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES || !String(file.type || "").startsWith("image/")) {
     els.advancedSeedanceFirstFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
@@ -489,6 +554,13 @@ els.advancedSeedanceFirstFrame?.addEventListener("change", async () => {
 els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
   const file = els.advancedSeedanceLastFrame.files?.[0];
   if (!file) return;
+  if (isVegaAdvancedProvider()) {
+    state.advancedAssetTarget = "lastFrame";
+    await handleAdvancedVegaLocalFiles([file], { preserveTarget: true });
+    els.advancedSeedanceLastFrame.value = "";
+    updateAdvancedModelControls();
+    return;
+  }
   if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) {
     els.advancedSeedanceLastFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
@@ -523,6 +595,13 @@ els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
 els.advancedWanFirstFrame?.addEventListener("change", async () => {
   const file = els.advancedWanFirstFrame.files?.[0];
   if (!file) return;
+  if (isVegaAdvancedProvider()) {
+    state.advancedAssetTarget = "primary";
+    await handleAdvancedVegaLocalFiles([file], { preserveTarget: true });
+    els.advancedWanFirstFrame.value = "";
+    updateAdvancedModelControls();
+    return;
+  }
   if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES || !String(file.type || "").startsWith("image/")) {
     els.advancedWanFirstFrame.value = "";
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
@@ -573,6 +652,13 @@ els.advancedSeedanceGenerateAudio?.addEventListener("change", () => {
 els.advancedWanLastFrame?.addEventListener("change", async () => {
   const file = els.advancedWanLastFrame.files?.[0];
   if (!file) return;
+  if (isVegaAdvancedProvider()) {
+    state.advancedAssetTarget = "lastFrame";
+    await handleAdvancedVegaLocalFiles([file], { preserveTarget: true });
+    els.advancedWanLastFrame.value = "";
+    updateAdvancedModelControls();
+    return;
+  }
   if (file.size > 20 * 1024 * 1024) {
     state.advancedWanLastFrameDataUrl = "";
     state.advancedWanLastFrameAssetId = "";
@@ -617,6 +703,13 @@ els.advancedWanLastFrame?.addEventListener("change", async () => {
 els.advancedWanClipFile?.addEventListener("change", async () => {
   const file = els.advancedWanClipFile.files?.[0];
   if (!file) return;
+  if (isVegaAdvancedProvider()) {
+    state.advancedAssetTarget = "video";
+    await handleAdvancedVegaLocalFiles([file], { preserveTarget: true });
+    els.advancedWanClipFile.value = "";
+    updateAdvancedModelControls();
+    return;
+  }
   if (file.size > ADVANCED_WAN_CLIP_MAX_BYTES) {
     state.advancedWanClipDataUrl = "";
     state.advancedWanClipFileName = "";
@@ -667,6 +760,7 @@ els.advancedMobileTabs?.querySelectorAll("[data-advanced-mobile-tab]").forEach((
 });
 els.refreshAdvancedResultBtn?.addEventListener("click", () => refreshAdvancedResultRecord());
 els.workflowRoot?.addEventListener("click", handleWorkflowClick);
+els.workflowRoot?.addEventListener("dragstart", handleWorkflowPaletteDragStart);
 els.workflowRoot?.addEventListener("pointerdown", handleWorkflowPointerDown);
 els.workflowRoot?.addEventListener("wheel", handleWorkflowWheel, { passive: false });
 els.workflowRoot?.addEventListener("dragover", (event) => {
@@ -707,7 +801,7 @@ els.advancedCreateKindTabs?.addEventListener("click", (event) => {
 els.advancedResultKindTabs?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-advanced-result-kind]");
   if (!button) return;
-  state.advancedResultMediaKind = button.dataset.advancedResultKind || "video";
+  setAdvancedResultMediaKind(button.dataset.advancedResultKind || "video");
   renderAdvancedResultPanel();
 });
 els.advancedCreateModeTabs?.addEventListener("click", (event) => {
@@ -715,7 +809,21 @@ els.advancedCreateModeTabs?.addEventListener("click", (event) => {
   if (!button) return;
   setAdvancedCreateMode(button.dataset.advancedCreateMode || "");
 });
+function enrichRichPromptEditor() {
+  const richElement = window.VipeakPromptEditorAdapter?.getElement?.();
+  if (!richElement) return;
+  if (richElement.dataset.vipeakPromptEvents === "true") return;
+  richElement.dataset.vipeakPromptEvents = "true";
+  richElement.addEventListener("click", renderAdvancedPromptMentionMenu);
+  richElement.addEventListener("keyup", (event) => {
+    if (["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) return;
+    renderAdvancedPromptMentionMenu();
+  });
+  richElement.addEventListener("blur", () => window.setTimeout(closeAdvancedPromptMentions, 120));
+}
 els.advancedPrompt?.addEventListener("input", handleAdvancedPromptMentionInput);
+els.advancedPrompt?.addEventListener("input", () => scheduleAutoSizeAdvancedPrompt({ force: true }));
+els.advancedPrompt?.addEventListener("scroll", syncAdvancedPromptHighlight);
 els.advancedPrompt?.addEventListener("click", renderAdvancedPromptMentionMenu);
 els.advancedPrompt?.addEventListener("keyup", (event) => {
   if (["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) return;
@@ -724,16 +832,22 @@ els.advancedPrompt?.addEventListener("keyup", (event) => {
 els.advancedPrompt?.addEventListener("keydown", handleAdvancedPromptMentionKeydown);
 els.advancedPrompt?.addEventListener("blur", () => window.setTimeout(closeAdvancedPromptMentions, 120));
 els.advancedPromptMentions?.addEventListener("pointerdown", handleAdvancedPromptMentionPointer);
+bindAdvancedPromptResizeHandle();
 els.advancedPrompt?.addEventListener("paste", (event) => {
-  handleAdvancedPromptPaste(event).catch((error) => {
+  Promise.resolve(handleAdvancedPromptPaste(event)).catch((error) => {
     if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
   });
 });
+setTimeout(enrichRichPromptEditor, 0);
+document.addEventListener("platform-prompt-editor-ready", enrichRichPromptEditor);
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest("#advancedPrompt, #advancedPromptMentions")) return;
+  if (event.target.closest("#advancedPrompt, #advancedPromptEditorMount, #advancedPromptMentions")) return;
   closeAdvancedPromptMentions();
 });
-window.addEventListener("resize", positionAdvancedPromptMentionMenu);
+window.addEventListener("resize", () => {
+  positionAdvancedPromptMentionMenu();
+  autoSizeAdvancedPrompt({ force: true });
+});
 els.characterCreateBtn?.addEventListener("click", createCharacterFromPrompt);
 els.assetSearch?.addEventListener("input", () => {
   window.clearTimeout(state.assetSearchTimer);
@@ -748,10 +862,19 @@ els.advancedAssetSearch?.addEventListener("input", () => {
   window.clearTimeout(state.advancedAssetSearchTimer);
   state.advancedAssetSearchTimer = window.setTimeout(() => loadAdvancedAssets(1), 250);
 });
-els.advancedAssetTypeFilter?.addEventListener("change", () => loadAdvancedAssets(1));
-els.advancedAssetUploadInput?.addEventListener("change", () => {
+els.advancedAssetTypeFilter?.addEventListener("change", () => {
+  filterAdvancedAssetsByType(els.advancedAssetTypeFilter?.value || "");
+});
+els.advancedAssetUploadInput?.addEventListener("change", async () => {
   updateFilePickerLabel(els.advancedAssetUploadInput);
-  uploadAdvancedAssets(els.advancedAssetUploadInput.files);
+  const files = Array.from(els.advancedAssetUploadInput.files || []);
+  if (isVegaAdvancedProvider()) {
+    await handleAdvancedVegaLocalFiles(files);
+    els.advancedAssetUploadInput.value = "";
+    updateFilePickerLabel(els.advancedAssetUploadInput);
+    return;
+  }
+  uploadAdvancedAssets(files);
 });
 els.topupFilters?.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -939,6 +1062,24 @@ els.topupHeadBtn?.addEventListener("click", openTopupDialog);
 els.toolDownloadBtn?.addEventListener("click", openToolDownload);
 els.mobileToolDownloadBtn?.addEventListener("click", openToolDownload);
 els.topupQrDialog?.addEventListener("close", syncTopupAutoRefresh);
+els.previewCloseBtn?.addEventListener("click", () => {
+  if (els.previewDialog?.open) els.previewDialog.close("cancel");
+});
+els.previewDownloadBtn?.addEventListener("click", async () => {
+  const button = els.previewDownloadBtn;
+  if (!button || button.disabled || button.dataset.downloadReady !== "true") return;
+  button.disabled = true;
+  try {
+    if (state.previewDownloadRecord) {
+      const ok = await downloadGenerationRecord(state.previewDownloadRecord);
+      if (!ok) return;
+    } else if (state.previewDownloadUrl) {
+      triggerBrowserDownload(state.previewDownloadUrl, state.previewDownloadName || "vipeak-video.mp4");
+    }
+  } finally {
+    button.disabled = false;
+  }
+});
 els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;
   els.previewVideo.pause();
@@ -970,12 +1111,42 @@ els.advancedPresetDialog?.addEventListener("close", () => {
 function handleAdvancedDurationSelection() {
   syncAdvancedVideoSettingsControls();
   updateAdvancedButtonCost();
+  syncAdvancedParameterChips();
+  if (els.advancedParameterPanel?.matches(":not([hidden])")) renderAdvancedParameterPanel(state.advancedParameterOpen);
 }
 els.advancedDuration?.addEventListener("input", handleAdvancedDurationSelection);
 // iOS Safari reliably emits change, but not input, for native select pickers.
 els.advancedDuration?.addEventListener("change", handleAdvancedDurationSelection);
+els.advancedParameterTrigger?.addEventListener("click", handleAdvancedParameterTriggerClick);
+els.advancedParameterChips?.addEventListener("click", handleAdvancedParameterChipClick);
+els.advancedParameterPanel?.addEventListener("click", handleAdvancedParameterPanelClick);
+els.advancedParameterPanel?.addEventListener("input", handleAdvancedParameterPanelInput);
+els.advancedParameterPanel?.addEventListener("change", handleAdvancedParameterPanelChange);
+document.addEventListener("click", handleAdvancedParameterDocumentClick);
+document.addEventListener("keydown", handleAdvancedParameterKeydown);
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
+  const provider = currentAdvancedProvider();
+  if (isVegaProviderId(provider)) {
+    syncAdvancedSeedanceModeOptions(provider);
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+    if (els.advancedRatio) els.advancedRatio.value = "adaptive";
+    if (els.advancedResolution) els.advancedResolution.value = provider === "vega10-lite" ? "768P" : "1080P";
+    if (els.advancedDuration) els.advancedDuration.value = provider === "h3-vega" ? "6" : provider === "seedance20-vega" ? "5" : "5";
+    if (els.advancedWanSeed) els.advancedWanSeed.value = "";
+    if (els.advancedVegaTaskType) els.advancedVegaTaskType.value = "auto";
+    if (els.advancedVegaDraft) els.advancedVegaDraft.checked = false;
+    if (els.advancedVegaDraftTaskId) els.advancedVegaDraftTaskId.value = "";
+    if (els.advancedVegaAssetGroupId) els.advancedVegaAssetGroupId.value = "";
+    if (els.advancedVegaReturnLastFrame) els.advancedVegaReturnLastFrame.checked = false;
+    if (els.advancedVegaReturnUsage) els.advancedVegaReturnUsage.checked = false;
+    if (els.advancedVegaGenerateMode) els.advancedVegaGenerateMode.value = "Standard";
+    if (els.advancedVegaQualityMode) els.advancedVegaQualityMode.value = "Standard";
+    if (els.advancedVegaOutputFormat) els.advancedVegaOutputFormat.value = "mp4";
+    if (els.advancedVegaEnhancePromptMode) els.advancedVegaEnhancePromptMode.value = "auto";
+    if (els.advancedVegaModerationMode) els.advancedVegaModerationMode.value = "Moderation_L1";
+    state.advancedAssetTarget = "referenceImages";
+  }
   if (["seedance25", "seedance-nsfw"].includes(currentAdvancedProvider())) {
     syncAdvancedSeedanceModeOptions(currentAdvancedProvider());
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "omini";
@@ -1037,15 +1208,62 @@ els.advancedLegacyWanModel?.addEventListener("change", () => {
 });
 els.advancedWanAnimateMode?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedSeedanceMediaMode?.addEventListener("change", () => {
-  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
   const provider = currentAdvancedProvider();
-  if (["seedance25", "seedance-nsfw"].includes(provider)) {
-    const previousPromptRefs = advancedPromptMentionSnapshot();
-    if (seedanceModeNeedsFirstFrame(seedanceMode)) {
+  const vega = isVegaAdvancedProvider(provider);
+  const mode = vega
+    ? normalizeVegaUiMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video")
+    : normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
+  const previousPromptRefs = advancedPromptMentionSnapshot();
+  if (vega) {
+    if (!vegaModeUsesReferences(mode)) {
       state.advancedReferenceImages = [];
       setAdvancedSeedanceVideoReferences([]);
       setAdvancedSeedanceAudioReferences([]);
-    } else if (provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)) {
+      state.advancedUploadDataUrl = "";
+    }
+    if (!vegaModeNeedsFirstFrame(mode)) {
+      state.advancedSeedanceFirstFrameAssetId = "";
+      state.advancedSeedanceFirstFrameDataUrl = "";
+      state.advancedFirstFrameAssetId = "";
+    }
+    if (!vegaModeNeedsLastFrame(mode)) {
+      state.advancedSeedanceLastFrameAssetId = "";
+      state.advancedSeedanceLastFrameDataUrl = "";
+    }
+    if (mode === "draft_followup") {
+      if (els.advancedPrompt) {
+        window.setAdvancedPromptValue?.("", { emitInput: false });
+        autoSizeAdvancedPrompt({ force: true, resetManual: true });
+      }
+      state.advancedReferenceImages = [];
+      setAdvancedSeedanceVideoReferences([]);
+      setAdvancedSeedanceAudioReferences([]);
+      state.advancedUploadDataUrl = "";
+      state.advancedSeedanceFirstFrameAssetId = "";
+      state.advancedSeedanceFirstFrameDataUrl = "";
+      state.advancedSeedanceLastFrameAssetId = "";
+      state.advancedSeedanceLastFrameDataUrl = "";
+      if (els.advancedVegaDraft) els.advancedVegaDraft.checked = false;
+      if (els.advancedVegaTaskType) els.advancedVegaTaskType.value = "auto";
+      if (els.advancedVegaDraftTaskId) els.advancedVegaDraftTaskId.value = "";
+      if (els.advancedResolution) els.advancedResolution.value = "480P";
+    }
+    if (els.advancedImage) els.advancedImage.value = "";
+    if (els.advancedSeedanceFirstFrame) els.advancedSeedanceFirstFrame.value = "";
+    if (els.advancedSeedanceLastFrame) els.advancedSeedanceLastFrame.value = "";
+    state.advancedAssetTarget = mode === "last_frame"
+      ? "lastFrame"
+      : mode === "first_frame" || mode === "first_last_frame"
+      ? "primary"
+      : mode === "reference_video"
+      ? "referenceImages"
+      : "primary";
+  } else if (["seedance25", "seedance-nsfw"].includes(provider)) {
+    if (seedanceModeNeedsFirstFrame(mode)) {
+      state.advancedReferenceImages = [];
+      setAdvancedSeedanceVideoReferences([]);
+      setAdvancedSeedanceAudioReferences([]);
+    } else if (provider === "seedance-nsfw" && ["edit", "extend"].includes(mode)) {
       state.advancedReferenceImages = [];
       setAdvancedSeedanceVideoReferences(advancedSeedanceVideoReferences().slice(0, 1));
       setAdvancedSeedanceAudioReferences([]);
@@ -1059,22 +1277,66 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
       state.advancedSeedanceLastFrameAssetId = "";
       state.advancedSeedanceLastFrameDataUrl = "";
     }
-    syncAdvancedPromptMentionLabels(previousPromptRefs);
     if (els.advancedRatio) {
       els.advancedRatio.value = provider === "seedance25"
         ? "16:9"
-        : seedanceMode === "omini" ? "1:1" : "adaptive";
+        : mode === "omini" ? "1:1" : "adaptive";
     }
+    state.advancedAssetTarget = seedanceModeNeedsFirstFrame(mode)
+      ? "primary"
+      : provider === "seedance-nsfw" && ["edit", "extend"].includes(mode)
+      ? "video"
+      : "referenceImages";
   }
-  state.advancedAssetTarget = seedanceModeNeedsFirstFrame(seedanceMode)
-    ? "primary"
-    : provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)
-    ? "video"
-    : "referenceImages";
+  syncAdvancedPromptMentionLabels(previousPromptRefs);
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 });
-els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
+[els.advancedVegaTaskType, els.advancedVegaGenerateMode, els.advancedVegaQualityMode, els.advancedVegaOutputFormat,
+  els.advancedVegaEnhancePromptMode, els.advancedVegaModerationMode, els.advancedVegaDraft,
+  els.advancedVegaDraftTaskId, els.advancedVegaAssetGroupId, els.advancedVegaReturnLastFrame,
+  els.advancedVegaReturnUsage].forEach((control) => {
+  control?.addEventListener(control.type === "checkbox" || control.tagName === "SELECT" ? "change" : "input", () => {
+    if (control === els.advancedVegaTaskType && ["edit", "extend"].includes(String(control.value || ""))) {
+      if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+      if (els.advancedRatio) els.advancedRatio.value = "adaptive";
+      state.advancedAssetTarget = "referenceImages";
+    }
+    if (control === els.advancedVegaDraft && control.checked && els.advancedResolution) {
+      els.advancedResolution.value = "480P";
+    }
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
+  });
+});
+els.advancedRatio?.addEventListener("change", () => {
+  updateAdvancedButtonCost();
+  syncAdvancedParameterChips();
+});
+els.advancedPromptOptimizeBtn?.addEventListener("click", () => {
+  const provider = currentAdvancedProvider();
+  if (!window.isPromptOptimizerProvider?.(provider)) return;
+  const prompt = window.getAdvancedPromptValue?.() || els.advancedPrompt?.value || "";
+  window.openPromptOptimizer?.({
+    prompt,
+    provider,
+    providerLabel: typeof advancedProviderLabel === "function" ? advancedProviderLabel(provider) : "",
+    duration: Number(els.advancedDuration?.value || 0) || undefined,
+    resolution: typeof currentAdvancedResolution === "function" ? currentAdvancedResolution() : "",
+    mode: els.advancedVideoCapability?.value || els.advancedSeedanceMediaMode?.value || "",
+    references: typeof advancedReferenceDisplayItems === "function"
+      ? advancedReferenceDisplayItems(provider).map(({ kind, label }) => ({ kind, label }))
+      : [],
+    onApply: (value) => {
+      if (!window.setAdvancedPromptValue?.(value, { emitInput: true, focus: true })) {
+        if (els.advancedPrompt) {
+          els.advancedPrompt.value = value;
+          els.advancedPrompt.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      }
+    },
+  });
+});
 els.advancedResolution?.addEventListener("change", () => {
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
@@ -1084,6 +1346,7 @@ els.advancedVideoResolutionChoices?.addEventListener("click", (event) => {
   if (!button || !els.advancedResolution) return;
   els.advancedResolution.value = button.dataset.advancedVideoResolution || "480p";
   updateAdvancedModelControls();
+  updateAdvancedButtonCost();
 });
 els.advancedVideoDurationChoices?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-advanced-video-duration]");
@@ -1100,7 +1363,10 @@ els.advancedUploadBox?.addEventListener("click", () => {
   const aliyunSharedTarget = ["wan30", "wan27", "happyhorse"].includes(provider)
     ? (advancedAssetTargetItems().find((target) => target.type === "image")?.id || advancedAssetTargetItems()[0]?.id || "primary")
     : "";
-  setAdvancedAssetTarget(provider === "wan27-image-edit"
+  const vegaTargets = advancedAssetTargetItems();
+  setAdvancedAssetTarget(isVegaProviderId(provider)
+    ? (vegaTargets.some((target) => target.id === state.advancedAssetTarget) ? state.advancedAssetTarget : (vegaTargets[0]?.id || "referenceImages"))
+    : provider === "wan27-image-edit"
     ? "sourceImages"
     : ["seedream5-image", "qwen-image3"].includes(provider)
     ? "referenceImages"
@@ -1136,6 +1402,9 @@ document.addEventListener("click", (event) => {
   closeAccountMenu();
 });
 document.addEventListener("visibilitychange", syncTopupAutoRefresh);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.user) loadNotificationCenter({ silent: true });
+});
 els.loginForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   if (event.submitter?.value === "cancel") {
@@ -1145,6 +1414,8 @@ els.loginForm?.addEventListener("submit", (event) => {
   submitLogin();
 });
 els.telegramLoginBtn?.addEventListener("click", authorizeTelegramLogin);
+els.emailLoginTab?.addEventListener("click", () => setLoginMethod("email"));
+els.passwordLoginTab?.addEventListener("click", () => setLoginMethod("password"));
 els.requestEmailLoginCodeBtn?.addEventListener("click", requestEmailLoginCode);
 els.verifyEmailLoginBtn?.addEventListener("click", verifyEmailLogin);
 els.forgotPasswordBtn?.addEventListener("click", forgotPassword);
@@ -1152,7 +1423,7 @@ els.requestAccountEmailCodeBtn?.addEventListener("click", requestAccountEmailCod
 els.verifyAccountEmailBtn?.addEventListener("click", verifyAccountEmail);
 els.languageSelect?.addEventListener("change", () => setLanguage(els.languageSelect.value));
 els.copyAccessBtn?.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(fullAccessCopy());
+  await navigator.clipboard.writeText(await fullAccessCopy());
   els.copyAccessBtn.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("common.copied"))}`;
   refreshIcons();
   setTimeout(() => {
@@ -1160,12 +1431,15 @@ els.copyAccessBtn?.addEventListener("click", async () => {
     refreshIcons();
   }, 1600);
 });
-els.toggleAccessTokenBtn?.addEventListener("click", () => {
+els.toggleAccessTokenBtn?.addEventListener("click", async () => {
+  if (!state.showAccessToken && !state.user?.apiToken) {
+    try { await ensurePrimaryApiToken(); } catch { return openLogin(); }
+  }
   state.showAccessToken = !state.showAccessToken;
   renderAccessGuides();
 });
 els.copyTokenBtn?.addEventListener("click", async () => {
-  if (!state.token || !state.user?.apiToken) return openLogin();
+  if (!state.token || !state.user) return openLogin();
   const markdown = await tokenAccessPackageMarkdown();
   await navigator.clipboard.writeText(markdown);
   els.copyTokenBtn.innerHTML = `<i data-lucide="check"></i>Copied token + docs`;
@@ -1174,9 +1448,6 @@ els.copyTokenBtn?.addEventListener("click", async () => {
     renderTokenDisplays();
     refreshIcons();
   }, 1600);
-});
-els.buyApiDocsBtn?.addEventListener("click", () => {
-  openEntitlementPaymentChoice("api-docs-access", els.apiDocsPurchaseStatus);
 });
 els.buyMembershipBtn?.addEventListener("click", () => {
   openBillingPaymentChoice({
@@ -1190,16 +1461,16 @@ els.previewDialog?.addEventListener("close", () => {
   els.previewVideo?.removeAttribute("src");
   els.previewVideo?.load();
   if (els.previewActions) els.previewActions.hidden = true;
-  if (els.previewDownloadBtn) els.previewDownloadBtn.removeAttribute("href");
+  state.previewDownloadRecord = null;
+  state.previewDownloadUrl = "";
+  state.previewDownloadName = "";
+  if (els.previewDownloadBtn) {
+    els.previewDownloadBtn.disabled = true;
+    delete els.previewDownloadBtn.dataset.downloadReady;
+  }
 });
-function openSupportDialog() {
-  if (!state.user) return openLogin();
-  prepareModalOpen();
-  if (els.supportEmail) els.supportEmail.value = "";
-  if (els.supportSubject) els.supportSubject.value = "";
-  if (els.supportMessage) els.supportMessage.value = "";
-  if (els.supportStatus) els.supportStatus.textContent = "";
-  els.supportDialog?.showModal();
+function openSupportDialog(options = {}) {
+  return openSupportCenter(options);
 }
 
 document.querySelectorAll("[data-analytics-event]").forEach((element) => {
@@ -1215,9 +1486,57 @@ document.querySelectorAll("[data-analytics-event]").forEach((element) => {
     }
   });
 });
-els.supportFab?.addEventListener("click", openSupportDialog);
-els.supportNavBtn?.addEventListener("click", openSupportDialog);
+els.supportNavBtn?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleNotificationPanel("nav");
+});
 els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
+els.supportCloseBtn?.addEventListener("click", () => els.supportDialog?.close());
+els.supportRefreshBtn?.addEventListener("click", () => {
+  if (state.user) loadSupportTickets({ selectId: state.activeSupportTicketId });
+  else loadNotificationCenter({ silent: true });
+});
+els.supportNewTicketBtn?.addEventListener("click", () => openSupportNewTicket());
+els.supportEmptyNewBtn?.addEventListener("click", () => openSupportNewTicket());
+els.supportNewBackBtn?.addEventListener("click", () => showSupportView(state.activeSupportTicketId ? "thread" : "empty"));
+els.supportThreadBackBtn?.addEventListener("click", () => {
+  state.activeSupportTicketId = "";
+  showSupportView("empty");
+});
+els.supportCreateBtn?.addEventListener("click", createSupportTicketFromCenter);
+els.supportReplyBtn?.addEventListener("click", sendSupportReply);
+els.supportReplyInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    sendSupportReply();
+  }
+});
+els.supportTicketList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-support-ticket-id]");
+  if (button) openSupportTicket(button.dataset.supportTicketId || "");
+});
+els.notificationBellBtn?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleNotificationPanel();
+});
+els.notificationReadAllBtn?.addEventListener("click", markAllNotificationsRead);
+els.notificationSupportEntry?.addEventListener("click", () => {
+  closeNotificationPanel();
+  openSupportDialog();
+});
+els.notificationList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-notification-id]");
+  if (!button) return;
+  const item = (state.notificationCenter?.notifications || []).find((row) => row.id === button.dataset.notificationId);
+  if (item) openNotificationDetail(item);
+});
+els.notificationDetailClose?.addEventListener("click", () => els.notificationDetailDialog?.close());
+els.notificationDetailOk?.addEventListener("click", () => els.notificationDetailDialog?.close());
+document.addEventListener("click", (event) => {
+  if (els.notificationPanel?.hidden) return;
+  if (els.notificationPanel.contains(event.target) || els.notificationBellBtn?.contains(event.target) || els.supportNavBtn?.contains(event.target)) return;
+  closeNotificationPanel();
+});
 els.mobileDrawerTopupBtn?.addEventListener("click", () => {
   closeMobileDrawer();
   openTopupDialog();
@@ -1228,21 +1547,33 @@ els.mobileDrawerLoginBtn?.addEventListener("click", () => {
 });
 els.mobileDrawerLogoutBtn?.addEventListener("click", logout);
 els.menuCopyTokenBtn?.addEventListener("click", async () => {
-  if (!state.token || !state.user?.apiToken) return openLogin();
-  await navigator.clipboard.writeText(state.user.apiToken);
+  if (!state.token || !state.user) return openLogin();
+  const token = await ensurePrimaryApiToken();
+  await navigator.clipboard.writeText(token);
   closeAccountMenu();
 });
 els.menuLoginBtn?.addEventListener("click", () => {
   closeAccountMenu();
   openLogin();
 });
-els.toggleAccountTokenBtn?.addEventListener("click", () => {
+els.menuEmailBindBtn?.addEventListener("click", () => {
+  closeAccountMenu();
+  openEmailBinding({ focusEmail: true });
+});
+els.securityNoticeBindBtn?.addEventListener("click", openAccountEmailBindingFromNotice);
+els.securityNoticeSupportBtn?.addEventListener("click", openSupportFromSecurityNotice);
+els.securityNoticeLaterBtn?.addEventListener("click", dismissAccountSecurityNotice);
+els.toggleAccountTokenBtn?.addEventListener("click", async () => {
+  if (!state.showAccountToken && !state.user?.apiToken) {
+    try { await ensurePrimaryApiToken(); } catch { return openLogin(); }
+  }
   state.showAccountToken = !state.showAccountToken;
   renderTokenDisplays();
 });
 els.copyAccountTokenBtn?.addEventListener("click", async () => {
-  if (!state.token || !state.user?.apiToken) return openLogin();
-  await navigator.clipboard.writeText(state.user.apiToken);
+  if (!state.token || !state.user) return openLogin();
+  const token = await ensurePrimaryApiToken();
+  await navigator.clipboard.writeText(token);
   els.copyAccountTokenBtn.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("common.copied"))}`;
   refreshIcons();
   setTimeout(() => {

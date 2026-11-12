@@ -66,6 +66,24 @@ test("direct payload keeps ordered multimodal references and required upstream f
   assert.equal(payload.seed, 7);
 });
 
+test("direct payload preserves exact @ media mentions in the prompt", () => {
+  const prompt = "@image1 把 @image2 举在空中，保持 @video1 的镜头运动";
+  const payload = buildSeedance25DirectTaskPayload({
+    mode: "reference",
+    prompt,
+    imageAssets: ["asset://image-1", "asset://image-2"],
+    videoAssets: ["asset://video-1"],
+    resolution: "720p",
+    ratio: "9:16",
+    duration: 8,
+  }, "ep-test");
+  const text = payload.content.find((item) => item.type === "text");
+  assert.equal(text.text, prompt);
+  assert.equal(text.text.includes("@image1"), true);
+  assert.equal(text.text.includes("@image2"), true);
+  assert.equal(text.text.includes("@video1"), true);
+});
+
 test("direct reference mode accepts audio-only media", () => {
   const normalized = validateSeedance25DirectInput({
     mode: "reference",

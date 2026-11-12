@@ -12,8 +12,10 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -34,7 +36,13 @@ LIVE_PATTERNS = (
 PLATFORM_PATTERNS = (
     "platform.html",
     "platform.css",
+    "platform.prompt-editor.css",
     "platform*.js",
+    "vendor/vipeak-prompt-editor.js",
+    "server-source.js",
+    "server.parts/**",
+    "platform.ui.parts/**",
+    "platform.create.parts/**",
     "admin.html",
     "admin.css",
     "admin.js",
@@ -43,6 +51,10 @@ PLATFORM_PATTERNS = (
     "chat.js",
     "server.js",
     "db.js",
+    "baseline-metrics.js",
+    "db-operational-stats.js",
+    "readiness.js",
+    "http-shutdown.js",
     "package.json",
     "lib-*.js",
     "site-123vipfans.js",
@@ -52,6 +64,35 @@ PLATFORM_PATTERNS = (
     "assets/user-uploads/**",
     "assets/user-characters/**",
     "assets/admin/**",
+    "workflow-react/**",
+    "ops/run-db-migrations.js",
+    "ops/multi-process-drill.sh",
+    "ops/nginx-multi-upstream-drill.sh",
+    "ops/nginx-upstream-switch.py",
+    "ops/drill-generation-kv-migration.js",
+    "ops/RESILIENCE-PLAN.md",
+    "ops/RESILIENCE-DECISION-2026-11.md",
+    "ops/REDIS-PLAN.md",
+    "ops/REDIS-USAGE-MATRIX.md",
+    "ops/apply-production-tuning.sh",
+    "ops/harden_old_nginx_private_media.py",
+    "ops/harden-old-nginx-private-media.sh",
+    "ops/service-watchdog.sh",
+    "ops/install-service-watchdog.sh",
+    "ops/systemd/raising-game-watchdog.service",
+    "ops/systemd/raising-game-watchdog.timer",
+    "ops/secondary-watchdog.sh",
+    "ops/install-secondary-watchdog.sh",
+    "ops/systemd/raising-game-watchdog-b.service",
+    "ops/systemd/raising-game-watchdog-b.timer",
+    "ops/systemd/raising-game-demo-b.service",
+    "ops/systemd/raising-game-demo-b.env.example",
+    "ops/systemd-multi-instance-drill.sh",
+    "ops/production-cutover-runbook.md",
+    "ops/verify-production-cutover.py",
+    "ops/verify-postgres-backup.sh",
+    "test/migration-runner.test.js",
+    "test/migration-drill.test.js",
 )
 LIVE_SHARED_PATHS = (
     "chat-live.js",
@@ -84,12 +125,11 @@ LIVE_RELEASE_PATHS = (*LIVE_ONLY_PATHS, *LIVE_SHARED_PATHS)
 RELEASE_TOOLS = (
     "DEPLOY.md",
     "scripts/build_release_snapshot.py",
+    "scripts/ensure_media_signing_secret.py",
     "scripts/deploy_pull.py",
     "scripts/deploy_site.py",
     "scripts/materialize_static_release.py",
 )
-
-
 def run(args: list[str], cwd: Path, *, input_text: str | None = None) -> str:
     result = subprocess.run(
         args,
@@ -138,7 +178,8 @@ def write_release_tree(root: Path, source_ref: str, profile: str, parent: str | 
     paths = release_paths(source_ref, profile, root)
     wanted = set(paths)
     entries = [entry for entry in source_entries(root, source_ref) if entry[2] in wanted]
-    index_path = root / ".git" / f"release-index-{os.getpid()}"
+    index_dir = Path(tempfile.mkdtemp(prefix="release-index-"))
+    index_path = index_dir / "index"
     env = os.environ.copy()
     env["GIT_INDEX_FILE"] = str(index_path)
     try:
@@ -156,10 +197,14 @@ def write_release_tree(root: Path, source_ref: str, profile: str, parent: str | 
             ["git", "write-tree"], cwd=root, env=env, check=True, capture_output=True, text=True
         ).stdout.strip()
     finally:
-        index_path.unlink(missing_ok=True)
+        shutil.rmtree(index_dir, ignore_errors=True)
     parent_args = ["-p", parent] if parent else []
     message = f"Build {profile} release snapshot from {source_ref}"
     return run(["git", "commit-tree", tree, *parent_args, "-m", message], root)
+
+
+def release_branch_for_profile(args: argparse.Namespace, profile: str) -> str:
+    return args.platform_branch if profile == "platform" else args.live_branch
 
 
 def main() -> None:
@@ -184,19 +229,39 @@ def main() -> None:
         if profile == "platform":
             forbidden = [path for path in base_paths if matches_any(path, LIVE_PATTERNS)]
         else:
-            forbidden = [path for path in base_paths if not matches_any(path, LIVE_RELEASE_PATHS) and path not in RELEASE_TOOLS]
+            forbidden = [path for path in base_paths if not matches_any(path, LIVE_RELEASE_PATHS)]
         if forbidden:
             raise SystemExit(f"{profile} snapshot would contain foreign paths: {forbidden[:5]}")
-        base_commit = write_release_tree(root, source_ref, profile, None)
-        subprocess.run(
-            ["git", "update-ref", f"refs/heads/{base_branch}", base_commit, "0" * 40],
+
+        base_ref = f"refs/heads/{base_branch}"
+        try:
+            base_commit = run(["git", "rev-parse", "--verify", f"{base_ref}^{{commit}}"], root)
+            print(f"{profile}: preserving immutable base={base_commit}")
+        except subprocess.CalledProcessError:
+            base_commit = write_release_tree(root, source_ref, profile, None)
+            subprocess.run(["git", "update-ref", base_ref, base_commit, "0" * 40], cwd=root, check=True)
+            print(f"{profile}: created immutable base={base_commit}")
+
+        remote_release_ref = f"refs/remotes/origin/{release_branch_for_profile(args, profile)}"
+        remote_release = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{remote_release_ref}^{{commit}}"],
             cwd=root,
-            check=True,
+            capture_output=True,
+            text=True,
         )
-        release_commit = write_release_tree(root, source_ref, profile, base_commit)
+        parent_commit = remote_release.stdout.strip() if remote_release.returncode == 0 else base_commit
+        release_commit = write_release_tree(root, source_ref, profile, parent_commit)
         release_branch = args.platform_branch if profile == "platform" else args.live_branch
+        release_ref = f"refs/heads/{release_branch}"
+        old_release = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{release_ref}^{{commit}}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        expected_old = old_release.stdout.strip() if old_release.returncode == 0 else "0" * 40
         subprocess.run(
-            ["git", "update-ref", f"refs/heads/{release_branch}", release_commit, "0" * 40],
+            ["git", "update-ref", release_ref, release_commit, expected_old],
             cwd=root,
             check=True,
         )

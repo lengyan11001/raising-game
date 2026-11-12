@@ -9,6 +9,10 @@ const {
   SEEDANCE25_DIRECT_LABEL,
   SEEDANCE25_DIRECT_PROVIDER,
 } = require("./seedance25-direct");
+const {
+  isVegaProvider,
+  vegaProviderDefinition,
+} = require("./tencent-vod-vega");
 
 function isSeedream5ImageProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
@@ -51,6 +55,7 @@ function isPapayaProvider(value = "") {
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
+  if (isVegaProvider(value)) return vegaProviderDefinition(value).id;
   if (isPapayaProvider(value)) return "papaya";
   if (isByteplusLanguageProvider(value)) return "byteplus-language";
   if (isQwen37FlashProvider(value)) return "qwen37-flash";
@@ -76,6 +81,7 @@ function publicProviderId(value = "") {
   const raw = String(value || "").trim();
   const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "";
+  if (isVegaProvider(raw)) return vegaProviderDefinition(raw).id;
   if (isPapayaProvider(raw)) return "papaya";
   if (isByteplusLanguageProvider(raw)) return "byteplus-language";
   if (isQwen37FlashProvider(raw)) return "qwen37-flash";
@@ -95,6 +101,7 @@ function publicProviderId(value = "") {
 
 function publicProviderLabel(value = "") {
   const id = publicProviderId(value);
+  if (isVegaProvider(id)) return vegaProviderDefinition(id).label;
   if (id === "papaya") return "Papaya 1.0";
   if (id === "byteplus-language") return "BytePlus Language";
   if (id === "qwen37-flash") return "Qwen3.7 Flash";
@@ -110,6 +117,37 @@ function publicProviderLabel(value = "") {
   if (id === "wan27") return "Wan2.7";
   if (id === "seedance") return "Seedance 2.0";
   return id;
+}
+
+function publicGenerationDisplayLabel(value = "") {
+  const raw = String(value || "").trim();
+  const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  if (!normalized) return "";
+  if (
+    normalized === "seedance25vega"
+    || normalized === "seedance2.5vega"
+    || normalized === "vega1.5pro"
+    || normalized.includes("vega1.5pro")
+    || normalized.includes("wandvegavideo1.5pro")
+  ) return "seedance2.5vega";
+  if (
+    normalized === "seedance20vega"
+    || normalized === "seedance2.0vega"
+    || normalized === "vega1.0pro"
+    || normalized.includes("vega1.0pro")
+    || normalized.includes("wandvegavideo1.0pro")
+  ) return "seedance2.0（vega）";
+  return "";
+}
+
+function publicGenerationDisplayTitle(record = {}, fallback = "") {
+  const provider = record.provider || record.params?.provider || "";
+  const alias = publicGenerationDisplayLabel(provider)
+    || publicGenerationDisplayLabel(record.templateTitle)
+    || publicGenerationDisplayLabel(record.modelLabel)
+    || publicGenerationDisplayLabel(record.model);
+  if (alias) return alias;
+  return String(record.templateTitle || record.sceneName || record.modelLabel || record.model || record.provider || record.taskId || fallback || "").trim();
 }
 
 function publicModelText(value = "") {
@@ -154,7 +192,16 @@ function slimGenerationRecordValue(value, { detail = false } = {}) {
 
 function storageGenerationRecord(record = {}) {
   if (!record || typeof record !== "object") return record;
-  return slimGenerationRecordValue(record, { detail: true });
+  const next = slimGenerationRecordValue(record, { detail: true });
+  // New generation media is durable only in PostgreSQL metadata + object
+  // storage. Local paths remain readable for historical migration, but the
+  // whole record must never advertise a server-local output as durable.
+  if (next && typeof next === "object") {
+    for (const key of ["localVideoUrl", "localVideoPath", "localPosterUrl", "localPosterPath", "localImageUrl", "localImagePath"]) {
+      if (Object.prototype.hasOwnProperty.call(next, key)) next[key] = "";
+    }
+  }
+  return next;
 }
 
 function listGenerationRecordValue(value) {
@@ -167,7 +214,10 @@ function publicPricingValue(value) {
   if (typeof value === "object") {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => {
       if (key === "provider") return [key, publicProviderId(item)];
-      if (key === "providerLabel") return [key, publicProviderLabel(value.provider || item)];
+      if (key === "providerLabel") {
+        const provider = value.provider || item;
+        return [key, publicGenerationDisplayLabel(provider) || publicProviderLabel(provider)];
+      }
       return [publicModelKey(key), publicPricingValue(item)];
     }));
   }
@@ -202,6 +252,8 @@ module.exports = {
   normalizeAdvancedProvider,
   publicProviderId,
   publicProviderLabel,
+  publicGenerationDisplayLabel,
+  publicGenerationDisplayTitle,
   publicModelText,
   publicModelKey,
   publicModelValue,

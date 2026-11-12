@@ -13,6 +13,8 @@ This script intentionally does not upload files. The release flow is:
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import logging
 import os
 import re
@@ -29,6 +31,8 @@ logging.getLogger("paramiko.transport").setLevel(logging.CRITICAL)
 HOST = os.environ.get("FYSHARK_HOST", os.environ.get("DEPLOY_HOST", "101.47.76.188"))
 USER = os.environ.get("FYSHARK_USER", os.environ.get("DEPLOY_USER", "root"))
 PASSWORD = os.environ.get("FYSHARK_SSH_PASSWORD", os.environ.get("DEPLOY_SSH_PASSWORD", ""))
+SSH_KEY = os.environ.get("FYSHARK_SSH_KEY", os.environ.get("DEPLOY_SSH_KEY", ""))
+SSH_KEY_PASSPHRASE = os.environ.get("FYSHARK_SSH_KEY_PASSPHRASE", os.environ.get("DEPLOY_SSH_KEY_PASSPHRASE", ""))
 PORT = int(os.environ.get("FYSHARK_PORT", os.environ.get("DEPLOY_PORT", "22")))
 REMOTE_ROOT = os.environ.get("DEPLOY_REMOTE_ROOT", "/opt/raising-game-demo")
 REPO_URL = os.environ.get("DEPLOY_REPO_URL", "")
@@ -36,6 +40,37 @@ SERVICE = os.environ.get("DEPLOY_SERVICE", "raising-game-demo")
 HEALTH_URL = os.environ.get("DEPLOY_HEALTH_URL", "https://123vips.com/api/health")
 BRANCH = os.environ.get("DEPLOY_BRANCH")
 ENV_FILE = os.environ.get("DEPLOY_ENV_FILE", "")
+HOST_KEY_SHA256 = os.environ.get("DEPLOY_HOST_KEY_SHA256", "")
+
+
+def normalize_host_key_fingerprint(value: str) -> str:
+    fingerprint = str(value or "").strip()
+    if fingerprint.startswith("SHA256:"):
+        fingerprint = fingerprint[len("SHA256:"):]
+    return fingerprint.rstrip("=")
+
+
+def host_key_fingerprint(key: paramiko.PKey) -> str:
+    digest = hashlib.sha256(key.asbytes()).digest()
+    return base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+class PinnedHostKeyPolicy(paramiko.MissingHostKeyPolicy):
+    """Accept exactly the pre-verified SHA-256 host-key fingerprints."""
+
+    def __init__(self, expected_fingerprints: list[str]):
+        expected = [normalize_host_key_fingerprint(item) for item in expected_fingerprints if normalize_host_key_fingerprint(item)]
+        if not expected:
+            raise ValueError("At least one pinned SSH host-key fingerprint is required.")
+        self.expected = set(expected)
+
+    def missing_host_key(self, client, hostname, key):
+        presented = host_key_fingerprint(key)
+        if presented not in self.expected:
+            raise paramiko.SSHException(
+                f"SSH host key mismatch for {hostname}: SHA256:{presented}; "
+                "refusing to authenticate until the expected fingerprint is verified."
+            )
 
 
 def changed_paths_for_release(repo_root: str | Path, base_ref: str, target_ref: str) -> list[str]:
@@ -175,9 +210,21 @@ def main() -> None:
         help="Clone this Git URL into --remote-root when the release checkout does not exist yet.",
     )
     parser.add_argument("--service", default=SERVICE)
+    parser.add_argument(
+        "--stop-timeout-seconds",
+        type=int,
+        default=240,
+        help="Configure systemd TimeoutStopSec before restart so in-flight generation submissions can drain.",
+    )
     parser.add_argument("--health-url", default=HEALTH_URL)
     parser.add_argument("--env-file", default=ENV_FILE, help="Required systemd EnvironmentFile path for this production service.")
     parser.add_argument("--port", type=int, default=PORT)
+    parser.add_argument(
+        "--host-key-sha256",
+        action="append",
+        default=[item for item in HOST_KEY_SHA256.split(",") if item.strip()],
+        help="Accept only this SSH host-key SHA-256 fingerprint. Repeat to trust multiple key types.",
+    )
     parser.add_argument(
         "--forbid-env-pattern",
         action="append",
@@ -213,6 +260,12 @@ def main() -> None:
         help="Run this command inside REMOTE_ROOT after pulling but before restarting the service.",
     )
     parser.add_argument(
+        "--post-restart-command",
+        action="append",
+        default=[],
+        help="Run this command inside REMOTE_ROOT after health succeeds and before final verification.",
+    )
+    parser.add_argument(
         "--verify-url",
         action="append",
         default=[],
@@ -223,6 +276,11 @@ def main() -> None:
         action="append",
         default=[],
         help="Require an exact HTTP status. Format: URL=CODE. The URL must also be passed to --verify-url.",
+    )
+    parser.add_argument(
+        "--verify-private-media",
+        action="store_true",
+        help="Fail when a real user upload or voice-preview file is anonymously readable from Nginx.",
     )
     parser.add_argument(
         "--verify-contains",
@@ -238,13 +296,42 @@ def main() -> None:
     )
     parser.add_argument("--commit", help="Require the remote checkout to be exactly this commit after deployment.")
     parser.add_argument("--no-restart", action="store_true")
+    parser.add_argument(
+        "--no-mutations",
+        action="store_true",
+        help="Strict code-only mode: suppress configured pre/post commands and all service/Nginx mutations.",
+    )
+    parser.add_argument(
+        "--run-hooks-without-restart",
+        action="store_true",
+        help="Allow configured pre/post hooks while keeping service restart and deploy drop-in mutation disabled.",
+    )
+    parser.add_argument(
+        "--print-command",
+        action="store_true",
+        help="Print the generated remote shell command and exit without opening SSH.",
+    )
     args = parser.parse_args()
-    if not PASSWORD:
-        raise SystemExit("FYSHARK_SSH_PASSWORD is required.")
+    if os.environ.get("DEPLOY_NO_RESTART") == "1":
+        args.no_restart = True
+    if os.environ.get("DEPLOY_NO_MUTATIONS") == "1":
+        args.no_mutations = True
+    if args.no_restart and not args.run_hooks_without_restart:
+        args.no_mutations = True
+    if args.no_mutations:
+        args.no_restart = True
+    if not PASSWORD and not SSH_KEY:
+        raise SystemExit("DEPLOY_SSH_KEY or FYSHARK_SSH_PASSWORD is required.")
+    if SSH_KEY and not Path(SSH_KEY).is_file():
+        raise SystemExit(f"SSH key file does not exist: {SSH_KEY}")
     if not args.branch:
         raise SystemExit("--branch is required. Use platform-release for 123vips.com, live-release for live.123vipeak.com, or cloudtoken for cloudtoken.ai.")
     if args.branch in {"main", "old-site"} and os.environ.get("DEPLOY_ALLOW_INTEGRATION_BRANCH") != "1":
         raise SystemExit("Refusing to deploy an integration branch. Use platform-release or live-release.")
+    if args.stop_timeout_seconds < 30:
+        raise SystemExit("--stop-timeout-seconds must be at least 30.")
+    if not args.host_key_sha256:
+        raise SystemExit("--host-key-sha256 is required; SSH host keys must be pinned before deployment.")
     normalized_forbidden_paths = [path_text.strip("/") for path_text in args.forbid_changed_path if path_text.strip()]
     enforce_local_release_audit(
         Path(__file__).resolve().parent.parent,
@@ -349,14 +436,10 @@ fi"""
         if not separator or not verify_url.startswith(("http://", "https://")) or not expected_code.isdigit():
             raise SystemExit(f"Invalid --verify-status value: {requirement}")
         verify_status.setdefault(verify_url, []).append(int(expected_code))
+    # Status/content assertions are complete verification requirements by
+    # themselves. In particular, a URL expected to be 404 must not also be
+    # listed as a normal successful URL by the deployment target.
     verify_urls = list(dict.fromkeys([*args.verify_url, *verify_contains, *verify_not_contains, *verify_status]))
-    unknown_verify_urls = [
-        verify_url
-        for verify_url in [*verify_contains, *verify_not_contains, *verify_status]
-        if verify_url not in args.verify_url
-    ]
-    if unknown_verify_urls:
-        raise SystemExit(f"Verification URL must also be passed to --verify-url: {unknown_verify_urls[0]}")
     verification_checks = []
     for verify_url in verify_urls:
         verify_url_q = shlex.quote(verify_url)
@@ -385,8 +468,17 @@ fi"""
             )
         expected_check = "\n".join([*expected_checks, *unexpected_checks]) or "true"
         if expected_statuses:
+            # Edge checks can be slow immediately after a restart. Retry only
+            # transport failures; once a status is returned, a mismatch is a
+            # real assertion failure and must not be hidden by retries.
             fetch = f"""verify_body=$(mktemp)
-verify_code=$(curl -sSL --max-time 15 -o "$verify_body" -w '%{{http_code}}' {verify_url_q}) || {{ echo "Page verification failed: {verify_url}"; rm -f "$verify_body"; exit 27; }}
+verify_code=000
+for verify_attempt in 1 2 3; do
+  verify_code=$(curl -sSL --max-time 10 -o "$verify_body" -w '%{{http_code}}' {verify_url_q}) || verify_code=000
+  if [ "$verify_code" != "000" ]; then break; fi
+  if [ "$verify_attempt" -lt 3 ]; then sleep 1; fi
+done
+if [ "$verify_code" = "000" ]; then echo "Page verification failed: {verify_url}"; rm -f "$verify_body"; exit 27; fi
 {expected_status_check}"""
         else:
             fetch = f"""verify_body=$(mktemp)
@@ -399,8 +491,40 @@ rm -f "$verify_body"
 echo "Verified page: {verify_url}"
 """)
     verification_check = "\n".join(verification_checks) or "true"
+    if args.verify_private_media:
+        verification_check += r"""
+private_probe() {
+  local prefix="$1" url code
+  url=$(find "$2" -type f -print -quit 2>/dev/null || true)
+  if [ -z "$url" ]; then
+    echo "Private media verification skipped: no file under $2" >&2
+    return 0
+  fi
+  code=$(curl -ksS --max-time 15 --resolve 123vips.com:443:127.0.0.1 -o /dev/null -w '%{http_code}' "https://123vips.com${url}?verify-private=$(date +%s%N)") || code=000
+  # 403 is the required deny. 404 is also safe and can occur when Nginx and
+  # Node resolve the same file through different release-time snapshots. Never
+  # accept a successful response or a redirect to shared media.
+  case "$code" in
+    403|404) ;;
+    *) echo "Private media bypass detected: $prefix returned HTTP $code" >&2; return 1 ;;
+  esac
+  echo "Private media denied anonymously: $prefix (HTTP $code)"
+}
+private_probe /assets/user-uploads/ /opt/raising-game-demo/assets/user-uploads
+private_probe /assets/admin/voice-preview/ /opt/raising-game-demo/assets/admin/voice-preview
+private_probe /assets/user-characters/ /opt/raising-game-demo/assets/user-characters
+private_probe /assets/generated/characters/apiz/ /opt/raising-game-demo/assets/generated/characters/apiz
+private_probe /assets/generated/panoramas/ /opt/raising-game-demo/assets/generated/panoramas
+if nginx -T 2>/dev/null | grep -Eq '^[[:space:]]*alias[[:space:]]+/opt/raising-game-demo/assets/(user-uploads|admin/voice-preview|user-characters|generated/characters|generated/panoramas)/'; then
+  echo "Private media directory is still aliased by Nginx" >&2
+  exit 35
+fi
+"""
 
-    pre_restart_check = "\n".join(args.pre_restart_command) or "true"
+    pre_restart_check = "true" if args.no_mutations else ("\n".join(args.pre_restart_command) or "true")
+    post_restart_check = "true" if args.no_mutations else ("\n".join(args.post_restart_command) or "true")
+    stop_timeout_q = shlex.quote(str(args.stop_timeout_seconds))
+    service_q = shlex.quote(args.service)
 
     if args.commit:
         expected_q = shlex.quote(args.commit)
@@ -411,6 +535,56 @@ if [ "$deployed_commit" != {expected_q} ]; then
 fi"""
     else:
         commit_check = "true"
+
+    no_restart_before = ""
+    no_restart_after = ""
+    restart_preparation = ""
+    cleanup_preparation = ""
+    if args.no_restart:
+        no_restart_before = f"""main_pid_before=$(systemctl show {service_q} -p MainPID --value 2>/dev/null || true)
+invocation_before=$(systemctl show {service_q} -p InvocationID --value 2>/dev/null || true)
+nginx_pid_before=$(cat /run/nginx.pid 2>/dev/null || pgrep -o -x nginx || true)
+echo "no-restart main_pid_before=$main_pid_before"
+echo "no-restart invocation_before=$invocation_before"
+echo "no-restart nginx_pid_before=$nginx_pid_before"
+"""
+        no_restart_after = f"""main_pid_after=$(systemctl show {service_q} -p MainPID --value 2>/dev/null || true)
+invocation_after=$(systemctl show {service_q} -p InvocationID --value 2>/dev/null || true)
+nginx_pid_after=$(cat /run/nginx.pid 2>/dev/null || pgrep -o -x nginx || true)
+if [ "$main_pid_before" != "$main_pid_after" ]; then
+  echo "no-restart PID changed: before=$main_pid_before after=$main_pid_after" >&2
+  exit 38
+fi
+if [ "$invocation_before" != "$invocation_after" ]; then
+  echo "no-restart invocation changed: before=$invocation_before after=$invocation_after" >&2
+  exit 38
+fi
+if [ -z "$nginx_pid_before" ] || [ "$nginx_pid_before" != "$nginx_pid_after" ]; then
+  echo "no-restart Nginx PID changed: before=$nginx_pid_before after=$nginx_pid_after" >&2
+  exit 38
+fi
+echo "no-restart PID unchanged: $main_pid_after"
+echo "no-restart invocation unchanged: $invocation_after"
+echo "no-restart nginx PID unchanged: $nginx_pid_after"
+"""
+    else:
+        restart_preparation = f"""service_name={service_q}
+dropin_dir="/etc/systemd/system/${{service_name}}.service.d"
+install -d -m 0755 "$dropin_dir"
+printf '[Service]\nTimeoutStopSec=%s\n' {stop_timeout_q} > "$dropin_dir/90-generation-submit-drain.conf"
+systemctl daemon-reload
+"""
+        cleanup_preparation = """if [ -f "$dropin_dir/90-generation-submit-drain.conf" ]; then
+  # Keep an operator-installed value if one appeared while the service was
+  # restarting. Otherwise remove only the temporary deploy fence after the
+  # listener is healthy and the in-flight submissions have had their window.
+  if ! grep -Rqs '^[[:space:]]*TimeoutStopSec=' "$dropin_dir" --exclude=90-generation-submit-drain.conf; then
+    rm -f "$dropin_dir/90-generation-submit-drain.conf"
+    rmdir "$dropin_dir" 2>/dev/null || true
+    systemctl daemon-reload
+  fi
+fi
+"""
 
     command = f"""
 set -euo pipefail
@@ -429,19 +603,28 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 git fetch origin {args.branch}{(" " + shlex.quote(args.audit_base)) if args.audit_base else ""}
 {forbidden_path_check}
-if git show-ref --verify --quiet refs/heads/{args.branch}; then
-  git checkout {args.branch}
-else
-  git checkout -b {args.branch} "origin/{args.branch}"
-fi
-git pull --ff-only origin {args.branch}
+# Release branches are generated snapshots, not conventional histories. After
+# a force-updated snapshot, the server's old local branch intentionally diverges
+# from the pushed branch. Check out the exact fetched release commit instead of
+# trying to merge or fast-forward the stale local branch.
+release_target=$(git rev-parse "origin/{args.branch}")
+{no_restart_before}git -c core.hooksPath=/dev/null checkout --detach "$release_target"
 {pre_restart_check}
-{"true" if args.no_restart else f"systemctl restart {args.service}"}
+{restart_preparation}{"true" if args.no_restart else f"systemctl restart {args.service}"}
 sleep 2
 git status --short
 git log -1 --oneline
 {"true" if args.no_restart else f"systemctl status {args.service} --no-pager -l | head -25"}
-health_code=$(curl -sS --max-time 10 -o /tmp/raising-game-health -w '%{{http_code}}' {args.health_url}) || {{ echo "Health check failed: {args.health_url}"; exit 27; }}
+health_code=000
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  health_code=$(curl -sS --max-time 10 -o /tmp/raising-game-health -w '%{{http_code}}' {args.health_url}) || health_code=000
+  if [ "$health_code" = "200" ]; then
+    break
+  fi
+  if [ "$attempt" -lt 10 ]; then
+    sleep 1
+  fi
+done
 echo "http=$health_code"
 cat /tmp/raising-game-health 2>/dev/null || true
 echo
@@ -449,16 +632,38 @@ if [ "$health_code" != "200" ]; then
   echo "Health check returned HTTP $health_code: {args.health_url}" >&2
   exit 27
 fi
-{verification_check}
+{cleanup_preparation}# Mutating post-restart actions are deliberately health-gated. A failed app
+# start must not be compounded by changing the live Nginx edge.
+{post_restart_check}
+{no_restart_after}{verification_check}
 {commit_check}
 """
 
+    if args.print_command:
+        print(command)
+        return
+
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.set_missing_host_key_policy(PinnedHostKeyPolicy(args.host_key_sha256))
     print(f"[ssh] connecting {USER}@{HOST}:{args.port}")
     try:
-        client.connect(HOST, port=args.port, username=USER, password=PASSWORD, timeout=20)
-        rc, out, err = remote_run(client, command, timeout=240)
+        if SSH_KEY:
+            # A configured deployment key is authoritative. Do not silently
+            # fall back to a password when the key is rejected.
+            client.connect(
+                HOST,
+                port=args.port,
+                username=USER,
+                key_filename=SSH_KEY,
+                passphrase=SSH_KEY_PASSPHRASE or None,
+                password=None,
+                look_for_keys=False,
+                allow_agent=False,
+                timeout=20,
+            )
+        else:
+            client.connect(HOST, port=args.port, username=USER, password=PASSWORD, timeout=20)
+        rc, out, err = remote_run(client, command, timeout=max(360, args.stop_timeout_seconds + 120))
     except paramiko.SSHException as exc:
         client.close()
         message = str(exc)

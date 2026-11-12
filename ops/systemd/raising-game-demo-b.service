@@ -1,0 +1,41 @@
+[Unit]
+Description=Raising Game Demo secondary HTTP instance (disabled by default)
+After=network.target
+# This unit is intended to be installed under a suffixed unit name, for example
+# raising-game-demo-b.service. Keep it disabled and schedulers off until the
+# cutover runbook explicitly promotes it.
+ConditionPathExists=!/etc/raising-game-demo-b.disabled
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/raising-game-demo
+EnvironmentFile=/etc/raising-game-demo.env
+EnvironmentFile=/etc/raising-game-demo-b.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=2
+TimeoutStopSec=300
+KillMode=control-group
+User=root
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectSystem=full
+ProtectHome=yes
+UMask=0077
+PrivateDevices=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+RemoveIPC=yes
+LimitNOFILE=65535
+TasksMax=8192
+
+[Install]
+WantedBy=multi-user.target

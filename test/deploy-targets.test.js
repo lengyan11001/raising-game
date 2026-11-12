@@ -12,6 +12,12 @@ const deploySite = fs.readFileSync(path.join(root, "scripts", "deploy_site.py"),
 const deployPull = fs.readFileSync(path.join(root, "scripts", "deploy_pull.py"), "utf8");
 const materializer = path.join(root, "scripts", "materialize_static_release.py");
 const snapshotBuilder = path.join(root, "scripts", "build_release_snapshot.py");
+const historicalGitSkip = (() => {
+  const ancestry = spawnSync("git", ["merge-base", "--is-ancestor", "33a6e65^", "HEAD"], { cwd: root });
+  return ancestry.status === 0
+    ? false
+    : "Source Git ancestry is absent from an exported release tree.";
+})();
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -49,7 +55,190 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deployPull, /--audit-base/);
   assert.match(deployPull, /--forbid-changed-path/);
   assert.match(deployPull, /--verify-status/);
+  assert.match(deployPull, /--verify-private-media/);
+  assert.match(deployPull, /--post-restart-command/);
+  assert.match(deployPull, /pre_restart_check = "true" if args\.no_mutations else/);
+  assert.match(deployPull, /post_restart_check = "true" if args\.no_mutations else/);
+  assert.match(deploySite, /env\["DEPLOY_NO_RESTART"\] = "1"/);
+  assert.match(deploySite, /env\["DEPLOY_NO_MUTATIONS"\] = "1"/);
+  assert.match(deployPull, /os\.environ\.get\("DEPLOY_NO_RESTART"\) == "1"/);
+  assert.match(deployPull, /os\.environ\.get\("DEPLOY_NO_MUTATIONS"\) == "1"/);
+  assert.match(deployPull, /args\.no_restart = True/);
+  assert.match(deployPull, /args\.no_mutations = True/);
+  assert.match(deployPull, /--run-hooks-without-restart/);
+  assert.match(deployPull, /no-restart main_pid_before=/);
+  assert.match(deployPull, /no-restart PID changed:/);
+  assert.match(deployPull, /no-restart PID unchanged:/);
+  assert.match(deployPull, /git -c core\.hooksPath=\/dev\/null checkout/);
+  assert.doesNotMatch(deployPull, /AutoAddPolicy/);
+  assert.match(deploySite, /"post_restart_commands": \(\s*"\/opt\/raising-game-demo\/ops\/harden-old-nginx-private-media\.sh"/s);
+  assert.match(deploySite, /91-stop-timeout\.conf/);
+  assert.match(deploySite, /TimeoutStopSec=300/);
+  for (const assetPrefix of ["user-uploads", "admin/voice-preview", "user-characters", "generated/characters/apiz", "generated/panoramas"]) {
+    assert.match(deployPull, new RegExp(`private_probe /assets/${assetPrefix.replace("/", "\\/")}/`));
+  }
   assert.match(deployPull, /Deployed commit mismatch/);
+  assert.match(deployPull, /403\|404/);
+  assert.match(deployPull, /Private media bypass detected/);
+  assert.match(deployPull, /for attempt in 1 2 3 4 5 6 7 8 9 10/);
+  assert.match(deployPull, /--stop-timeout-seconds/);
+  assert.match(deployPull, /90-generation-submit-drain\.conf/);
+  assert.match(deployPull, /TimeoutStopSec=%s/);
+  assert.match(deployPull, /systemctl daemon-reload/);
+  assert.doesNotMatch(deployPull, /systemctl set-property/);
+  assert.match(deployPull, /max\(360, args\.stop_timeout_seconds \+ 120\)/);
+  assert.match(deploySite, /target\.get\("stop_timeout_seconds", 240\)/);
+  assert.ok(deploySite.includes('f"refs/remotes/origin/{target[\'branch\']}^{{commit}}"'));
+  assert.doesNotMatch(deployPull, /AutoAddPolicy/);
+  assert.match(deployPull, /class PinnedHostKeyPolicy/);
+  assert.match(deployPull, /--host-key-sha256/);
+  assert.match(deploySite, /SHA256:FjIDikg5kkvITUdxOc2142HRn\+WP5A7Bj6Z5fReu8lI/);
+});
+
+function printedDeployCommand(extraArgs = [], env = {}) {
+  return run("python3", [
+    path.join(root, "scripts", "deploy_pull.py"),
+    "--branch", "platform-release",
+    "--host-key-sha256", "SHA256:test",
+    "--print-command",
+    ...extraArgs,
+  ], {
+    cwd: root,
+    env: { DEPLOY_SSH_PASSWORD: "not-used-for-print-command", ...env },
+  });
+}
+
+test("no-restart deploy command suppresses every service and Nginx mutation", () => {
+  const command = printedDeployCommand([
+    "--no-restart",
+    "--pre-restart-command", "echo PRE_MUST_NOT_RUN",
+    "--post-restart-command", "echo POST_MUST_NOT_RUN",
+  ]);
+  assert.match(command, /git -c core\.hooksPath=\/dev\/null checkout --detach "\$release_target"/);
+  assert.match(command, /no-restart main_pid_before=/);
+  assert.match(command, /no-restart invocation_before=/);
+  assert.match(command, /no-restart nginx_pid_before=/);
+  assert.match(command, /no-restart PID changed:/);
+  assert.match(command, /no-restart invocation changed:/);
+  assert.match(command, /no-restart Nginx PID changed:/);
+  assert.doesNotMatch(command, /PRE_MUST_NOT_RUN|POST_MUST_NOT_RUN/);
+  assert.doesNotMatch(command, /systemctl restart/);
+  assert.doesNotMatch(command, /systemctl daemon-reload/);
+  assert.doesNotMatch(command, /systemctl reload nginx/);
+  assert.doesNotMatch(command, /harden-old-nginx-private-media/);
+  assert.doesNotMatch(command, /90-generation-submit-drain\.conf/);
+  const beforePid = command.indexOf("main_pid_before=");
+  const beforeInvocation = command.indexOf("invocation_before=");
+  const beforeNginx = command.indexOf("nginx_pid_before=");
+  const checkout = command.indexOf("git -c core.hooksPath=/dev/null checkout");
+  assert.ok(beforePid >= 0 && beforePid < checkout);
+  assert.ok(beforeInvocation >= 0 && beforeInvocation < checkout);
+  assert.ok(beforeNginx >= 0 && beforeNginx < checkout);
+});
+
+test("environment no-restart channel is as strict as the command-line flag", () => {
+  const command = printedDeployCommand([
+    "--pre-restart-command", "echo PRE_MUST_NOT_RUN",
+    "--post-restart-command", "echo POST_MUST_NOT_RUN",
+  ], { DEPLOY_NO_RESTART: "1" });
+  assert.doesNotMatch(command, /PRE_MUST_NOT_RUN|POST_MUST_NOT_RUN/);
+  assert.doesNotMatch(command, /systemctl restart|systemctl daemon-reload/);
+  assert.doesNotMatch(command, /90-generation-submit-drain\.conf/);
+});
+
+test("normal restart deploy still runs all required hooks and guards", () => {
+  const command = printedDeployCommand([
+    "--pre-restart-command", "echo PRE_EXPECTED",
+    "--post-restart-command", "echo POST_EXPECTED",
+  ]);
+  assert.match(command, /echo PRE_EXPECTED/);
+  assert.match(command, /echo POST_EXPECTED/);
+  assert.match(command, /systemctl daemon-reload/);
+  assert.match(command, /systemctl restart raising-game-demo/);
+  assert.match(command, /90-generation-submit-drain\.conf/);
+  assert.doesNotMatch(command, /no-restart main_pid_before=/);
+  assert.match(command, /git -c core\.hooksPath=\/dev\/null checkout --detach "\$release_target"/);
+});
+
+test("hooks-without-restart preserves Live static materialization while preventing restart", () => {
+  const command = printedDeployCommand([
+    "--no-restart",
+    "--run-hooks-without-restart",
+    "--pre-restart-command", "echo LIVE_MATERIALIZE_EXPECTED",
+    "--post-restart-command", "echo LIVE_POST_EXPECTED",
+  ]);
+  assert.match(command, /echo LIVE_MATERIALIZE_EXPECTED/);
+  assert.match(command, /echo LIVE_POST_EXPECTED/);
+  assert.doesNotMatch(command, /systemctl restart/);
+  assert.doesNotMatch(command, /systemctl daemon-reload/);
+  assert.doesNotMatch(command, /90-generation-submit-drain\.conf/);
+  assert.match(command, /no-restart PID changed:/);
+});
+
+test("Git checkout ignores repository hooks during deployment", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "deploy-hook-"));
+  const marker = path.join(workspace, "hook-ran");
+  run("git", ["init", "-q"], { cwd: workspace });
+  run("git", ["config", "user.email", "test@example.com"], { cwd: workspace });
+  run("git", ["config", "user.name", "Test"], { cwd: workspace });
+  writeFile(path.join(workspace, "file.txt"), "one\n");
+  run("git", ["add", "file.txt"], { cwd: workspace });
+  run("git", ["commit", "-q", "-m", "one"], { cwd: workspace });
+  const first = run("git", ["rev-parse", "HEAD"], { cwd: workspace }).trim();
+  writeFile(path.join(workspace, "file.txt"), "two\n");
+  run("git", ["commit", "-q", "-am", "two"], { cwd: workspace });
+  writeFile(path.join(workspace, ".git", "hooks", "post-checkout"), `#!/bin/sh\necho hook > '${marker}'\n`);
+  fs.chmodSync(path.join(workspace, ".git", "hooks", "post-checkout"), 0o755);
+  run("git", ["-c", "core.hooksPath=/dev/null", "checkout", "--detach", first], { cwd: workspace });
+  assert.equal(fs.existsSync(marker), false, "deployment checkout must not execute repository hooks");
+});
+
+test("old deploy verification keeps 404-only assets out of successful URL checks", () => {
+  const output = runPython(String.raw`
+import importlib.util
+from pathlib import Path
+
+root = Path(${JSON.stringify(root)})
+spec = importlib.util.spec_from_file_location("deploy_site", root / "scripts" / "deploy_site.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+target = module.TARGETS["old"]
+status_urls = {item.rsplit("=", 1)[0] for item in target["verify_status"]}
+assert target["verify_urls"] == ("https://123vips.com/",), target["verify_urls"]
+assert "https://123vips.com/live.js" in status_urls
+assert not status_urls.intersection(target["verify_urls"]), status_urls.intersection(target["verify_urls"])
+print("ok")
+`);
+  assert.match(output, /ok/);
+  assert.doesNotMatch(deployPull, /Verification URL must also be passed to --verify-url/);
+});
+
+test("deployment SSH accepts only the pinned SHA-256 host key", () => {
+  const output = runPython(String.raw`
+import base64
+import hashlib
+import importlib.util
+from pathlib import Path
+import paramiko
+
+root = Path(${JSON.stringify(root)})
+spec = importlib.util.spec_from_file_location("deploy_pull", root / "scripts" / "deploy_pull.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+trusted = paramiko.RSAKey.generate(1024)
+untrusted = paramiko.RSAKey.generate(1024)
+fingerprint = "SHA256:" + base64.b64encode(hashlib.sha256(trusted.asbytes()).digest()).decode().rstrip("=")
+policy = module.PinnedHostKeyPolicy([fingerprint])
+policy.missing_host_key(None, "example.test", trusted)
+try:
+    policy.missing_host_key(None, "example.test", untrusted)
+except paramiko.SSHException as exc:
+    assert "host key mismatch" in str(exc)
+else:
+    raise AssertionError("untrusted host key was accepted")
+print("ok")
+`);
+  assert.match(output, /ok/);
 });
 
 test("integration branches are rejected before any SSH connection", () => {
@@ -65,7 +254,7 @@ test("integration branches are rejected before any SSH connection", () => {
   }
 });
 
-test("platform history rejects 33a6e65 even when a later commit deletes live files", () => {
+test("platform history rejects 33a6e65 even when a later commit deletes live files", { skip: historicalGitSkip }, () => {
   const output = runPython(String.raw`
 import importlib.util
 import json
@@ -183,6 +372,26 @@ test("live materializer copies only allowlisted static files and atomically repl
   }
 });
 
+test("deployment key auth is preferred and never falls back to password", () => {
+  assert.match(deployPull, /SSH_KEY = os\.environ\.get\("FYSHARK_SSH_KEY", os\.environ\.get\("DEPLOY_SSH_KEY", ""\)\)/);
+  assert.match(deployPull, /if not PASSWORD and not SSH_KEY:/);
+  assert.match(deployPull, /if SSH_KEY:/);
+  assert.match(deployPull, /key_filename=SSH_KEY/);
+  assert.match(deployPull, /password=None/);
+  assert.match(deployPull, /look_for_keys=False/);
+  assert.match(deployPull, /allow_agent=False/);
+  assert.match(deploySite, /password_source, password = \("", ""\) if key_path else first_password\(target\)/);
+  assert.match(deploySite, /auth=key:/);
+  assert.match(deploySite, /env\.pop\("DEPLOY_SSH_PASSWORD", None\)/);
+  assert.match(deploySite, /env\.pop\("FYSHARK_SSH_PASSWORD", None\)/);
+  assert.match(deploySite, /key_env.*DEPLOY_SSH_KEY/);
+});
+
+test("Old deployment migrates PostgreSQL before service restart", () => {
+  assert.match(deploySite, /node ops\/run-db-migrations\.js --dry-run && node ops\/run-db-migrations\.js --apply && node ops\/run-db-migrations\.js --dry-run/);
+  assert.match(deploySite, /\. \/etc\/raising-game-demo\.env/);
+});
+
 test("release snapshot builder excludes foreign paths from both trees and ancestry", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "release-snapshot-"));
   const source = path.join(workspace, "source");
@@ -192,8 +401,9 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
   run("git", ["config", "user.name", "Test"], { cwd: source });
 
   const files = [
-    "DEPLOY.md", "scripts/build_release_snapshot.py", "scripts/deploy_pull.py",
-    "scripts/deploy_site.py", "scripts/materialize_static_release.py",
+    "DEPLOY.md", "scripts/build_release_snapshot.py", "scripts/ensure_media_signing_secret.py",
+    "scripts/deploy_pull.py", "scripts/deploy_site.py", "scripts/materialize_static_release.py",
+    "ops/apply-production-tuning.sh",
     "live.html", "live.css", "live.js", "chat-live.js", "qrcode.js",
     "site-landing.html", "site-landing.css", "site-landing.js",
     "downloads/vipeak-live.apk", "mobile/live-android/MainActivity.java",
@@ -201,7 +411,7 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
     "assets/chat-live/gifts/flower.svg", "assets/brand/default-avatar.jpg",
     "test/live-upload-poster-nav.test.js", "verification/live-transaction/ROLLBACK.sh",
     "platform.html", "platform.js", "admin.html", "admin.js", "chat.html",
-    "chat.js", "server.js", "db.js", "package.json", "lib-live-surface.js",
+    "chat.js", "server.js", "db.js", "readiness.js", "package.json", "lib-live-surface.js",
     "assets/ourdream/characters/one.webp", "assets/admin/one.webp",
   ];
   for (const file of files) writeFile(path.join(source, file), file);
@@ -214,13 +424,24 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
   for (const file of ["live.html", "live.css", "live.js", "downloads/vipeak-live.apk", "test/live-upload-poster-nav.test.js"]) {
     assert.equal(platformTree.includes(file), false, file);
   }
-  for (const file of ["platform.html", "admin.html", "server.js", "db.js", "package.json"]) {
+  for (const file of ["platform.html", "admin.html", "server.js", "db.js", "readiness.js", "package.json", "scripts/ensure_media_signing_secret.py", "ops/apply-production-tuning.sh"]) {
     assert.equal(liveTree.includes(file), false, file);
   }
+  assert.equal(platformTree.includes("readiness.js"), true, "platform release must include server readiness dependency");
   for (const file of ["live.html", "chat-live.js", "assets/chat-live/moans/joanna.wav"]) {
     assert.equal(liveTree.includes(file), true, file);
   }
+  assert.equal(platformTree.includes("scripts/build_release_snapshot.py"), true, "platform release must include its release tooling");
   assert.equal(liveTree.some((file) => file.startsWith("scripts/")), false);
   assert.equal(run("git", ["rev-list", "--count", "release-base/platform..platform-release"], { cwd: source }).trim(), "1");
+  run("git", ["update-ref", "refs/remotes/origin/platform-release", "release-base/platform"], { cwd: source });
+  run("git", ["update-ref", "-d", "refs/heads/platform-release"], { cwd: source });
+  writeFile(path.join(source, "readiness.js"), "readiness\n");
+  run("git", ["add", "readiness.js"], { cwd: source });
+  run("git", ["commit", "-qm", "readiness fixture"], { cwd: source });
+  run("python3", [snapshotBuilder, "--repo-root", source, "--source", "HEAD"], { cwd: source });
+  assert.equal(run("git", ["rev-parse", "platform-release^"], { cwd: source }).trim(), run("git", ["rev-parse", "release-base/platform"], { cwd: source }).trim());
+  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", "origin/platform-release", "platform-release"], { cwd: source });
+  assert.equal(ancestor.status, 0, ancestor.stderr);
   assert.equal(run("git", ["rev-list", "--count", "release-base/live..live-release"], { cwd: source }).trim(), "1");
 });

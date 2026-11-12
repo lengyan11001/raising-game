@@ -1,0 +1,630 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { readServerSource } = require("../server-source");
+
+function extractFunction(source, name) {
+  const asyncPrefix = `async function ${name}(`;
+  const plainPrefix = `function ${name}(`;
+  let start = source.indexOf(asyncPrefix);
+  if (start === -1) start = source.indexOf(plainPrefix);
+  assert.notEqual(start, -1, `missing function ${name}`);
+  let parenDepth = 0;
+  let bodyStart = -1;
+  for (let index = source.indexOf("(", start); index < source.length; index += 1) {
+    if (source[index] === "(") parenDepth += 1;
+    else if (source[index] === ")") {
+      parenDepth -= 1;
+      if (parenDepth === 0) {
+        bodyStart = source.indexOf("{", index);
+        break;
+      }
+    }
+  }
+  assert.notEqual(bodyStart, -1, `missing body for ${name}`);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    else if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
+const previousEnv = {
+  STORAGE_PROVIDER: process.env.STORAGE_PROVIDER,
+  OSS_REGION: process.env.OSS_REGION,
+  OSS_ENDPOINT: process.env.OSS_ENDPOINT,
+  OSS_BUCKET: process.env.OSS_BUCKET,
+  OSS_ACCESS_KEY_ID: process.env.OSS_ACCESS_KEY_ID,
+  OSS_ACCESS_KEY_SECRET: process.env.OSS_ACCESS_KEY_SECRET,
+  OSS_CDN_REGION: process.env.OSS_CDN_REGION,
+  OSS_CDN_BASE_URL: process.env.OSS_CDN_BASE_URL,
+};
+Object.assign(process.env, {
+  STORAGE_PROVIDER: "oss",
+  OSS_REGION: "oss-ap-southeast-1",
+  OSS_ENDPOINT: "https://oss-ap-southeast-1.aliyuncs.com",
+  OSS_BUCKET: "vipeak-media-sg",
+  OSS_ACCESS_KEY_ID: "test-access-key",
+  OSS_ACCESS_KEY_SECRET: "test-secret",
+  OSS_CDN_REGION: "oss-ap-southeast-1",
+  OSS_CDN_BASE_URL: "https://assets-cdn.123vips.com",
+});
+
+const isolatedServer = require("../server");
+const source = readServerSource();
+const firstPresent = (...values) => values.find((value) => value !== undefined && value !== null && value !== "");
+const isPublicHttpUrl = (value) => {
+  try {
+    return ["http:", "https:"].includes(new URL(String(value)).protocol);
+  } catch {
+    return false;
+  }
+};
+const inferObjectStorageProviderFromUrl = (value) => {
+  try {
+    const url = new URL(String(value));
+    if (url.hostname === "assets-cdn.123vips.com") return "oss";
+    if (url.hostname.endsWith("r2.cloudflarestorage.com") || url.hostname === "media.123vips.com") return "r2";
+  } catch {}
+  return "";
+};
+
+const restorablePublicUrlForUserAsset = new Function(
+  "firstPresent",
+  "isPublicHttpUrl",
+  "signedOssCdnUrlForDelivery",
+  "inferObjectStorageProviderFromUrl",
+  `return (${extractFunction(source, "restorablePublicUrlForUserAsset")});`,
+)(firstPresent, isPublicHttpUrl, isolatedServer.signedOssCdnUrlForDelivery, inferObjectStorageProviderFromUrl);
+
+const ensurePublicUrlForUserAsset = new Function(
+  "firstPresent",
+  "isPublicHttpUrl",
+  "signedOssCdnUrlForUpstream",
+  "objectStorageEnabled",
+  "userAssetHasConfiguredObjectStorageMirror",
+  "publicUrlForAssetPath",
+  "dbEnabled",
+  "upsertUserAssetInDb",
+  "writeDb",
+  "readLocalUserAssetBytes",
+  "restoreLimitBytesForUserAsset",
+  "uploadBufferToR2",
+  `return (${extractFunction(source, "ensurePublicUrlForUserAsset")});`,
+)(
+  firstPresent,
+  isPublicHttpUrl,
+  isolatedServer.signedOssCdnUrlForUpstream,
+  () => true,
+  () => true,
+  () => "",
+  () => false,
+  async () => {},
+  async () => {},
+  async () => { throw new Error("unexpected local read"); },
+  () => 0,
+  async () => { throw new Error("unexpected upload"); },
+);
+
+test.after(() => {
+  for (const [name, value] of Object.entries(previousEnv)) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+});
+
+test("restoring a purged local upload signs a private OSS CDN URL", () => {
+  const asset = {
+    id: "asset-1",
+    cdnUrl: "https://assets-cdn.123vips.com/assets/user-uploads/user-1/asset-1.png",
+  };
+  const restored = new URL(restorablePublicUrlForUserAsset(asset));
+  assert.equal(restored.hostname, "assets-cdn.123vips.com");
+  assert.equal(restored.pathname, "/assets/user-uploads/user-1/asset-1.png");
+  assert.equal(restored.searchParams.get("OSSAccessKeyId"), "test-access-key");
+  assert.ok(restored.searchParams.get("Signature"));
+  assert.ok(restored.searchParams.get("Expires"));
+  assert.equal(asset.cdnUrl, "https://assets-cdn.123vips.com/assets/user-uploads/user-1/asset-1.png");
+});
+
+test("historical R2 URLs are never rewritten with OSS credentials", () => {
+  const value = "https://media.123vips.com/assets/user-uploads/user-1/asset-1.png";
+  assert.equal(restorablePublicUrlForUserAsset({ publicUrl: value }), value);
+});
+
+test("delivery signing returns a copy so PostgreSQL keeps the canonical URL", async () => {
+  const asset = {
+    id: "asset-1",
+    localUrl: "/assets/user-uploads/user-1/asset-1.png",
+    publicUrl: "https://assets-cdn.123vips.com/assets/user-uploads/user-1/asset-1.png",
+  };
+  const delivered = await ensurePublicUrlForUserAsset({ userAssets: [asset] }, asset);
+  assert.notEqual(delivered, asset);
+  assert.equal(new URL(delivered.publicUrl).searchParams.get("OSSAccessKeyId"), "test-access-key");
+  assert.equal(asset.publicUrl, "https://assets-cdn.123vips.com/assets/user-uploads/user-1/asset-1.png");
+});
+
+test("all media preparation before billing is recorded as a free failed generation", () => {
+  const start = source.indexOf('  try {\n  if (provider === "seedance") {');
+  const end = source.indexOf('let wan27MediaMode = "";', start);
+  assert.ok(start > 0 && end > start);
+  const preparation = source.slice(start, end);
+  assert.match(preparation, /^\s*try \{/);
+  assert.match(preparation, /createSingleSeedanceImageAssetFromInput/);
+  assert.match(preparation, /createUserImageAssetsFromInputs/);
+  assert.match(preparation, /createUserWanMediaAssetFromDataUrl/);
+  assert.match(preparation, /recordAdvancedPreparationFailure/);
+  assert.match(preparation, /code: error\.code \|\| "MEDIA_PREPARATION_FAILED"/);
+  assert.doesNotMatch(preparation, /sendReferenceAssetNotFound\(/);
+  assert.doesNotMatch(preparation, /sendAdvancedValidationError\(/);
+});
+
+test("advanced request validation failures are persisted with a taskId and never charged", () => {
+  const sendAdvancedRequestFailure = new Function(
+    "recordAdvancedPreparationFailure",
+    "sendJson",
+    `return (${extractFunction(source, "sendAdvancedRequestFailure")});`,
+  )(
+    async (req, res, auth, { error }) => ({
+      taskId: "cgt-validation-test",
+      message: error.message,
+      statusCode: error.statusCode || 400,
+    }),
+    (res, statusCode, payload) => ({ statusCode, payload }),
+  );
+  return sendAdvancedRequestFailure({}, {}, { user: { id: "user-1" } }, {
+    provider: "seedance",
+    error: Object.assign(new Error("Seedance content is invalid."), {
+      code: "INVALID_SEEDANCE_CONTENT",
+      statusCode: 400,
+    }),
+  }).then((response) => {
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.payload.taskId, "cgt-validation-test");
+    assert.equal(response.payload.code, "INVALID_SEEDANCE_CONTENT");
+    assert.equal(response.payload.message, "Seedance content is invalid.");
+  });
+});
+
+test("preparation failures are persisted without charging credits", () => {
+  const recordAdvancedPreparationFailure = new Function(
+    "advancedPreparationErrorMessage",
+    "localGenerationTaskId",
+    "upsertGenerationRecord",
+    "publicModelText",
+    "firstPresent",
+    `return (${extractFunction(source, "recordAdvancedPreparationFailure")});`,
+  )(
+    (error) => error.message,
+    () => "cgt-test",
+    async (record) => record,
+    (value) => value,
+    firstPresent,
+  );
+  const failed = recordAdvancedPreparationFailure({}, {}, { user: { id: "user-1" }, tokenRecord: null }, {
+    provider: "seedance",
+    requestParams: { model: "seedance-2.0" },
+    error: Object.assign(new Error("Failed to download Upstream reference image: 403"), {
+      code: "INVALID_REMOTE_MEDIA",
+      statusCode: 400,
+    }),
+  });
+  return failed.then((result) => {
+    assert.equal(result.taskId, "cgt-test");
+    assert.equal(result.record.status, "failed");
+    assert.equal(result.record.failureStage, "preparation");
+    assert.equal(result.record.billingStatus, "free");
+    assert.equal(result.record.preDeductedCredits, 0);
+    assert.equal(result.record.finalCredits, 0);
+    assert.equal(result.statusCode, 400);
+  });
+});
+
+test("public media ingest refreshes an expired OSS signature before download", async () => {
+  const canonical = (value) => String(value || "").replace(/\?.*$/, "");
+  const existingAsset = {
+    id: "asset-existing",
+    userId: "user-1",
+    sourceUrl: "https://assets-cdn.123vips.com/assets/user-uploads/user-1/reference.png",
+  };
+  const downloadCalls = [];
+  const createUserMediaAssetFromPublicUrl = new Function(
+    "path",
+    "isPublicHttpUrl",
+    "canonicalOssStorageUrlForCache",
+    "findUserAssetBySourceUrl",
+    "isSoftDeleted",
+    "isAutoPresetReferenceAsset",
+    "refreshSeedancePresetVideoAssetFromSourceIfNeeded",
+    "dbEnabled",
+    "upsertUserAssetInDb",
+    "writeDb",
+    "publicHttpUrlForUpstream",
+    "downloadRemoteFileToBuffer",
+    "imageMimeFromKnownPath",
+    "videoMimeFromKnownPath",
+    "audioMimeFromKnownPath",
+    "createUserMediaAssetFromBytes",
+    "normalizedAssetSourceUrl",
+    "userMediaUploadLimits",
+    `return (${extractFunction(source, "createUserMediaAssetFromPublicUrl")});`,
+  )(
+    require("node:path"),
+    (value) => { try { return ["http:", "https:"].includes(new URL(String(value)).protocol); } catch { return false; } },
+    canonical,
+    (db, user, sourceUrl) => (db.userAssets || []).find((asset) => (
+      asset?.userId === user.id && canonical(asset.sourceUrl) === canonical(sourceUrl)
+    )) || null,
+    () => false,
+    () => true,
+    async (db, asset) => asset,
+    () => false,
+    async () => {},
+    async () => {},
+    (value) => {
+      const url = new URL(canonical(value));
+      if (url.hostname !== "assets-cdn.123vips.com") return String(value || "");
+      url.searchParams.set("OSSAccessKeyId", "test-access-key");
+      url.searchParams.set("Expires", "9999999999");
+      url.searchParams.set("Signature", "fresh-signature");
+      return url.toString();
+    },
+    async (url) => {
+      downloadCalls.push(url);
+      return { bytes: Buffer.from("png"), mime: "image/png" };
+    },
+    () => "image/png",
+    () => "",
+    () => "",
+    async () => ({ id: "asset-created", userId: "user-1" }),
+    (value) => String(value || ""),
+    () => ({ image: 8 * 1024 * 1024, video: 32 * 1024 * 1024, audio: 16 * 1024 * 1024 }),
+  );
+
+  const db = { userAssets: [existingAsset] };
+  const user = { id: "user-1" };
+  const existing = await createUserMediaAssetFromPublicUrl(db, user, {
+    url: "https://assets-cdn.123vips.com/assets/user-uploads/user-1/reference.png?Expires=1&OSSAccessKeyId=old&Signature=expired",
+  });
+  assert.equal(existing, existingAsset, "the same durable OSS object must reuse the existing asset");
+  assert.equal(downloadCalls.length, 0);
+
+  const created = await createUserMediaAssetFromPublicUrl(db, user, {
+    url: "https://assets-cdn.123vips.com/assets/user-uploads/user-1/new-reference.png?Expires=1&OSSAccessKeyId=old&Signature=expired",
+  });
+  db.userAssets.push(created);
+  assert.equal(created.id, "asset-created");
+  assert.equal(downloadCalls.length, 1);
+  const downloaded = new URL(downloadCalls[0]);
+  assert.equal(downloaded.hostname, "assets-cdn.123vips.com");
+  assert.equal(downloaded.pathname, "/assets/user-uploads/user-1/new-reference.png");
+  assert.notEqual(downloaded.searchParams.get("Signature"), "expired");
+  assert.equal(created.sourceUrl, "https://assets-cdn.123vips.com/assets/user-uploads/user-1/new-reference.png");
+
+  const externalUrl = "https://cdn.example.com/assets/external.png";
+  await createUserMediaAssetFromPublicUrl(db, user, { url: `${externalUrl}?token=keep` });
+  assert.equal(downloadCalls[1], `${externalUrl}?token=keep`, "external public URLs must remain byte-for-byte unchanged");
+});
+
+test("adding a generated result prefers its durable OSS key and refreshes expired delivery URLs", async () => {
+  const ossDownloads = [];
+  const remoteDownloads = [];
+  const downloadGenerationRecordAddAssetMedia = new Function(
+    "generationRecordAddAssetStorageKey",
+    "objectStorageDownloadKey",
+    "OSS_STORAGE_ENABLED",
+    "OSS",
+    "downloadOssObject",
+    "signedOssCdnUrlForDelivery",
+    "downloadRemoteFileToBuffer",
+    `return (${extractFunction(source, "downloadGenerationRecordAddAssetMedia")});`,
+  )(
+    (record, mediaUrl, { video = false } = {}) => video
+      ? String(record.storageKey || "")
+      : String(record.cdnImageStorageKeys?.[0] || record.storageKey || ""),
+    (target) => ({
+      provider: target.storageKey ? "oss" : "",
+      key: String(target.storageKey || ""),
+    }),
+    true,
+    {},
+    async ({ key, maxBytes }) => {
+      ossDownloads.push({ key, maxBytes });
+      return { bytes: Buffer.from("durable"), contentType: "image/png" };
+    },
+    (value, { key }) => {
+      if (!key) return "";
+      const url = new URL(value);
+      url.searchParams.set("Expires", "9999999999");
+      url.searchParams.set("Signature", "fresh-signature");
+      return url.toString();
+    },
+    async (url) => {
+      remoteDownloads.push(url);
+      return { bytes: Buffer.from("remote"), mime: "image/png" };
+    },
+  );
+
+  const record = {
+    taskId: "cgt-add-asset",
+    status: "succeeded",
+    storageKey: "generated/images/result.png",
+    cdnImageUrl: "https://assets-cdn.123vips.com/generated/images/result.png?Expires=1&Signature=expired",
+  };
+  const media = await downloadGenerationRecordAddAssetMedia(record, record.cdnImageUrl, {
+    label: "generation image",
+    maxBytes: 20 * 1024 * 1024,
+  });
+  assert.equal(media.bytes.toString(), "durable");
+  assert.equal(media.mime, "image/png");
+  assert.deepEqual(ossDownloads, [{ key: "generated/images/result.png", maxBytes: 20 * 1024 * 1024 }]);
+  assert.equal(remoteDownloads.length, 0, "a healthy durable key must avoid the stored delivery URL");
+
+  const refreshed = new URL(
+    isolatedServer.signedOssCdnUrlForDelivery(record.cdnImageUrl, { key: record.storageKey }),
+  );
+  assert.equal(refreshed.hostname, "assets-cdn.123vips.com");
+  assert.notEqual(refreshed.searchParams.get("Signature"), "expired");
+  assert.ok(Number(refreshed.searchParams.get("Expires")) > Math.floor(Date.now() / 1000));
+});
+
+test("adding a durable generated result creates a metadata-only asset link", () => {
+  const generationRecordReferenceAssetCandidate = new Function(
+    "randomId",
+    "generationRecordR2Expired",
+    "generationRecordImageUrl",
+    "generationRecordVideoUrl",
+    "generationRecordAddAssetStorageKey",
+    "generationRecordImageStorageKeys",
+    "objectStorageDownloadKey",
+    "generationRecordStoragePublicUrl",
+    "OSS",
+    "R2",
+    "generationRecordAssetName",
+    "imageMimeFromKnownPath",
+    "videoMimeFromKnownPath",
+    "durationSecondsFromValue",
+    "firstPresent",
+    `return (${extractFunction(source, "generationRecordReferenceAssetCandidate")});`,
+  )(
+    () => "asset-reference",
+    () => false,
+    (record) => record.cdnImageUrl || "",
+    () => "",
+    (record) => record.storageKey || "",
+    (record) => [record.storageKey].filter(Boolean),
+    ({ storageProvider, storageKey }) => ({ provider: storageProvider, key: storageKey }),
+    (storage) => storage.provider === "oss" ? `https://assets-cdn.123vips.com/${storage.key}` : "",
+    {},
+    {},
+    (record) => record.templateTitle || "Generated image",
+    () => "image/png",
+    () => "",
+    () => 0,
+    firstPresent,
+  );
+
+  const record = {
+    taskId: "img-reference-only",
+    userId: "user-1",
+    status: "succeeded",
+    templateTitle: "Portrait",
+    cdnImageUrl: "https://assets-cdn.123vips.com/generated/images/portrait.png?Expires=1&Signature=expired",
+    imageStorageProvider: "oss",
+    storageKey: "generated/images/portrait.png",
+  };
+  const asset = generationRecordReferenceAssetCandidate(record);
+  assert.equal(asset.objectStorageKey, record.storageKey);
+  assert.equal(asset.storageProvider, "oss");
+  assert.equal(asset.sourceGenerationTaskId, record.taskId);
+  assert.equal(asset.referenceOnly, true);
+  assert.equal(asset.localUrl, "");
+});
+
+test("adding the same generation result reuses its existing asset without another copy", async () => {
+  const generationAddAssetPromises = new Map();
+  let downloadCalls = 0;
+  let createCalls = 0;
+  let updatePayload = null;
+  const record = {
+    taskId: "img-already-added",
+    userId: "user-1",
+    status: "succeeded",
+    cdnImageUrl: "https://assets-cdn.123vips.com/generated/images/portrait.png",
+    storageKey: "generated/images/portrait.png",
+  };
+  const db = {
+    userAssets: [{
+      id: "asset-existing",
+      userId: "user-1",
+      mime: "image/png",
+      objectStorageKey: "generated/images/portrait.png",
+      publicUrl: record.cdnImageUrl,
+      sourceGenerationTaskId: record.taskId,
+      createdAt: "2026-11-11T00:00:00.000Z",
+      deletedAt: "",
+    }],
+  };
+  const handleAddGenerationRecordToAssets = new Function(
+    "requireUser",
+    "readGenerationRecords",
+    "isUserVisibleGenerationRecord",
+    "isSucceededStatus",
+    "findGenerationRecordAddedAsset",
+    "generationRecordAddedAssetId",
+    "generationAddAssetPromises",
+    "generationRecordReferenceAssetCandidate",
+    "generationRecordResultAssetMediaFields",
+    "updateGenerationRecord",
+    "publicUserAsset",
+    "generationRecordImageUrl",
+    "generationRecordVideoUrl",
+    "bytesForGenerationRecordImage",
+    "bytesForGenerationRecordVideo",
+    "createUserMediaAssetFromBytes",
+    "generationRecordAssetName",
+    "imageExtFromMime",
+    "dbEnabled",
+    "upsertUserAssetInDb",
+    "writeDb",
+    "sendJson",
+    `return (${extractFunction(source, "handleAddGenerationRecordToAssets")});`,
+  )(
+    async () => ({ user: { id: "user-1" }, db }),
+    async () => [record],
+    () => true,
+    (status) => status === "succeeded",
+    (assets, userId, taskId, resultAssetId) => {
+      const direct = assets.find((asset) => asset.id === resultAssetId && asset.userId === userId);
+      return direct || assets.find((asset) => asset.userId === userId && asset.sourceGenerationTaskId === taskId) || null;
+    },
+    () => "asset-deterministic",
+    generationAddAssetPromises,
+    () => {
+      throw new Error("reference asset should not be created for an existing asset");
+    },
+    () => ({ storageKey: "generated/images/portrait.png" }),
+    async (taskId, payload) => {
+      updatePayload = { taskId, payload };
+      return { ...record, ...payload };
+    },
+    (asset) => ({ ...asset, previewUrl: asset.publicUrl }),
+    () => record.cdnImageUrl,
+    () => "",
+    async () => {
+      downloadCalls += 1;
+      return { bytes: Buffer.from("unexpected"), mime: "image/png" };
+    },
+    async () => {
+      downloadCalls += 1;
+      return { bytes: Buffer.from("unexpected"), mime: "video/mp4" };
+    },
+    async () => {
+      createCalls += 1;
+      throw new Error("must not create a second asset");
+    },
+    () => "Portrait",
+    () => ".png",
+    () => false,
+    async () => null,
+    async () => null,
+    (res, statusCode, payload) => ({ statusCode, payload }),
+  );
+
+  const response = await handleAddGenerationRecordToAssets({}, {}, record.taskId);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.alreadyAdded, true);
+  assert.equal(response.payload.asset.id, "asset-existing");
+  assert.equal(downloadCalls, 0);
+  assert.equal(createCalls, 0);
+  assert.equal(updatePayload.payload.resultAssetId, "asset-existing");
+  assert.equal(generationAddAssetPromises.size, 0);
+});
+
+test("adding a durable generated result writes one reference asset and no media copy", async () => {
+  const generationAddAssetPromises = new Map();
+  let downloadCalls = 0;
+  let createCalls = 0;
+  let savedAsset = null;
+  let updatePayload = null;
+  const record = {
+    taskId: "img-reference-add",
+    userId: "user-1",
+    status: "succeeded",
+    cdnImageUrl: "https://assets-cdn.123vips.com/generated/images/portrait.png",
+    storageKey: "generated/images/portrait.png",
+  };
+  const db = { userAssets: [] };
+  const referenceAsset = {
+    id: "asset-reference",
+    userId: "user-1",
+    mime: "image/png",
+    name: "Portrait",
+    publicUrl: record.cdnImageUrl,
+    cdnUrl: record.cdnImageUrl,
+    objectStorageKey: record.storageKey,
+    storageProvider: "oss",
+    sourceGenerationTaskId: record.taskId,
+    localUrl: "",
+    deletedAt: "",
+  };
+  const freshReferenceAsset = () => ({ ...referenceAsset });
+  const handleAddGenerationRecordToAssets = new Function(
+    "requireUser",
+    "readGenerationRecords",
+    "isUserVisibleGenerationRecord",
+    "isSucceededStatus",
+    "findGenerationRecordAddedAsset",
+    "generationRecordAddedAssetId",
+    "generationAddAssetPromises",
+    "generationRecordReferenceAssetCandidate",
+    "generationRecordResultAssetMediaFields",
+    "updateGenerationRecord",
+    "publicUserAsset",
+    "generationRecordImageUrl",
+    "generationRecordVideoUrl",
+    "bytesForGenerationRecordImage",
+    "bytesForGenerationRecordVideo",
+    "createUserMediaAssetFromBytes",
+    "generationRecordAssetName",
+    "imageExtFromMime",
+    "dbEnabled",
+    "upsertUserAssetInDb",
+    "writeDb",
+    "sendJson",
+    `return (${extractFunction(source, "handleAddGenerationRecordToAssets")});`,
+  )(
+    async () => ({ user: { id: "user-1" }, db }),
+    async () => [record],
+    () => true,
+    (status) => status === "succeeded",
+    () => null,
+    () => "asset-deterministic",
+    generationAddAssetPromises,
+    freshReferenceAsset,
+    () => ({ storageKey: record.storageKey, storageProvider: "oss" }),
+    async (taskId, payload) => {
+      updatePayload = { taskId, payload };
+      return { ...record, ...payload };
+    },
+    (asset) => ({ ...asset, previewUrl: asset.publicUrl }),
+    () => record.cdnImageUrl,
+    () => "",
+    async () => {
+      downloadCalls += 1;
+      return { bytes: Buffer.from("unexpected"), mime: "image/png" };
+    },
+    async () => {
+      downloadCalls += 1;
+      return { bytes: Buffer.from("unexpected"), mime: "video/mp4" };
+    },
+    async () => {
+      createCalls += 1;
+      throw new Error("must not copy media bytes");
+    },
+    () => "Portrait",
+    () => ".png",
+    () => true,
+    async (asset) => {
+      savedAsset = asset;
+      return asset;
+    },
+    async () => null,
+    (res, statusCode, payload) => ({ statusCode, payload }),
+  );
+
+  const response = await handleAddGenerationRecordToAssets({}, {}, record.taskId);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.asset.id, "asset-reference");
+  assert.equal(downloadCalls, 0);
+  assert.equal(createCalls, 0);
+  assert.equal(savedAsset.objectStorageKey, record.storageKey);
+  assert.equal(savedAsset.sourceGenerationTaskId, record.taskId);
+  assert.equal(updatePayload.payload.resultAssetId, "asset-reference");
+  assert.equal(generationAddAssetPromises.size, 0);
+});

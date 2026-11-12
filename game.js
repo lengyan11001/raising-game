@@ -343,10 +343,14 @@ async function loadSession() {
       localStorage.removeItem("raisingGameToken");
       state.token = "";
     }
-  } catch {
-    localStorage.removeItem("raisingGameToken");
-    state.token = "";
-    syncUser(null);
+  } catch (error) {
+    if (error?.status === 401 || error?.code === "SESSION_REPLACED") {
+      localStorage.removeItem("raisingGameToken");
+      state.token = "";
+      syncUser(null);
+      return;
+    }
+    console.warn("session restore temporarily unavailable", error?.message || error);
   }
 }
 

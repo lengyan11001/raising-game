@@ -37,6 +37,10 @@ function trackAnalyticsEvent(eventName, params = {}) {
 }
 
 function setTab(tab) {
+  // Old #advanced bookmarks and cached routes now belong to Generate. Internal
+  // callers still pass "advanced" without a leading hash so regeneration can
+  // open the shared workspace while preserving its selected create mode.
+  if (String(tab || "").trim().startsWith("#") && platformHashParts(tab).tab === "advanced") tab = "custom";
   const previousTab = state.tab;
   const customAdvancedRoute = isAdvancedCustomRoute(tab);
   const hashRoute = platformHashParts(tab);
@@ -108,6 +112,10 @@ function setTab(tab) {
   document.querySelectorAll("[data-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.panel !== nextTab;
   });
+  if (els.sameStylePanel) {
+    els.sameStylePanel.hidden = nextTab !== "cases"
+      && !(nextTab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+  }
   if (typeof syncUndressAmbientVideo === "function") syncUndressAmbientVideo(nextTab === DEFAULT_PLATFORM_TAB);
   document.querySelectorAll("[data-history-expiry-info]").forEach((control) => {
     control.hidden = nextTab !== "history";
@@ -129,7 +137,13 @@ function setTab(tab) {
   if (nextTab === "spending") loadSpendingRecords();
   if (nextTab === "referral") loadReferralSummary({ force: true });
   if (nextTab === "pricing") renderPricing();
-  if (nextTab === "chat") loadChatConversations({ selectFirst: true });
+  if (nextTab === "chat") {
+    loadChatConversations({ selectFirst: true });
+    // The live-chat client is a deferred module. Load it when the chat panel is
+    // opened rather than during first paint; platform-deferred-ready hydrates
+    // the live entry after the script arrives.
+    window.PlatformDeferredModules?.load?.().catch(() => {});
+  }
   if (nextTab === "assets") {
     if (state.user) loadUserAssets();
     else renderAssets([]);
@@ -144,6 +158,7 @@ function setTab(tab) {
   if (nextTab === "access") loadApiSubtokens();
   if (nextTab === "advanced") {
     renderAdvanced();
+    scheduleAutoSizeAdvancedPrompt();
     if (state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id) loadAdvancedAssets();
     renderAdvancedResultPanel();
     // renderAdvanced/setAdvancedSideTab schedules one authoritative detail
@@ -152,7 +167,21 @@ function setTab(tab) {
   if (nextTab === "workflow") {
     renderWorkflowPanel();
     loadWorkflowPresets();
-    loadWorkflowCanvases();
+    // Workflow canvases are a deferred module. Render the shell immediately,
+    // then hydrate it as soon as the module is available. This covers a fast
+    // click before the idle loader has finished.
+    const loadCanvases = () => {
+      if (state.tab !== "workflow") return;
+      if (typeof loadWorkflowCanvases === "function") {
+        Promise.resolve(loadWorkflowCanvases()).catch((error) => {
+          state.workflowCanvasMessage = error.message || String(error);
+          renderWorkflowPanel();
+        });
+      }
+    };
+    const deferred = window.PlatformDeferredModules?.load?.();
+    if (deferred?.then) deferred.then(loadCanvases).catch(() => {});
+    else loadCanvases();
   }
   closeAccountMenu();
   closeMobileDrawer();
@@ -160,9 +189,9 @@ function setTab(tab) {
 }
 
 function syncMainTabState() {
-  const customActive = state.tab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id;
+  const customActive = state.tab === "advanced";
   document.body.classList.toggle("home-active", state.tab === "home");
-  document.querySelectorAll("[data-tab]").forEach((button) => {
+  document.querySelectorAll(".top-tabs [data-tab]").forEach((button) => {
     const buttonTab = button.dataset.tab || "";
     const active = buttonTab === "custom"
       ? customActive
@@ -171,91 +200,12 @@ function syncMainTabState() {
         && (buttonTab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
     button.classList.toggle("is-active", active);
   });
-  syncSideNavigationMore();
-}
-
-function syncSideNavigationMore() {
-  const tabs = document.querySelector(".top-tabs");
-  const moreButton = document.getElementById("sideNavMoreBtn");
-  const menu = document.getElementById("sideNavMoreMenu");
-  if (!tabs || !moreButton || !menu) return;
-  const isMobile = window.matchMedia("(max-width: 720px)").matches;
-  const menuWasOpen = !menu.hidden;
-  menu.hidden = true;
-  moreButton.setAttribute("aria-expanded", "false");
-  tabs.classList.remove("is-nav-overflowing");
-  tabs.querySelectorAll(".is-nav-overflow-item").forEach((item) => item.classList.remove("is-nav-overflow-item"));
-  menu.replaceChildren();
-  tabs.classList.add("is-nav-overflowing");
-  const moreHeight = Number.parseFloat(getComputedStyle(moreButton).minHeight) || 44;
-  if (isMobile) {
-    tabs.classList.remove("is-nav-overflowing");
-    return;
-  }
-  const candidates = Array.from(tabs.querySelectorAll(".top-tab:not(.top-tab-more)")).filter((item) => !item.hidden);
-  if (!candidates.length) return;
-  const tabHeights = candidates.map((item) => item.getBoundingClientRect().height || 44);
-  const navRow = tabs.closest(".side-rail") || tabs;
-  const utility = document.querySelector(".side-utility-nav");
-  const tabsTop = tabs.getBoundingClientRect().top;
-  const available = utility
-    ? Math.max(0, utility.getBoundingClientRect().top - tabsTop - 10)
-    : Math.max(0, navRow.getBoundingClientRect().bottom - tabsTop - 120);
-  const totalHeight = tabHeights.reduce((sum, height) => sum + height + 3, 0) + moreHeight + 3;
-  if (totalHeight <= available) return;
-  let used = moreHeight + 3;
-  const overflow = [];
-  const minimumVisible = Math.min(4, candidates.length);
-  candidates.forEach((item, index) => {
-    const height = tabHeights[index];
-    const mustShow = index < minimumVisible;
-    if (mustShow || used + height + 3 <= available) {
-      used += height + 3;
-    } else {
-      overflow.push(item);
-    }
+  const sameStyleActive = state.tab === "cases"
+    || (state.tab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+  document.querySelectorAll("[data-same-style-entry]").forEach((entry) => {
+    entry.classList.toggle("is-active", sameStyleActive);
   });
-  if (!overflow.length) {
-    tabs.classList.remove("is-nav-overflowing");
-    return;
-  }
-  overflow.forEach((item) => item.classList.add("is-nav-overflow-item"));
-  overflow.forEach((item) => {
-    const clone = item.cloneNode(true);
-    clone.removeAttribute("id");
-    clone.classList.remove("is-nav-overflow-item", "is-active");
-    clone.removeAttribute("hidden");
-    clone.setAttribute("type", "button");
-    clone.querySelectorAll("[id]").forEach((element) => element.removeAttribute("id"));
-    menu.appendChild(clone);
-  });
-  menu.hidden = true;
-  moreButton.setAttribute("aria-expanded", "false");
-  menu.hidden = !menuWasOpen;
-  moreButton.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
-  moreButton.classList.toggle("is-active", overflow.some((item) => item.classList.contains("is-active")));
 }
-
-function toggleSideNavigationMore() {
-  const menu = document.getElementById("sideNavMoreMenu");
-  const button = document.getElementById("sideNavMoreBtn");
-  if (!menu || !button) return;
-  menu.hidden = !menu.hidden;
-  button.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
-}
-
-document.getElementById("sideNavMoreBtn")?.addEventListener("click", (event) => {
-  event.stopPropagation();
-  toggleSideNavigationMore();
-});
-document.addEventListener("click", (event) => {
-  const menu = document.getElementById("sideNavMoreMenu");
-  const button = document.getElementById("sideNavMoreBtn");
-  if (!menu || menu.hidden || menu.contains(event.target) || button?.contains(event.target)) return;
-  menu.hidden = true;
-  button?.setAttribute("aria-expanded", "false");
-});
-window.addEventListener("resize", () => syncSideNavigationMore());
 
 function setCategory(category) {
   state.category = category;
@@ -290,6 +240,10 @@ function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
+  if (state.tab !== DEFAULT_PLATFORM_TAB) {
+    setTab(DEFAULT_PLATFORM_TAB);
+    return;
+  }
   const nextHash = galleryModeHash(state.galleryMode);
   window.history.replaceState(null, "", `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`);
   renderTemplates();
@@ -1184,7 +1138,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
         : playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images"))
     : "";
   const pendingTaskId = `pending-playflux-${Date.now().toString(36)}`;
-  state.advancedResultMediaKind = isVideo ? "video" : "image";
+  setAdvancedResultMediaKind(isVideo ? "video" : "image");
   mergeAdvancedResultRecord(playfluxTemplateRecordBase(effectiveTemplate, pendingTaskId, provider));
   state.advancedResultTaskId = pendingTaskId;
   renderAdvancedResultPanel();
@@ -1485,7 +1439,10 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
     if (els.advancedResolution) els.advancedResolution.value = "1K";
     if (els.advancedRatio) els.advancedRatio.value = "9:16";
   }
-  if (els.advancedPrompt) els.advancedPrompt.value = template.prompt || "";
+  if (els.advancedPrompt) {
+    window.setAdvancedPromptValue?.(template.prompt || "", { emitInput: false });
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
+  }
   setTab("advanced");
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
@@ -2155,11 +2112,11 @@ function renderGalleryCharacterCard(item = {}, index = 0) {
   const deletable = mine || custom;
   const imageReady = Boolean(characterUsableImage(item));
   const generating = isMyCharacterGenerating(item);
-  const tags = characterTags(item, 2);
+  const tags = characterTags(item, 1);
   const profileLine = characterProfileLine(item);
   const stats = uniqueTruthy([
     `${compactNumber(item.likeCount)} likes`,
-    `${videoCount} videos`,
+    `${videoCount} ${videoCount === 1 ? "video" : "videos"}`,
   ]).join(" / ");
   const chatTenant = typeof isTenantTool === "function" && isTenantTool("chat");
   const actionMarkup = chatTenant
@@ -3549,7 +3506,8 @@ async function useHomeCharacter(characterId = "") {
   }] : [];
   state.advancedUploadDataUrl = imageUrl || "";
   if (els.advancedPrompt) {
-    els.advancedPrompt.value = `Use Image 1 as the main character reference. Create a cinematic video featuring ${item.name || "the character"}.`;
+    window.setAdvancedPromptValue?.(`Use Image 1 as the main character reference. Create a cinematic video featuring ${item.name || "the character"}.`, { emitInput: false });
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
   setTab("advanced");
   updateAdvancedModelControls();
@@ -3693,9 +3651,12 @@ function previewRatioFromItem(item = {}) {
   return item.ratio || params.ratio || params.aspect_ratio || requestJson.ratio || requestJson.aspect_ratio || "16:9";
 }
 
-function playPreview({ title = "", previewUrl = "", posterUrl = "", ratio = "16:9" } = {}) {
+function playPreview({ title = "", previewUrl = "", posterUrl = "", ratio = "16:9", record = null } = {}) {
   if (!previewUrl || !els.previewDialog || !els.previewVideo || !els.previewImage) return;
   prepareModalOpen();
+  state.previewDownloadRecord = record || null;
+  state.previewDownloadUrl = previewUrl;
+  state.previewDownloadName = `${String(title || "explore-video").replace(/[^a-z0-9_-]+/gi, "-") || "explore-video"}.mp4`;
   document.querySelectorAll(".history-media video").forEach((video) => video.pause());
   els.previewTitle.textContent = title || t("common.preview");
   els.previewImage.hidden = true;
@@ -3709,8 +3670,8 @@ function playPreview({ title = "", previewUrl = "", posterUrl = "", ratio = "16:
   els.previewVideo.hidden = false;
   if (els.previewActions) els.previewActions.hidden = false;
   if (els.previewDownloadBtn) {
-    els.previewDownloadBtn.href = previewUrl;
-    els.previewDownloadBtn.setAttribute("download", `${String(title || "explore-video").replace(/[^a-z0-9_-]+/gi, "-") || "explore-video"}.mp4`);
+    els.previewDownloadBtn.disabled = false;
+    els.previewDownloadBtn.dataset.downloadReady = "true";
   }
   if (!els.previewDialog.open) els.previewDialog.showModal();
   els.previewVideo.load();
@@ -3729,15 +3690,407 @@ function previewImage({ title = "", imageUrl = "" } = {}) {
   els.previewImage.src = imageUrl;
   els.previewImage.hidden = false;
   if (els.previewActions) els.previewActions.hidden = true;
-  if (els.previewDownloadBtn) els.previewDownloadBtn.removeAttribute("href");
+  state.previewDownloadRecord = null;
+  state.previewDownloadUrl = "";
+  state.previewDownloadName = "";
+  if (els.previewDownloadBtn) {
+    els.previewDownloadBtn.disabled = true;
+    delete els.previewDownloadBtn.dataset.downloadReady;
+  }
   if (!els.previewDialog.open) els.previewDialog.showModal();
 }
 
-async function submitSupportMessage() {
+
+/* ============ notification center ============ */
+function notificationTimeLabel(value = "") {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  const diff = Date.now() - date.getTime();
+  if (diff >= 0 && diff < 60_000) return "刚刚";
+  if (diff >= 0 && diff < 3_600_000) return `${Math.max(1, Math.floor(diff / 60_000))} 分钟前`;
+  if (diff >= 0 && diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function notificationCenterSkeleton() {
+  return '<div class="notification-skeleton" aria-label="正在加载消息"><span></span><span></span><span></span></div>';
+}
+
+function notificationTypeMeta(kind = "") {
+  if (kind === "support") return { icon: "message-circle", label: "客服回复", tone: "support" };
+  return { icon: "megaphone", label: "系统通知", tone: "system" };
+}
+
+function renderNotificationCenter(payload = {}) {
+  const notifications = Array.isArray(payload.notifications) ? payload.notifications : [];
+  const supportUnread = Number(payload.supportUnreadCount || 0);
+  const unread = Number(payload.unreadCount ?? notifications.filter((item) => item.unread).length);
+  const total = Number(payload.totalUnreadCount ?? unread + supportUnread);
+  state.notificationCenter = payload;
+  if (els.notificationCenter) els.notificationCenter.hidden = !state.user;
+  if (els.notificationBellDot) els.notificationBellDot.hidden = unread <= 0;
+  if (els.notificationSupportUnread) {
+    els.notificationSupportUnread.hidden = supportUnread <= 0;
+    els.notificationSupportUnread.textContent = supportUnread > 99 ? "99+" : String(supportUnread);
+  }
+  if (els.supportNavDot) els.supportNavDot.hidden = total <= 0;
+  document.title = total > 0 ? `(${total > 99 ? "99+" : total}) ${state.notificationBaseTitle || document.title.replace(/^\(\d+\+?\)\s*/, "")}` : (state.notificationBaseTitle || document.title.replace(/^\(\d+\+?\)\s*/, ""));
+  if (!els.notificationList) return;
   if (!state.user) {
-    if (els.supportStatus) els.supportStatus.textContent = "Login is required to send a site message. Telegram support is available above.";
+    els.notificationList.innerHTML = '<div class="notification-empty">登录后查看消息</div>';
     return;
   }
+  if (!notifications.length) {
+    els.notificationList.innerHTML = '<div class="notification-empty"><span>暂无系统通知</span><small>客服工单消息仍可从上方进入</small></div>';
+    return;
+  }
+  els.notificationList.innerHTML = notifications.map((item) => `
+    <button class="notification-item${item.unread ? " is-unread" : ""}" type="button" data-notification-id="${escapeHtml(item.id)}">
+      <span class="notification-item-icon"><i data-lucide="megaphone"></i></span>
+      <span class="notification-item-copy">
+        <span class="notification-item-top">${item.pinned ? '<b class="notification-pin"><i data-lucide="pin"></i>置顶</b>' : ""}<time>${escapeHtml(notificationTimeLabel(item.publishAt || item.createdAt))}</time></span>
+        <strong>${escapeHtml(item.title || "系统通知")}</strong>
+        <small>${escapeHtml(String(item.body || "").replace(/\s+/g, " ").slice(0, 72))}</small>
+      </span>
+      ${item.unread ? '<i class="notification-unread-pip"></i>' : ""}
+    </button>
+  `).join("");
+  refreshIcons();
+}
+
+async function loadNotificationCenter({ silent = false } = {}) {
+  if (!state.user || !state.token) {
+    renderNotificationCenter({});
+    return;
+  }
+  if (state.notificationCenterLoading) return state.notificationCenterLoading;
+  state.notificationCenterLoading = (async () => {
+    try {
+      const payload = await requestJson("/api/system-notifications", { timeoutMs: 12_000 });
+      renderNotificationCenter(payload);
+      if (!silent && state.supportDialog?.open) renderSupportTicketList();
+    } catch (error) {
+      if (!silent && els.notificationList) {
+        els.notificationList.innerHTML = `<div class="notification-empty is-error">${escapeHtml(error.message || "消息加载失败")}</div>`;
+      }
+    } finally {
+      state.notificationCenterLoading = null;
+    }
+  })();
+  return state.notificationCenterLoading;
+}
+
+function scheduleNotificationPoll() {
+  window.clearTimeout(state.notificationPollTimer);
+  state.notificationPollTimer = 0;
+  if (!state.user) return;
+  state.notificationPollTimer = window.setTimeout(async () => {
+    if (document.visibilityState === "visible") await loadNotificationCenter({ silent: true });
+    scheduleNotificationPoll();
+  }, 25_000);
+}
+
+function syncNotificationCenter() {
+  state.notificationBaseTitle = state.notificationBaseTitle || document.title;
+  if (!state.user) {
+    window.clearTimeout(state.notificationPollTimer);
+    state.notificationPollTimer = 0;
+    closeNotificationPanel();
+    renderNotificationCenter({});
+    return;
+  }
+  loadNotificationCenter({ silent: true }).finally(scheduleNotificationPoll);
+}
+
+function closeNotificationPanel() {
+  if (els.notificationPanel) els.notificationPanel.hidden = true;
+  els.notificationBellBtn?.setAttribute("aria-expanded", "false");
+  els.supportNavBtn?.setAttribute("aria-expanded", "false");
+}
+
+function positionNotificationPanelFromNav() {
+  if (!els.notificationPanel || !els.supportNavBtn || els.notificationPanel.hidden) return;
+  if (window.matchMedia("(max-width: 760px)").matches) {
+    els.notificationPanel.style.removeProperty("left");
+    els.notificationPanel.style.removeProperty("top");
+    els.notificationPanel.style.removeProperty("bottom");
+    els.notificationPanel.style.removeProperty("max-height");
+    return;
+  }
+  const anchor = els.supportNavBtn.getBoundingClientRect();
+  const panel = els.notificationPanel.getBoundingClientRect();
+  const gap = 12;
+  const margin = 12;
+  const left = Math.min(window.innerWidth - panel.width - margin, Math.round(anchor.right + gap));
+  const top = Math.max(margin, Math.min(Math.round(anchor.bottom - panel.height), window.innerHeight - panel.height - margin));
+  els.notificationPanel.style.left = `${Math.max(margin, left)}px`;
+  els.notificationPanel.style.top = `${top}px`;
+  els.notificationPanel.style.bottom = "auto";
+  els.notificationPanel.style.maxHeight = `${Math.max(260, Math.min(680, window.innerHeight - margin * 2))}px`;
+}
+
+function toggleNotificationPanel(source = "bell") {
+  if (!state.user) return openLogin();
+  if (!els.notificationPanel) return;
+  const willOpen = els.notificationPanel.hidden;
+  els.notificationPanel.hidden = !willOpen;
+  els.notificationPanel.dataset.source = source;
+  els.notificationBellBtn?.setAttribute("aria-expanded", String(willOpen && source === "bell"));
+  els.supportNavBtn?.setAttribute("aria-expanded", String(willOpen && source === "nav"));
+  if (willOpen) {
+    if (els.notificationList && !state.notificationCenter?.notifications) els.notificationList.innerHTML = notificationCenterSkeleton();
+    loadNotificationCenter({ silent: false });
+    refreshIcons();
+    if (source === "nav") requestAnimationFrame(positionNotificationPanelFromNav);
+  }
+}
+
+window.addEventListener("resize", positionNotificationPanelFromNav);
+
+async function markNotificationRead(id = "", version = "") {
+  try {
+    await requestJson(`/api/system-notifications/${encodeURIComponent(id)}/read`, { method: "POST", body: { version } });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function openNotificationDetail(item = {}) {
+  if (!item?.id || !els.notificationDetailDialog) return;
+  closeNotificationPanel();
+  if (els.notificationDetailKicker) els.notificationDetailKicker.textContent = item.pinned ? "置顶通知" : "系统通知";
+  if (els.notificationDetailTitle) els.notificationDetailTitle.textContent = item.title || "通知详情";
+  if (els.notificationDetailBody) els.notificationDetailBody.textContent = item.body || "";
+  if (els.notificationDetailTime) els.notificationDetailTime.textContent = item.publishAt ? `发布于 ${notificationTimeLabel(item.publishAt)}` : "";
+  els.notificationDetailDialog.showModal();
+  refreshIcons();
+  if (item.unread) {
+    markNotificationRead(item.id, item.updatedAt || "").finally(() => loadNotificationCenter({ silent: true }));
+  }
+}
+
+async function markAllNotificationsRead() {
+  if (!state.user) return;
+  if (els.notificationReadAllBtn) els.notificationReadAllBtn.disabled = true;
+  try {
+    await requestJson("/api/system-notifications/read-all", { method: "POST", body: {} });
+    await loadNotificationCenter({ silent: true });
+  } catch (error) {
+    if (els.notificationList) els.notificationList.innerHTML = `<div class="notification-empty is-error">${escapeHtml(error.message || "操作失败")}</div>`;
+  } finally {
+    if (els.notificationReadAllBtn) els.notificationReadAllBtn.disabled = false;
+  }
+}
+
+/* ============ support ticket center ============ */
+const SUPPORT_TICKET_STATUS_LABELS = { open: "处理中", pending: "等待回复", closed: "已结束" };
+const SUPPORT_TICKET_PRIORITY_LABELS = { low: "低", normal: "普通", high: "高", urgent: "紧急" };
+
+function supportStatusLabel(status = "") {
+  return SUPPORT_TICKET_STATUS_LABELS[status] || "处理中";
+}
+
+function supportTicketPreview(ticket = {}) {
+  return String(ticket.lastMessage || "").replace(/\s+/g, " ").slice(0, 58) || "暂无消息";
+}
+
+function renderSupportTicketList(tickets = state.supportTickets || []) {
+  if (!els.supportTicketList) return;
+  if (!tickets.length) {
+    els.supportTicketList.innerHTML = '<div class="support-sidebar-empty"><i data-lucide="inbox"></i><span>还没有工单</span><small>创建工单后，客服回复会同步到这里</small></div>';
+    refreshIcons();
+    return;
+  }
+  els.supportTicketList.innerHTML = tickets.map((ticket) => `
+    <button class="support-ticket-card${ticket.id === state.activeSupportTicketId ? " is-active" : ""}" type="button" data-support-ticket-id="${escapeHtml(ticket.id)}">
+      <span class="support-ticket-card-top">
+        <span class="support-ticket-status-dot is-${escapeHtml(ticket.status || "open")}"></span>
+        <strong>${escapeHtml(ticket.subject || "客服咨询")}</strong>
+        ${Number(ticket.userUnreadCount || 0) > 0 ? `<b class="support-ticket-unread">${Number(ticket.userUnreadCount) > 99 ? "99+" : Number(ticket.userUnreadCount)}</b>` : ""}
+      </span>
+      <span class="support-ticket-preview">${escapeHtml(supportTicketPreview(ticket))}</span>
+      <span class="support-ticket-card-bottom"><time>${escapeHtml(notificationTimeLabel(ticket.lastMessageAt || ticket.createdAt))}</time><em>${escapeHtml(supportStatusLabel(ticket.status))}</em></span>
+    </button>
+  `).join("");
+  refreshIcons();
+}
+
+function showSupportView(view = "empty") {
+  els.supportAppPanel?.classList.toggle("is-viewing-thread", view === "thread");
+  els.supportAppPanel?.classList.toggle("is-viewing-new", view === "new");
+  if (els.supportEmptyState) els.supportEmptyState.hidden = view !== "empty";
+  if (els.supportNewTicketPanel) els.supportNewTicketPanel.hidden = view !== "new";
+  if (els.supportThreadPanel) els.supportThreadPanel.hidden = view !== "thread";
+}
+
+function openSupportNewTicket({ subject = "", message = "" } = {}) {
+  showSupportView("new");
+  if (els.supportTicketSubject) els.supportTicketSubject.value = subject || "";
+  if (els.supportTicketBody) els.supportTicketBody.value = message || "";
+  if (els.supportCreateStatus) els.supportCreateStatus.textContent = "";
+  window.requestAnimationFrame(() => (subject ? els.supportTicketBody : els.supportTicketSubject)?.focus());
+}
+
+async function loadSupportTickets({ selectId = "" } = {}) {
+  if (!state.user) return;
+  if (els.supportTicketList) els.supportTicketList.innerHTML = '<div class="support-sidebar-loading"><span></span><span></span><span></span></div>';
+  try {
+    const payload = await requestJson("/api/support/tickets?limit=50", { timeoutMs: 12_000 });
+    state.supportTickets = Array.isArray(payload.tickets) ? payload.tickets : [];
+    renderSupportTicketList(state.supportTickets);
+    const nextId = selectId || state.activeSupportTicketId || state.supportTickets[0]?.id || "";
+    if (nextId) await openSupportTicket(nextId);
+    else showSupportView("empty");
+    renderNotificationCenter({ ...(state.notificationCenter || {}), supportUnreadCount: Number(payload.unreadCount || 0), totalUnreadCount: Number(payload.unreadCount || 0) + Number(state.notificationCenter?.unreadCount || 0) });
+  } catch (error) {
+    if (els.supportTicketList) els.supportTicketList.innerHTML = `<div class="support-sidebar-empty is-error">${escapeHtml(error.message || "工单加载失败")}</div>`;
+  }
+}
+
+function renderSupportMessages(messages = []) {
+  if (!els.supportMessages) return;
+  if (!messages.length) {
+    els.supportMessages.innerHTML = '<div class="support-thread-empty">还没有消息，发送第一条回复吧</div>';
+    return;
+  }
+  let previousDay = "";
+  els.supportMessages.innerHTML = messages.map((message) => {
+    const date = new Date(message.createdAt || "");
+    const day = Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
+    const dayDivider = day && day !== previousDay ? `<div class="support-day-divider"><span>${escapeHtml(day)}</span></div>` : "";
+    previousDay = day || previousDay;
+    const admin = message.senderType === "admin";
+    return `${dayDivider}<div class="support-message ${admin ? "is-admin" : "is-user"}">
+      <div class="support-message-avatar">${admin ? '<i data-lucide="headphones"></i>' : escapeHtml(String(state.user?.username || "我").slice(0, 1).toUpperCase())}</div>
+      <div class="support-message-main">
+        <span class="support-message-name">${admin ? "VIPEAK 客服" : "我"}<time>${escapeHtml(notificationTimeLabel(message.createdAt))}</time></span>
+        <div class="support-message-bubble">${escapeHtml(message.body || "")}</div>
+      </div>
+    </div>`;
+  }).join("");
+  refreshIcons();
+  window.requestAnimationFrame(() => { if (els.supportMessages) els.supportMessages.scrollTop = els.supportMessages.scrollHeight; });
+}
+
+async function openSupportTicket(ticketId = "") {
+  if (!ticketId || !state.user) return;
+  state.activeSupportTicketId = ticketId;
+  showSupportView("thread");
+  if (els.supportMessages) els.supportMessages.innerHTML = '<div class="support-message-loading"><span></span><span></span><span></span></div>';
+  try {
+    const payload = await requestJson(`/api/support/tickets/${encodeURIComponent(ticketId)}?read=1`, { timeoutMs: 12_000 });
+    const ticket = payload.ticket || {};
+    if (els.supportThreadSubject) els.supportThreadSubject.textContent = ticket.subject || "客服咨询";
+    if (els.supportThreadMeta) els.supportThreadMeta.textContent = `${ticket.id || ""} · ${SUPPORT_TICKET_PRIORITY_LABELS[ticket.priority] || "普通"}优先级`;
+    if (els.supportThreadStatus) {
+      els.supportThreadStatus.textContent = supportStatusLabel(ticket.status);
+      els.supportThreadStatus.className = `support-status-pill is-${ticket.status || "open"}`;
+    }
+    state.supportMessages = Array.isArray(payload.messages) ? payload.messages : [];
+    renderSupportMessages(state.supportMessages);
+    state.supportTickets = (state.supportTickets || []).map((item) => item.id === ticket.id ? { ...item, ...ticket, userUnreadCount: 0 } : item);
+    renderSupportTicketList();
+    loadNotificationCenter({ silent: true });
+  } catch (error) {
+    if (els.supportMessages) els.supportMessages.innerHTML = `<div class="support-thread-empty is-error">${escapeHtml(error.message || "工单加载失败")}</div>`;
+  }
+}
+
+async function createSupportTicketFromCenter() {
+  if (!state.user) return openLogin();
+  const subject = String(els.supportTicketSubject?.value || "").trim();
+  const message = String(els.supportTicketBody?.value || "").trim();
+  if (!message) {
+    if (els.supportCreateStatus) els.supportCreateStatus.textContent = "请填写详细描述。";
+    els.supportTicketBody?.focus();
+    return;
+  }
+  if (els.supportCreateBtn) {
+    els.supportCreateBtn.disabled = true;
+    els.supportCreateBtn.innerHTML = '<i data-lucide="loader-circle"></i>提交中...';
+    refreshIcons();
+  }
+  if (els.supportCreateStatus) els.supportCreateStatus.textContent = "";
+  try {
+    const payload = await requestJson("/api/support/tickets", {
+      method: "POST",
+      body: { subject, message, source: els.supportDialog?.dataset.source || "site" },
+    });
+    state.supportTickets = [payload.ticket, ...(state.supportTickets || [])];
+    state.activeSupportTicketId = payload.ticket?.id || "";
+    if (els.supportTicketSubject) els.supportTicketSubject.value = "";
+    if (els.supportTicketBody) els.supportTicketBody.value = "";
+    renderSupportTicketList();
+    if (payload.ticket?.id) await openSupportTicket(payload.ticket.id);
+    loadNotificationCenter({ silent: true });
+  } catch (error) {
+    if (els.supportCreateStatus) els.supportCreateStatus.textContent = error.message || "创建工单失败";
+  } finally {
+    if (els.supportCreateBtn) {
+      els.supportCreateBtn.disabled = false;
+      els.supportCreateBtn.innerHTML = '<i data-lucide="send"></i>提交工单';
+      refreshIcons();
+    }
+  }
+}
+
+async function sendSupportReply() {
+  const ticketId = state.activeSupportTicketId;
+  const message = String(els.supportReplyInput?.value || "").trim();
+  if (!ticketId || !message) return;
+  if (els.supportReplyBtn) {
+    els.supportReplyBtn.disabled = true;
+    els.supportReplyBtn.innerHTML = '<i data-lucide="loader-circle"></i>';
+    refreshIcons();
+  }
+  if (els.supportReplyStatus) els.supportReplyStatus.textContent = "";
+  try {
+    const payload = await requestJson(`/api/support/tickets/${encodeURIComponent(ticketId)}/messages`, {
+      method: "POST",
+      body: { message },
+    });
+    if (els.supportReplyInput) els.supportReplyInput.value = "";
+    const current = Array.isArray(state.supportMessages) ? state.supportMessages : [];
+    state.supportMessages = [...current, payload.message].filter(Boolean);
+    renderSupportMessages(state.supportMessages);
+    if (payload.ticket) {
+      state.supportTickets = (state.supportTickets || []).map((item) => item.id === ticketId ? { ...item, ...payload.ticket } : item);
+      renderSupportTicketList();
+    }
+  } catch (error) {
+    if (els.supportReplyStatus) els.supportReplyStatus.textContent = error.message || "发送失败";
+  } finally {
+    if (els.supportReplyBtn) {
+      els.supportReplyBtn.disabled = false;
+      els.supportReplyBtn.innerHTML = '<i data-lucide="send"></i>';
+      refreshIcons();
+    }
+  }
+}
+
+function openSupportCenter({ source = "", subject = "", message = "" } = {}) {
+  prepareModalOpen();
+  if (!state.notificationBaseTitle) state.notificationBaseTitle = document.title.replace(/^\(\d+\+?\)\s*/, "");
+  if (els.supportDialog) els.supportDialog.dataset.source = source;
+  if (els.supportAnonPanel) els.supportAnonPanel.hidden = Boolean(state.user);
+  if (els.supportAppPanel) els.supportAppPanel.hidden = !state.user;
+  if (!state.user) {
+    if (els.supportEmail) els.supportEmail.value = "";
+    if (els.supportSubject) els.supportSubject.value = subject;
+    if (els.supportMessage) els.supportMessage.value = message;
+    if (els.supportStatus) els.supportStatus.textContent = "";
+  }
+  els.supportDialog?.showModal();
+  refreshIcons();
+  if (state.user) {
+    loadSupportTickets().then(() => {
+      if (subject || message) openSupportNewTicket({ subject, message });
+    }).catch(() => {});
+  }
+}
+
+async function submitSupportMessage() {
   const email = String(els.supportEmail?.value || "").trim();
   const subject = String(els.supportSubject?.value || "").trim();
   const message = String(els.supportMessage?.value || "").trim();
@@ -3758,7 +4111,7 @@ async function submitSupportMessage() {
   try {
     await requestJson("/api/support-messages", {
       method: "POST",
-      body: { email, subject, message },
+      body: { email, subject, message, source: els.supportDialog?.dataset.source || "" },
     });
     if (els.supportStatus) els.supportStatus.textContent = "Sent. We will reply in admin.";
     if (els.supportSubject) els.supportSubject.value = "";
@@ -3806,8 +4159,14 @@ function publicHistoryParams(value) {
 function openHistoryDetail(index) {
   const record = state.historyRecords?.[Number(index || 0)];
   if (!record || !els.historyDetailDialog || !els.historyDetailBody) return;
+  // mediaAssets is the server-planned canonical input set. Do not expand it
+  // from legacy params/upstream placeholders, which can contain asset://
+  // identities instead of browser-previewable addresses.
+  const detailRecord = Array.isArray(record.mediaAssets) && record.mediaAssets.length
+    ? { ...record, params: { ...(record.params || {}), referenceImages: [], referenceVideos: [], referenceAudios: [] }, upstreamPayload: null }
+    : record;
   prepareModalOpen();
-  const title = publicModelText(record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle"));
+  const title = publicModelText(publicGenerationDisplayTitle(record, t("history.detailTitle")));
   const videoUrl = generationVideoUrl(record);
   // The local generated copy is served by the site's optimized static
   // handler and supports byte ranges. Prefer it for the detail preview when
@@ -3817,11 +4176,13 @@ function openHistoryDetail(index) {
   const previewVideoUrl = localVideoUrl || videoUrl;
   const imageResultUrl = generationImageResultUrl(record);
   const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
-  const images = recordImageAssets(record);
-  const videos = recordVideoAssets(record);
+  const images = recordImageAssets(detailRecord);
+  const videos = recordVideoAssets(detailRecord);
   const canDownload = canDownloadGenerationRecord(record);
   const canAdvancedDownload = canAdvancedDownloadGenerationRecord(record);
-  const advancedDownloadState = record?.r2DownloadReady ? "ready" : "idle";
+  const advancedDownloadState = advancedDownloadUiState(record);
+  const advancedDownloadLabel = advancedDownloadButtonLabel(record);
+  const advancedDownloadDisabled = !canAdvancedDownload || advancedDownloadState === "preparing";
   els.historyDetailTitle.textContent = title || t("history.detailTitle");
   stopModalMedia(els.historyDetailBody);
   els.historyDetailBody.innerHTML = `
@@ -3829,14 +4190,15 @@ function openHistoryDetail(index) {
       <header>
         <strong>${escapeHtml(t("history.result"))}</strong>
         <span>${escapeHtml(record.taskId || "")}</span>
+        ${advancedDownloadStatusPill(record, { detail: true })}
         ${canDownload ? `
           <button class="history-download history-detail-download" type="button" data-history-detail-download>
             <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
           </button>
         ` : ""}
         ${videoUrl || imageResultUrl ? `
-          <button class="history-download history-detail-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}" type="button" data-history-detail-r2-download data-download-state="${advancedDownloadState}" ${canAdvancedDownload ? "" : "disabled"}>
-            <i data-lucide="cloud-download"></i>${escapeHtml(advancedDownloadState === "ready" ? (state.lang === "zh" ? "download2 可下载" : "download2 available") : t("history.advancedDownload"))}
+          <button class="history-download history-detail-r2-download${advancedDownloadState === "ready" ? " is-ready" : ""}${advancedDownloadState === "preparing" ? " is-preparing" : ""}" type="button" data-history-detail-r2-download data-download-state="${advancedDownloadState}" ${advancedDownloadDisabled ? "disabled" : ""}>
+            <i data-lucide="${advancedDownloadState === "preparing" ? "loader-circle" : advancedDownloadState === "failed" ? "circle-alert" : "cloud-download"}"></i>${escapeHtml(advancedDownloadLabel)}
           </button>
         ` : ""}
       </header>
@@ -3977,13 +4339,51 @@ function syncGalleryShortcutNav() {
       countEl.textContent = !disabled && isPlayfluxGalleryMode(mode) ? String(allPlayfluxTemplates().filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
     }
   });
+  renderGalleryModeTabs();
+}
+
+function galleryTopTabsVisible() {
+  return state.tab === "cases"
+    || (state.tab === DEFAULT_PLATFORM_TAB && isPlayfluxGalleryMode());
+}
+
+function galleryTopTabItems() {
+  const items = [{
+    id: "cases",
+    label: state.lang === "zh" ? "案例" : "Case",
+    icon: "layout-grid",
+    active: state.tab === "cases",
+  }];
+  [
+    { id: "playflux-video", labelKey: "playflux.videoTab", fallback: "Video", icon: "film" },
+    { id: "playflux-anime", labelKey: "playflux.animeTab", fallback: "Anime", icon: "sparkles" },
+    { id: "playflux-image", labelKey: "playflux.imageTab", fallback: "Image", icon: "image" },
+  ].forEach((item) => {
+    if (!isGalleryModeAllowed(item.id)) return;
+    items.push({
+      ...item,
+      label: t(item.labelKey, {}, item.fallback),
+      active: state.tab === DEFAULT_PLATFORM_TAB && normalizeGalleryMode(state.galleryMode) === item.id,
+    });
+  });
+  return items;
 }
 
 function renderGalleryModeTabs() {
   if (!els.galleryModeTabs) return;
-  els.galleryModeTabs.hidden = true;
-  els.galleryModeTabs.innerHTML = "";
-  syncGalleryShortcutNav();
+  const visible = galleryTopTabsVisible();
+  els.galleryModeTabs.hidden = !visible;
+  if (!visible) {
+    els.galleryModeTabs.innerHTML = "";
+    return;
+  }
+  els.galleryModeTabs.innerHTML = galleryTopTabItems().map((item) => `
+    <button class="gallery-mode-tab${item.active ? " is-active" : ""}" type="button" role="tab"
+      aria-selected="${item.active ? "true" : "false"}" data-gallery-top-tab="${escapeHtml(item.id)}">
+      <i data-lucide="${escapeHtml(item.icon)}"></i><span>${escapeHtml(item.label)}</span>
+    </button>
+  `).join("");
+  refreshIcons();
 }
 
 function advancedCaseOutputVideo(item = {}) {
@@ -4058,8 +4458,10 @@ function fillAdvancedCasePrompt(item = {}) {
     updateAdvancedModelControls();
   }
   if (els.advancedPrompt) {
-    els.advancedPrompt.value = prompt;
-    els.advancedPrompt.focus?.();
+    window.setAdvancedPromptValue?.(prompt, { emitInput: false });
+    autoSizeAdvancedPrompt({ force: true, resetManual: true });
+    if (window.VipeakPromptEditorAdapter?.rich) window.VipeakPromptEditorAdapter.focus?.("end");
+    else els.advancedPrompt.focus?.();
   }
   state.activeAdvancedCaseId = "";
   updateAdvancedButtonCost();
@@ -4302,6 +4704,18 @@ function selectedBillingProduct() {
   const products = Array.isArray(state.billing?.products) ? state.billing.products : [];
   if (!products.length) return null;
   return products.find((item) => item.id === state.selectedProductId) || null;
+}
+
+function isMembershipBillingPlan(plan = {}) {
+  return Boolean(plan && (
+    plan.id === "plan-main-creator" ||
+    String(plan.intervalUnit || "").toLowerCase() === "lifetime" ||
+    (Array.isArray(plan.benefits) && plan.benefits.includes("topup-bonus"))
+  ));
+}
+
+function membershipBenefitCopy(key, fallback = "") {
+  return t(key, {}, fallback);
 }
 
 function selectBillingPlan(planId = "") {
@@ -4557,15 +4971,32 @@ function renderTopupSummary() {
   const selectedPlan = selectedBillingPlan();
   const selectedProduct = selectedBillingProduct();
   const selectedPackage = selectedTopupPackage();
+  const membershipPlan = isMembershipBillingPlan(selectedPlan) ? selectedPlan : null;
   const amount = selectedProduct?.amount || selectedPlan?.amount || selectedPackage?.amount || DEFAULT_TOPUP_AMOUNT;
-  const credits = selectedProduct?.includedCredits || selectedPlan?.includedCredits || selectedPackage?.credits || walletCreditsForAmount(amount);
+  const credits = membershipPlan
+    ? 0
+    : Number(selectedProduct?.includedCredits ?? selectedPlan?.includedCredits ?? selectedPackage?.credits ?? walletCreditsForAmount(amount));
   const asset = state.wallet?.asset || "USDT";
   const selected = ensureSelectedWalletOption();
   const network = selected?.network || state.wallet?.network || "TRC20";
-  if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits });
+  els.topupPanel.classList.toggle("is-membership-checkout", Boolean(membershipPlan));
+  if (els.topupMembershipCheckout) els.topupMembershipCheckout.hidden = !membershipPlan;
+  if (els.topupExpiryNote) els.topupExpiryNote.hidden = Boolean(membershipPlan);
+  if (els.topupCredits) {
+    els.topupCredits.textContent = membershipPlan
+      ? membershipBenefitCopy("membership.checkoutPrice", "$99 lifetime benefits")
+      : t("cost.credits", { credits });
+  }
+  if (els.topupSelectedLabel) {
+    els.topupSelectedLabel.textContent = membershipPlan
+      ? membershipBenefitCopy("membership.checkoutSelected", "One-time membership")
+      : t("topup.selectedPackage");
+  }
   if (els.topupSelectedPackage) {
-    els.topupSelectedPackage.textContent = selectedProduct
-      ? `${selectedProduct.name || "API Documentation Access"} / $${formatCredits(selectedProduct.amount)} / ${formatCredits(selectedProduct.includedCredits)} ${t("common.credits")}`
+    els.topupSelectedPackage.textContent = membershipPlan
+      ? `$${formatCredits(membershipPlan.amount)} / ${membershipBenefitCopy("membership.checkoutLifetime", "Lifetime")} / ${membershipBenefitCopy("membership.checkoutNoCreditsShort", "No credits included")}`
+      : selectedProduct
+      ? `${selectedProduct.name || "Billing product"} / $${formatCredits(selectedProduct.amount)} / ${formatCredits(selectedProduct.includedCredits)} ${t("common.credits")}`
       : selectedPlan
       ? `${selectedPlan.name || "Pro"} / $${formatCredits(selectedPlan.amount)} / ${formatCredits(selectedPlan.includedCredits)} ${t("common.credits")}`
       : selectedPackage
@@ -4577,7 +5008,9 @@ function renderTopupSummary() {
   syncTopupBackButtons();
   if (els.topupRate) {
     els.topupRate.textContent = state.user
-      ? state.topupStep === "packages"
+      ? membershipPlan
+        ? membershipBenefitCopy("membership.checkoutRate", "One-time payment. Lifetime access. No credits included.")
+        : state.topupStep === "packages"
         ? t("topup.packages")
         : state.topupMethod === "stripe"
         ? t("topup.stripeReady", {}, "Continue on the secure payment page.")
@@ -4636,7 +5069,15 @@ function handleTopupBack() {
 function renderTopupOrder(order) {
   if (!order) return;
   const isStripe = order.paymentProvider === "stripe" || order.network === "Stripe";
-  if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits: order.creditAmount || 0 });
+  const membershipOrder = order.orderKind === "subscription" && (
+    order.billingPlanId === "plan-main-creator" ||
+    String(order.billingIntervalUnit || "").toLowerCase() === "lifetime"
+  );
+  if (els.topupCredits) {
+    els.topupCredits.textContent = membershipOrder
+      ? membershipBenefitCopy("membership.checkoutPrice", "$99 lifetime benefits")
+      : t("cost.credits", { credits: order.creditAmount || 0 });
+  }
   if (isStripe) {
     if (els.topupRate) {
       els.topupRate.textContent = `${t("topup.stripeOrder", {}, "Stripe order")}: ${order.stripeCheckoutSessionId || order.id || ""}`;
@@ -4856,23 +5297,10 @@ async function createTopupOrder() {
 }
 
 function renderAccessGuides() {
-  const enabled = tenantFeature("apiAccess", true) && membershipProgramEnabled();
-  const active = apiDocsAccessActive();
-  if (els.apiDocsPurchaseCard) els.apiDocsPurchaseCard.hidden = !enabled || active;
-  if (els.apiDocsUnlockedContent) els.apiDocsUnlockedContent.hidden = !enabled || !active;
-  if (els.buyApiDocsBtn) {
-    els.buyApiDocsBtn.disabled = !state.user || active;
-    els.buyApiDocsBtn.innerHTML = state.user
-      ? '<i data-lucide="lock-keyhole-open"></i>Unlock docs'
-      : '<i data-lucide="log-in"></i>Sign in to unlock';
-  }
-  if (els.apiDocsPurchaseStatus) {
-    els.apiDocsPurchaseStatus.textContent = active
-      ? "API documentation access is active."
-      : state.user ? "" : "Sign in before purchasing access.";
-  }
+  const enabled = tenantFeature("apiAccess", true);
+  if (els.apiDocsUnlockedContent) els.apiDocsUnlockedContent.hidden = !enabled;
   ensureActiveAccessGuide();
-  if (!enabled || !active || !state.user) {
+  if (!enabled) {
     if (state.apiDocsCenter) {
       state.apiDocsCenter = null;
       state.apiDocsCenterActiveId = "";
@@ -4901,7 +5329,7 @@ function renderAccessGuides() {
     els.accessDocs.hidden = true;
     els.accessDocs.innerHTML = "";
   }
-  if (els.apiDocsCenter) els.apiDocsCenter.hidden = !enabled || !active;
+  if (els.apiDocsCenter) els.apiDocsCenter.hidden = !enabled;
   renderTokenDisplays();
   renderApiSubtokens();
   refreshIcons();
