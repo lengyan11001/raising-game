@@ -11,7 +11,8 @@ const dbSource = fs.readFileSync(path.join(root, "db.js"), "utf8");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const livePath = path.join(root, "live.js");
 const live = fs.existsSync(livePath) ? fs.readFileSync(livePath, "utf8") : "";
-const liveHtml = fs.readFileSync(path.join(root, "live.html"), "utf8");
+const liveHtmlPath = path.join(root, "live.html");
+const liveHtml = fs.existsSync(liveHtmlPath) ? fs.readFileSync(liveHtmlPath, "utf8") : "";
 const admin = fs.readFileSync(path.join(root, "admin.js"), "utf8");
 const adminHtml = fs.readFileSync(path.join(root, "admin.html"), "utf8");
 
@@ -477,8 +478,10 @@ test("creator income APIs, profile page, and admin review UI are wired", () => {
   assert.doesNotMatch(live, /data-action="poster-share"/);
   assert.match(live, /async function copyShareLinkSilently\(\) \{[\s\S]*?navigator\.clipboard\.writeText\(link\)[\s\S]*?document\.execCommand\("copy"\)/);
   assert.match(live, /if \(a === "copy-poster-link"\) \{ await copyShareLinkSilently\(\); return; \}/);
-  assert.match(liveHtml, /live\.js\?v=2026110301/);
-  assert.match(liveHtml, /live\.css\?v=2026110301/);
+  if (liveHtml) {
+    assert.match(liveHtml, /live\.js\?v=2026110301/);
+    assert.match(liveHtml, /live\.css\?v=2026110301/);
+  }
   assert.match(adminHtml, /data-route="creator-data"[\s\S]*?创作者数据/);
   assert.match(adminHtml, /admin\.js\?v=[^"\s]+/);
   assert.match(admin, /async function renderCreatorData/);

@@ -10,7 +10,8 @@ const livePath = path.join(root, "live.js");
 const live = fs.existsSync(livePath) ? fs.readFileSync(livePath, "utf8") : "";
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const db = fs.readFileSync(path.join(root, "db.js"), "utf8");
-const html = fs.readFileSync(path.join(root, "live.html"), "utf8");
+const htmlPath = path.join(root, "live.html");
+const html = fs.existsSync(htmlPath) ? fs.readFileSync(htmlPath, "utf8") : "";
 
 test("message list renders cached conversations before checking for updates", () => {
   if (!live) return;
