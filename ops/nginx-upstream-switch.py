@@ -115,10 +115,42 @@ def switch_upstreams_text(
                 raise ValueError(f"upstream {name!r} has an unparseable server directive") from error
             parsed.append((server, arguments))
 
-        source_primary = [item for item in parsed if item[1] == [expected_primary]]
-        source_backup = [item for item in parsed if item[1] == [expected_backup, "backup"]]
-        target_primary = [item for item in parsed if item[1] == [expected_backup]]
-        target_backup = [item for item in parsed if item[1] == [expected_primary, "backup"]]
+        def managed_member(server: re.Match[str], address: str, backup: bool) -> bool:
+            try:
+                arguments = shlex.split(server.group("args"))
+            except ValueError:
+                return False
+            if not arguments or arguments[0] != address:
+                return False
+            options = arguments[1:]
+            if backup:
+                if options.count("backup") != 1:
+                    return False
+                options = [option for option in options if option != "backup"]
+            elif "backup" in options:
+                return False
+            return all(
+                re.fullmatch(r"max_fails=[1-9][0-9]*", option)
+                or re.fullmatch(r"fail_timeout=[1-9][0-9]*(?:ms|s|m|h|d)?", option)
+                for option in options
+            )
+
+        source_primary = [
+            item for item in parsed
+            if managed_member(item[0], expected_primary, backup=False)
+        ]
+        source_backup = [
+            item for item in parsed
+            if managed_member(item[0], expected_backup, backup=True)
+        ]
+        target_primary = [
+            item for item in parsed
+            if managed_member(item[0], expected_backup, backup=False)
+        ]
+        target_backup = [
+            item for item in parsed
+            if managed_member(item[0], expected_primary, backup=True)
+        ]
         if len(parsed) == 2 and len(target_primary) == 1 and len(target_backup) == 1:
             # Promotion is complete after swapping primary and backup roles.
             # Preserve the existing text byte-for-byte for an idempotent retry.
@@ -130,16 +162,22 @@ def switch_upstreams_text(
             primary_end = body_start + primary_server.end()
             backup_start = body_start + backup_server.start()
             backup_end = body_start + backup_server.end()
-            # Swap only the role suffix/port while preserving the original
-            # member order. Reversing the lines is semantically valid, but it
-            # prevents a switch-and-rollback cycle from restoring the exact
-            # audited Nginx file and weakens rollback equivalence.
+            primary_args = primary_server.group("args").strip()
+            backup_args = backup_server.group("args").strip()
+            primary_options = shlex.split(primary_args)[1:]
+            backup_options = [option for option in shlex.split(backup_args)[1:] if option != "backup"]
+            next_primary = " ".join([expected_backup, *backup_options])
+            next_backup = " ".join([expected_primary, "backup", *primary_options])
+            # Swap only the address/role while preserving the original member
+            # order and every tuned option. Reversing the lines is semantically
+            # valid, but it prevents a switch-and-rollback cycle from restoring
+            # the exact audited Nginx file and weakens rollback equivalence.
             if primary_start < backup_start:
-                edits.append((primary_start, primary_end, f"server {expected_backup};"))
-                edits.append((backup_start, backup_end, f"server {expected_primary} backup;"))
+                edits.append((primary_start, primary_end, f"server {next_primary};"))
+                edits.append((backup_start, backup_end, f"server {next_backup};"))
             else:
-                edits.append((backup_start, backup_end, f"server {expected_primary} backup;"))
-                edits.append((primary_start, primary_end, f"server {expected_backup};"))
+                edits.append((backup_start, backup_end, f"server {next_backup};"))
+                edits.append((primary_start, primary_end, f"server {next_primary};"))
             continue
         if len(parsed) == 1 and len(source_primary) == 1:
             server, _arguments = source_primary[0]
