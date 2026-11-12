@@ -1,3 +1,11 @@
+## 2026-11-12 Step AW: anonymous promotion poll write-transaction removal
+
+- Goal: reduce repeated write pressure from `/api/promo/1111?command=refresh` without changing promotion price, inventory limit, reservation, checkout, or payment semantics.
+- Change is limited to `db.js` and `test/eleven-eleven-promo.test.js`. Anonymous promo status reads now perform only the read-only inventory aggregate; authenticated reads still expire stale reservations first, then read inventory and the user's own orders. `reservePromotionPurchaseInDb` and checkout/payment transaction paths are unchanged.
+- Verification: `npm test` passed twice with `1244` tests, `1243` pass, `0` fail, `1` skip; logs `/tmp/raising-step-aw-fulltest.log` and `/tmp/raising-step-aw-fulltest-2.log`. `git diff --check` clean. Directly running only the promo test without the package test bootstrap is invalid because it does not preload `test/source-compat.js`; the package suite exercises the generated server source correctly.
+- Production state entering this step: Old release `aca1af50`, MainPID `3334904`, InvocationID `d21fa91ef08e4c8dbd9c3c2dff1bd33a`, Nginx master `2485219`, all unchanged from the previous acceptance. This optimization requires a Node restart to take effect, so deployment must wait for a controlled low-traffic window and must verify release ancestry, exact release-tree tests, health, 5xx/499, and PostgreSQL state.
+- No Live deployment, traffic switch, Redis enablement, backup mutation, or production restart performed yet.
+
 ## 2026-11-12 Step AU: exact-release validation, capacity sample, and Redis decision
 
 - Deployed release remains `7a1eb8a4a9009b9a3bf60d42bfe8aa9b0b5f4ed9`; its only difference from prior release `1503179c` is `CODEX_TASK_STATE.md`. Old-only deployment used `scripts/deploy_local.sh --site old --no-restart`; MainPID `3334904`, InvocationID `d21fa91ef08e4c8dbd9c3c2dff1bd33a`, Nginx master `2485219`, and `NRestarts=0` were unchanged. Deploy log `/tmp/raising-metadata-deploy.log`.
