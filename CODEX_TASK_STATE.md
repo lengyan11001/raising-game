@@ -1,3 +1,20 @@
+## 2026-11-12 Step BA: generation-record polling failure backoff
+
+- Added visibility-aware exponential backoff for generation completion polling: 15s after a transient failure, then 30s, 60s, and at most 120s. Any successful poll immediately resets the failure counter, and hidden pages continue not to poll.
+- This reduces pressure on `GET /api/generation-records` during provider/API degradation without changing authoritative generation state or introducing client-side persistence.
+- Added regression coverage for the retry schedule and reset behavior in `test/history-pagination.test.js`; `platform.config.js` now initializes the failure counter.
+- Verification before deployment: full `npm test` passed 1,252 tests with 1,251 pass, 0 fail, 1 skip; `git diff --check` passed. Log: `/tmp/raising-step-ba-final.log`.
+- Release/deploy/acceptance status: pending at initial commit; this section will be updated after Old-only deployment.
+
+## 2026-11-12 Step AZ: 4175 watchdog active-mode acceptance
+
+- Secondary watchdog `raising-game-watchdog-b` was switched from dry-run to active mode with `ops/install-secondary-watchdog.sh --mode active --confirm-active --no-start`; primary watchdog mode and Nginx were not changed. Drop-in now reports `WATCHDOG_DRY_RUN=0`.
+- Isolated systemd hang drill passed: a disposable local service was SIGSTOPped while still `active`; after failures 1/2/3 the watchdog restarted only that unit, then an expired same-PID marker produced exactly one `force-kill requested/dispatched` for the replacement PID. The drill unit, port 4196, state files, and all residue were removed.
+- Controlled 4175 restart acceptance passed: `4175` MainPID `3367690 -> 3374052`; `4174` stayed `3367188`, Nginx stayed `2485219`, and both remained `NRestarts=0`. 4174/4175 health/livez/readyz all returned 200; public `/api/health` returned 200. Warm-up grace cleared normally, failures=0, pending=none.
+- Twelve samples over two minutes: every 4174/4175 readyz probe returned 200; watchdogs remained enabled/active and Nginx master unchanged. PostgreSQL had 15/100 connections, 0 idle-in-transaction, and 0 lock waiters. No new application fatal/uncaught/Unauthorized entries. The only recent Nginx 499 was an analytics request at 16:47, before this change.
+- `test/resilience-ops.test.js` passes 49/49 on the deployed source and local static checks pass. Logs: `/tmp/raising-step-az-hang-drill.log`, `/tmp/raising-step-az-watchdog-active-install.log`, `/tmp/raising-step-az-secondary-restart.log`, `/tmp/raising-step-az-final-resilience.log`.
+- State: Old HTTP traffic remains `4174 primary / 4175 backup`; 4175 schedulers, generation-submit queue, and worker remain disabled. Redis remains disabled pending measured need; Live untouched; backups remain last.
+
 ## 2026-11-12 Step AX: rolling restart acceptance and release verifier correction
 
 - Completed an Old-only rolling replacement without restarting Nginx: `4174` PID `3367188` started at `2026-11-12 16:50:30 CST`, then `4175` PID `3367690` started at `2026-11-12 16:50:54 CST`. All three upstream groups (`default`, `chat`, `live`) resolve to `4174 primary / 4175 backup`; watchdog timer is active and both services report `NRestarts=0`.
@@ -5,6 +22,9 @@
 - Fixed `ops/verify-production-cutover.py` to read `DATABASE_URL` from the read-only service environment file (`RAISING_GAME_SERVICE_ENV`, default `/etc/raising-game-demo.env`) so the database acceptance check runs without exporting or printing the secret. Added regression assertions for this behavior.
 - Corrected an integration mistake that had removed the tuned Nginx member-option regression test and treated valid `max_fails` as unsupported. The test now covers preserving tuned primary/backup options across promote and rollback; `test/resilience-ops.test.js` passes 49/49. Python compile and `git diff --check` pass.
 - Discarded un-pushed, un-deployed incorrect snapshot refs `74a0927c` / `0e2b7804`; restored local `platform-release` to the deployed source snapshot `c7f5ed25` and `live-release` to unchanged `f40e7a35`. The new release must be built from an explicit integration commit, never the branch name `old-site`.
+- Published integration commit `a942f39d19deeddaf8740d9b3c4ab3507b3ee47e`; built and pushed platform release `43845adbe4bd3161a9b5abe7433e9094eae2fb17` from that explicit commit. The release differs from `c7f5ed25` only by `CODEX_TASK_STATE.md`, `ops/verify-production-cutover.py`, and `test/resilience-ops.test.js`; exact exported release tests passed 49/49 and `git diff --check` passed.
+- Deployed Old-only with `scripts/deploy_local.sh --site old --no-restart` (exit 0, log `/tmp/raising-step-ax-deploy.log`). MainPID `3367188`, invocation `d36041bea71645aba561fcf1fc6c164e`, and Nginx PID `2485219` stayed unchanged. Remote release is `43845adbe4bd3161a9b5abe7433e9094eae2fb17`; `origin/live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`.
+- Post-deploy `ops/verify-production-cutover.py --phase post` passed 12/12 checks, including database (`connections=12/100`, `idle_in_transaction=0`, `lock_waiting=0`, `deadlocks=0`). Both app services are `active/running`, `NRestarts=0`; both `raising-game-watchdog.timer` and `raising-game-watchdog-b.timer` are enabled and `active/waiting`; all three upstreams retain tuned `4174 primary / 4175 backup`; `nginx -t` passes. No 5xx/499 or application fatal/uncaught errors appeared in the 20-minute sample.
 - No Live deployment, Redis enablement, database mutation, backup mutation, or Nginx reload occurred in this step.
 
 ## 2026-11-12 Step AW: anonymous promotion poll write-transaction removal

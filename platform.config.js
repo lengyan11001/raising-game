@@ -1029,6 +1029,7 @@ const state = {
   historyRecords: [],
   generationCompletionRefreshTimer: 0,
   generationCompletionRefreshInFlight: false,
+  generationCompletionRefreshFailures: 0,
   generationCompletionNotified: {},
   generationCompletionStatuses: {},
   generationCompletionRecords: [],
