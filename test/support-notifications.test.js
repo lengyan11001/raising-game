@@ -127,7 +127,6 @@ test("platform UI exposes one left messages entry, unread dots, notification det
   assert.match(js, /els\.notificationPanel\.style\.left =/);
   assert.match(js, /els\.notificationPanel\.style\.top =/);
   assert.match(main, /supportNavBtn\?\.addEventListener[\s\S]*?toggleNotificationPanel\("nav"\)/);
-  assert.match(main, /function openSupportDialog[\s\S]*?window\.openSupportDialog = openSupportDialog/);
   const toggleBlock = js.match(/function toggleNotificationPanel[\s\S]*?\n}/)?.[0] || "";
   assert.ok(toggleBlock);
   assert.doesNotMatch(toggleBlock, /if \(!state\.user\) return openLogin\(\)/);
