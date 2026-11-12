@@ -148,7 +148,7 @@ test("123vip.fans is a platform site profile, not a tool tenant", () => {
   assert.match(tenants, /defaultTab: String\(process\.env\.PLATFORM_SITE_DEFAULT_TAB \|\| "home"\)/);
   assert.match(tenants, /defaultRoute: String\(process\.env\.PLATFORM_SITE_DEFAULT_ROUTE \|\| ""\)/);
   assert.match(tenants, /hiddenNavTabs: parseCsvList\(process\.env\.PLATFORM_SITE_HIDDEN_NAV_TABS \|\| "advanced"\)/);
-  assert.match(tenants, /allowedTabs: parseCsvList\(process\.env\.PLATFORM_SITE_ALLOWED_TABS \|\| "home,advanced,workflow,assets,history,topups,spending,pricing,referral,access"\)/);
+  assert.match(tenants, /allowedTabs: parseCsvList\(process\.env\.PLATFORM_SITE_ALLOWED_TABS \|\| "home,cases,advanced,workflow,assets,history,topups,spending,pricing,referral,access"\)/);
   assert.match(tenants, /disabledTabs: parseCsvList\(process\.env\.PLATFORM_SITE_DISABLED_TABS \|\| "gallery,characters,chat"\)/);
 });
 

@@ -1,3 +1,13 @@
+## 2026-11-12 Step BD: contact entry and case-library navigation deployed Old-only without restart
+
+- Source commit `33a864d2d3529a593d5d9f80f8b939d13e01aed7` changed the bottom-left entry to `联系我们` with a `messages-square` icon and `contact_open` analytics. Clicking it closes the notification panel and opens the anonymous-capable support dialog directly; no login is required.
+- The referral/membership Case-library row is now a keyboard-accessible button with hover/focus styling. Clicking it closes the mobile drawer and switches to the Cases tab.
+- Exact platform release `08cd5ea21c763806f1814de408388c128aebfe48` was built from the committed source and pushed to `origin/platform-release`. Only `platform.main.js` and its test changed from the previously deployed platform release; Live remains `f40e7a357f8ad311c45c72f162c04c39472f01a0` and was not touched.
+- Serial full suite on the exact release snapshot passed with `1188 pass / 0 fail / 2 skipped`; focused navigation/support tests passed `10/10`. Evidence: `/tmp/raising-contact-release-full-test-serial-final3.log`.
+- Old deployed only through `scripts/deploy_local.sh --site old --no-restart` (exit `0`). Main process remained PID `3385629`; health returned 200; release boundary passed; anonymous private media remained denied.
+- Production verification: served `platform.html` contains `联系我们` and `data-open-case-library`; served `platform.main.js` contains the direct support handler and Cases navigation. Headless Chrome confirmed the support dialog opens with the anonymous panel and no auth dialog, and the Case-library row switches to `#cases` with the Cases panel visible. No runtime exceptions, console errors, or failed requests were observed.
+- Live was not pushed or deployed. Existing sessions were not invalidated; no service restart or traffic switch occurred.
+
 ## 2026-11-12 Step BC: runtime-media independent release deployed Old-only without restart
 
 - Source integration commit `028cf8ca0ff0cbce9d25477acc712e8bd2ebc3d6` merged the isolated runtime-media work; platform release `0df14100bbccbc05efa026f54b47cb05a2386be8` contains only the platform-owned release surface and was pushed to `origin/platform-release`. Live was not pushed or deployed; `origin/live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`.
