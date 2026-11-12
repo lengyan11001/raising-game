@@ -928,6 +928,7 @@ module.exports = {
   publicAdvancedPricingRows,
   adminAdvancedPricingView,
   publicGenerationRecord,
+  publicGenerationPollRecord,
   publicUserAsset,
   publicUserCharacter,
   isProtectedLocalMediaPath,
