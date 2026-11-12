@@ -1142,7 +1142,14 @@ function tenantDisabledTabs() {
 }
 
 function tenantAllowedTabs() {
-  return tenantListFeature("allowedTabs").filter((tab) => ALL_TABS.has(tab));
+  const allowed = tenantListFeature("allowedTabs").filter((tab) => ALL_TABS.has(tab));
+  // The fans release can be served by an older process that still returns the
+  // previous tenant allowlist. Keep the Same-style/cases entry available while
+  // that process drains, without forcing a restart that would invalidate sessions.
+  if (isSiteProfile("custom-workflow") && !allowed.includes("cases")) {
+    allowed.push("cases");
+  }
+  return allowed;
 }
 
 function tenantDefaultTabCandidate() {
