@@ -1443,6 +1443,8 @@ test("cutover verifier is read-only and checks public, service, port, and databa
     assert.match(cutoverVerifier, new RegExp(url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.match(cutoverVerifier, /secondary_environment_check/);
+  assert.match(cutoverVerifier, /read_env_file\(SERVICE_ENV\)\.get\("DATABASE_URL"/);
+  assert.match(cutoverVerifier, /RAISING_GAME_SERVICE_ENV/);
   assert.match(cutoverVerifier, /GENERATION_SUBMIT_QUEUE_ENABLED/);
   assert.match(cutoverVerifier, /pg_stat_activity/);
   assert.match(cutoverVerifier, /CUTOVER_VERIFY_/);

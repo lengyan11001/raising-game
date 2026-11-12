@@ -1,3 +1,12 @@
+## 2026-11-12 Step AX: rolling restart acceptance and release verifier correction
+
+- Completed an Old-only rolling replacement without restarting Nginx: `4174` PID `3367188` started at `2026-11-12 16:50:30 CST`, then `4175` PID `3367690` started at `2026-11-12 16:50:54 CST`. All three upstream groups (`default`, `chat`, `live`) resolve to `4174 primary / 4175 backup`; watchdog timer is active and both services report `NRestarts=0`.
+- Production verification: both process health/livez/readyz endpoints and all three public `/api/health` URLs return 200; homepage, `platform.html`, promo endpoints, PostgreSQL connection/idle/lock checks, and the sampled restart window showed no upstream refusal/timeout or application fatal/unhandled errors.
+- Fixed `ops/verify-production-cutover.py` to read `DATABASE_URL` from the read-only service environment file (`RAISING_GAME_SERVICE_ENV`, default `/etc/raising-game-demo.env`) so the database acceptance check runs without exporting or printing the secret. Added regression assertions for this behavior.
+- Corrected an integration mistake that had removed the tuned Nginx member-option regression test and treated valid `max_fails` as unsupported. The test now covers preserving tuned primary/backup options across promote and rollback; `test/resilience-ops.test.js` passes 49/49. Python compile and `git diff --check` pass.
+- Discarded un-pushed, un-deployed incorrect snapshot refs `74a0927c` / `0e2b7804`; restored local `platform-release` to the deployed source snapshot `c7f5ed25` and `live-release` to unchanged `f40e7a35`. The new release must be built from an explicit integration commit, never the branch name `old-site`.
+- No Live deployment, Redis enablement, database mutation, backup mutation, or Nginx reload occurred in this step.
+
 ## 2026-11-12 Step AW: anonymous promotion poll write-transaction removal
 
 - Goal: reduce repeated write pressure from `/api/promo/1111?command=refresh` without changing promotion price, inventory limit, reservation, checkout, or payment semantics.
