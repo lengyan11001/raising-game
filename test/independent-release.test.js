@@ -61,6 +61,42 @@ test("independent release contains only the committed tree plus provenance marke
   }
 });
 
+test("independent release rejects missing, non-directory, and symlinked shared media roots", () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "rg-unsafe-shared-"));
+  const source = path.join(temp, "source");
+  const candidate = path.join(temp, "candidate");
+  const file = path.join(temp, "assets-file");
+  const real = path.join(temp, "real-assets");
+  const linked = path.join(temp, "linked-assets");
+  const existingShared = path.join(temp, "existing-shared");
+  try {
+    fs.mkdirSync(source);
+    git(source, "init", "-q");
+    git(source, "config", "user.email", "test@example.invalid");
+    git(source, "config", "user.name", "Test");
+    fs.writeFileSync(path.join(source, "server.js"), "console.log('ok');\n");
+    git(source, "add", "server.js");
+    git(source, "commit", "-qm", "fixture");
+    fs.writeFileSync(file, "not a directory");
+    fs.mkdirSync(real);
+    fs.mkdirSync(existingShared);
+    fs.symlinkSync(real, linked);
+    for (const unsafe of [path.join(temp, "missing"), file, linked]) {
+      const result = spawnSync(script, [source, candidate, unsafe], { encoding: "utf8" });
+      assert.notEqual(result.status, 0, unsafe);
+      assert.match(`${result.stdout}\n${result.stderr}`, /Shared assets do not exist|non-symlink directory/, unsafe);
+      assert.equal(fs.existsSync(candidate), false, unsafe);
+    }
+
+    const accepted = spawnSync(script, [source, candidate, existingShared], { encoding: "utf8" });
+    assert.equal(accepted.status, 0, accepted.stderr);
+    assert.equal(fs.readFileSync(path.join(candidate, "RUNTIME_MEDIA_ROOT"), "utf8").trim(), fs.realpathSync(existingShared));
+  } finally {
+    if (fs.existsSync(candidate)) fs.chmodSync(candidate, 0o755);
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 test("independent release builder refuses a dirty checkout", () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "rg-dirty-release-"));
   const source = path.join(temp, "source");

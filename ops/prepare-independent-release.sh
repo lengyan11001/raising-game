@@ -23,13 +23,19 @@ resolve_existing_dir() {
   fi
   (cd "$value" && pwd -P)
 }
-source_repo="$(resolve_existing_dir "$1")" || {
-  echo "Source repository does not exist: $1" >&2
+source_input="$1"
+target_release="$2"
+shared_input="$3"
+source_repo="$(resolve_existing_dir "$source_input")" || {
+  echo "Source repository does not exist: $source_input" >&2
   exit 4
 }
-target_release="$2"
-shared_assets="$(resolve_existing_dir "$3")" || {
-  echo "Shared assets do not exist: $3" >&2
+if [[ -L "$shared_input" || ! -d "$shared_input" ]]; then
+  echo "Shared assets must be an existing non-symlink directory: $shared_input" >&2
+  exit 4
+fi
+shared_assets="$(resolve_existing_dir "$shared_input")" || {
+  echo "Shared assets do not exist: $shared_input" >&2
   exit 4
 }
 

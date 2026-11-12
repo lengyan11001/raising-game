@@ -331,7 +331,16 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Print the fixed target and exit.")
     parser.add_argument("--no-restart", action="store_true", help="Pull code without restarting the service; also suppresses all deployment mutations.")
     parser.add_argument("--skip-shared-sync-check", action="store_true", help="Emergency override for new2 drift guard.")
+    parser.add_argument(
+        "--rolling",
+        action="store_true",
+        help="Reserved for the dual-unit transaction runner; never combine it with no-restart/no-mutation mode.",
+    )
     args = parser.parse_args()
+    if args.rolling and args.no_restart:
+        parser.error("--rolling cannot be combined with --no-restart")
+    if args.rolling:
+        parser.error("--rolling is not implemented in deploy_site.py; use the approved dual-unit runbook")
 
     target = TARGETS[args.site]
     port = args.port or int(os.environ.get("DEPLOY_PORT") or target["port"])
