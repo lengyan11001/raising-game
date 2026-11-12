@@ -796,6 +796,8 @@ def main() -> int:
         if journal is not None:
             try:
                 restored = restore_journal(journal)
+                run(test_command)
+                run(reload_command)
                 restored_after_failure = True
                 print(f"UPSTREAM_SWITCH_ROLLBACK files={len(restored)}")
             except Exception as rollback_error:
@@ -803,11 +805,11 @@ def main() -> int:
                     f"UPSTREAM_SWITCH_ROLLBACK_FAILED error={rollback_error}; journal={journal}",
                     file=sys.stderr,
                 )
-        try:
-            run(test_command)
-            run(reload_command)
-        except Exception:
-            pass
+                # Never report an unverified recovery. Keep the journal for the
+                # next bounded recovery attempt and surface a distinct exit code.
+                raise RuntimeError(
+                    f"rollback failed; manual intervention required; journal={journal}"
+                ) from rollback_error
         raise
     finally:
         if journal is not None and (committed or restored_after_failure):

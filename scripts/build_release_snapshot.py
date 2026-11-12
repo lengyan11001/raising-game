@@ -70,6 +70,7 @@ PLATFORM_PATTERNS = (
     "ops/multi-process-drill.sh",
     "ops/nginx-multi-upstream-drill.sh",
     "ops/nginx-upstream-switch.py",
+    "ops/rolling-deploy-transaction.py",
     "ops/drill-generation-kv-migration.js",
     "ops/RESILIENCE-PLAN.md",
     "ops/RESILIENCE-DECISION-2026-11.md",

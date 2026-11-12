@@ -234,6 +234,65 @@ The backup conversion itself does not make background jobs or in-process
 generation submissions durable. Those require the PostgreSQL queue and
 worker-lease gate described above.
 
+## Permanent rolling deployment transaction
+
+Use `ops/rolling-deploy-transaction.py` for release replacement once the
+release snapshot is already present on the host. The command starts and verifies
+the idle candidate before moving any traffic, runs migration hooks while the
+original upstream is still active, and moves every traffic upstream in one
+journaled transaction. It never replays request methods or bodies.
+
+The permanent transaction requires the same non-symlink shared runtime media
+root in the service environment and both release markers:
+
+```text
+RUNTIME_MEDIA_ROOT=/path/to/shared-assets
+```
+
+Prerequisites for a real run:
+
+1. Build the release from a committed integration commit and deploy the
+   snapshot to the inactive release path with the repository deployment
+   entrypoint. Do not edit the active checkout or run migrations during the
+   release-copy step.
+2. Confirm both app units exist, the inactive port is free, the candidate
+   environment has schedulers and queues disabled, and the active unit is
+   healthy.
+3. Record service PIDs and `NRestarts`, all three Nginx hashes, public health,
+   Nginx 5xx/499, PostgreSQL connections/locks, load, memory, and disk.
+
+Dry-run against the installed release first. It is the default and must not
+start, stop, migrate, validate, reload, or alter any file:
+
+```bash
+python3 /opt/raising-game-demo/ops/rolling-deploy-transaction.py \
+  --release /opt/raising-game-demo \
+  --candidate-health-base http://127.0.0.1:4175
+```
+
+Require `OBSERVED active_port=...`, an upstream plan for every traffic group,
+and unchanged Nginx hashes. Apply only in an approved low-traffic window and
+only after the dry-run, full resilience suite, and release verification pass:
+
+```bash
+python3 /opt/raising-game-demo/ops/rolling-deploy-transaction.py \
+  --release /opt/raising-game-demo \
+  --candidate-health-base http://127.0.0.1:4175 \
+  --apply
+```
+
+The command succeeds only after Nginx validation, reload, complete upstream
+topology verification, and all three public health URLs return HTTP 200. It
+prints `ROLLING_DEPLOY_OK`. If a failure occurs after cutover, it restores the
+complete original topology and prints `ROLLBACK_OK`. If recovery cannot be
+validated, it prints `ROLLBACK_FAILED ... manual intervention required`, keeps
+the journal, and exits non-zero; do not report that run as recovered.
+
+An already-active candidate is a safe no-op only when the candidate and public
+health checks pass. It prints `ROLLING_DEPLOY_NOOP active_port=...` and never
+performs a reverse switch. A missing, symlinked, invalid, or inconsistent
+`RUNTIME_MEDIA_ROOT` must stop before candidate startup or traffic mutation.
+
 ## Final state choices
 
 - Single-process rollback: primary active on 4174, secondary disabled, all
