@@ -196,9 +196,12 @@
     modal.notes.innerHTML = "";
     modal.apply.disabled = true;
     const seedance = isSeedanceProvider(payload.provider);
+    const hasReferences = Array.isArray(payload.references) && payload.references.length > 0;
     modal.kicker.textContent = seedance ? "Seedance Prompt Optimizer" : "W3 Prompt Optimizer";
     modal.loadingText.textContent = seedance
-      ? "正在按 Seedance 参考素材与提示词规则优化，请稍候..."
+      ? (hasReferences
+        ? "正在按 Seedance 参考素材与提示词规则优化，请稍候..."
+        : "正在按 Seedance 纯文本提示词规则优化，素材可稍后添加...")
       : "正在按 W3 规则优化，请稍候...";
     setLoading(modal, true);
     window.lucide?.createIcons?.();

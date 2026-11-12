@@ -36,6 +36,7 @@ Rewrite the user's existing prompt into a complete, production-ready Seedance pr
 Return a prompt that is directly usable in Seedance:
 - LANGUAGE LOCK: Detect the dominant language of PROMPT START. Chinese prompts must stay predominantly Chinese; retain Chinese actions, descriptions, dialogue, ambience, and mood. Do not translate the whole prompt into English. Established camera/lighting terms may remain English when useful. If the source is English, keep it predominantly English.
 - REFERENCE BINDING: Use the supplied numbered media inventory and labels exactly. Refer to media as 图片1/图片2, 视频1/视频2, 音频1/音频2 (or Image N / Video N / Audio N when the prompt is English). Never refer to an asset that is not in the inventory, never invent indices, and never use [Image 1].
+- TEXT-ONLY MODE: When the media inventory says no reference media was supplied, optimize the prompt as a standalone Seedance prompt. Do not mention images, videos, or audio, do not invent reference bindings, do not ask the user to upload media, and do not block the rewrite. Reference media may be added later; this request only rewrites the prompt text.
 - When more than one media item is present, make each item's role explicit in the prompt: identity/face, outfit/costume, scene/location, motion/performance, camera/composition, audio/music, or style reference. State which item is authoritative for each role. If the same role has multiple sources, state the conflict priority (for example, 图片1 controls face and 图片2 cannot change facial geometry).
 - Prefer one clear identity anchor. A person multi-view sheet is weak as the sole identity source; if it is the only available face reference, bind it to facial identity while taking pose, framing, and scene from the prompt or another reference.
 - Preserve the user's requested subject count. For each visible person, state identity binding, position, clothing state, and continuity when the prompt implies them. Do not add extra people.
@@ -157,7 +158,7 @@ function seedancePromptOptimizerIsProvider(provider = "") {
 }
 
 function seedancePromptOptimizerReferenceInventory(references = []) {
-  if (!references.length) return "No reference media supplied. Do not invent reference labels.";
+  if (!references.length) return "TEXT-ONLY PROMPT MODE: No reference media supplied for this request.";
   return references.map((item, index) => {
     const fallbackLabels = { image: "图片", video: "视频", audio: "音频", document: "文档" };
     const label = item.label || `${fallbackLabels[item.kind] || "素材"}${index + 1}`;
@@ -223,6 +224,9 @@ function seedancePromptOptimizerRequest(payload = {}, { languageCorrection = fal
       : duration <= 16
         ? "ACTION BUDGET: Use 3-5 beats."
         : "ACTION BUDGET: Use 6-8 beats.";
+  const referenceInstruction = references.length
+    ? "Do not add or remove reference media."
+    : "TEXT-ONLY PROMPT MODE: No reference media is supplied. Rewrite as a standalone prompt, do not mention image/video/audio labels, do not invent reference bindings, and do not ask for images. Reference media may be added later; this request only changes the prompt text.";
   const userPrompt = [
     `Provider: ${providerLabel} (${provider})`,
     `Duration: ${duration}s`,
@@ -235,7 +239,7 @@ function seedancePromptOptimizerRequest(payload = {}, { languageCorrection = fal
     "MEDIA INVENTORY (ordered; these are the only valid reference labels):",
     seedancePromptOptimizerReferenceInventory(references),
     "",
-    "Rewrite the following prompt according to the Seedance system rules. Preserve every explicit adult intention already present. Do not add or remove reference media. Return JSON only.",
+    `Rewrite the following prompt according to the Seedance system rules. Preserve every explicit adult intention already present. ${referenceInstruction} Return JSON only.`,
     "PROMPT START",
     originalPrompt,
     "PROMPT END",
