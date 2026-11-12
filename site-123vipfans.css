@@ -43,6 +43,11 @@ body.site-custom-workflow .top-tab.is-active {
 
 body.site-custom-workflow .brand-mark img { border-radius: 26%; }
 
+/* Cases are a main-site feature; hide any server-rendered entry before JS removes it. */
+body.site-custom-workflow [data-cases-main-only] {
+  display: none !important;
+}
+
 /* ============ landing shell ============ */
 body.site-custom-workflow.home-active {
   padding-left: 0;

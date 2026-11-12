@@ -865,7 +865,9 @@ test("Safari duration pickers refresh pricing and deployments invalidate split f
   assert.match(main, /advancedDuration\?\.addEventListener\("change", handleAdvancedDurationSelection\)/);
   assert.match(server, /const PLATFORM_ASSET_FILES = Object\.freeze/);
   assert.match(server, /function applyPlatformAssetVersion/);
-  assert.match(server, /const version = await currentPlatformAssetVersion\(\);[\s\S]*?const versionedHtml = applyPlatformAssetVersion\(html, version\)/);
+  assert.match(server, /async function renderPlatformHtmlSnapshot\(req, version = ""\)/);
+  assert.match(server, /const assetVersion = version \|\| await currentPlatformAssetVersion\(\)/);
+  assert.match(server, /const versionedHtml = applyPlatformAssetVersion\(html, assetVersion\)/);
 });
 
 test("shared video uploads use capability-specific duration limits", () => {

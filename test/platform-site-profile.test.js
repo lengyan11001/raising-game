@@ -152,6 +152,15 @@ test("123vip.fans is a platform site profile, not a tool tenant", () => {
   assert.match(tenants, /disabledTabs: parseCsvList\(process\.env\.PLATFORM_SITE_DISABLED_TABS \|\| "gallery,characters,chat"\)/);
 });
 
+test("the fans profile does not expose Same style cases", () => {
+  const allowedTabs = config.slice(
+    config.indexOf("function tenantAllowedTabs()"),
+    config.indexOf("function tenantDefaultTabCandidate()"),
+  );
+  assert.doesNotMatch(allowedTabs, /allowed\.push\("cases"\)/);
+  assert.match(main, /data-cases-main-only[\s\S]*?isSiteProfile\("custom-workflow"\)[\s\S]*?entry\.hidden = true/);
+});
+
 test("the profile keeps the shared platform tenant while changing the default tab", () => {
   const descriptor = tenants.slice(
     tenants.indexOf("function tenantDescriptorFromHostname("),

@@ -109,7 +109,7 @@ test("platform UI exposes one left messages entry, unread dots, notification det
   const main = read("platform.main.js");
   const css = read("platform.css");
   assert.match(html, /id="supportNavBtn"[^>]*aria-label="消息通知"/);
-  assert.match(html, /id="supportNavBtn"[\s\S]*?<span>消息通知<\/span>/);
+  assert.match(html, /id="supportNavBtn"[\s\S]*?<i data-lucide="bell"><\/i>[\s\S]*?<span>联系我们<\/span>/);
   assert.doesNotMatch(html, /id="supportFab"/);
   assert.doesNotMatch(html, /id="mobileNotificationBellBtn"/);
   assert.match(html, /id="notificationBellBtn"[^>]*hidden/);
@@ -127,6 +127,15 @@ test("platform UI exposes one left messages entry, unread dots, notification det
   assert.match(js, /els\.notificationPanel\.style\.left =/);
   assert.match(js, /els\.notificationPanel\.style\.top =/);
   assert.match(main, /supportNavBtn\?\.addEventListener[\s\S]*?toggleNotificationPanel\("nav"\)/);
+  const toggleBlock = js.match(/function toggleNotificationPanel[\s\S]*?\n}/)?.[0] || "";
+  assert.ok(toggleBlock);
+  assert.doesNotMatch(toggleBlock, /if \(!state\.user\) return openLogin\(\)/);
+  assert.match(js, /function toggleNotificationPanel[\s\S]*?els\.notificationCenter\.hidden = false/);
+  assert.match(js, /els\.notificationCenter\.hidden = false/);
+  assert.match(main, /notificationSupportEntry\?\.addEventListener[\s\S]*?openSupportDialog\(\{ source: "notification_panel" \}\)/);
+  assert.match(html, /class="membership-benefit membership-benefit-row membership-benefit-link"[^>]*data-open-case-library[^>]*data-cases-main-only/);
+  assert.match(main, /data-cases-main-only[\s\S]*?isSiteProfile\("custom-workflow"\)[\s\S]*?entry\.hidden = true/);
+  assert.match(main, /data-open-case-library[\s\S]*?event\.preventDefault\(\)[\s\S]*?setTab\("cases"\)/);
   assert.match(main, /notificationSupportEntry\?\.addEventListener/);
   assert.match(css, /\.notification-bell\[hidden\][^{]*\{[^}]*display:\s*none/);
   assert.match(css, /\.notification-dot[^{]*\{[^}]*background:/);

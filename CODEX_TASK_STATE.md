@@ -1,3 +1,40 @@
+## 2026-11-12 Step BC: fans Cases rollback deployed, contact entry retained
+
+- User clarified that only the prior bottom-left contact-copy/entry work should remain; fans must not expose Same-style/Cases, and the fans membership Cases row must not navigate.
+- Source `2ca5a570`: fans default allowlist no longer contains `cases`; removed the old-process compatibility push of `cases`; membership Cases is marked `data-cases-main-only`; fans JS hides/disables that row; fans CSS hides it before JS; main-site behavior is unchanged. Bottom-left `联系我们`/support notification behavior was not changed.
+- Verification: focused platform/profile/navigation/support tests pass `29/29`; Node syntax and `git diff --check` pass. Exact pushed platform release `d969729c` differs from prior deployed `e72976b4` only by this state file and the eight intended files.
+- Old deployed through the required `scripts/deploy_local.sh --site old` entrypoint (exit 0); migrations `pending=0`; `/opt/raising-game-demo` HEAD is `d969729`; primary `3426830` active/running `NRestarts=0`, standby `3425692` active `NRestarts=0`.
+- Post-deploy checks: `123vips.com` and `123vip.fans` health/livez/readyz all 200; home pages 200; fans tenant allowlist excludes `cases`; headless Chrome rendered the fans Cases nav entry hidden and the membership Cases row hidden/disabled, while the main site rendered the Cases entry; both domains still render `联系我们`; `app_sessions=1009`, expired `0` (no session purge); no fatal/unhandled/error journal lines in the deployment window. Live remains untouched at `f40e7a35`.
+
+## 2026-11-12 Step BF: deployment-doc reread, Old release, and post-deploy acceptance
+
+- Re-read the current `DEPLOY.md` before release: integration commits stay on `old-site`; production must be built as a release snapshot on `platform-release` or `live-release`; deploy through `scripts/deploy_local.sh --site old`; Live remains a separate release surface; existing sessions must not be purged or rotated.
+- Final source integration commit is `af0da394fc7adb42e65eed363fab03aceb3bd5d0`; platform release is `e72976b487b359206678a24ed0c55265d561ded7`; `origin/live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0` and Live was not deployed.
+- Old-only deployment through `scripts/deploy_local.sh --site old` completed successfully. Production `/opt/raising-game-demo` is on platform release `e72976b4`; primary PID `3419033` is active with `NRestarts=0`; standby PID `3374052` remains active with `NRestarts=0`. Database migrations are at `pending=0`; no session/token purge was performed and `app_sessions` remained populated with `1009` rows and `0` expired.
+- Verification passed: source full suite `1253 pass / 0 fail / 1 skip` (`/tmp/raising-fans-anon-full-final.log`), exact release full suite `1176 pass / 0 fail / 2 skip` (`/tmp/raising-fans-exact-release-full.log`), and focused release suite `79/79` (`/tmp/raising-fans-release-exact-focused.log`). Both `123vips.com` and `123vip.fans` return the new `platform.css/js?v=0952dfb81a16` assets; home, health, livez, and readyz are all HTTP 200.
+- Real Chrome acceptance passed on `123vip.fans`: the referral Case-library row switches to `#cases`, the Cases tab becomes active and visible, anonymous `联系我们` opens the notification panel without a login prompt, and the panel's `在线客服` opens the support dialog. There were no JavaScript errors. Evidence: `/tmp/fans-contact-verify-after.log`.
+- The temporary Nginx asset fence was removed from `/etc/nginx/sites-enabled/123vip.fans`; its backups were moved out of the included directory to `/etc/nginx/codex-backups/` so duplicate-server/MIME warnings no longer occur. `nginx -t` is clean and Nginx was reloaded successfully.
+- Post-reload journal and Nginx checks found no new fatal/uncaught/upstream errors or 5xx after the restart window. Three `502 /api/advanced/generate` entries occurred only during the `19:28-19:30` service restart and recovered immediately. Existing login sessions were preserved.
+
+## 2026-11-12 Step BE: anonymous contact panel repair and asset-version cache correction
+
+- Corrects Step BD: the delivered bottom-left `联系我们` entry intentionally opens the notification panel, not the support dialog directly. The panel's `在线客服` item opens the anonymous support form. Anonymous visitors must not be redirected to login by either entry.
+- The deployed fans-only Nginx fence rewrites the old `?v=8a625c027303` asset version to `?v=8cc597500820`; backup is `/etc/nginx/sites-enabled/123vip.fans.codex-bak-1794482141`. This is temporary and must be removed after the permanent content-hash deployment is verified.
+- Fixed `toggleNotificationPanel()`/`renderNotificationCenter()` so the notification container remains available without an authenticated user, while authenticated users retain their existing notification and ticket flows. The panel's support entry now opens `openSupportDialog({ source: "notification_panel" })`.
+- Fixed the permanent asset cache-busting root cause: the in-process platform asset version result was cached forever. It now uses content hashes with a 20-second TTL, and HTML rendering reuses the same version value instead of hashing twice.
+- New-baseline serial full suite passed: `1253 pass / 0 fail / 1 skipped` (1254 tests, log `/tmp/raising-fans-anon-full-final.log`). Focused support/navigation/cache tests passed `82/82`; Node syntax checks and `git diff --check` passed.
+- The five source commits are rebased onto `origin/old-site` commit `94aa897cc12b08433194d2a0b0de52f311999a47` without reverting other sessions' polling/release work. Next: merge into `old-site`, build a new `platform-release`, and deploy Old-only through `scripts/deploy_local.sh --site old`. Live and existing login sessions must remain untouched.
+
+## 2026-11-12 Step BD: contact entry and case-library navigation deployed Old-only without restart
+
+- Source commit `33a864d2d3529a593d5d9f80f8b939d13e01aed7` changed the bottom-left entry to `联系我们` with a `messages-square` icon and `contact_open` analytics. Clicking it closes the notification panel and opens the anonymous-capable support dialog directly; no login is required.
+- The referral/membership Case-library row is now a keyboard-accessible button with hover/focus styling. Clicking it closes the mobile drawer and switches to the Cases tab.
+- Exact platform release `08cd5ea21c763806f1814de408388c128aebfe48` was built from the committed source and pushed to `origin/platform-release`. Only `platform.main.js` and its test changed from the previously deployed platform release; Live remains `f40e7a357f8ad311c45c72f162c04c39472f01a0` and was not touched.
+- Serial full suite on the exact release snapshot passed with `1188 pass / 0 fail / 2 skipped`; focused navigation/support tests passed `10/10`. Evidence: `/tmp/raising-contact-release-full-test-serial-final3.log`.
+- Old deployed only through `scripts/deploy_local.sh --site old --no-restart` (exit `0`). Main process remained PID `3385629`; health returned 200; release boundary passed; anonymous private media remained denied.
+- Production verification: served `platform.html` contains `联系我们` and `data-open-case-library`; served `platform.main.js` contains the direct support handler and Cases navigation. Headless Chrome confirmed the support dialog opens with the anonymous panel and no auth dialog, and the Case-library row switches to `#cases` with the Cases panel visible. No runtime exceptions, console errors, or failed requests were observed.
+- Live was not pushed or deployed. Existing sessions were not invalidated; no service restart or traffic switch occurred.
+
 ## 2026-11-12 Step BC: runtime-media independent release deployed Old-only without restart
 
 - Source integration commit `028cf8ca0ff0cbce9d25477acc712e8bd2ebc3d6` merged the isolated runtime-media work; platform release `0df14100bbccbc05efa026f54b47cb05a2386be8` contains only the platform-owned release surface and was pushed to `origin/platform-release`. Live was not pushed or deployed; `origin/live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`.
@@ -4000,3 +4037,13 @@ CODEX_TASK_STATE.md
 - Added server-side normalization before constraint-stack and truncation handling, plus client-side defensive normalization before the modal result is editable/applied.
 - Verification: `test/w3-prompt-optimizer.test.js` passes `35/35`; JavaScript syntax checks and `git diff --check` pass. Full suite reports `930 pass / 27 fail / 1 skip`, matching the known pre-existing failure set with three additional passing tests.
 - Source commit `a7d5e4c1`; Old-only release/deploy acceptance recorded below after completion. Live remains untouched.
+
+## 2026-11-12 Step AQ: bottom-left contact entry and clickable case library
+
+- User requested the bottom-left “消息通知” entry be renamed “联系我们”, and the referral-page “案例库” row be clickable so it opens the same-style “Case” tab.
+- Updated `platform.html`: side utility label/icon/analytics changed to `联系我们` / `messages-square` / `contact_open`; membership case-library row is now a real button with `data-open-case-library`.
+- Updated `platform.main.js`: bottom-left click closes notifications and opens the support dialog directly with source `side_nav`; case-library click switches to `setTab("cases")`.
+- Updated `platform.css` with keyboard-visible and hover styling for the case-library row.
+- Updated `test/support-notifications.test.js` to assert the new label, support action, clickable row, and `setTab("cases")` wiring.
+- Verification: focused regression command `node --test test/support-notifications.test.js test/side-navigation-overflow.test.js test/session-login-race.test.js test/platform-refresh-performance.test.js` passes 24/24; source assertions and `git diff --check` pass.
+- Deployment status: pending at time of this record. Intended scope is Old only via `scripts/deploy_local.sh --site old --no-restart`; Live untouched. No session invalidation or service restart.

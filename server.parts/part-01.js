@@ -677,7 +677,8 @@ const ADMIN_ASSET_VERSION = crypto
   .update(fsSync.readFileSync(path.join(ROOT, "admin.js")))
   .digest("hex")
   .slice(0, 12);
-let platformAssetVersionPromise = null;
+const PLATFORM_ASSET_VERSION_CACHE_TTL_MS = 20_000;
+let platformAssetVersionCache = { value: "", expiresAt: 0, promise: null };
 const TOOL_VIDEO_STYLE_VERSION = crypto
   .createHash("sha256")
   .update(fsSync.readFileSync(path.join(ROOT, "tool-video.css")))

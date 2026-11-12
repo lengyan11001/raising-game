@@ -46,6 +46,7 @@ test("same-style is a top-level entry with Case-first in-page tabs", () => {
   assert.ok(caseIndex > -1 && caseIndex < videoIndex && videoIndex < animeIndex && animeIndex < imageIndex);
   assert.match(explore, /active: state\.tab === "cases"/);
   assert.match(explore, /els\.sameStylePanel\.hidden = nextTab !== "cases"/);
+  assert.match(require("node:fs").readFileSync(path.resolve(__dirname, "..", "lib-tenants.js"), "utf8"), /allowedTabs: parseCsvList\(process\.env\.PLATFORM_SITE_ALLOWED_TABS \|\| "home,/);
   assert.match(css, /\.gallery-top-tabs \{/);
   assert.match(css, /\.gallery-top-tabs \{[\s\S]*?flex-wrap:\s*nowrap;[\s\S]*?gap:\s*4px;[\s\S]*?padding:\s*5px;[\s\S]*?border-radius:\s*999px;/);
   assert.match(css, /\.gallery-top-tabs \.gallery-mode-tab \{[\s\S]*?min-height:\s*38px;[\s\S]*?padding:\s*8px 15px;[\s\S]*?border-radius:\s*999px;[\s\S]*?font-size:\s*\.84rem;/);

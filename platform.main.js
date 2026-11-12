@@ -1490,6 +1490,18 @@ els.supportNavBtn?.addEventListener("click", (event) => {
   event.stopPropagation();
   toggleNotificationPanel("nav");
 });
+document.querySelectorAll("[data-open-case-library]").forEach((entry) => {
+  if (entry.hasAttribute("data-cases-main-only") && isSiteProfile("custom-workflow")) {
+    entry.hidden = true;
+    entry.disabled = true;
+    return;
+  }
+  entry.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeMobileDrawer();
+    setTab("cases");
+  });
+});
 els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
 els.supportCloseBtn?.addEventListener("click", () => els.supportDialog?.close());
 els.supportRefreshBtn?.addEventListener("click", () => {
@@ -1522,7 +1534,7 @@ els.notificationBellBtn?.addEventListener("click", (event) => {
 els.notificationReadAllBtn?.addEventListener("click", markAllNotificationsRead);
 els.notificationSupportEntry?.addEventListener("click", () => {
   closeNotificationPanel();
-  openSupportDialog();
+  openSupportDialog({ source: "notification_panel" });
 });
 els.notificationList?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-notification-id]");
