@@ -315,7 +315,8 @@ test("logout requires confirmation and expired sessions clear stale account view
   assert.match(logout[0], /\) === "confirm"/);
   assert.match(logout[0], /if \(!confirmed\) return;/);
   assert.match(logout[0], /clearClientAuthState\(\)/);
-  assert.match(uiClient, /const sessionLost = response\.status === 401 && Boolean\(state\.token\)[\s\S]*?clearClientAuthState\(\);/);
+  assert.match(uiClient, /const requestToken = options\.auth === false \? "" : String\(state\.token \|\| ""\);/);
+  assert.match(uiClient, /const sessionLost = response\.status === 401 && Boolean\(requestToken\)[\s\S]*?requestToken === String\(state\.token \|\| ""\)[\s\S]*?clearClientAuthState\(\);/);
   const clear = uiClient.match(/function clearClientAuthState\(\) \{[\s\S]*?\n}\r?\n/);
   assert.ok(clear, "clearClientAuthState should exist");
   assert.match(clear[0], /setUser\(null\)/);
@@ -408,8 +409,10 @@ test("transient database failures preserve login state on user and admin surface
   const createUi = read("platform.create.parts/part-06.js");
   const loadMe = createUi.match(/async function loadMe\(\) \{[\s\S]*?\n}\r?\n\r?\nasync function loadBillingSummary/);
   assert.ok(loadMe, "platform loadMe should exist");
-  assert.match(loadMe[0], /if \(error\?\.statusCode === 401\) \{[\s\S]*?setUser\(null\)/);
-  assert.match(loadMe[0], /console\.warn\("session restore temporarily unavailable"/);
+  assert.match(loadMe[0], /const restoreToken = String\(state\.token \|\| ""\);/);
+  assert.match(loadMe[0], /if \(restoreToken !== String\(state\.token \|\| ""\)\) return;/);
+  assert.match(loadMe[0], /if \(error\?\.statusCode === 401 && restoreToken === String\(state\.token \|\| ""\)\) \{[\s\S]*?setUser\(null\)/);
+  assert.match(loadMe[0], /if \(restoreToken === String\(state\.token \|\| ""\)\) \{[\s\S]*?console\.warn\("session restore temporarily unavailable"/);
 
   const app = read("app.js");
   const appSession = app.match(/async function loadSession\(\) \{[\s\S]*?\n}\r?\n\r?\nfunction renderAssetLibrary/);

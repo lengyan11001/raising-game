@@ -4639,6 +4639,21 @@ function promotionPurchaseFromRow(row = {}) {
   };
 }
 
+async function expirePromotionReservationsInDb(campaignId = "") {
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
+  const cleanCampaignId = String(campaignId || "").trim();
+  if (!cleanCampaignId) throw new Error("campaignId is required");
+  await ensureSchema();
+  await query(`
+    UPDATE app_promotion_purchases
+    SET status = 'expired', updated_at = NOW()
+    WHERE campaign_id = $1
+      AND status = 'pending'
+      AND reserved_until IS NOT NULL
+      AND reserved_until <= NOW()
+  `, [cleanCampaignId]);
+}
+
 async function getPromotionPurchaseStateInDb(campaignId = "", userId = "", skus = []) {
   if (!dbEnabled()) throw new Error("DATABASE_URL is required for promotion purchases");
   const cleanCampaignId = String(campaignId || "").trim();
@@ -4646,51 +4661,37 @@ async function getPromotionPurchaseStateInDb(campaignId = "", userId = "", skus 
   const cleanUserId = String(userId || "").trim();
   const cleanSkus = [...new Set((Array.isArray(skus) ? skus : []).map((sku) => String(sku || "").trim()).filter(Boolean))];
   await ensureSchema();
-  const client = await getPool().connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(`
-      UPDATE app_promotion_purchases
-      SET status = 'expired', updated_at = NOW()
-      WHERE campaign_id = $1
-        AND status = 'pending'
-        AND reserved_until IS NOT NULL
-        AND reserved_until <= NOW()
-    `, [cleanCampaignId]);
-    const inventory = await client.query(`
-      SELECT sku,
-        COUNT(*) FILTER (WHERE status = 'paid')::int AS paid,
-        COUNT(*) FILTER (WHERE status = 'pending' AND reserved_until > NOW())::int AS pending
-      FROM app_promotion_purchases
-      WHERE campaign_id = $1
-        AND ($2::text[] = '{}'::text[] OR sku = ANY($2::text[]))
-      GROUP BY sku
-    `, [cleanCampaignId, cleanSkus]);
-    let purchases = [];
-    if (cleanUserId) {
-      const result = await client.query(`
-        SELECT * FROM app_promotion_purchases
-        WHERE campaign_id = $1 AND user_id = $2
-          AND ($3::text[] = '{}'::text[] OR sku = ANY($3::text[]))
-        ORDER BY created_at ASC
-      `, [cleanCampaignId, cleanUserId, cleanSkus]);
-      purchases = result.rows.map(promotionPurchaseFromRow);
-    }
-    await client.query("COMMIT");
-    return {
-      inventory: inventory.rows.map((row) => ({
-        sku: String(row.sku || ""),
-        paid: Number(row.paid || 0),
-        pending: Number(row.pending || 0),
-      })),
-      purchases,
-    };
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
-  } finally {
-    client.release();
+  // Anonymous status polling is a read path. Expired reservations are already
+  // excluded from inventory by reserved_until > NOW(), so only an authenticated
+  // viewer needs the compatibility cleanup before reading its own order state.
+  if (cleanUserId) await expirePromotionReservationsInDb(cleanCampaignId);
+  const inventory = await query(`
+    SELECT sku,
+      COUNT(*) FILTER (WHERE status = 'paid')::int AS paid,
+      COUNT(*) FILTER (WHERE status = 'pending' AND reserved_until > NOW())::int AS pending
+    FROM app_promotion_purchases
+    WHERE campaign_id = $1
+      AND ($2::text[] = '{}'::text[] OR sku = ANY($2::text[]))
+    GROUP BY sku
+  `, [cleanCampaignId, cleanSkus]);
+  let purchases = [];
+  if (cleanUserId) {
+    const result = await query(`
+      SELECT * FROM app_promotion_purchases
+      WHERE campaign_id = $1 AND user_id = $2
+        AND ($3::text[] = '{}'::text[] OR sku = ANY($3::text[]))
+      ORDER BY created_at ASC
+    `, [cleanCampaignId, cleanUserId, cleanSkus]);
+    purchases = result.rows.map(promotionPurchaseFromRow);
   }
+  return {
+    inventory: inventory.rows.map((row) => ({
+      sku: String(row.sku || ""),
+      paid: Number(row.paid || 0),
+      pending: Number(row.pending || 0),
+    })),
+    purchases,
+  };
 }
 
 async function reservePromotionPurchaseInDb({ campaignId = "", sku = "", userId = "", orderId = "", capacity = 0, reservationSeconds = 1500 } = {}) {
@@ -8406,7 +8407,7 @@ async function getGenerationRecordsNeedingR2RecoveryFromDb({ limit = 100 } = {})
   return rows.map((row) => row.payload);
 }
 
-async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit = 8 } = {}) {
+async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit = 8, countTotal = true } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
   const cleanUserId = String(userId || "").trim();
@@ -8414,6 +8415,26 @@ async function getUserGenerationRecordsPageFromDb({ userId = "", page = 1, limit
   const safeLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit || 8) || 8)));
   const safePage = Math.max(1, Math.trunc(Number(page || 1) || 1));
   const offset = (safePage - 1) * safeLimit;
+  if (countTotal === false) {
+    // Completion polling only needs the visible first page. Counting every
+    // matching row here turns a bounded lookup into a full scan of the
+    // user's generation history on every poll.
+    const { rows } = await query(`
+      SELECT payload
+      FROM app_generation_records
+      WHERE payload->>'userId' = $1
+        AND COALESCE(payload->>'deletedAt', '') = ''
+      ORDER BY created_at DESC, task_id DESC
+      LIMIT $2 OFFSET $3
+    `, [cleanUserId, safeLimit, offset]);
+    return {
+      records: rows.map((row) => row.payload),
+      total: offset + rows.length,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: safePage,
+    };
+  }
   const { rows } = await query(`
     SELECT payload, COUNT(*) OVER()::int AS total_count
     FROM app_generation_records

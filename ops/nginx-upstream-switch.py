@@ -4,8 +4,9 @@
 This script is deliberately narrow. It edits only server directives inside
 named upstream blocks whose backends are explicitly passed. It can either move
 a single active backend or add an idempotent `backup` member beside an unchanged
-primary. A transaction may span multiple Nginx files; every file is rendered
-and validated in memory before any file is replaced. A short transaction
+primary or add explicit passive health-check options to existing upstream members.
+A transaction may span multiple Nginx files; every file is rendered and
+validated in memory before any file is replaced. A short transaction
 journal restores all files if validation, reload, or health checks fail, so
 production cannot remain on a partially switched traffic mix. It never
 restarts Node and never stops the old process; the caller drains old backends
@@ -114,10 +115,42 @@ def switch_upstreams_text(
                 raise ValueError(f"upstream {name!r} has an unparseable server directive") from error
             parsed.append((server, arguments))
 
-        source_primary = [item for item in parsed if item[1] == [expected_primary]]
-        source_backup = [item for item in parsed if item[1] == [expected_backup, "backup"]]
-        target_primary = [item for item in parsed if item[1] == [expected_backup]]
-        target_backup = [item for item in parsed if item[1] == [expected_primary, "backup"]]
+        def managed_member(server: re.Match[str], address: str, backup: bool) -> bool:
+            try:
+                arguments = shlex.split(server.group("args"))
+            except ValueError:
+                return False
+            if not arguments or arguments[0] != address:
+                return False
+            options = arguments[1:]
+            if backup:
+                if options.count("backup") != 1:
+                    return False
+                options = [option for option in options if option != "backup"]
+            elif "backup" in options:
+                return False
+            return all(
+                re.fullmatch(r"max_fails=[1-9][0-9]*", option)
+                or re.fullmatch(r"fail_timeout=[1-9][0-9]*(?:ms|s|m|h|d)?", option)
+                for option in options
+            )
+
+        source_primary = [
+            item for item in parsed
+            if managed_member(item[0], expected_primary, backup=False)
+        ]
+        source_backup = [
+            item for item in parsed
+            if managed_member(item[0], expected_backup, backup=True)
+        ]
+        target_primary = [
+            item for item in parsed
+            if managed_member(item[0], expected_backup, backup=False)
+        ]
+        target_backup = [
+            item for item in parsed
+            if managed_member(item[0], expected_primary, backup=True)
+        ]
         if len(parsed) == 2 and len(target_primary) == 1 and len(target_backup) == 1:
             # Promotion is complete after swapping primary and backup roles.
             # Preserve the existing text byte-for-byte for an idempotent retry.
@@ -129,16 +162,22 @@ def switch_upstreams_text(
             primary_end = body_start + primary_server.end()
             backup_start = body_start + backup_server.start()
             backup_end = body_start + backup_server.end()
-            # Swap only the role suffix/port while preserving the original
-            # member order. Reversing the lines is semantically valid, but it
-            # prevents a switch-and-rollback cycle from restoring the exact
-            # audited Nginx file and weakens rollback equivalence.
+            primary_args = primary_server.group("args").strip()
+            backup_args = backup_server.group("args").strip()
+            primary_options = shlex.split(primary_args)[1:]
+            backup_options = [option for option in shlex.split(backup_args)[1:] if option != "backup"]
+            next_primary = " ".join([expected_backup, *backup_options])
+            next_backup = " ".join([expected_primary, "backup", *primary_options])
+            # Swap only the address/role while preserving the original member
+            # order and every tuned option. Reversing the lines is semantically
+            # valid, but it prevents a switch-and-rollback cycle from restoring
+            # the exact audited Nginx file and weakens rollback equivalence.
             if primary_start < backup_start:
-                edits.append((primary_start, primary_end, f"server {expected_backup};"))
-                edits.append((backup_start, backup_end, f"server {expected_primary} backup;"))
+                edits.append((primary_start, primary_end, f"server {next_primary};"))
+                edits.append((backup_start, backup_end, f"server {next_backup};"))
             else:
-                edits.append((backup_start, backup_end, f"server {expected_primary} backup;"))
-                edits.append((primary_start, primary_end, f"server {expected_backup};"))
+                edits.append((backup_start, backup_end, f"server {next_backup};"))
+                edits.append((primary_start, primary_end, f"server {next_primary};"))
             continue
         if len(parsed) == 1 and len(source_primary) == 1:
             server, _arguments = source_primary[0]
@@ -157,6 +196,90 @@ def switch_upstreams_text(
     # on each managed member. All edits use original offsets and are applied
     # in reverse order after validation, so no partially rendered block can
     # escape the transaction.
+    rendered = text
+    for start, end, replacement in sorted(edits, reverse=True):
+        rendered = rendered[:start] + replacement + rendered[end:]
+    return rendered
+
+
+def tune_upstreams_text(
+    text: str,
+    tunes: list[tuple[str, str, str]],
+) -> str:
+    """Add passive failure tracking while preserving member order and roles.
+
+    Existing members may contain only ``backup`` plus no health options. A
+    conflicting max_fails/fail_timeout value is rejected instead of silently
+    rewritten. The operation is idempotent after a successful apply.
+    """
+    if not tunes:
+        raise ValueError("at least one upstream tune is required")
+    names = [name for name, _, _ in tunes]
+    if len(names) != len(set(names)):
+        raise ValueError("upstream names must be unique")
+
+    masked = _masked(text)
+    headers = list(UPSTREAM_HEADER_RE.finditer(masked))
+    edits: list[tuple[int, int, str]] = []
+    for name, max_fails, fail_timeout in tunes:
+        if not re.fullmatch(r"[1-9][0-9]*", max_fails):
+            raise ValueError(f"invalid max_fails for {name!r}: {max_fails}")
+        if not re.fullmatch(r"[1-9][0-9]*(?:ms|s|m|h|d)?", fail_timeout):
+            raise ValueError(f"invalid fail_timeout for {name!r}: {fail_timeout}")
+        matching = [header for header in headers if header.group("name") == name]
+        if len(matching) != 1:
+            raise ValueError(
+                f"expected exactly one upstream {name!r}; found {len(matching)}"
+            )
+        header = matching[0]
+        opening = header.end() - 1
+        closing = _matching_brace(masked, opening)
+        body_start = opening + 1
+        body_end = closing
+        servers = list(SERVER_RE.finditer(masked, body_start, body_end))
+        if not servers:
+            raise ValueError(f"upstream {name!r} has no server members")
+        for server in servers:
+            try:
+                arguments = shlex.split(server.group("args"))
+            except ValueError as error:
+                raise ValueError(
+                    f"upstream {name!r} has an unparseable server directive"
+                ) from error
+            if not arguments or not re.fullmatch(r"(?:\[[0-9a-fA-F:]+\]|[^:\s]+):[0-9]+", arguments[0]):
+                raise ValueError(
+                    f"upstream {name!r} has an unsupported server address: {arguments!r}"
+                )
+            options = arguments[1:]
+            allowed = ["backup"]
+            for option in options:
+                if option in allowed:
+                    continue
+                if option.startswith("max_fails="):
+                    if option != f"max_fails={max_fails}":
+                        raise ValueError(
+                            f"upstream {name!r} already has conflicting {option}"
+                        )
+                    continue
+                if option.startswith("fail_timeout="):
+                    if option != f"fail_timeout={fail_timeout}":
+                        raise ValueError(
+                            f"upstream {name!r} already has conflicting {option}"
+                        )
+                    continue
+                raise ValueError(
+                    f"upstream {name!r} has unsupported member option {option!r}"
+                )
+            missing = [
+                value
+                for value in (f"max_fails={max_fails}", f"fail_timeout={fail_timeout}")
+                if value not in options
+            ]
+            if not missing:
+                continue
+            semicolon = server.end() - 1
+            edits.append((semicolon, semicolon, " " + " ".join(missing)))
+
     rendered = text
     for start, end, replacement in sorted(edits, reverse=True):
         rendered = rendered[:start] + replacement + rendered[end:]
@@ -320,6 +443,45 @@ def parse_file_backup(value: str) -> tuple[Path, tuple[str, str, str]]:
     return Path(path_text), parse_backup(backup_text)
 
 
+def parse_tune(value: str) -> tuple[str, str, str]:
+    match = re.fullmatch(
+        r"(?P<name>[A-Za-z0-9_.-]+)=(?P<max_fails>[1-9][0-9]*):(?P<fail_timeout>[1-9][0-9]*(?:ms|s|m|h|d)?)",
+        value,
+    )
+    if not match:
+        raise argparse.ArgumentTypeError(
+            "tune must use NAME=MAX_FAILS:FAIL_TIMEOUT (for example app=1:2s)"
+        )
+    return match.group("name"), match.group("max_fails"), match.group("fail_timeout")
+
+
+def parse_file_tune(value: str) -> tuple[Path, tuple[str, str, str]]:
+    path_text, separator, tune_text = value.partition("=")
+    if not separator or not path_text:
+        raise argparse.ArgumentTypeError(
+            "file tune must use PATH=NAME=MAX_FAILS:FAIL_TIMEOUT"
+        )
+    return Path(path_text), parse_tune(tune_text)
+
+
+def build_tune_transaction(
+    file_tunes: list[tuple[Path, tuple[str, str, str]]],
+) -> list[tuple[str, Path, str, int, str]]:
+    by_file: dict[Path, list[tuple[str, str, str]]] = {}
+    names: list[str] = []
+    for path, tune in file_tunes:
+        names.append(tune[0])
+        by_file.setdefault(Path(path), []).append(tune)
+    if len(names) != len(set(names)):
+        raise ValueError("upstream names must be unique")
+    entries: list[tuple[str, Path, str, int, str]] = []
+    for path, tunes in by_file.items():
+        source = path.read_text(encoding="utf-8")
+        updated = tune_upstreams_text(source, tunes)
+        entries.append((str(path), path, source, path.stat().st_mode & 0o777, updated))
+    return entries
+
+
 def build_file_transaction(
     file_switches: list[tuple[Path, tuple[str, str, str]]],
 ) -> list[tuple[str, Path, str, int, str]]:
@@ -481,6 +643,20 @@ def main() -> int:
         default=[],
         help="repeatable PATH=NAME=PRIMARY_PORT:BACKUP_PORT entry; all files commit together",
     )
+    parser.add_argument(
+        "--tune",
+        action="append",
+        type=parse_tune,
+        default=[],
+        help="repeatable NAME=MAX_FAILS:FAIL_TIMEOUT entry on --file",
+    )
+    parser.add_argument(
+        "--file-tune",
+        action="append",
+        type=parse_file_tune,
+        default=[],
+        help="repeatable PATH=NAME=MAX_FAILS:FAIL_TIMEOUT entry; all files commit together",
+    )
     parser.add_argument("--upstream", default="")
     parser.add_argument("--current-port", default="")
     parser.add_argument("--next-port", default="")
@@ -498,7 +674,15 @@ def main() -> int:
 
     legacy_values = (args.upstream, args.current_port, args.next_port)
     explicit_modes = sum(
-        bool(value) for value in (args.switch, args.file_switch, args.backup, args.file_backup)
+        bool(value)
+        for value in (
+            args.switch,
+            args.file_switch,
+            args.backup,
+            args.file_backup,
+            args.tune,
+            args.file_tune,
+        )
     )
     if explicit_modes > 1:
         raise SystemExit("transaction modes cannot be combined")
@@ -512,7 +696,13 @@ def main() -> int:
                 "--upstream, --current-port, and --next-port must be provided together"
             )
         switches.append(parse_switch(f"{args.upstream}={args.current_port}:{args.next_port}"))
-    if args.file_backup:
+    if args.file_tune:
+        file_tunes = args.file_tune
+    elif args.tune:
+        if not args.file:
+            raise SystemExit("--tune requires --file")
+        file_tunes = [(args.file, tune) for tune in args.tune]
+    elif args.file_backup:
         file_backups = args.file_backup
     elif args.backup:
         if not args.file:
@@ -537,10 +727,18 @@ def main() -> int:
         target_paths.update(path for path, _backup in args.file_backup)
     if args.file_switch:
         target_paths.update(path for path, _switch in args.file_switch)
+    if args.file_tune:
+        target_paths.update(path for path, _tune in args.file_tune)
     if args.apply and target_paths:
         recover_stale_journal(target_paths)
     try:
-        if args.backup:
+        if args.file_tune:
+            entries = build_tune_transaction(args.file_tune)
+            effective_switches = [tune for _path, tune in args.file_tune]
+        elif args.tune:
+            entries = build_tune_transaction([(args.file, tune) for tune in args.tune])
+            effective_switches = args.tune
+        elif args.backup:
             entries = build_backup_transaction([(args.file, backup) for backup in args.backup])
             effective_switches = args.backup
         elif args.file_backup:
@@ -557,7 +755,11 @@ def main() -> int:
     except (OSError, ValueError) as error:
         raise SystemExit(str(error)) from None
     backup_mode = bool(args.backup or args.file_backup)
+    tune_mode = bool(args.tune or args.file_tune)
     for name, current, next_port in effective_switches:
+        if tune_mode:
+            print(f"UPSTREAM_TUNE_PLAN upstream={name} max_fails={current} fail_timeout={next_port}")
+            continue
         if backup_mode:
             print(f"UPSTREAM_BACKUP_PLAN upstream={name} primary={current} backup={next_port}")
         else:
@@ -609,7 +811,9 @@ def main() -> int:
             journal.unlink(missing_ok=True)
         lock.close()
     for name, _, next_port in effective_switches:
-        if backup_mode:
+        if tune_mode:
+            print(f"UPSTREAM_TUNE_OK upstream={name} fail_timeout={next_port}")
+        elif backup_mode:
             print(f"UPSTREAM_BACKUP_OK upstream={name} backup={next_port}")
         else:
             print(f"UPSTREAM_SWITCH_OK upstream={name} port={next_port}")

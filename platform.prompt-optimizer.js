@@ -122,6 +122,63 @@
     return "";
   }
 
+  function wrapWanPromptParagraph(value = "", limit = 180) {
+    const source = String(value || "").trim();
+    if (!source) return "";
+    if (source.length <= limit) return source;
+    const sentences = source.match(/[^。！？!?]+[。！？!?]?/g) || [source];
+    const lines = [];
+    let current = "";
+    for (const sentence of sentences) {
+      const next = sentence.trim();
+      if (!next) continue;
+      if (current && current.length + next.length > limit) {
+        lines.push(current.trim());
+        current = next;
+      } else {
+        current += next;
+      }
+    }
+    if (current.trim()) lines.push(current.trim());
+    return lines.join("\n");
+  }
+
+  function normalizeWanFillPrompt(value = "") {
+    let text = String(value || "").replace(/\r\n?/g, "\n").trim();
+    if (!text) return "";
+    text = text
+      .replace(/^```(?:json|text|markdown|md)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .replace(/^[ \t]*#{1,6}[ \t]*/gm, "")
+      .replace(/^[ \t]*(?:>[ \t]*)+/gm, "")
+      .replace(/^[ \t]*(?:[-*+•]+|\d+[.)、])[ \t]+/gm, "")
+      .replace(/^[ \t]*(?:[-*_]\s*){3,}$/gm, "")
+      .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+      .replace(/__([^_\n]+)__/g, "$1")
+      .replace(/`([^`\n]+)`/g, "$1");
+    text = text
+      .replace(/(?<!\n)\s+(?=(?:【[^】\n]{1,40}】|At\s+\d{1,2}:\d{2}(?::\d{2})?|(?:Ambient|Camera static\.)\b))/gi, "\n")
+      .replace(/([。！？!?])\s*(?=(?:At\s+\d{1,2}:\d{2}(?::\d{2})?|\d{1,2}(?:\s*[—–\-~至到]\s*)\d{1,2}\s*秒?\s*[：:]|(?:Ambient|Camera static\.)\b))/gi, "$1\n\n")
+      .replace(/[ \t]+(?=\d{1,2}(?:\s*[—–\-~至到]\s*)\d{1,2}\s*秒?\s*[：:])/g, "\n")
+      .replace(/([。！？!?])\s*(?=(?:正向约束|结尾约束|最终约束|Final constraints?)\s*[：:])/gi, "$1\n\n")
+      .replace(/[ \t]+(?=(?:正向约束|结尾约束|最终约束|Final constraints?)\s*[：:])/gi, "\n\n");
+    const lines = text.split("\n")
+      .map((line) => line.trim())
+      .filter((line, index, list) => line || (index > 0 && list[index - 1]))
+      .filter((line) => !/^(?:W3|Wan|Seedance)?\s*(?:提示词|prompt)\s*[：:]?$|^优化后(?:的)?提示词\s*[：:]?$/i.test(line));
+    const readable = [];
+    for (const line of lines) {
+      if (!line) {
+        if (readable.length && readable[readable.length - 1] !== "") readable.push("");
+        continue;
+      }
+      const isFinalStack = /^(?:Camera static\.|正向约束|结尾约束|最终约束|Final constraints?\s*[：:])/i.test(line);
+      if (isFinalStack && readable.length && readable[readable.length - 1] !== "") readable.push("");
+      readable.push(wrapWanPromptParagraph(line));
+    }
+    return readable.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
   function escapeHtml(value = "") {
     return String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -277,7 +334,8 @@
     window.lucide?.createIcons?.();
     try {
       const result = await requestOptimize(payload);
-      modal.result.value = readableOptimizedPrompt(result.optimizedPrompt).slice(0, MAX_CHARS);
+      const optimized = readableOptimizedPrompt(result.optimizedPrompt);
+      modal.result.value = (seedance ? optimized : normalizeWanFillPrompt(optimized)).slice(0, MAX_CHARS);
       modal.resultField.hidden = false;
       modal.notes.innerHTML = (result.notes || []).map((note) => `<li>${escapeHtml(note)}</li>`).join("");
       const referencePlan = Array.isArray(result.referencePlan) ? result.referencePlan.filter(Boolean).slice(0, 12) : [];
@@ -346,7 +404,7 @@
     return Promise.resolve("");
   }
 
-  window.W3PromptOptimizer = Object.freeze({ isWanProvider, isSeedanceProvider, isProvider: isPromptOptimizerProvider, normalizeProvider, readableOptimizedPrompt, open: openPromptOptimizer, maxChars: MAX_CHARS });
+  window.W3PromptOptimizer = Object.freeze({ isWanProvider, isSeedanceProvider, isProvider: isPromptOptimizerProvider, normalizeProvider, readableOptimizedPrompt, normalizeWanFillPrompt, open: openPromptOptimizer, maxChars: MAX_CHARS });
   window.isWanPromptOptimizerProvider = isWanProvider;
   window.isSeedancePromptOptimizerProvider = isSeedanceProvider;
   window.isPromptOptimizerProvider = isPromptOptimizerProvider;

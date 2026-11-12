@@ -445,12 +445,15 @@ async function handleListGenerationRecords(req, res, url) {
   const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 8, maxLimit: 50 });
+  const refreshRequested = generationListRefreshRequested(url);
+  const pollRequested = generationListPollRequested(url);
+  const lightweightPoll = refreshRequested && pollRequested;
   let allOwnRecords = [];
   let ownRecords = [];
   let totalPages = 1;
   let total = 0;
   if (dbEnabled()) {
-    const result = await getUserGenerationRecordsPageFromDb({ userId: auth.user.id, page, limit });
+    const result = await getUserGenerationRecordsPageFromDb({ userId: auth.user.id, page, limit, countTotal: !lightweightPoll });
     allOwnRecords = result?.records || [];
     ownRecords = allOwnRecords;
     total = Number(result?.total || 0);
@@ -462,8 +465,6 @@ async function handleListGenerationRecords(req, res, url) {
     totalPages = Math.max(1, Math.ceil(total / limit));
   }
 
-  const refreshRequested = generationListRefreshRequested(url);
-  const pollRequested = generationListPollRequested(url);
   if (pollRequested) {
     try { baselineMetrics.recordEvent("generation_list_poll"); } catch {}
   }

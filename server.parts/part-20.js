@@ -1091,6 +1091,7 @@ function generationRecordR2PublicationPending(record = {}) {
 }
 
 function publicGenerationRecord(record = {}, options = {}) {
+  const pollOnly = options.pollOnly === true;
   const publicProvider = publicProviderId(record.provider || record.params?.provider || "");
   const generationDisplayLabel = publicGenerationDisplayLabel(publicProvider)
     || publicGenerationDisplayLabel(record.provider)
@@ -1185,26 +1186,32 @@ function publicGenerationRecord(record = {}, options = {}) {
     companionName: String(record.companionName || ""),
     partnerCharacterId: String(record.partnerCharacterId || ""),
     partnerCharacterName: String(record.partnerCharacterName || ""),
-    imageUrl: String(record.imageUrl || ""),
-    imageUrls: Array.isArray(record.imageUrls) ? record.imageUrls.map(String) : [],
-    sourceImageUrl: String(record.sourceImageUrl || ""),
-    sourceImageUrls: Array.isArray(record.sourceImageUrls) ? record.sourceImageUrls.map(String) : [],
-    syntheticReferenceLocalUrl: String(record.syntheticReferenceLocalUrl || ""),
-    syntheticReferenceUrl: String(record.syntheticReferenceUrl || ""),
-    userAssetId: String(record.userAssetId || ""),
-    userAssetIds: Array.isArray(record.userAssetIds) ? record.userAssetIds.map(String) : [],
-    referenceAssetUri: String(record.referenceAssetUri || ""),
+    ...(pollOnly ? {} : {
+      imageUrl: String(record.imageUrl || ""),
+      imageUrls: Array.isArray(record.imageUrls) ? record.imageUrls.map(String) : [],
+      sourceImageUrl: String(record.sourceImageUrl || ""),
+      sourceImageUrls: Array.isArray(record.sourceImageUrls) ? record.sourceImageUrls.map(String) : [],
+      syntheticReferenceLocalUrl: String(record.syntheticReferenceLocalUrl || ""),
+      syntheticReferenceUrl: String(record.syntheticReferenceUrl || ""),
+      userAssetId: String(record.userAssetId || ""),
+      userAssetIds: Array.isArray(record.userAssetIds) ? record.userAssetIds.map(String) : [],
+      referenceAssetUri: String(record.referenceAssetUri || ""),
+    }),
     mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
-    mediaAssets: listGenerationRecordValue(publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : [])),
+    ...(pollOnly ? {} : {
+      mediaAssets: listGenerationRecordValue(publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : [])),
+    }),
     posterUrl: includeStoredVideoUrls ? preferredPosterUrl : providerPosterUrl,
     posterPending: generationRecordNeedsPosterMaintenance(record),
     cdnPosterUrl: includeStoredVideoUrls ? preferredPosterUrl : "",
     localPosterUrl: includeStoredVideoUrls
       ? deliverableStoredMediaUrl(record.localPosterUrl, { key: posterKey })
       : "",
-    prompt: String(record.prompt || ""),
-    finalPrompt: String(record.finalPrompt || ""),
-    params: listGenerationRecordValue(publicModelValue(record.params || null)),
+    ...(pollOnly ? {} : {
+      prompt: String(record.prompt || ""),
+      finalPrompt: String(record.finalPrompt || ""),
+      params: listGenerationRecordValue(publicModelValue(record.params || null)),
+    }),
     model: publicModelText(record.model || ""),
     provider: publicProvider,
     providerLabel: generationDisplayLabel || publicProviderLabel(record.provider || record.params?.provider || ""),
@@ -1228,7 +1235,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     remoteImageUrl: String(record.remoteImageUrl || ""),
     textResult: publicModelText(record.textResult || record.responseText || ""),
     responseText: publicModelText(record.responseText || record.textResult || ""),
-    usage: listGenerationRecordValue(record.usage || null),
+    ...(pollOnly ? {} : {
+      usage: listGenerationRecordValue(record.usage || null),
+    }),
     error: publicModelText(recordError),
     cdnError: publicModelText(record.cdnError || ""),
     r2DownloadReady: generationRecordIsVideoOutput(record)
@@ -1288,30 +1297,32 @@ function publicGenerationRecord(record = {}, options = {}) {
     publicRecord.cdnImageUrl = providerOnlyOutputs ? "" : deliveryImageUrl;
     publicRecord.cdnImageUrls = providerOnlyOutputs ? [] : deliveryImageUrls;
   }
-  if (options.includeUpstreamPayload === true && (record.resultLocked !== true || options.includeLockedMedia === true)) {
+  if (!pollOnly && options.includeUpstreamPayload === true && (record.resultLocked !== true || options.includeLockedMedia === true)) {
     publicRecord.upstreamPayload = listGenerationRecordValue(record.upstreamPayload || null);
   }
   if (undressToolRecord && options.includeInternalToolDetails !== true) {
     const recordParams = plainObject(record.params);
     publicRecord.upstreamTaskId = "";
-    publicRecord.prompt = "";
-    publicRecord.finalPrompt = "";
     publicRecord.model = "";
     publicRecord.provider = "undress";
     publicRecord.providerLabel = "Undress";
     publicRecord.cdnError = "";
-    publicRecord.params = {
-      stage: String(recordParams.stage || ""),
-      durationSeconds: Number(recordParams.durationSeconds || 0),
-      segmentCount: Number(recordParams.segmentCount || 0),
-      completedSegments: Number(recordParams.completedSegments || 0),
-    };
-    publicRecord.mediaAssets = [];
-    publicRecord.userAssetId = "";
-    publicRecord.userAssetIds = [];
-    publicRecord.imageUrls = [];
-    publicRecord.sourceImageUrls = [];
-    publicRecord.referenceAssetUri = "";
+    if (!pollOnly) {
+      publicRecord.prompt = "";
+      publicRecord.finalPrompt = "";
+      publicRecord.params = {
+        stage: String(recordParams.stage || ""),
+        durationSeconds: Number(recordParams.durationSeconds || 0),
+        segmentCount: Number(recordParams.segmentCount || 0),
+        completedSegments: Number(recordParams.completedSegments || 0),
+      };
+      publicRecord.mediaAssets = [];
+      publicRecord.userAssetId = "";
+      publicRecord.userAssetIds = [];
+      publicRecord.imageUrls = [];
+      publicRecord.sourceImageUrls = [];
+      publicRecord.referenceAssetUri = "";
+    }
     delete publicRecord.upstreamPayload;
   }
   if (record.resultLocked === true && options.includeLockedMedia !== true) {
@@ -1321,36 +1332,29 @@ function publicGenerationRecord(record = {}, options = {}) {
       "upstreamVideoUrl", "remoteVideoUrl", "imageResultUrl", "providerImageUrl",
       "upstreamImageUrl", "remoteImageUrl", "localVideoUrl", "cdnVideoUrl",
       "localPosterUrl", "cdnPosterUrl", "localImageUrl", "cdnImageUrl",
-    ].forEach((key) => { publicRecord[key] = ""; });
-    publicRecord.imageResultUrls = [];
-    publicRecord.providerImageUrls = [];
-    publicRecord.localImageUrls = [];
-    publicRecord.cdnImageUrls = [];
-    publicRecord.mediaAssets = [];
-    publicRecord.userAssetId = "";
-    publicRecord.userAssetIds = [];
-    publicRecord.imageUrls = [];
-    publicRecord.sourceImageUrls = [];
-    publicRecord.prompt = "";
-    publicRecord.finalPrompt = "";
+    ].forEach((key) => {
+      if (Object.hasOwn(publicRecord, key)) publicRecord[key] = "";
+    });
+    for (const key of [
+      "imageResultUrls", "providerImageUrls", "localImageUrls", "cdnImageUrls",
+      "mediaAssets", "userAssetIds", "imageUrls", "sourceImageUrls",
+    ]) {
+      if (Object.hasOwn(publicRecord, key)) publicRecord[key] = [];
+    }
+    for (const key of ["userAssetId", "prompt", "finalPrompt"]) {
+      if (Object.hasOwn(publicRecord, key)) publicRecord[key] = "";
+    }
     delete publicRecord.upstreamPayload;
   }
   return publicAssetUrlsForClient(publicRecord);
 }
 
 function publicGenerationPollRecord(record = {}, options = {}) {
-  const full = publicGenerationRecord(record, options);
-  // These fields are already derived by publicGenerationRecord; removing only
-  // submission/input payloads keeps result rendering intact while making a
-  // 20-record status poll substantially smaller. Nested media fields remain
-  // available so a task can show its first playable result immediately.
-  [
-    "params", "prompt", "finalPrompt", "mediaAssets", "usage",
-    "imageUrl", "imageUrls", "sourceImageUrl", "sourceImageUrls",
-    "syntheticReferenceLocalUrl", "syntheticReferenceUrl",
-    "userAssetId", "userAssetIds", "referenceAssetUri",
-  ].forEach((key) => { delete full[key]; });
-  return full;
+  // The status poll shares all result, billing, R2, and privacy logic with the
+  // full serializer, but never constructs submission/input payloads. This is
+  // a real projection rather than build-then-delete, keeping 15-second polls
+  // small without creating a second set of media URL rules.
+  return publicGenerationRecord(record, { ...options, pollOnly: true });
 }
 
 function adminGenerationRecordView(record = {}, userMap = new Map()) {

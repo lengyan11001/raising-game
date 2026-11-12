@@ -124,6 +124,21 @@ def add_public_checks(checks: list[Check], phase: str) -> None:
 
 
 SECONDARY_ENV = Path("/etc/raising-game-demo-b.env")
+SERVICE_ENV = Path(os.environ.get("RAISING_GAME_SERVICE_ENV", "/etc/raising-game-demo.env"))
+
+
+def read_env_file(path: Path) -> dict[str, str]:
+    """Read a systemd EnvironmentFile without executing or printing secrets."""
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
 
 
 def secondary_environment_check(checks: list[Check], phase: str) -> None:
@@ -140,13 +155,7 @@ def secondary_environment_check(checks: list[Check], phase: str) -> None:
     if not SECONDARY_ENV.is_file():
         problems.append("missing env file")
     else:
-        values: dict[str, str] = {}
-        for raw_line in SECONDARY_ENV.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            values[key.strip()] = value.strip().strip('"').strip("'")
+        values = read_env_file(SECONDARY_ENV)
         for key, expected in required.items():
             actual = values.get(key)
             if actual != expected:
@@ -192,7 +201,7 @@ def add_service_check(
 
 
 def database_checks(checks: list[Check], phase: str) -> None:
-    database_url = os.environ.get("DATABASE_URL", "")
+    database_url = os.environ.get("DATABASE_URL", "") or read_env_file(SERVICE_ENV).get("DATABASE_URL", "")
     if not database_url:
         checks.append(Check(f"{phase}:database", False, "DATABASE_URL is not set"))
         return

@@ -260,36 +260,191 @@ test("poll=1 uses a status-only snapshot while plain refresh=1 stays compatible"
   assert.match(server, /function generationListPollRequested\(url\)/);
 });
 
+test("background polls skip the exact history total while normal history stays paged", () => {
+  const db = fs.readFileSync(path.join(__dirname, "..", "db.js"), "utf8");
+  const userList = functionSource("handleListGenerationRecords", "handleGetGenerationRecord");
+  assert.match(db, /async function getUserGenerationRecordsPageFromDb\(\{ userId = "", page = 1, limit = 8, countTotal = true \} = \{\}\)/);
+  assert.match(db, /if \(countTotal === false\) \{[\s\S]*?SELECT payload[\s\S]*?LIMIT \$2 OFFSET \$3/);
+  const lightweightStart = db.indexOf("if (countTotal === false) {");
+  const countedStart = db.indexOf("SELECT payload, COUNT(*) OVER()", lightweightStart);
+  assert.ok(lightweightStart > 0, "lightweight query branch should exist");
+  assert.ok(countedStart > lightweightStart, "counted query should remain available for history pages");
+  assert.match(userList, /const lightweightPoll = refreshRequested && pollRequested/);
+  assert.match(userList, /getUserGenerationRecordsPageFromDb\(\{ userId: auth\.user\.id, page, limit, countTotal: !lightweightPoll \}\)/);
+});
+
 test("poll serializer omits submission payloads but keeps result and billing state", () => {
-  const start = server.indexOf("function publicGenerationPollRecord");
-  const end = server.indexOf("function adminGenerationRecordView", start);
-  assert.notEqual(start, -1);
-  assert.notEqual(end, -1);
-  const createPollRecord = new Function(
-    "publicGenerationRecord",
-    `${server.slice(start, end)}\nreturn publicGenerationPollRecord;`,
-  )((record) => ({
-    taskId: record.taskId,
+  const application = require("../server");
+  const omitted = [
+    "params", "prompt", "finalPrompt", "mediaAssets", "usage",
+    "imageUrl", "imageUrls", "sourceImageUrl", "sourceImageUrls",
+    "syntheticReferenceLocalUrl", "syntheticReferenceUrl",
+    "userAssetId", "userAssetIds", "referenceAssetUri", "upstreamPayload",
+  ];
+  const fullRecord = {
+    taskId: "cgt-poll",
     status: "succeeded",
-    videoUrl: "https://media.example/result.mp4",
-    posterUrl: "https://media.example/poster.jpg",
-    billing: { preDeducted: 10, final: null },
-    params: { resolution: "1080P" },
-    prompt: "full prompt",
-    finalPrompt: "final prompt",
-    mediaAssets: [{ id: "asset-1" }],
-    usage: { tokens: 1 },
-    imageUrls: ["https://example.com/input.png"],
-    sourceImageUrls: ["https://example.com/input.png"],
+    provider: "seedance25",
+    source: "platform-video",
+    kind: "text-to-video",
+    prompt: "submission prompt",
+    finalPrompt: "final submission prompt",
+    params: { provider: "seedance25", resolution: "1080P", mediaMode: "video" },
+    mediaAssets: [{ id: "asset-1", url: "https://example.com/input.png" }],
+    usage: { tokens: 42 },
+    imageUrl: "https://example.com/source.png",
+    imageUrls: ["https://example.com/source.png"],
+    sourceImageUrl: "https://example.com/source.png",
+    sourceImageUrls: ["https://example.com/source.png"],
+    syntheticReferenceLocalUrl: "/assets/user-uploads/reference.png",
+    syntheticReferenceUrl: "https://example.com/reference.png",
+    userAssetId: "asset-1",
+    userAssetIds: ["asset-1"],
     referenceAssetUri: "asset://asset-1",
-  }));
-  const polled = createPollRecord({ taskId: "cgt-poll" });
-  assert.equal(polled.status, "succeeded");
-  assert.equal(polled.videoUrl, "https://media.example/result.mp4");
-  assert.deepEqual(polled.billing, { preDeducted: 10, final: null });
-  for (const key of ["params", "prompt", "finalPrompt", "mediaAssets", "usage", "imageUrls", "sourceImageUrls", "referenceAssetUri"]) {
+    upstreamPayload: { prompt: "submission prompt" },
+    providerVideoUrl: "https://provider.example/result.mp4",
+    remoteVideoUrl: "https://provider.example/result.mp4",
+    textResult: "",
+    error: "",
+    cdnError: "",
+    advancedDownloadStatus: "preparing",
+    preDeductedCredits: 20,
+    finalCredits: 18,
+    billingSettledAt: "2026-11-12T00:00:00.000Z",
+    billingStatus: "settled",
+    createdAt: "2026-11-12T00:00:00.000Z",
+    updatedAt: "2026-11-12T00:01:00.000Z",
+  };
+  const full = application.publicGenerationRecord(fullRecord, { includeUpstreamPayload: true });
+  const polled = application.publicGenerationPollRecord(fullRecord, { includeUpstreamPayload: true });
+
+  for (const key of omitted) {
+    assert.equal(Object.hasOwn(full, key), true, `${key} should remain in full records`);
     assert.equal(Object.hasOwn(polled, key), false, `${key} should be omitted from polls`);
   }
+  assert.equal(polled.taskId, full.taskId);
+  assert.equal(polled.status, full.status);
+  assert.equal(polled.provider, full.provider);
+  assert.equal(polled.videoUrl, full.videoUrl);
+  assert.equal(polled.advancedDownloadAvailable, full.advancedDownloadAvailable);
+  assert.equal(polled.advancedDownloadStatus, "preparing");
+  assert.deepEqual(polled.billing, full.billing);
+  assert.equal(polled.createdAt, full.createdAt);
+  assert.equal(polled.updatedAt, full.updatedAt);
+  assert.equal(polled.r2DownloadReady, full.r2DownloadReady);
+});
+
+test("poll projection never leaks undress or locked input fields", () => {
+  const application = require("../server");
+  const base = {
+    taskId: "cgt-private-poll",
+    status: "succeeded",
+    provider: "seedance25",
+    source: "undress-tool-video",
+    kind: "tool-undress",
+    prompt: "private prompt",
+    finalPrompt: "private final prompt",
+    params: { stage: "done", durationSeconds: 5, segmentCount: 2, completedSegments: 2, secret: "private" },
+    mediaAssets: [{ id: "asset-1", url: "https://example.com/input.png" }],
+    imageUrl: "https://example.com/source.png",
+    imageUrls: ["https://example.com/source.png"],
+    sourceImageUrl: "https://example.com/source.png",
+    sourceImageUrls: ["https://example.com/source.png"],
+    syntheticReferenceLocalUrl: "/assets/user-uploads/private.png",
+    syntheticReferenceUrl: "https://example.com/private.png",
+    userAssetId: "asset-1",
+    userAssetIds: ["asset-1"],
+    referenceAssetUri: "asset://asset-1",
+    upstreamPayload: { prompt: "private" },
+    providerVideoUrl: "https://provider.example/private.mp4",
+    preDeductedCredits: 10,
+  };
+  for (const record of [base, { ...base, resultLocked: true, lockedPreviewUrl: "https://example.com/locked.png" }]) {
+    const full = application.publicGenerationRecord(record, { includeUpstreamPayload: true });
+    const polled = application.publicGenerationPollRecord(record, { includeUpstreamPayload: true });
+    assert.equal(Object.hasOwn(full, "params"), true);
+    assert.equal(Object.hasOwn(full, "mediaAssets"), true);
+    assert.equal(Object.hasOwn(full, "prompt"), true);
+    for (const key of [
+      "params", "prompt", "finalPrompt", "mediaAssets", "usage",
+      "imageUrl", "imageUrls", "sourceImageUrl", "sourceImageUrls",
+      "syntheticReferenceLocalUrl", "syntheticReferenceUrl",
+      "userAssetId", "userAssetIds", "referenceAssetUri", "upstreamPayload",
+    ]) {
+      assert.equal(Object.hasOwn(polled, key), false, `${key} should stay absent on undress/locked polls`);
+    }
+    assert.equal(polled.status, "succeeded");
+    assert.equal(polled.provider, "undress");
+    assert.equal(polled.providerLabel, "Undress");
+    assert.equal(polled.billing.preDeducted, 10);
+    assert.equal(polled.resultLocked, record.resultLocked === true);
+    assert.doesNotMatch(JSON.stringify(polled), /private prompt|private final prompt|example\.com\/source\.png|example\.com\/private\.png|asset:\/\/asset-1|"secret":"private"/);
+  }
+});
+
+test("full serializer keeps its original field order and browser/API media URL contracts", () => {
+  const application = require("../server");
+  const record = {
+    taskId: "cgt-order",
+    status: "succeeded",
+    provider: "seedance25",
+    source: "platform-video",
+    kind: "text-to-video",
+    prompt: "prompt",
+    finalPrompt: "final",
+    params: { provider: "seedance25", resolution: "1080P" },
+    mediaAssets: [{ id: "asset-1" }],
+    usage: { tokens: 1 },
+    imageUrl: "https://example.com/source.png",
+    imageUrls: ["https://example.com/source.png"],
+    sourceImageUrl: "https://example.com/source.png",
+    sourceImageUrls: ["https://example.com/source.png"],
+    syntheticReferenceLocalUrl: "/assets/user-uploads/reference.png",
+    syntheticReferenceUrl: "https://example.com/reference.png",
+    userAssetId: "asset-1",
+    userAssetIds: ["asset-1"],
+    referenceAssetUri: "asset://asset-1",
+    providerVideoUrl: "https://provider.example/result.mp4",
+  };
+  const browser = application.publicGenerationRecord(record, {
+    providerOnlyVideoUrl: false,
+    includeStoredVideoUrls: true,
+    providerOnlyImageUrl: false,
+    includeStoredImageUrls: true,
+    includeUpstreamPayload: true,
+    requireR2Ready: false,
+  });
+  const api = application.publicGenerationRecord(record, {
+    providerOnlyVideoUrl: true,
+    includeStoredVideoUrls: false,
+    providerOnlyImageUrl: true,
+    includeStoredImageUrls: false,
+    includeUpstreamPayload: false,
+    requireR2Ready: false,
+  });
+  assert.deepEqual(Object.keys(browser), [
+    "taskId", "upstreamTaskId", "status", "source", "kind", "templateId", "templateTitle",
+    "sceneId", "sceneName", "sceneEntryId", "sceneEntryName", "companionId", "companionName",
+    "partnerCharacterId", "partnerCharacterName", "imageUrl", "imageUrls", "sourceImageUrl",
+    "sourceImageUrls", "syntheticReferenceLocalUrl", "syntheticReferenceUrl", "userAssetId",
+    "userAssetIds", "referenceAssetUri", "mediaMode", "mediaAssets", "posterUrl", "posterPending",
+    "cdnPosterUrl", "localPosterUrl", "prompt", "finalPrompt", "params", "model", "provider",
+    "providerLabel", "ratio", "resolution", "duration", "quality", "videoUrl", "downloadUrl",
+    "cdnVideoUrl", "cdnImageUrl", "cdnImageUrls", "providerVideoUrl", "upstreamVideoUrl",
+    "remoteVideoUrl", "imageResultUrl", "imageResultUrls", "providerImageUrl", "providerImageUrls",
+    "upstreamImageUrl", "remoteImageUrl", "textResult", "responseText", "usage", "error",
+    "cdnError", "r2DownloadReady", "advancedDownloadAvailable", "advancedDownloadStatus",
+    "billing", "createdAt", "updatedAt", "awaitingUpstreamTask", "apiTokenId",
+    "apiTokenName", "apiTokenType", "resultLocked", "unlockCredits", "unlockType",
+    "lockedPreviewUrl", "localVideoUrl", "localVideoPath", "localPosterPath",
+    "localImageUrl", "localImagePath", "localImageUrls", "upstreamPayload",
+  ]);
+  assert.equal(browser.videoUrl, "https://provider.example/result.mp4");
+  assert.equal(api.videoUrl, "https://provider.example/result.mp4");
+  assert.deepEqual(api.params, browser.params);
+  assert.equal(Object.hasOwn(api, "upstreamPayload"), false);
+  assert.equal(typeof browser.billing, "object");
+  assert.equal(typeof api.billing, "object");
 });
 
 test("frontend polling merges partial snapshots without erasing full record fields", () => {
