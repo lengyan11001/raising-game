@@ -1,3 +1,34 @@
+## 2026-11-12 Step BE: anonymous contact panel repair and asset-version cache correction
+
+- Corrects Step BD: the delivered bottom-left `联系我们` entry intentionally opens the notification panel, not the support dialog directly. The panel's `在线客服` item opens the anonymous support form. Anonymous visitors must not be redirected to login by either entry.
+- The deployed fans-only Nginx fence rewrites the old `?v=8a625c027303` asset version to `?v=8cc597500820`; backup is `/etc/nginx/sites-enabled/123vip.fans.codex-bak-1794482141`. This is temporary and must be removed after the permanent content-hash deployment is verified.
+- Fixed `toggleNotificationPanel()`/`renderNotificationCenter()` so the notification container remains available without an authenticated user, while authenticated users retain their existing notification and ticket flows. The panel's support entry now opens `openSupportDialog({ source: "notification_panel" })`.
+- Fixed the permanent asset cache-busting root cause: the in-process platform asset version result was cached forever. It now uses content hashes with a 20-second TTL, and HTML rendering reuses the same version value instead of hashing twice.
+- Serial full suite passed: `1266 pass / 0 fail / 1 skipped` (1267 tests, log `/tmp/raising-fans-contact-full-2.log`). Focused support/navigation/cache tests passed `82/82`; Node syntax checks and `git diff --check` passed.
+- Source changes remain to be committed, cherry-picked onto latest `origin/old-site`, converted into a new `platform-release`, and deployed Old-only via `scripts/deploy_local.sh --site old`. Live and existing login sessions must remain untouched.
+
+## 2026-11-12 Step BD: contact entry and case-library navigation deployed Old-only without restart
+
+- Source commit `33a864d2d3529a593d5d9f80f8b939d13e01aed7` changed the bottom-left entry to `联系我们` with a `messages-square` icon and `contact_open` analytics. Clicking it closes the notification panel and opens the anonymous-capable support dialog directly; no login is required.
+- The referral/membership Case-library row is now a keyboard-accessible button with hover/focus styling. Clicking it closes the mobile drawer and switches to the Cases tab.
+- Exact platform release `08cd5ea21c763806f1814de408388c128aebfe48` was built from the committed source and pushed to `origin/platform-release`. Only `platform.main.js` and its test changed from the previously deployed platform release; Live remains `f40e7a357f8ad311c45c72f162c04c39472f01a0` and was not touched.
+- Serial full suite on the exact release snapshot passed with `1188 pass / 0 fail / 2 skipped`; focused navigation/support tests passed `10/10`. Evidence: `/tmp/raising-contact-release-full-test-serial-final3.log`.
+- Old deployed only through `scripts/deploy_local.sh --site old --no-restart` (exit `0`). Main process remained PID `3385629`; health returned 200; release boundary passed; anonymous private media remained denied.
+- Production verification: served `platform.html` contains `联系我们` and `data-open-case-library`; served `platform.main.js` contains the direct support handler and Cases navigation. Headless Chrome confirmed the support dialog opens with the anonymous panel and no auth dialog, and the Case-library row switches to `#cases` with the Cases panel visible. No runtime exceptions, console errors, or failed requests were observed.
+- Live was not pushed or deployed. Existing sessions were not invalidated; no service restart or traffic switch occurred.
+
+## 2026-11-12 Step BC: runtime-media independent release deployed Old-only without restart
+
+- Source integration commit `028cf8ca0ff0cbce9d25477acc712e8bd2ebc3d6` merged the isolated runtime-media work; platform release `0df14100bbccbc05efa026f54b47cb05a2386be8` contains only the platform-owned release surface and was pushed to `origin/platform-release`. Live was not pushed or deployed; `origin/live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`.
+- Added `RUNTIME_MEDIA_ROOT` support for user uploads, generated media, admin media, and temporary uploads while retaining release-local `assets/` as the backward-compatible default. PostgreSQL remains the sole authority for media metadata and ownership; no JSON/flat-file fallback was introduced.
+- Static media serving now resolves shared runtime media first and falls back to release assets, rejects encoded traversal, and fails clearly when its database dependency is unavailable. CSS/JS/brand/gallery continue to come from the release checkout.
+- Added an immutable independent-release builder that requires a clean source checkout, a new target path, a non-symlink shared assets directory, and a symlink-free extracted release.
+- Verification passed: focused `75/75`; full `npm test` `1262 pass / 0 fail / 1 skipped`; Python compilation, `bash -n`, `node --check`, and `git diff --check` all passed. Evidence: `/tmp/runtime-media-npm-test.log`, `/tmp/runtime-media-merged-focused.log`, `/tmp/runtime-media-merged-npm.log`, `/tmp/runtime-media-deploy-old.log`.
+- Old deployed only with `scripts/deploy_local.sh --site old --no-restart` (exit `0`). Production `4174` remained PID `3385629`, InvocationID `06f45780080843f5913149738b49575b`, `NRestarts=0`; standby `4175` remained PID `3374052`; Nginx master remained PID `2485219`. All three upstreams stayed `4174 primary / 4175 backup`.
+- Post-deploy checks: `/api/health`, `/api/livez`, and `/api/readyz` returned 200; recent Nginx error/crit/alert, Unauthorized/watchdog/fatal/uncaught, 5xx, and 499 were all zero; load `0.16`, available memory about `5.8 GiB`, disk `65%`; public health/platform returned 200 and anonymous private media returned 403.
+- `RUNTIME_MEDIA_ROOT` is intentionally not set in production yet, so this deployment is behavior-compatible until the second-unit candidate is prepared and validated. No traffic switch, Nginx reload, service restart, Redis/worker enablement, Live action, or backup action occurred.
+- Next gate: harden the permanent rolling transaction and its failure branches entirely in isolated tests before any peak-hour cutover. Required cases include active 4175 upstream, unhealthy primary, candidate-start failure, migration/hook failure, primary-restart failure, final rollback failure, no partial multi-upstream switch, no POST replay, and missing/invalid/inconsistent `RUNTIME_MEDIA_ROOT`.
+
 ## 2026-11-12 Step BB: generation-record polling skips full history counts
 
 - `GET /api/generation-records?...&refresh=1&poll=1` now uses a bounded first-page query without `COUNT(*) OVER()`. Normal history pagination still returns the authoritative `total` and `totalPages`; the poll response keeps the same fields but treats its total as a non-authoritative page estimate.
