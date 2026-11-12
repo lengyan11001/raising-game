@@ -13,14 +13,10 @@ const deployPull = fs.readFileSync(path.join(root, "scripts", "deploy_pull.py"),
 const materializer = path.join(root, "scripts", "materialize_static_release.py");
 const snapshotBuilder = path.join(root, "scripts", "build_release_snapshot.py");
 const historicalGitSkip = (() => {
-  const required = ["live.html", "live.css", "live.js", "downloads/vipeak-live.apk", "mobile/live-android/src/com/vipeak/live/MainActivity.java"];
-  const missing = required.filter((entry) => {
-    const result = spawnSync("git", ["cat-file", "-e", `33a6e65^:${entry}`], { cwd: root });
-    return result.status !== 0;
-  });
-  return missing.length
-    ? `Source Git history is absent from an exported release tree (${missing.join(", ")}).`
-    : false;
+  const ancestry = spawnSync("git", ["merge-base", "--is-ancestor", "33a6e65^", "HEAD"], { cwd: root });
+  return ancestry.status === 0
+    ? false
+    : "Source Git ancestry is absent from an exported release tree.";
 })();
 
 function run(command, args, options = {}) {
