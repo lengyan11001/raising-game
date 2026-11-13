@@ -50,8 +50,10 @@ const ADVANCED_SEEDANCE25_480P_CREDITS_PER_SECOND = 8.995502;
 const ADVANCED_SEEDANCE25_720P_CREDITS_PER_SECOND = 14.992504;
 const ADVANCED_SEEDANCE_NSFW_480P_CREDITS_PER_SECOND = 15.420038;
 const ADVANCED_SEEDANCE_NSFW_720P_CREDITS_PER_SECOND = 34.668;
+const ADVANCED_SEEDANCE_NSFW_1080P_CREDITS_PER_SECOND = 78.003;
 const ADVANCED_SEEDANCE_NSFW_VIDEO_480P_CREDITS_PER_SECOND = 9.2232;
 const ADVANCED_SEEDANCE_NSFW_VIDEO_720P_CREDITS_PER_SECOND = 20.736;
+const ADVANCED_SEEDANCE_NSFW_VIDEO_1080P_CREDITS_PER_SECOND = 46.656;
 const ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT = 10;
 const ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT = 5;
 const ADVANCED_WAN30_AUDIO_REFERENCE_LIMIT = 5;
@@ -138,7 +140,7 @@ const WORKFLOW_IMAGE_MODEL_LIBRARY = Object.freeze([
 ]);
 const WORKFLOW_VIDEO_MODEL_LIBRARY = Object.freeze([
   Object.freeze({ id: "seedance", label: "Seedance 2.0", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["480p", "720p", "1080p", "4k"], ratios: ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 30], modes: [{ value: "reference_video", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "reference_video" }),
-  Object.freeze({ id: "seedance-nsfw", label: "Seedance 2.5", resolution: "480p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p"], ratios: ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 29, 30], modes: [{ value: "omini", label: "多模态参考" }, { value: "edit", label: "视频编辑" }, { value: "extend", label: "视频延长" }, { value: "first_last_frame", label: "首尾帧" }] }),
+  Object.freeze({ id: "seedance-nsfw", label: "Seedance 2.5", resolution: "480p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 29, 30], modes: [{ value: "omini", label: "多模态参考" }, { value: "edit", label: "视频编辑" }, { value: "extend", label: "视频延长" }, { value: "first_last_frame", label: "首尾帧" }] }),
   Object.freeze({ id: "wan30", label: "Wan 3.0 Video", resolution: "1080p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"], durations: [-1, 2, 5, 8, 10, 15, 20, 30], modes: [{ value: "multimodal", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "multimodal" }),
   Object.freeze({ id: "wan30-prime", label: "Wan 3.0 Video Prime", resolution: "1080p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"], durations: [-1, 2, 5, 8, 10, 15, 20, 30], modes: [{ value: "multimodal", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "multimodal" }),
   Object.freeze({ id: "wan27", label: "Wan 2.7", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["720p", "1080p"], ratios: ["9:16", "16:9", "1:1"], durations: [2, 5, 8, 10, 15], modes: [{ value: "auto", label: "Auto from inputs" }, { value: "wan27-t2v", label: "Text to Video" }, { value: "wan27-i2v", label: "Image to Video" }, { value: "wan27-r2v", label: "Reference to Video" }, { value: "wan27-video-edit", label: "Video Edit" }], mode: "auto" }),

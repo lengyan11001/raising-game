@@ -1477,10 +1477,12 @@ function normalizeAdvancedPricing(pricing = {}) {
     seedanceNsfwCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedanceNsfw["480p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution["480p"], 6),
       "720p": normalizeStoredCredits(seedanceNsfw["720p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution["720p"], 6),
+      "1080p": normalizeStoredCredits(seedanceNsfw["1080p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution["1080p"], 6),
     },
     seedanceNsfwVideoCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedanceNsfwVideo["480p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwVideoCreditsPerSecondByResolution["480p"], 6),
       "720p": normalizeStoredCredits(seedanceNsfwVideo["720p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwVideoCreditsPerSecondByResolution["720p"], 6),
+      "1080p": normalizeStoredCredits(seedanceNsfwVideo["1080p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwVideoCreditsPerSecondByResolution["1080p"], 6),
     },
     seedanceCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedance["480p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]),

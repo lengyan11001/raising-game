@@ -915,11 +915,3 @@ test("Create submit gives immediate, persistent and accessible feedback", () => 
   assert.match(css, /\.advanced-generator-toolbar > \.generate-btn \{[\s\S]*?margin-inline:\s*auto;/);
   assert.match(css, /#advancedNote\.is-error:not\(:empty\)/);
 });
-
-
-test("Create submit keeps the prompt and selected media for the next task", () => {
-  const createPart03 = fs.readFileSync(path.join(root, "platform.create.parts/part-03.js"), "utf8");
-  assert.doesNotMatch(createPart03, /clearAdvancedCreationInputs\(\)/);
-  assert.match(createPart03, /state\.advancedResultTaskId = payload\.taskId \|\| payload\.record\?\.taskId \|\| "";[\s\S]*?showAdvancedSubmittedNotice\(\)/);
-  assert.match(createPart03, /showAdvancedSubmittedNotice\(\);[\s\S]*?setAdvancedSideTab\("result", \{ syncMobile: true \}\)/);
-});

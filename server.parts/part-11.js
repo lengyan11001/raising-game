@@ -284,9 +284,16 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
   }
   const raw = String(value || "").trim().toLowerCase();
   const capability = normalizeAliyunVideoCapability(videoCapability, { provider });
-  if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizeAdvancedProvider(provider))) {
+  if (normalizeAdvancedProvider(provider) === "seedance25") {
     if (!["480p", "720p"].includes(raw)) {
-      throw advancedValidationError("INVALID_RESOLUTION", `${publicProviderLabel(provider)} resolution must be 480p or 720p.`, { resolution: value, allowed: ["480p", "720p"] });
+      throw advancedValidationError("INVALID_RESOLUTION", "Seedance 2.5 resolution must be 480p or 720p.", { resolution: value, allowed: ["480p", "720p"] });
+    }
+    return;
+  }
+  if (normalizeAdvancedProvider(provider) === SEEDANCE25_DIRECT_PROVIDER) {
+    const allowed = [...SEEDANCE25_DIRECT_RESOLUTIONS];
+    if (!allowed.includes(raw)) {
+      throw advancedValidationError("INVALID_RESOLUTION", "Seedance 2.5 resolution must be 480p, 720p, or 1080p.", { resolution: value, allowed });
     }
     return;
   }
@@ -959,7 +966,7 @@ function advancedModelPricingRaw(provider = "seedance", options = {}) {
   }
   if (normalizedProvider === SEEDANCE25_DIRECT_PROVIDER) {
     const mode = normalizeSeedance25DirectMode(firstPresent(options.functionMode, options.seedanceMode, options.mode));
-    const resolution = ["480p", "720p"].includes(String(options.resolution || "").toLowerCase())
+    const resolution = ["480p", "720p", "1080p"].includes(String(options.resolution || "").toLowerCase())
       ? String(options.resolution).toLowerCase()
       : "480p";
     const inputVideoSeconds = durationSecondsFromValue(firstPresent(

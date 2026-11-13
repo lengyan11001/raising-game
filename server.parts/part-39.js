@@ -1189,8 +1189,10 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     else if (key === "h3-vega-video-input-4k") next.h3VegaInputVideoCreditsPerSecondByResolution["4k"] = credits;
     else if (key === "seedance-nsfw-480p") next.seedanceNsfwCreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance-nsfw-720p") next.seedanceNsfwCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "seedance-nsfw-1080p") next.seedanceNsfwCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance-nsfw-video-input-480p") next.seedanceNsfwVideoCreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance-nsfw-video-input-720p") next.seedanceNsfwVideoCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "seedance-nsfw-video-input-1080p") next.seedanceNsfwVideoCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "happyhorse-720p") next.happyhorseCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "happyhorse-1080p") next.happyhorseCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance-video-input-480p") next.seedanceVideoInputCreditsPerSecondByResolution["480p"] = credits;

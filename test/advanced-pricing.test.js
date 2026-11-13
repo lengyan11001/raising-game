@@ -91,8 +91,11 @@ test("admin pricing keeps current models and omits early Wan models", () => {
   assert.match(pricingRowsSource, /key: "wan30-prime-1080p"/);
   assert.match(pricingRowsSource, /key: "seedance-nsfw-480p"/);
   assert.match(pricingRowsSource, /key: "seedance-nsfw-720p"/);
+  assert.match(pricingRowsSource, /key: "seedance-nsfw-1080p"/);
   assert.match(pricingRowsSource, /key: "seedance-nsfw-video-input-480p"/);
   assert.match(pricingRowsSource, /key: "seedance-nsfw-video-input-720p"/);
+  assert.match(pricingRowsSource, /key: "seedance-nsfw-video-input-1080p"/);
+  assert.doesNotMatch(pricingRowsSource, /key: "seedance-nsfw-(?:video-input-)?4k"/);
   assert.doesNotMatch(pricingRowsSource, /capability: "wan27-(?:t2v|i2v|r2v|video-edit)"/);
   assert.doesNotMatch(pricingRowsSource, /capability: "happyhorse-(?:t2v|i2v|r2v|video-edit)"/);
   assert.doesNotMatch(pricingRowsSource, /officialSingaporeLegacyPricingRows\(\)/);
@@ -639,6 +642,55 @@ test("Seedance NSFW prices video input from combined input and output seconds", 
   assert.match(pricingSource, /billingSeconds = duration \+ \(hasVideoInput \? inputVideoSeconds : 0\)/);
   assert.match(pricingSource, /source: "seedance25_direct_token_estimate"/);
   assert.match(server, /directSeedance25[\s\S]*completionTokens \* usdPerMillionTokens \* DEFAULT_CREDITS_PER_USD/);
+});
+
+test("Seedance 2.5 publishes 1080p output and video-input pricing without offering 4K", async () => {
+  const output = application.advancedModelPricing("seedance-nsfw", {
+    duration: 5,
+    resolution: "1080p",
+  });
+  assert.equal(output.creditsPerSecond, 78.003);
+  assert.equal(output.credits, 390.015);
+  assert.equal(output.estimatedCompletionTokens, 243000);
+
+  const videoInput = application.advancedModelPricing("seedance-nsfw", {
+    duration: 5,
+    inputVideoSeconds: 1,
+    resolution: "1080p",
+  });
+  assert.equal(videoInput.inputVideoCreditsPerSecond, 46.656);
+  assert.equal(videoInput.billingSeconds, 6);
+  assert.equal(videoInput.credits, 279.936);
+
+  const publicRows = application.publicAdvancedPricingRows();
+  const publicRates = Object.fromEntries(publicRows.map((row) => [row.key, row.saleCreditsPerUnit]));
+  assert.equal(publicRates["seedance-nsfw-1080p"], 78.003);
+  assert.equal(publicRates["seedance-nsfw-video-input-1080p"], 46.656);
+  assert.equal("seedance-nsfw-4k" in publicRates, false);
+  assert.equal("seedance-nsfw-video-input-4k" in publicRates, false);
+
+  const admin = await application.adminAdvancedPricingView({});
+  const adminById = Object.fromEntries(admin.rows.map((row) => [row.key, row]));
+  assert.equal(adminById["seedance-nsfw-1080p"].purchaseCreditsPerSecond, 52.002);
+  assert.equal(adminById["seedance-nsfw-1080p"].saleCreditsPerSecond, 78.003);
+  assert.equal(adminById["seedance-nsfw-video-input-1080p"].purchaseCreditsPerSecond, 31.104);
+  assert.equal(adminById["seedance-nsfw-video-input-1080p"].saleCreditsPerSecond, 46.656);
+
+  const saveSource = server.slice(server.indexOf("function advancedPricingFromBody("));
+  assert.match(saveSource, /key === "seedance-nsfw-1080p"[\s\S]*?seedanceNsfwCreditsPerSecondByResolution\["1080p"\] = credits/);
+  assert.match(saveSource, /key === "seedance-nsfw-video-input-1080p"[\s\S]*?seedanceNsfwVideoCreditsPerSecondByResolution\["1080p"\] = credits/);
+});
+
+test("Seedance 2.5 UI exposes 1080p and keeps the internal gateway at 720p maximum", () => {
+  const resolutionOptionsSource = platformUi.slice(
+    platformUi.indexOf("function advancedVideoResolutionOptions("),
+    platformUi.indexOf("function advancedVideoResolutionOptions(") + 2500,
+  );
+  assert.ok(resolutionOptionsSource.includes('normalizeAdvancedProvider(provider) === "seedance25") return ["480p", "720p"]'));
+  assert.ok(resolutionOptionsSource.includes('normalizeAdvancedProvider(provider) === "seedance-nsfw") return ["480p", "720p", "1080p"]'));
+  assert.doesNotMatch(resolutionOptionsSource, /seedance-nsfw"\) return \[[^\]]*"4k"/);
+  assert.match(server, /normalizeAdvancedProvider\(provider\) === "seedance25"\) \{\s*if \(!\["480p", "720p"\]\.includes\(raw\)\)/);
+  assert.match(server, /normalizeAdvancedProvider\(provider\) === SEEDANCE25_DIRECT_PROVIDER\) \{\s*const allowed = \[\.\.\.SEEDANCE25_DIRECT_RESOLUTIONS\]/);
 });
 
 test("Vega 1.5 Lite request and estimate carry reference video durations", () => {

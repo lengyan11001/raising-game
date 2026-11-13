@@ -1459,10 +1459,12 @@ const DEFAULT_ADVANCED_PRICING = {
   seedanceNsfwCreditsPerSecondByResolution: {
     "480p": defaultSeedance25DirectSaleCreditsPerSecond("480p"),
     "720p": defaultSeedance25DirectSaleCreditsPerSecond("720p"),
+    "1080p": defaultSeedance25DirectSaleCreditsPerSecond("1080p"),
   },
   seedanceNsfwVideoCreditsPerSecondByResolution: {
     "480p": defaultSeedance25DirectSaleCreditsPerSecond("480p", { hasVideoInput: true }),
     "720p": defaultSeedance25DirectSaleCreditsPerSecond("720p", { hasVideoInput: true }),
+    "1080p": defaultSeedance25DirectSaleCreditsPerSecond("1080p", { hasVideoInput: true }),
   },
   seedanceCreditsPerSecondByResolution: {
     "480p": Math.ceil(ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND * 0.5),
