@@ -4108,3 +4108,6 @@ CODEX_TASK_STATE.md
 - Fresh release worktree `/private/tmp/raising-preserve-create-inputs` created from `origin/old-site` commit `ba08f185` to avoid mixing unrelated dirty-worktree changes.
 - Clean integration change removes the five successful submit-path `clearAdvancedCreationInputs()` calls and adds regression coverage. The explicit reset helper remains for regeneration only.
 - Verification in clean worktree: `node --check platform.create.parts/part-03.js`, targeted test `1/1`, and `git diff --check` pass.
+- Published and deployed Old-only: integration source `84c7a0a0561b0b2d2d7f60c0403fff017a386247`, platform release `5ca2efa1d400778f08764d95ba9c89556c176ff6`, through the required `scripts/deploy_local.sh --site old`; exit `0`.
+- Post-deploy: production release `5ca2efa`; `raising-game-demo` `active/running`, MainPID `3674692`, `NRestarts=0`; secondary `4175` remained active/running, MainPID `3425692`, `NRestarts=0`; Nginx private-media checks passed.
+- Public verification: Old `api/health=200`, homepage/platform `200`, Fans health `200`. Public `platform.create.parts/part-03.js` is `100116` bytes and contains zero `clearAdvancedCreationInputs()` calls. PostgreSQL still has `154` non-expired sessions, so no mass logout occurred. Live was not deployed.
