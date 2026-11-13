@@ -102,6 +102,14 @@ function qwenImage3Size({ size = "", resolution = "2K", ratio = "1:1" } = {}) {
   return QWEN_IMAGE3_ADVANCED_SIZES[normalizedResolution][normalizedRatio];
 }
 
+function qwenImage3SizeForSelection({ size = "", resolution = "2K", ratio = "1:1", ratioSpecified = false } = {}) {
+  return qwenImage3Size({
+    size: ratioSpecified ? "" : size,
+    resolution,
+    ratio,
+  });
+}
+
 function qwenImage3ResolutionForSize(size = "", fallback = "2K") {
   const parsed = parseQwenImage3Size(size);
   if (!parsed) return normalizeQwenImage3Resolution(fallback);
@@ -146,7 +154,10 @@ function buildQwenImage3Request(input = {}) {
   const references = normalizeReferenceImages(input.referenceImages || input.images || []);
   const tier = normalizeQwenImage3Tier(input.tier, input.model);
   const model = qwenImage3ModelForTier(tier, input.model);
-  const size = qwenImage3Size(input);
+  const size = qwenImage3SizeForSelection({
+    ...input,
+    ratioSpecified: String(input.ratio || "").trim() !== "",
+  });
   const n = normalizeOutputCount(input.n ?? input.outputImageCount ?? 1);
   const seed = normalizeSeed(input.seed);
   const promptExtend = input.promptExtend !== false && input.prompt_extend !== false;
@@ -223,5 +234,6 @@ module.exports = {
   qwenImage3OutputUrls,
   qwenImage3ResolutionForSize,
   qwenImage3Size,
+  qwenImage3SizeForSelection,
   validateQwenImage3Size,
 };
