@@ -51,22 +51,38 @@ async function handleWan27ImageEdit(req, res) {
     return sendJson(res, 400, { ok: false, code: "TOO_MANY_IMAGES", message: "Wan2.7 image edit supports 0 to 9 input images." });
   }
 
-  const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
-  const imageOptions = wan27ImageRequestOptions(mergedBody, {
-    defaultModel: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
-    defaultRatio: pricingConfig.defaultRatio || "9:16",
-    defaultResolution: pricingConfig.defaultResolution || "2K",
-  });
-  const { ratio, resolution, model } = imageOptions;
-  if (resolution === "4K" && sourceAssets.length + externalImageUrls.length > 0) {
-    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Wan2.7 Image 4K is only available for text-to-image without reference images." });
-  }
   const pricingProvider = normalizeAdvancedProvider(firstPresent(
     mergedBody.advancedProviderId,
     mergedBody.provider,
     mergedBody.modelProvider,
     "wan27-image",
   ));
+  const hasReferenceImages = sourceAssets.length + externalImageUrls.length > 0;
+  if (pricingProvider === "z-image-spicy-pro" && hasReferenceImages) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "Z_IMAGE_REFERENCE_UNSUPPORTED",
+      message: "Z-Image Spicy Pro only supports text-to-image. Choose Qwen Image Edit Spicy for reference-image editing.",
+    });
+  }
+  if (pricingProvider === "qwen-image-edit-spicy" && !hasReferenceImages) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "QWEN_IMAGE_EDIT_REFERENCE_REQUIRED",
+      message: "Qwen Image Edit Spicy requires at least one input image.",
+    });
+  }
+  const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
+  const imageOptions = wan27ImageRequestOptions(mergedBody, {
+    defaultModel: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
+    defaultRatio: pricingConfig.defaultRatio || "9:16",
+    defaultResolution: pricingConfig.defaultResolution || "2K",
+    includeSizeSelection: pricingProvider !== "qwen-image-edit-spicy",
+  });
+  const { ratio, resolution, model } = imageOptions;
+  if (resolution === "4K" && hasReferenceImages) {
+    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Wan2.7 Image 4K is only available for text-to-image without reference images." });
+  }
   const pricing = wan27ImageModifyPricing(config, auth.user, {
     ...pricingContextForAuth(auth),
     provider: pricingProvider,
@@ -103,16 +119,13 @@ async function handleWan27ImageEdit(req, res) {
     sourceImageUrls: previewUrls,
     prompt,
     finalPrompt: prompt,
-    params: {
-      ...plainObject(bodyParams),
-      ...plainObject(body.params),
+    params: wan27ImageParamsForRecord(mergedBody, imageOptions, {
       provider: "wan27-image",
       action: previewUrls.length ? "image_edit" : "text_to_image",
       imageCount: previewUrls.length,
-      ...exposedWan27ImageParams(imageOptions),
-    },
-    ratio,
-    resolution,
+    }),
+    ...(ratio ? { ratio } : {}),
+    ...(resolution ? { resolution } : {}),
     preDeductedCredits: cost,
     originalPreDeductedCredits: pricing.originalCredits ?? cost,
     finalCredits: null,
@@ -196,6 +209,7 @@ async function handleWan27ImageEdit(req, res) {
         ratio,
         resolution,
         model,
+        includeSizeSelection: imageOptions.includeSizeSelection,
         input: imageOptions.input,
         parameters: imageOptions.parameters,
         waitForResult,
@@ -204,6 +218,7 @@ async function handleWan27ImageEdit(req, res) {
         ratio,
         resolution,
         model,
+        includeSizeSelection: imageOptions.includeSizeSelection,
         input: imageOptions.input,
         parameters: imageOptions.parameters,
         waitForResult,
@@ -214,6 +229,7 @@ async function handleWan27ImageEdit(req, res) {
         ratio,
         resolution,
         model,
+        includeSizeSelection: imageOptions.includeSizeSelection,
         input: imageOptions.input,
         parameters: imageOptions.parameters,
         waitForResult,
@@ -223,6 +239,7 @@ async function handleWan27ImageEdit(req, res) {
         ratio,
         resolution,
         model,
+        includeSizeSelection: imageOptions.includeSizeSelection,
         input: imageOptions.input,
         parameters: imageOptions.parameters,
         waitForResult,
@@ -389,15 +406,6 @@ async function handleModifyUserAssetImage(req, res, assetId) {
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   const config = await readAppConfig();
   const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
-  const imageOptions = wan27ImageRequestOptions(body, {
-    defaultModel: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
-    defaultRatio: pricingConfig.defaultRatio || "9:16",
-    defaultResolution: pricingConfig.defaultResolution || "2K",
-  });
-  const { ratio, resolution, model } = imageOptions;
-  if (resolution === "4K") {
-    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Wan2.7 Image 4K is only available for text-to-image without reference images." });
-  }
   const pricingProvider = normalizeAdvancedProvider(firstPresent(
     body.advancedProviderId,
     requestParamsFromBody(body).advancedProviderId,
@@ -405,6 +413,23 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     requestParamsFromBody(body).provider,
     "wan27-image",
   ));
+  if (pricingProvider === "z-image-spicy-pro") {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "Z_IMAGE_REFERENCE_UNSUPPORTED",
+      message: "Z-Image Spicy Pro only supports text-to-image. Choose Qwen Image Edit Spicy for reference-image editing.",
+    });
+  }
+  const imageOptions = wan27ImageRequestOptions(body, {
+    defaultModel: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
+    defaultRatio: pricingConfig.defaultRatio || "9:16",
+    defaultResolution: pricingConfig.defaultResolution || "2K",
+    includeSizeSelection: pricingProvider !== "qwen-image-edit-spicy",
+  });
+  const { ratio, resolution, model } = imageOptions;
+  if (resolution === "4K") {
+    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Wan2.7 Image 4K is only available for text-to-image without reference images." });
+  }
   const pricing = wan27ImageModifyPricing(config, auth.user, {
     ...pricingContextForAuth(auth),
     provider: pricingProvider,
@@ -435,13 +460,12 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     sourceImageUrl: assetPreviewUrl,
     prompt,
     finalPrompt: prompt,
-    params: {
+    params: wan27ImageParamsForRecord(body, imageOptions, {
       provider: "wan27-image",
       action: "modify",
-      ...exposedWan27ImageParams(imageOptions),
-    },
-    ratio,
-    resolution,
+    }),
+    ...(ratio ? { ratio } : {}),
+    ...(resolution ? { resolution } : {}),
     preDeductedCredits: cost,
     originalPreDeductedCredits: pricing.originalCredits ?? cost,
     finalCredits: null,
@@ -499,6 +523,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       ratio,
       resolution,
       model,
+      includeSizeSelection: imageOptions.includeSizeSelection,
       input: imageOptions.input,
       parameters: imageOptions.parameters,
     }) : await submitWan27ImageModify({
@@ -507,6 +532,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       ratio,
       resolution,
       model,
+      includeSizeSelection: imageOptions.includeSizeSelection,
       input: imageOptions.input,
       parameters: imageOptions.parameters,
     });

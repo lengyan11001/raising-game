@@ -996,10 +996,11 @@ function advancedRegenerationParameterSnapshot(record = {}, params = {}, provide
   const submitted = params.submissionSnapshot && typeof params.submissionSnapshot === "object" && !Array.isArray(params.submissionSnapshot)
     ? params.submissionSnapshot
     : {};
+  const followsSourceSize = normalizedProvider === "qwen-image-edit-spicy";
   return {
     provider: normalizedProvider,
-    ratio: String(value(submitted.ratio, record.ratio, params.ratio, params.aspect_ratio, params.aspectRatio) || "").trim(),
-    resolution: String(value(submitted.resolution, record.resolution, params.resolution, params.resolution_name, params.resolutionName) || "").trim(),
+    ratio: followsSourceSize ? "" : String(value(submitted.ratio, record.ratio, params.ratio, params.aspect_ratio, params.aspectRatio) || "").trim(),
+    resolution: followsSourceSize ? "" : String(value(submitted.resolution, record.resolution, params.resolution, params.resolution_name, params.resolutionName) || "").trim(),
     duration: value(submitted.duration, record.duration, params.duration, params.durationSeconds, params.duration_seconds),
     mediaMode: String(value(submitted.mediaMode, submitted.media_mode, record.mediaMode, params.mediaMode, params.media_mode, params.seedanceMode) || "").trim(),
     seed: value(submitted.seed, record.seed, params.seed, nestedParams.seed),
@@ -1032,15 +1033,16 @@ function advancedRegenerationSnapshotFor(provider = "") {
 function applyAdvancedRegenerationVisibleParameters(snapshot = {}, provider = currentAdvancedProvider()) {
   if (!snapshot || typeof snapshot !== "object") return;
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  const followsSourceSize = normalizedProvider === "qwen-image-edit-spicy";
   const rawRatio = String(snapshot.ratio || "").trim();
-  if (els.advancedRatio && rawRatio) {
+  if (els.advancedRatio && rawRatio && !followsSourceSize) {
     const normalizedRatio = isVegaAdvancedProvider(normalizedProvider) && rawRatio.toLowerCase() === "adaptive"
       ? "adaptive"
       : normalizeVideoRatio(rawRatio);
     els.advancedRatio.value = normalizedRatio;
   }
   const rawResolution = String(snapshot.resolution || "").trim();
-  if (els.advancedResolution && rawResolution) {
+  if (els.advancedResolution && rawResolution && !followsSourceSize) {
     const resolutionOptions = advancedVideoResolutionOptions(normalizedProvider);
     const normalizedResolution = normalizeAdvancedResolution(rawResolution, normalizedProvider);
     if (resolutionOptions.includes(normalizedResolution)) els.advancedResolution.value = normalizedResolution;
@@ -1107,7 +1109,7 @@ function advancedRegenerationRecordIsImage(record = {}) {
   const source = String(record.source || "").toLowerCase();
   const taskId = String(record.taskId || "").toLowerCase();
   const createKind = String(params.createKind || "").toLowerCase();
-  const provider = String(record.provider || params.provider || params.advancedProviderId || "").toLowerCase();
+  const provider = String(params.advancedProviderId || record.provider || params.provider || "").toLowerCase();
   const model = String(record.model || params.model || "").toLowerCase();
   if (
     kind.includes("video")
@@ -1154,7 +1156,8 @@ function advancedRegenerationRecordIsComplete(record = {}) {
   // providers such as Seedream 5 store only a resolution (no aspect ratio).
   // Video records still require the full visible snapshot.
   const imageRecord = advancedRegenerationRecordIsImage(record);
-  if (!hasValue(resolutionValue)) return false;
+  const followsSourceSize = String(params.advancedProviderId || record.provider || params.provider || "").trim().toLowerCase() === "qwen-image-edit-spicy";
+  if (!followsSourceSize && !hasValue(resolutionValue)) return false;
   if (!imageRecord && (!hasValue(ratioValue) || !hasValue(durationValue))) return false;
   // If media was submitted, every submitted media channel must still be
   // present. This catches truncated detail/list payloads before they clear the

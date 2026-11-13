@@ -464,6 +464,7 @@ function currentQwenImage3Tier() {
 function currentAdvancedResolution() {
   const provider = currentAdvancedProvider();
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "qwen-image-edit-spicy") return "";
   const fallback = ["seedream5-image", "qwen-image3"].includes(normalizedProvider) ? "2K" : ["seedance", "seedance25", "seedance-nsfw"].includes(normalizedProvider) ? "480p" : "720p";
   return normalizeAdvancedResolution(els.advancedResolution?.value || fallback, provider);
 }
@@ -554,7 +555,8 @@ function imageCreateHasReferences() {
 
 function imageCreateResolutionOptions() {
   const provider = currentAdvancedProvider();
-  if (["z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider)) return ["1K", "2K"];
+  if (provider === "qwen-image-edit-spicy") return [];
+  if (provider === "z-image-spicy-pro") return ["1K", "2K"];
   return imageCreateHasReferences() ? ["1K", "2K"] : ["1K", "2K", "4K"];
 }
 
@@ -797,6 +799,7 @@ function advancedPresetReferenceImage(slot = "", item = selectedAdvancedPreset(s
 }
 
 function advancedPresetReferenceImages() {
+  if (currentAdvancedProvider() === "z-image-spicy-pro") return [];
   return advancedCreateModeActivePresetSlots()
     .filter((slot) => !(slot === "action" && presetVideoUrl(selectedAdvancedPreset(slot) || {})))
     .map((slot) => advancedPresetReferenceImage(slot))
@@ -1110,7 +1113,11 @@ function applyAdvancedCharacterPreset(preset = {}) {
   };
   const ref = typeof stampAdvancedReferenceOrder === "function" ? stampAdvancedReferenceOrder(rawRef) : rawRef;
   const provider = currentAdvancedProvider();
-  if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider)) {
+  if (provider === "z-image-spicy-pro") {
+    state.advancedSourceImageAssetId = "";
+    state.advancedFirstFrameAssetId = "";
+    state.advancedReferenceImages = [];
+  } else if (["wan27-image-edit", "qwen-image-edit-spicy"].includes(provider)) {
     state.advancedSourceImageAssetId = "";
     state.advancedFirstFrameAssetId = "";
     state.advancedReferenceImages = [ref];

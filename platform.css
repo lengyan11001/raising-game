@@ -5726,6 +5726,23 @@ dialog.tool-download-modal {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 9px;
 }
+.advanced-size-follow-note {
+  align-content: center;
+  min-height: 42px;
+  padding: 8px 11px;
+  border: 1px dashed rgba(196, 67, 112, .38);
+  border-radius: 8px;
+  background: rgba(255, 241, 246, .82);
+}
+.advanced-size-follow-note strong {
+  color: var(--text);
+  font-size: 13px;
+}
+.advanced-size-follow-note small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
 .advanced-checkbox-control {
   display: flex;
   align-items: center;
@@ -14213,6 +14230,23 @@ body.wan30-launch-visible .site-head { top: 0; }
   color: #63636e;
 }
 
+.workflow-react-size-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px dashed rgba(196, 67, 112, .38);
+  border-radius: 8px;
+  background: rgba(255, 241, 246, .78);
+  color: var(--muted);
+  font-size: 11px;
+}
+.workflow-react-size-note strong {
+  color: var(--text);
+  font-size: 12px;
+}
 .workflow-react-host .workflow-react-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

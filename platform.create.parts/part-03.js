@@ -268,10 +268,12 @@ async function submitAdvancedGenerateInternal() {
     return;
   }
   if (isAdvancedImageProvider(provider)) {
-    const imageReferences = dedupeAdvancedReferenceImages([
-      ...presetReferenceImages,
-      ...selectedAdvancedReferenceImages(provider),
-    ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    const imageReferences = provider === "z-image-spicy-pro"
+      ? []
+      : dedupeAdvancedReferenceImages([
+          ...presetReferenceImages,
+          ...selectedAdvancedReferenceImages(provider),
+        ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
     const referencesReady = await guardAdvancedSubmitAssets(imageReferences.map((item) => item.assetId));
     if (!referencesReady) {
       els.advancedSubmitBtn.disabled = false;
@@ -294,8 +296,10 @@ async function submitAdvancedGenerateInternal() {
         presets: advancedPresetSelection,
         advancedProviderId: provider,
       },
-      ratio: currentAdvancedRatio(),
-      resolution: currentAdvancedResolution(),
+      ...(provider === "qwen-image-edit-spicy" ? {} : {
+        ratio: currentAdvancedRatio(),
+        resolution: currentAdvancedResolution(),
+      }),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -312,8 +316,10 @@ async function submitAdvancedGenerateInternal() {
           prompt,
           imageAssetIds: assets.map((asset) => asset.id),
           imageUrls,
-          ratio: currentAdvancedRatio(),
-          resolution: currentAdvancedResolution(),
+          ...(provider === "qwen-image-edit-spicy" ? {} : {
+            ratio: currentAdvancedRatio(),
+            resolution: currentAdvancedResolution(),
+          }),
           params: {
             createKind: state.advancedCreateKind,
             createMode: state.advancedCreateMode,
@@ -1602,7 +1608,8 @@ function advancedPromptPasteImageRule() {
   }
 
   let limit = 1;
-  if (provider === "qwen-image3") limit = ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT;
+  if (provider === "z-image-spicy-pro") limit = 0;
+  else if (provider === "qwen-image3") limit = ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT;
   else if (provider === "seedream5-image") limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT;
   else if (isAdvancedImageProvider(provider)) limit = advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
   else if (provider === "wan30") limit = ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;

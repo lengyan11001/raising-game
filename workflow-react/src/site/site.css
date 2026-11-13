@@ -514,6 +514,22 @@
   gap: 9px;
 }
 
+.site-generation-size-note {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px dashed rgba(228, 72, 128, .42);
+  border-radius: 8px;
+  color: #aeb0ba;
+  font-size: 12px;
+}
+.site-generation-size-note strong {
+  color: #f0eef4;
+  font-size: 12px;
+}
 .site-checkbox {
   display: flex;
   align-items: center;

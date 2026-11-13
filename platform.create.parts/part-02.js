@@ -521,7 +521,13 @@ async function addAssetToAdvancedTarget(assetId = "") {
       state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || url;
     } else if (isAdvancedImageProvider(provider)) {
       const ref = stampAdvancedReferenceOrder({ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true });
-      const imageLimit = isAdvancedImageEditProvider(provider) && advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+      const imageLimit = provider === "z-image-spicy-pro"
+        ? 0
+        : isAdvancedImageEditProvider(provider) && advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+      if (imageLimit <= 0) {
+        if (els.advancedNote) els.advancedNote.textContent = "Z-Image Spicy Pro only supports text-to-image. Choose Qwen Image Edit Spicy for image editing.";
+        return;
+      }
       state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(imageLimit === 1 ? [] : (state.advancedReferenceImages || [])), ref]).slice(0, imageLimit);
       state.advancedSourceImageAssetId = state.advancedReferenceImages[0]?.assetId || "";
       state.advancedFirstFrameAssetId = "";
@@ -799,6 +805,8 @@ function updateAdvancedModelControls() {
   const allowManualReferenceUpload = advancedCreateModeAllowsManualReferenceUpload();
   const bounds = advancedDurationBounds(provider, capability);
   const isImageEdit = isAdvancedImageProvider(provider);
+  const isZImageText = provider === "z-image-spicy-pro";
+  const isQwenEditImage = provider === "qwen-image-edit-spicy";
   const isSeedreamImage = provider === "seedream5-image";
   const isQwenImage = provider === "qwen-image3";
   const isQwenText = ["qwen37-flash", "byteplus-language", "papaya"].includes(provider);
@@ -843,8 +851,9 @@ function updateAdvancedModelControls() {
     const current = normalizeAdvancedResolution(els.advancedResolution.value, provider);
     els.advancedResolution.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedResolution.value = options[0];
-    els.advancedResolution.closest(".field")?.toggleAttribute("hidden", animateCapability || isQwenText);
+    els.advancedResolution.closest(".field")?.toggleAttribute("hidden", animateCapability || isQwenText || isQwenEditImage);
   }
+  if (els.advancedSizeFollowNote) els.advancedSizeFollowNote.hidden = !isQwenEditImage || simpleAction;
   if (els.advancedSeedanceTier) {
     const active = provider === "seedance";
     const explicitlyFast = String(els.advancedProvider?.value || "").trim().toLowerCase() === "seedance-fast";
@@ -908,7 +917,7 @@ function updateAdvancedModelControls() {
     const current = (["wan30", "seedance-nsfw"].includes(provider) || vegaProvider) && rawRatio.toLowerCase() === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
     els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedRatio.value = fallbackRatio;
-    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || isQwenText || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) || vegaDraftFollowup);
+    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isQwenEditImage || isSeedreamImage || isQwenText || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) || vegaDraftFollowup);
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !capabilityNeedsMedia;
@@ -1028,7 +1037,8 @@ function updateAdvancedModelControls() {
       || vegaDraftFollowup
       || usesDedicatedFrameUpload
       || (vegaProvider && !vegaUsesReferences)
-      || (aliyunVideo && !capabilityNeedsMedia);
+      || (aliyunVideo && !capabilityNeedsMedia)
+      || (isZImageText && !simpleAction);
     els.advancedUploadBox.classList.toggle("is-wan", aliyunVideo);
     els.advancedUploadBox.classList.toggle("is-seedance", ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || vegaProvider);
     els.advancedUploadBox.classList.toggle("is-seedream5", isStandaloneImage);
@@ -1102,6 +1112,7 @@ function advancedParameterChipIcon(kind = "") {
     ratio: "ratio",
     resolution: "scan",
     duration: "timer",
+    size: "image",
   }[kind] || "settings-2";
 }
 
@@ -1112,6 +1123,7 @@ function advancedParameterChipLabel(kind = "") {
     ratio: t("field.ratio"),
     resolution: t("field.resolution"),
     duration: t("field.duration"),
+    size: "尺寸",
   }[kind] || kind;
 }
 
@@ -1130,6 +1142,10 @@ function advancedParameterChipItems() {
       items.push({ kind, valueLabel: advancedParameterValueLabel(kind, select) });
     }
   });
+  const followsSourceSize = currentAdvancedProvider() === "qwen-image-edit-spicy";
+  if (followsSourceSize && !items.some((item) => item.kind === "size")) {
+    items.push({ kind: "size", valueLabel: "跟随原图" });
+  }
   return items;
 }
 
@@ -1467,8 +1483,9 @@ function fillAdvancedCase(item = {}) {
     window.setAdvancedPromptValue?.(item.prompt || params.prompt || "", { emitInput: false });
     autoSizeAdvancedPrompt({ force: true, resetManual: true });
   }
-  if (els.advancedRatio) els.advancedRatio.value = params.ratio || params.aspect_ratio || item.ratio || "9:16";
-  if (els.advancedResolution) els.advancedResolution.value = params.resolution || item.resolution || "720p";
+  const followsSourceSize = provider === "qwen-image-edit-spicy";
+  if (els.advancedRatio && !followsSourceSize) els.advancedRatio.value = params.ratio || params.aspect_ratio || item.ratio || "9:16";
+  if (els.advancedResolution && !followsSourceSize) els.advancedResolution.value = params.resolution || item.resolution || "720p";
   if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.checked = params.preprocessReference === true;
   if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = ["wan30-video", "wan30-video-pro", "wan30-video-prime", "wan30-video-prime-pro"].includes(restoredCapability)

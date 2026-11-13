@@ -1,13 +1,14 @@
 ## 2026-11-13 Step BK: Telegram auth-failure circuit breaker prepared, not deployed
 
-## 2026-11-13 Step BL: Seedance 2.5 1080p exposure and pricing prepared
+## 2026-11-13 Step BL: Seedance 2.5 1080p exposure and pricing deployed
 
 - Verified upstream model support: Seedance 2.5 supports 480p, 720p, and 1080p but not 4K. Seedance 2.0 standard continues to expose 480p/720p/1080p/4K. Seedance 2.0 Fast and Mini remain 480p/720p only.
 - Exposed 1080p only for the direct `seedance-nsfw` provider in the generation UI, server validation, normalization, public/admin pricing rows, and admin save parsing. The internal `seedance25` gateway remains limited to 480p/720p because its 1080p gateway support is unproven.
 - Direct 1080p contract pricing uses $10.7/M output tokens and $6.4/M input-video tokens at 1920x1080, 24fps: purchase $0.52002/output-second and $0.31104/combined video-input-second. Default 1.5x sale rates are 78.003 and 46.656 credits/second; five output seconds estimate 243000 tokens.
 - Files changed: `seedance25-direct.js`, `platform.config.js`, `platform.ui.parts/part-03.js`, `server.parts/part-01.js`, `server.parts/part-02.js`, `server.parts/part-11.js`, `server.parts/part-38.js`, `server.parts/part-39.js`, `test/seedance25-direct.test.js`, `test/advanced-pricing.test.js`.
 - Verification: all modified JS files pass `node --check`; `git diff --check` passes; focused Seedance/pricing tests pass `54/54`; full `npm test` passes `1299 pass / 0 fail / 1 skip`.
-- Deployment status: pending commit, release snapshot build, and Old-site deployment through `scripts/deploy_local.sh --site old`. Live remains untouched. Existing login sessions must not be invalidated.
+- Deployment: platform release `347ca1002bebccbacf74db151e940a3c7bf9d08e` built from source `9ab6f5d1c4ad1bb09c5cce24b8f31396da86c04a`, pushed only to `platform-release`, and deployed only to Old via `scripts/deploy_local.sh --site old`. Server HEAD is `347ca100`; service is active/running with `NRestarts=0`. Live remains untouched and remote `live-release` remains `f40e7a35`.
+- Post-deploy verification: `/api/health` and `/api/readyz` return 200; five repeated public health samples return 200; public config exposes `seedance-nsfw-1080p = 78.003` and `seedance-nsfw-video-input-1080p = 46.656`; no Seedance 2.5 4K row is exposed. Public UI chunk serves 1080p for Seedance 2.5, while Seedance 2.0 standard retains 1080p/4K and Fast remains 480p/720p. Startup logs show database/schema/catalog checks healthy and no startup errors or repeated restarts. Existing login sessions were not invalidated.
 
 - Added per-client 5-minute circuit breaking for explicit Telegram API `401/403` responses. Once auth is rejected, the client returns `TELEGRAM_API_AUTH_COOLDOWN` without making another network call until the cooldown expires; ordinary `5xx`, timeout, and business errors do not open the breaker. `TELEGRAM_API_AUTH_COOLDOWN_MS=0` explicitly disables the cooldown; unset or invalid non-zero values safely fall back to 300000 ms.
 - This targets the repeated `Unauthorized` noise without disabling inbound Telegram handling or making Telegram a dependency of generation/request paths. Notification claims still release through the existing error path, so delivery semantics remain PostgreSQL-backed. Synchronized `telegram-bot*.js` into platform release/deploy boundary rules and added `.env.example` documentation.
@@ -4111,3 +4112,17 @@ CODEX_TASK_STATE.md
 - Updated `test/support-notifications.test.js` to assert the new label, support action, clickable row, and `setTab("cases")` wiring.
 - Verification: focused regression command `node --test test/support-notifications.test.js test/side-navigation-overflow.test.js test/session-login-race.test.js test/platform-refresh-performance.test.js` passes 24/24; source assertions and `git diff --check` pass.
 - Deployment status: pending at time of this record. Intended scope is Old only via `scripts/deploy_local.sh --site old --no-restart`; Live untouched. No session invalidation or service restart.
+
+## 2026-11-13 Step BM: Image-model size capability correction for img-20261113145859-b90c37
+
+- Investigated `img-20261113145859-b90c37`: routed to `qwen-image-edit-spicy`; stored record has `ratio=3:4`, `resolution=2K`, `params.size=1536*2048`, but the upstream payload contains only reference image and prompt. Root cause is the old UI incorrectly exposing/recording size for an edit model whose upstream does not accept a size parameter; this was not a dropped submit parameter.
+- Comparable historical records: `img-20261113145543-9a99a0` and `img-20261113145643-f71055`.
+- Capability contract now enforced in UI, server validation/submission, workflow nodes, regeneration, and gateway payloads:
+  - Qwen Image Edit: size follows the source image; no ratio/resolution control, no `size` persisted or sent; reference image required.
+  - Z-Image Spicy Pro: ratio/resolution retained; text-to-image only, reference image rejected.
+  - Qwen Image 3: ratio/resolution and reference image retained.
+  - Seedream 5: its existing supported size and reference-image capabilities retained.
+- Files changed: 19 files across `platform.config.js`, `platform.create.parts/*`, `platform.ui.parts/*`, `platform.html`, `platform.css`, `platform.main.js`, `platform.workflow-react.js`, React workflow image node/CSS, `server.parts/part-18.js`, `server.parts/part-24.js`, `server.parts/part-37.js`, `test/image-model-size-selection.test.js`, and `test/vega-regeneration-media.test.js`.
+- Verification: focused size tests `6/6` pass; prior Qwen/Vega regeneration tests `30/30` pass; full suite `1305 pass / 0 fail / 1 skip` in `/tmp/raising-size-full-final-2.log`; modified JS syntax checks and `git diff --check` pass.
+- Source commit: `b1033a0d Fix image model size capabilities`.
+- Deployment status at record time: not yet published. Intended scope is Old only via committed `old-site` integration, `platform-release`, and `scripts/deploy_local.sh --site old`; Live must remain untouched. Existing login sessions must not be invalidated.

@@ -767,11 +767,11 @@ function workflowVideoModelById(modelId = "") {
 }
 
 function workflowImageModelOptions(model = {}) {
-  return Array.isArray(model.ratios) && model.ratios.length ? model.ratios : ["1:1", "3:4", "4:3", "9:16", "16:9"];
+  return Array.isArray(model.ratios) ? model.ratios : ["1:1", "3:4", "4:3", "9:16", "16:9"];
 }
 
 function workflowImageResolutionOptions(model = {}) {
-  return Array.isArray(model.resolutions) && model.resolutions.length ? model.resolutions : ["1K", "2K"];
+  return Array.isArray(model.resolutions) ? model.resolutions : ["1K", "2K"];
 }
 
 function workflowVideoResolutionOptions(model = {}) {
@@ -889,6 +889,7 @@ function renderWorkflowImageEditor(node = {}) {
   const runState = workflowNodeRunState(node);
   const ratios = workflowImageModelOptions(model).map((value) => ({ value, label: value }));
   const resolutions = workflowImageResolutionOptions(model).map((value) => ({ value, label: value }));
+  const supportsSizeSelection = model.supportsSizeSelection !== false && ratios.length > 0 && resolutions.length > 0;
   const tierOptions = (model.tiers || []).map((value) => ({ value, label: value === "standard" ? "Standard" : "Pro" }));
   const outputOptions = (model.outputCounts || [1]).map((value) => ({ value: String(value), label: `${value} image${value === 1 ? "" : "s"}` }));
   return `
@@ -899,8 +900,8 @@ function renderWorkflowImageEditor(node = {}) {
       <label class="workflow-editor-prompt"><span>提示词</span><textarea rows="3" data-workflow-image-prompt="${escapeHtml(node.id)}" placeholder="描述你想生成的图片...">${escapeHtml(node.data?.prompt || "")}</textarea></label>
       <div class="workflow-editor-fields">
         <label><span>模型</span><select data-workflow-image-model="${escapeHtml(node.id)}">${workflowSelectOptions(WORKFLOW_IMAGE_MODEL_LIBRARY, node.data?.modelId || model.id)}</select></label>
-        <label><span>比例</span><select data-workflow-ratio="${escapeHtml(node.id)}">${workflowSelectOptions(ratios, node.data?.ratio || model.ratio)}</select></label>
-        <label><span>分辨率</span><select data-workflow-resolution="${escapeHtml(node.id)}">${workflowSelectOptions(resolutions, node.data?.resolution || model.resolution)}</select></label>
+        ${supportsSizeSelection ? `<label><span>比例</span><select data-workflow-ratio="${escapeHtml(node.id)}">${workflowSelectOptions(ratios, node.data?.ratio || model.ratio)}</select></label>
+        <label><span>分辨率</span><select data-workflow-resolution="${escapeHtml(node.id)}">${workflowSelectOptions(resolutions, node.data?.resolution || model.resolution)}</select></label>` : `<div class="workflow-editor-size-note"><span>尺寸</span><strong>跟随原图</strong></div>`}
         ${tierOptions.length > 1 ? `<label><span>档位</span><select data-workflow-image-tier="${escapeHtml(node.id)}">${workflowSelectOptions(tierOptions, node.data?.qwenTier || node.data?.seedreamTier || model.defaultTier || tierOptions[0]?.value)}</select></label>` : ""}
         ${outputOptions.length > 1 ? `<label><span>数量</span><select data-workflow-output-count="${escapeHtml(node.id)}">${workflowSelectOptions(outputOptions, String(node.data?.outputImageCount || 1))}</select></label>` : ""}
       </div>

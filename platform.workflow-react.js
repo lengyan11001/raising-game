@@ -401,6 +401,7 @@
     var selected = node.id === window.__workflowReactSelectedNodeId;
     var ratios = (typeof window.workflowImageModelOptions === "function" ? window.workflowImageModelOptions(model) : ["1:1"]).map(function (value) { return { value: value, label: value }; });
     var resolutions = (typeof window.workflowImageResolutionOptions === "function" ? window.workflowImageResolutionOptions(model) : ["1K", "2K"]).map(function (value) { return { value: value, label: value }; });
+    var supportsSizeSelection = model.supportsSizeSelection !== false && ratios.length > 0 && resolutions.length > 0;
     var tiers = (model.tiers || []).map(function (value) { return { value: value, label: value === "standard" ? "Standard" : "Pro" }; });
     var counts = (model.outputCounts || [1]).map(function (value) { return { value: String(value), label: value + (value === 1 ? " image" : " images") }; });
     var runButton = h("button", {
@@ -419,8 +420,9 @@
         h("label", { className: "nodrag workflow-react-prompt-field", onPointerDown: stopNodeEvent }, h("span", null, "提示词"), textArea(node, node.data && node.data.prompt, "描述你想生成的图片...")),
         h("div", { className: "workflow-react-fields" },
           field("模型", selectControl(node, "workflowImageModel", node.data && node.data.modelId || model.id, window.WORKFLOW_IMAGE_MODEL_LIBRARY || [])),
-          field("比例", selectControl(node, "workflowRatio", node.data && node.data.ratio || model.ratio, ratios)),
-          field("分辨率", selectControl(node, "workflowResolution", node.data && node.data.resolution || model.resolution, resolutions)),
+          supportsSizeSelection ? field("比例", selectControl(node, "workflowRatio", node.data && node.data.ratio || model.ratio, ratios)) : null,
+          supportsSizeSelection ? field("分辨率", selectControl(node, "workflowResolution", node.data && node.data.resolution || model.resolution, resolutions)) : null,
+          supportsSizeSelection ? null : h("div", { className: "workflow-react-size-note" }, h("span", null, "尺寸"), h("strong", null, "跟随原图")),
           tiers.length > 1 ? field("档位", selectControl(node, "workflowImageTier", node.data && (node.data.qwenTier || node.data.seedreamTier) || model.defaultTier, tiers)) : null,
           counts.length > 1 ? field("数量", selectControl(node, "workflowOutputCount", node.data && node.data.outputImageCount || 1, counts)) : null
         ),
