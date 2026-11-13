@@ -4147,4 +4147,5 @@ CODEX_TASK_STATE.md
 - User reported Seedream 5 still exposed only one generation parameter. Root cause: the Seedream image ratio field was explicitly hidden while only resolution remained visible.
 - Restored the five configured Seedream ratios (`1:1`, `3:4`, `4:3`, `9:16`, `16:9`) and stopped hiding the ratio field for `seedream5-image`; Qwen Image Edit remains follow-source size with no independent ratio/resolution controls.
 - Regression coverage added to `test/image-model-size-selection.test.js`. Full suite: `1307 pass / 0 fail / 1 skip`.
-- Status: ready to commit and deploy Old only; existing sessions must remain valid and Live must remain untouched.
+- Deployment: source `a53679cd565c7091a6d9b0cbe31078739ac2c3a7`; platform release `7ae814dbc35d538ad90f1623b76a09ed2fe684a5` pushed only to `platform-release` and deployed only to Old with `scripts/deploy_local.sh --site old`.
+- Post-deploy verification: server release is `7ae814d`; service is active/running with `NRestarts=0`; recent matching error count is 0; `/api/health`, `/api/readyz`, homepage, and `platform.html` return 200; the public create UI chunk contains the restored Seedream ratio logic. Existing sessions were not cleared and Live remained untouched.

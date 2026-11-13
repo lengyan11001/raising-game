@@ -43,6 +43,9 @@ function imageRequestRuntime() {
     "boolFromRequest",
     "requestParamsFromBody",
     "normalizeVideoRatio",
+    "normalizeSeedream5Resolution",
+    "normalizeSeedream5ImageRatio",
+    "seedream5ImageSize",
     "normalizeWan27ImageRatio",
     "normalizeWan27ImageResolution",
     "wan27ImageSize",
@@ -54,7 +57,7 @@ function imageRequestRuntime() {
     "WAN27_IMAGE_PRO_MODEL",
     [
       ...names.map((name) => extractFunction(serverSource, name)),
-      "return { wan27ImageRequestOptions, exposedWan27ImageParams, wan27ImageParamsForRecord };",
+      "return { wan27ImageRequestOptions, exposedWan27ImageParams, wan27ImageParamsForRecord, seedream5ImageSize };",
     ].join("\n"),
   )("wan2.7-image");
 }
@@ -185,4 +188,35 @@ test("Seedream 5 exposes both aspect ratio and resolution controls", () => {
   const ratioVisibility = createSource.match(/els\.advancedRatio\.closest\("\.field"\)\?\.toggleAttribute\("hidden", ([^;]+)\)/);
   assert.ok(ratioVisibility, "expected Seedream ratio visibility rule");
   assert.doesNotMatch(ratioVisibility[1], /isSeedreamImage/);
+});
+
+test("Seedream 5 sends the selected ratio as an exact upstream pixel size", () => {
+  const { seedream5ImageSize } = imageRequestRuntime();
+  const expected = {
+    "1K": {
+      "1:1": "1024x1024",
+      "3:4": "864x1152",
+      "4:3": "1152x864",
+      "9:16": "800x1424",
+      "16:9": "1424x800",
+    },
+    "2K": {
+      "1:1": "2048x2048",
+      "3:4": "1776x2368",
+      "4:3": "2368x1776",
+      "9:16": "1584x2816",
+      "16:9": "2816x1584",
+    },
+  };
+  for (const [resolution, ratios] of Object.entries(expected)) {
+    for (const [ratio, size] of Object.entries(ratios)) {
+      assert.equal(seedream5ImageSize(resolution, ratio), size, `${resolution} ${ratio}`);
+    }
+  }
+
+  assert.match(serverSource, /const ratio = normalizeSeedream5ImageRatio\(firstPresent\([\s\S]*?body\.ratio,[\s\S]*?mergedProviderParameters\.ratio,[\s\S]*?caseParams\.ratio,/);
+  assert.match(serverSource, /const size = seedream5ImageSize\(resolution, ratio\);/);
+  assert.match(serverSource, /ratio,\n\s+resolution,\n\s+size,/);
+  assert.match(serverSource, /size: seedream5ImageSize\(resolution, ratio\)/);
+  assert.match(serverSource, /seedream5ImageRequestFingerprint\(\{[\s\S]*?ratio: String\(ratio \|\| ""\),[\s\S]*?size: String\(size \|\| ""\),/);
 });

@@ -326,13 +326,15 @@ function byteplusV3ImageGenerationToAdvancedBody(body = {}) {
   const prompt = String(source.prompt || "").trim();
   if (!prompt) throw byteplusHttpError(400, "prompt is required.", "prompt");
   const resolution = normalizeSeedream5Resolution(firstPresent(source.size, source.resolution, "2K"));
+  const ratio = normalizeSeedream5ImageRatio(firstPresent(source.ratio, source.aspect_ratio, "1:1")) || "1:1";
   const advancedBody = {
     provider: "seedream5-image",
     model: resolvedModel,
     seedreamTier: "pro",
     prompt,
+    ratio,
     resolution,
-    size: resolution,
+    size: seedream5ImageSize(resolution, ratio),
     watermark: boolFromRequest(source.watermark, false),
   };
   [
@@ -935,6 +937,7 @@ async function createSeedream5ImageDirect({
   prompt = "",
   imageUrls = [],
   resolution = "2K",
+  ratio = "",
   model = "",
   tier = "pro",
   watermark = false,
@@ -960,7 +963,7 @@ async function createSeedream5ImageDirect({
     model: resolvedModel,
     prompt: finalPrompt,
     response_format: "url",
-    size: normalizeSeedream5Resolution(resolution),
+    size: seedream5ImageSize(resolution, ratio),
     stream: false,
     watermark: Boolean(watermark),
     Moderation: { Strategy: "Skip" },
@@ -998,6 +1001,8 @@ async function runSeedream5ImageGenerationJob(job = {}, submission = null) {
     prompt = "",
     tier = "pro",
     resolution = "2K",
+    ratio = "",
+    size = "",
     outputFormat = "",
     optimizePromptOptions = null,
     pricing = {},
@@ -1041,7 +1046,7 @@ async function runSeedream5ImageGenerationJob(job = {}, submission = null) {
       model,
       prompt,
       response_format: "url",
-      size: resolution,
+      size: seedream5ImageSize(resolution, ratio),
       stream: false,
       watermark: boolFromRequest(firstPresent(body.watermark, bodyParams.watermark, mergedProviderParameters.watermark), false),
       Moderation: { Strategy: "Skip" },
@@ -1067,8 +1072,9 @@ async function runSeedream5ImageGenerationJob(job = {}, submission = null) {
         provider: "seedream5-image",
         model,
         prompt,
+        ratio,
         resolution,
-        size: resolution,
+        size: seedream5ImageSize(resolution, ratio),
         seedreamTier: tier,
         referenceImages: referencePayloadUrls.map((url) => ({ url })),
         preservePublicMediaUrls: true,
@@ -1217,6 +1223,22 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     config.platform?.advancedPricing?.seedream5Image?.defaultResolution,
     "2K",
   ));
+  const ratio = normalizeSeedream5ImageRatio(firstPresent(
+    body.ratio,
+    body.aspect_ratio,
+    body.aspectRatio,
+    bodyParams.ratio,
+    bodyParams.aspect_ratio,
+    bodyParams.aspectRatio,
+    mergedProviderParameters.ratio,
+    mergedProviderParameters.aspect_ratio,
+    mergedProviderParameters.aspectRatio,
+    caseParams.ratio,
+    caseParams.aspect_ratio,
+    caseParams.aspectRatio,
+    "1:1",
+  )) || "1:1";
+  const size = seedream5ImageSize(resolution, ratio);
   const model = seedream5ModelForTier(firstPresent(body.model, bodyParams.model, mergedProviderParameters.model, caseParams.model), tier);
   const outputFormat = normalizeSeedream5OutputFormat(firstPresent(
     body.output_format,
@@ -1248,7 +1270,9 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     userId: auth.user.id,
     model,
     prompt,
+    ratio,
     resolution,
+    size,
     tier,
     outputFormat,
     optimizePromptOptions,
@@ -1314,8 +1338,9 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
       ...plainObject(body.params),
       provider: "seedream5-image",
       seedreamTier: tier,
+      ratio,
       resolution,
-      size: resolution,
+      size,
       ...(outputFormat ? { output_format: outputFormat } : {}),
       ...(optimizePromptOptions ? { optimize_prompt_options: optimizePromptOptions } : {}),
       referenceImageCount: referenceInputs.length,
@@ -1324,6 +1349,8 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     },
     requestFingerprint,
     resolution,
+    ratio,
+    size,
     preDeductedCredits: cost,
     originalPreDeductedCredits: pricing.originalCredits ?? cost,
     finalCredits: null,
@@ -1356,6 +1383,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
         provider: "seedream5-image",
         model,
         seedreamTier: tier,
+        ratio,
         resolution,
         referenceImageCount: referenceInputs.length,
         outputUsd: pricing.outputUsd,
@@ -1381,6 +1409,8 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     prompt,
     tier,
     resolution,
+    ratio,
+    size,
     outputFormat,
     optimizePromptOptions,
     pricing,
@@ -1401,8 +1431,9 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     params: {
       provider: "seedream5-image",
       seedreamTier: tier,
+      ratio,
       resolution,
-      size: resolution,
+      size,
       referenceImageCount: referenceInputs.length,
     },
   });
