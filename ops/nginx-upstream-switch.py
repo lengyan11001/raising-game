@@ -385,8 +385,10 @@ def atomic_write(path: Path, value: str, mode: int) -> None:
         raise
 
 
-def run(command: list[str]) -> None:
-    subprocess.run(command, check=True)
+def run(command: list[str], timeout: int = 20) -> None:
+    # Every subprocess is bounded. A hung nginx validation, reload, or helper can
+    # otherwise leave the transaction journal and lock open indefinitely.
+    subprocess.run(command, check=True, timeout=timeout)
 
 
 def require_http_200(url: str) -> None:
@@ -395,6 +397,7 @@ def require_http_200(url: str) -> None:
         check=False,
         capture_output=True,
         text=True,
+        timeout=15,
     )
     status = result.stdout.strip()
     if result.returncode != 0 or status != "200":
@@ -793,6 +796,8 @@ def main() -> int:
         if journal is not None:
             try:
                 restored = restore_journal(journal)
+                run(test_command)
+                run(reload_command)
                 restored_after_failure = True
                 print(f"UPSTREAM_SWITCH_ROLLBACK files={len(restored)}")
             except Exception as rollback_error:
@@ -800,11 +805,11 @@ def main() -> int:
                     f"UPSTREAM_SWITCH_ROLLBACK_FAILED error={rollback_error}; journal={journal}",
                     file=sys.stderr,
                 )
-        try:
-            run(test_command)
-            run(reload_command)
-        except Exception:
-            pass
+                # Never report an unverified recovery. Keep the journal for the
+                # next bounded recovery attempt and surface a distinct exit code.
+                raise RuntimeError(
+                    f"rollback failed; manual intervention required; journal={journal}"
+                ) from rollback_error
         raise
     finally:
         if journal is not None and (committed or restored_after_failure):

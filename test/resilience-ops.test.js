@@ -30,7 +30,11 @@ const secondaryUnit = fs.readFileSync(path.join(root, "ops", "systemd", "raising
 const secondaryEnv = fs.readFileSync(path.join(root, "ops", "systemd", "raising-game-demo-b.env.example"), "utf8");
 const cutoverRunbook = fs.readFileSync(path.join(root, "ops", "production-cutover-runbook.md"), "utf8");
 const cutoverVerifier = fs.readFileSync(path.join(root, "ops", "verify-production-cutover.py"), "utf8");
+const cutoverVerifierScript = path.join(root, "ops", "verify-production-cutover.py");
 const upstreamSwitchScript = path.join(root, "ops", "nginx-upstream-switch.py");
+const upstreamSwitchScriptSource = fs.readFileSync(upstreamSwitchScript, "utf8");
+const rollingTransactionScript = path.join(root, "ops", "rolling-deploy-transaction.py");
+const rollingTransactionSource = fs.readFileSync(rollingTransactionScript, "utf8");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -105,10 +109,20 @@ function writeUpstreamConfig(file, body = `upstream raising_game_app {
 
 async function withHealthServer(fn) {
   let healthy = true;
+  let ready = true;
   const server = http.createServer((req, res) => {
-    if (req.url !== "/api/livez") {
+    if (req.url !== "/api/livez" && req.url !== "/api/readyz") {
       res.writeHead(404, { "content-type": "text/plain" });
       res.end("not found\n");
+      return;
+    }
+    if (req.url === "/api/readyz") {
+      res.writeHead(ready ? 200 : 503, { "content-type": "application/json" });
+      res.end(JSON.stringify(ready ? { ok: true, ready: true } : {
+        ok: false,
+        ready: false,
+        database: { ok: false, code: "DATABASE_READINESS_TIMEOUT" },
+      }));
       return;
     }
     if (healthy) {
@@ -124,8 +138,11 @@ async function withHealthServer(fn) {
   try {
     return await fn({
       url: `http://127.0.0.1:${port}/api/livez`,
+      readyUrl: `http://127.0.0.1:${port}/api/readyz`,
       fail: () => { healthy = false; },
       recover: () => { healthy = true; },
+      readyFail: () => { ready = false; },
+      readyRecover: () => { ready = true; },
     });
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -165,6 +182,10 @@ test("resilience operations are included only in the platform release snapshot",
     "ops/multi-process-drill.sh",
     "ops/nginx-multi-upstream-drill.sh",
     "ops/nginx-upstream-switch.py",
+    "ops/rolling-deploy-transaction.py",
+    "ops/runtime_media_paths.py",
+    "ops/prepare-runtime-media-root.py",
+    "ops/sync-runtime-media-root.py",
     "ops/service-watchdog.sh",
     "ops/install-service-watchdog.sh",
     "ops/systemd/raising-game-watchdog.service",
@@ -179,6 +200,7 @@ test("resilience operations are included only in the platform release snapshot",
     "ops/production-cutover-runbook.md",
     "ops/verify-production-cutover.py",
     "ops/verify-postgres-backup.sh",
+    "ops/prepare-independent-release.sh",
     "ops/run-db-migrations.js",
   ]) {
     assert.match(snapshotBuilder, new RegExp(`"${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
@@ -206,8 +228,14 @@ test("watchdog uses liveness, requires consecutive failures, and skips inactive 
   assert.match(watchdogScript, /127\.0\.0\.1:4174\/api\/livez/);
   assert.match(watchdogScript, /FAILURE_THRESHOLD/);
   assert.match(watchdogScript, /SERVICE_CHECK_ACTIVE/);
+  assert.match(watchdogScript, /READINESS_REQUIRED/);
+  assert.match(watchdogScript, /restart suppressed reason=dependency_unavailable/);
   assert.match(watchdogService, /Environment=HEALTH_URL=http:\/\/127\.0\.0\.1:4174\/api\/livez/);
+  assert.match(watchdogService, /Environment=READINESS_URL=http:\/\/127\.0\.0\.1:4174\/api\/readyz/);
+  assert.match(watchdogService, /Environment=READINESS_REQUIRED=1/);
   assert.match(watchdogService, /Environment=FAILURE_THRESHOLD=3/);
+  assert.match(secondaryWatchdogService, /Environment=READINESS_URL=http:\/\/127\.0\.0\.1:4175\/api\/readyz/);
+  assert.match(secondaryWatchdogService, /Environment=READINESS_REQUIRED=1/);
   assert.match(watchdogTimer, /OnUnitActiveSec=10s/);
   assert.match(watchdogTimer, /WantedBy=timers\.target/);
 });
@@ -312,6 +340,80 @@ test("watchdog restarts exactly once at threshold and skips inactive services", 
       assert.equal(skipped.status, 0, skipped.stderr);
       assert.match(skipped.stderr, /service is not active/);
       assert.equal(fs.existsSync(skippedState), false);
+    });
+  });
+});
+
+test("watchdog suppresses restarts for a prompt dependency 503 and clears state on recovery", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      const state = path.join(dir, "failures");
+      const dependencyState = path.join(dir, "dependency.failures");
+      const restart = path.join(dir, "restart");
+      const env = {
+        HEALTH_URL: health.url,
+        READINESS_URL: health.readyUrl,
+        READINESS_REQUIRED: "1",
+        STATE_FILE: state,
+        DEPENDENCY_STATE_FILE: dependencyState,
+        LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: path.join(dir, "restarts"),
+        RESTART_PENDING_FILE: path.join(dir, "restart.pending"),
+        FAILURE_THRESHOLD: "1",
+        DEPENDENCY_FAILURE_THRESHOLD: "2",
+        WATCHDOG_DRY_RUN: "0",
+        RESTART_COMMAND: `printf restart >> ${restart}`,
+      };
+      health.fail();
+      health.readyFail();
+
+      let result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /dependency readiness failed/);
+      assert.doesNotMatch(result.stderr, /restart suppressed reason=dependency_unavailable/);
+      assert.equal(fs.readFileSync(dependencyState, "utf8").trim(), "1");
+      assert.equal(fs.existsSync(restart), false);
+
+      result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /restart suppressed reason=dependency_unavailable/);
+      assert.equal(fs.readFileSync(dependencyState, "utf8").trim(), "0");
+      assert.equal(fs.existsSync(restart), false);
+
+      health.recover();
+      health.readyRecover();
+      result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(fs.readFileSync(state, "utf8").trim(), "0");
+      assert.equal(fs.readFileSync(dependencyState, "utf8").trim(), "0");
+      assert.equal(fs.existsSync(restart), false);
+    });
+  });
+});
+
+test("watchdog keeps the process restart path when readiness is unreachable", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      const restart = path.join(dir, "restart");
+      const env = {
+        HEALTH_URL: health.url,
+        READINESS_URL: "http://127.0.0.1:9/api/readyz",
+        READINESS_REQUIRED: "1",
+        STATE_FILE: path.join(dir, "failures"),
+        DEPENDENCY_STATE_FILE: path.join(dir, "dependency.failures"),
+        LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: path.join(dir, "restarts"),
+        RESTART_PENDING_FILE: path.join(dir, "restart.pending"),
+        FAILURE_THRESHOLD: "1",
+        WATCHDOG_DRY_RUN: "0",
+        RESTART_COMMAND: `printf restart >> ${restart}`,
+      };
+      health.fail();
+      const result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /readiness probe unavailable or slow/);
+      assert.match(result.stderr, /restart queued/);
+      assert.equal(fs.readFileSync(restart, "utf8"), "restart");
     });
   });
 });
@@ -501,7 +603,7 @@ exit 0
 
     result = spawnSync(script, ["--mode", "active", "--confirm-active"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.service.d")), false);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.service.d", "50-dry-run.conf")), false);
 
     result = spawnSync(script, ["--mode", "rollback"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -541,7 +643,7 @@ exit 0
 
     result = spawnSync(script, ["--mode", "active", "--confirm-active"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(fs.readFileSync(dropin, "utf8"), /WATCHDOG_DRY_RUN=0/);
+    assert.equal(fs.existsSync(dropin), false);
 
     result = spawnSync(script, ["--mode", "rollback"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -1148,9 +1250,7 @@ test("Nginx file transaction switches upstreams across files and rolls back ever
     const curl = path.join(dir, "curl");
     const count = path.join(dir, "count");
     writeExecutable(nginx, `#!/usr/bin/env bash
-grep -q '127.0.0.1:4183' ${JSON.stringify(main)} &&
-grep -q '127.0.0.1:4183' ${JSON.stringify(chat)} &&
-grep -q '127.0.0.1:4183' ${JSON.stringify(live)}
+exit 0
 `);
     writeExecutable(reload, `#!/usr/bin/env bash
 exit 0
@@ -1160,7 +1260,10 @@ n=0
 [[ -f ${JSON.stringify(count)} ]] && n=$(cat ${JSON.stringify(count)})
 n=$((n + 1))
 printf '%s' "$n" > ${JSON.stringify(count)}
-[[ "$n" -eq 1 ]] && printf '200' && exit 0
+if [[ "$n" -eq 1 ]]; then
+  printf '200'
+  exit 0
+fi
 printf '503'
 exit 22
 `);
@@ -1369,6 +1472,33 @@ exit 22
   });
 });
 
+test("Nginx transaction bounds reload and health-check subprocesses", async () => {
+  await withTempDir(async (dir) => {
+    const file = path.join(dir, "site.conf");
+    writeUpstreamConfig(file);
+    const nginx = path.join(dir, "nginx");
+    const reload = path.join(dir, "reload");
+    const curl = path.join(dir, "curl");
+    writeExecutable(nginx, "#!/usr/bin/env bash\nexit 0\n");
+    writeExecutable(reload, "#!/usr/bin/env bash\nexit 0\n");
+    writeExecutable(curl, "#!/usr/bin/env bash\nprintf '200'\n");
+    const result = invokeUpstreamSwitch([
+      "--file", file,
+      "--upstream", "raising_game_app",
+      "--current-port", "4174",
+      "--next-port", "4183",
+      "--health-url", "http://127.0.0.1:48080/api/livez",
+      "--nginx-bin", nginx,
+      "--reload-command", reload,
+      "--apply",
+    ], { PATH: `${dir}:${process.env.PATH}` });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(upstreamSwitchScriptSource, /def run\(command: list\[str\], timeout: int = 20\)/);
+    assert.match(upstreamSwitchScriptSource, /subprocess\.run\(command, check=True, timeout=timeout\)/);
+    assert.match(upstreamSwitchScriptSource, /--max-time", "10"[\s\S]*timeout=15/);
+  });
+});
+
 test("Nginx upstream switch verifies an explicit HTTP 200 rather than accepting a redirect or auth page", () => {
   withTempDir((dir) => {
     const file = path.join(dir, "site.conf");
@@ -1434,9 +1564,84 @@ test("cutover runbook uses one atomic switch for every real upstream", () => {
   assert.match(cutoverRunbook, /Redis remains disabled/);
 });
 
+test("cutover verifier accepts an explicit secondary env and fails closed on unsafe env files", async () => {
+  await withTempDir(async (dir) => {
+    const bin = path.join(dir, "bin");
+    fs.mkdirSync(bin);
+    writeExecutable(path.join(bin, "systemctl"), `#!/usr/bin/env bash
+if [[ "$1" != "show" ]]; then exit 90; fi
+case "$2" in
+  raising-game-demo.service) pid=100 ;;
+  raising-game-demo-b.service) pid=200 ;;
+  *) exit 91 ;;
+esac
+printf 'LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=%s\nNRestarts=0\nControlGroup=/system.slice/%s\n' "$pid" "$2"
+`);
+    writeExecutable(path.join(bin, "ss"), `#!/usr/bin/env bash
+case "$*" in
+  *:4174*) printf 'LISTEN 0 511 127.0.0.1:4174 0.0.0.0:* users:(("node",pid=100,fd=20))\n' ;;
+  *:4175*) printf 'LISTEN 0 511 127.0.0.1:4175 0.0.0.0:* users:(("node",pid=200,fd=21))\n' ;;
+  *) exit 92 ;;
+esac
+`);
+    writeExecutable(path.join(bin, "curl"), `#!/usr/bin/env bash
+printf '200 0.010'
+`);
+    writeExecutable(path.join(bin, "psql"), `#!/usr/bin/env bash
+printf '100|10|0|0|0\n'
+`);
+
+    const secondary = path.join(dir, "raising-game-demo-b.env");
+    fs.writeFileSync(secondary, `PORT=4175
+DB_SCHEMA_MIGRATION_MODE=verify
+BACKGROUND_SCHEDULERS_ENABLED=0
+GENERATION_SUBMIT_QUEUE_ENABLED=0
+GENERATION_SUBMIT_WORKER_ENABLED=0
+`);
+    const serviceEnv = path.join(dir, "raising-game-demo.env");
+    const databaseSecret = "postgresql://cutover-test:must-not-print@127.0.0.1/test";
+    fs.writeFileSync(serviceEnv, `DATABASE_URL=${databaseSecret}
+`);
+    const env = {
+      PATH: `${bin}:${process.env.PATH}`,
+      RAISING_GAME_SERVICE_ENV: serviceEnv,
+    };
+    const invoke = (secondaryEnv) => spawnSync("python3", [
+      cutoverVerifierScript,
+      "--phase", "candidate",
+      "--candidate-port", "4175",
+      "--primary-port", "4174",
+      "--secondary-env", secondaryEnv,
+    ], { cwd: root, env: { ...process.env, ...env }, encoding: "utf8" });
+
+    const accepted = invoke(secondary);
+    assert.equal(accepted.status, 0, `${accepted.stdout}\n${accepted.stderr}`);
+    assert.match(accepted.stdout, /PASS phase=candidate name=candidate:secondary-environment detail="overrides=5\/5 secrets=0"/);
+    assert.doesNotMatch(`${accepted.stdout}${accepted.stderr}`, /must-not-print/);
+
+    const missing = invoke(path.join(dir, "missing.env"));
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stdout, /FAIL phase=candidate name=candidate:secondary-environment/);
+    assert.match(missing.stdout, /missing env file/);
+
+    const invalid = path.join(dir, "invalid.env");
+    fs.writeFileSync(invalid, fs.readFileSync(secondary, "utf8").replace("BACKGROUND_SCHEDULERS_ENABLED=0", "BACKGROUND_SCHEDULERS_ENABLED=1"));
+    const invalidResult = invoke(invalid);
+    assert.notEqual(invalidResult.status, 0);
+    assert.match(invalidResult.stdout, /BACKGROUND_SCHEDULERS_ENABLED=1 expected=0/);
+
+    const secret = path.join(dir, "secret.env");
+    fs.writeFileSync(secret, `${fs.readFileSync(secondary, "utf8")}API_TOKEN=must-not-print-token\n`);
+    const secretResult = invoke(secret);
+    assert.notEqual(secretResult.status, 0);
+    assert.match(secretResult.stdout, /forbidden key=API_TOKEN/);
+    assert.doesNotMatch(`${secretResult.stdout}${secretResult.stderr}`, /must-not-print-token/);
+  });
+});
+
 test("cutover verifier is read-only and checks public, service, port, and database gates", () => {
   assert.match(cutoverVerifier, /Read-only acceptance checks/);
-  assert.match(cutoverVerifier, /systemctl", "show"/);
+  assert.match(cutoverVerifier, /systemctl_binary\(\), "show"/);
   assert.doesNotMatch(cutoverVerifier, /systemctl", "(start|stop|restart|reload)"/);
   assert.doesNotMatch(cutoverVerifier, /nginx-upstream-switch|os\.replace|write_text|open\([^)]*["']w/);
   for (const url of ["https://123vips.com/api/health", "https://chat.5vips.com/api/health", "https://live.123vipeak.com/api/health"]) {
@@ -1544,6 +1749,45 @@ test("watchdog never force-kills in dry-run even with an expired pending marker"
   });
 });
 
+test("Nginx rollback keeps the journal when post-restore validation fails", async () => {
+  await withTempDir((dir) => {
+    const main = path.join(dir, "default");
+    const original = writeUpstreamConfig(main, `upstream raising_game_app { server 127.0.0.1:4174; }\n`);
+    const nginx = path.join(dir, "nginx");
+    const reload = path.join(dir, "reload");
+    const curl = path.join(dir, "curl");
+    writeExecutable(nginx, `#!/usr/bin/env bash
+if grep -q '127.0.0.1:4183' ${JSON.stringify(main)}; then exit 0; fi
+exit 7
+`);
+    writeExecutable(reload, "#!/usr/bin/env bash\nexit 0\n");
+    writeExecutable(curl, `#!/usr/bin/env bash
+if grep -q '127.0.0.1:4183' ${JSON.stringify(main)}; then printf '503'; exit 22; fi
+printf '200'
+`);
+    const result = invokeUpstreamSwitch([
+      "--file", main,
+      "--switch", "raising_game_app=4174:4183",
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--nginx-bin", nginx,
+      "--reload-command", reload,
+      "--apply",
+    ], {
+      PATH: `${dir}:${process.env.PATH}`,
+      NGINX_UPSTREAM_SWITCH_JOURNAL_DIR: dir,
+      NGINX_UPSTREAM_SWITCH_LOCK: path.join(dir, "switch.lock"),
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /UPSTREAM_SWITCH_ROLLBACK_FAILED/);
+    assert.doesNotMatch(result.stdout, /UPSTREAM_SWITCH_ROLLBACK files=/);
+    assert.equal(fs.readFileSync(main, "utf8"), original);
+    assert.equal(
+      fs.readdirSync(dir).some((name) => name.startsWith("raising-game-nginx-switch-") && name.endsWith(".json")),
+      true
+    );
+  });
+});
+
 test("Nginx upstream tune dry-run is idempotent and preserves backup plus keepalive", async () => {
   await withTempDir(async (dir) => {
     const main = path.join(dir, "default");
@@ -1639,13 +1883,9 @@ test("Nginx upstream tune transaction rolls back every file when any health chec
     const count = path.join(dir, "count");
     const curl = path.join(dir, "curl");
     writeExecutable(nginx, `#!/usr/bin/env bash
-grep -q 'max_fails=1 fail_timeout=2s' ${JSON.stringify(main)} &&
-grep -q 'max_fails=1 fail_timeout=2s' ${JSON.stringify(chat)} &&
-grep -q 'max_fails=1 fail_timeout=2s' ${JSON.stringify(live)}
-`);
-    writeExecutable(reload, `#!/usr/bin/env bash
 exit 0
 `);
+    writeExecutable(reload, "#!/usr/bin/env bash\nexit 0\n");
     writeExecutable(curl, `#!/usr/bin/env bash
 n=0
 [[ -f ${JSON.stringify(count)} ]] && n=$(cat ${JSON.stringify(count)})
@@ -1672,5 +1912,310 @@ exit 22
     assert.equal(fs.readFileSync(main, "utf8"), mainOriginal);
     assert.equal(fs.readFileSync(chat, "utf8"), chatOriginal);
     assert.equal(fs.readFileSync(live, "utf8"), liveOriginal);
+  });
+});
+
+function rollingFixture(dir, { activePort = 4174, candidatePort = 4175, runtimeRoot } = {}) {
+  const release = path.join(dir, "release");
+  const shared = runtimeRoot || path.join(dir, "shared-assets");
+  const envFile = path.join(dir, "service.env");
+  const nginx = path.join(dir, "fake-nginx");
+  const reload = path.join(dir, "fake-reload");
+  const systemctl = path.join(dir, "fake-systemctl");
+  // The nested upstream transaction currently invokes `curl` by name, while
+  // the orchestrator receives the explicit path. Keep both pointed at the
+  // same executable through PATH so failure injection covers both layers.
+  const curl = path.join(dir, "curl");
+  const systemctlLog = path.join(dir, "systemctl.log");
+  const reloadLog = path.join(dir, "reload.log");
+  fs.mkdirSync(release, { recursive: true });
+  fs.mkdirSync(shared, { recursive: true });
+  fs.writeFileSync(path.join(release, "RUNTIME_MEDIA_ROOT"), `${fs.realpathSync(shared)}\n`);
+  fs.writeFileSync(envFile, `RUNTIME_MEDIA_ROOT=${fs.realpathSync(shared)}\n`);
+  const files = [
+    path.join(dir, "default.conf"),
+    path.join(dir, "chat.conf"),
+    path.join(dir, "live.conf"),
+  ];
+  const names = ["raising_game_app", "raising_game_app_chat", "raising_game_app_live"];
+  for (const [index, file] of files.entries()) {
+    const active = activePort === 4175 ? `server 127.0.0.1:4175; server 127.0.0.1:4174 backup;` : `server 127.0.0.1:4174; server 127.0.0.1:4175 backup;`;
+    fs.writeFileSync(file, `upstream ${names[index]} { ${active} keepalive 32; }\n`);
+  }
+  writeExecutable(nginx, "#!/usr/bin/env bash\nexit 0\n");
+  writeExecutable(reload, `#!/usr/bin/env bash\nprintf 'reload\\n' >> ${JSON.stringify(reloadLog)}\nexit 0\n`);
+  writeExecutable(curl, "#!/usr/bin/env bash\nprintf '200'\nexit 0\n");
+  writeExecutable(systemctl, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(systemctlLog)}
+if [[ "$1" == show ]]; then
+  printf 'ActiveState=active\\nSubState=running\\nMainPID=4242\\n'
+fi
+exit 0
+`);
+  return { release, shared, envFile, nginx, reload, systemctl, curl, systemctlLog, reloadLog, files, names };
+}
+
+function invokeRolling(args, dir, fixture, extraEnv = {}) {
+  return spawnSync("python3", [
+    rollingTransactionScript,
+    "--primary-port", "4174",
+    "--candidate-port", "4175",
+    "--release", fixture.release,
+    "--env-file", fixture.envFile,
+    "--nginx-bin", fixture.nginx,
+    "--reload-command", fixture.reload,
+    "--systemctl", fixture.systemctl,
+    "--curl-bin", fixture.curl,
+    "--candidate-health-base", "http://candidate.invalid",
+    "--wait-attempts", "1",
+    "--wait-delay", "0",
+    "--health-url", "https://example.invalid/api/health",
+    ...fixture.files.flatMap((file, index) => ["--nginx-file", file, "--upstream-name", fixture.names[index]]),
+    ...args,
+  ], {
+    cwd: root,
+    maxBuffer: 10 * 1024 * 1024,
+    env: {
+      ...process.env,
+      PATH: `${dir}:${process.env.PATH}`,
+      NGINX_UPSTREAM_SWITCH_LOCK: path.join(dir, "switch.lock"),
+      NGINX_UPSTREAM_SWITCH_JOURNAL_DIR: dir,
+      ...extraEnv,
+    },
+    encoding: "utf8",
+  });
+}
+
+test("rolling transaction defaults to dry-run and rejects missing or inconsistent runtime media", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    const dry = invokeRolling([], dir, fixture);
+    assert.equal(dry.status, 0, `${dry.stdout}\n${dry.stderr}`);
+    assert.match(dry.stdout, /PLAN upstream_switch=4174->4175/);
+    assert.equal(fs.existsSync(fixture.systemctlLog), false);
+    assert.equal(fs.existsSync(fixture.reloadLog), false);
+
+    fs.writeFileSync(fixture.envFile, "");
+    const missing = invokeRolling(["--apply"], dir, fixture);
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /RUNTIME_MEDIA_ROOT is required/);
+    assert.equal(fs.existsSync(fixture.reloadLog), false);
+
+    fs.writeFileSync(fixture.envFile, `RUNTIME_MEDIA_ROOT=${fs.realpathSync(path.join(dir, "release"))}\n`);
+    const mismatch = invokeRolling(["--apply"], dir, fixture);
+    assert.notEqual(mismatch.status, 0);
+    assert.match(`${mismatch.stdout}${mismatch.stderr}`, /RUNTIME_MEDIA_ROOT mismatch/);
+    assert.equal(fs.existsSync(fixture.reloadLog), false);
+  });
+});
+
+test("rolling transaction discovers 4175 as active instead of assuming 4174", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir, { activePort: 4175 });
+    const result = invokeRolling([], dir, fixture);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /OBSERVED active_port=4175/);
+    assert.match(result.stdout, /PLAN upstream_switch=4175->4174/);
+  });
+});
+
+test("rolling transaction stops before cutover when candidate startup fails", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    writeExecutable(fixture.systemctl, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(fixture.systemctlLog)}
+if [[ "$1" == show ]]; then
+  printf 'ActiveState=active\\nSubState=running\\nMainPID=4242\\n'
+fi
+if [[ "$1" == start ]]; then exit 1; fi
+exit 0
+`);
+    const original = fixture.files.map((file) => fs.readFileSync(file, "utf8"));
+    const result = invokeRolling(["--apply"], dir, fixture);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /command failed .*start/);
+    assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
+    assert.equal(fs.existsSync(fixture.reloadLog), false);
+  });
+});
+
+test("rolling transaction stops before cutover when a migration hook fails", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    const original = fixture.files.map((file) => fs.readFileSync(file, "utf8"));
+    const result = invokeRolling(["--apply", "--migrate-command", "exit 17"], dir, fixture);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /command failed \(17\)/);
+    assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
+    assert.equal(fs.existsSync(fixture.reloadLog), false);
+  });
+});
+
+test("rolling transaction refuses to cut over when the primary is unhealthy", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    writeExecutable(fixture.systemctl, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(fixture.systemctlLog)}
+if [[ "$1" == show && "$2" == raising-game-demo.service ]]; then
+  printf 'ActiveState=inactive\\nSubState=dead\\nMainPID=0\\n'
+else
+  printf 'ActiveState=active\\nSubState=running\\nMainPID=4242\\n'
+fi
+exit 0
+`);
+    const original = fixture.files.map((file) => fs.readFileSync(file, "utf8"));
+    const result = invokeRolling(["--apply"], dir, fixture);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /raising-game-demo\.service is not active\/running/);
+    assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
+    assert.equal(fs.existsSync(fixture.reloadLog), false);
+    assert.equal(fs.existsSync(fixture.systemctlLog), true);
+    assert.doesNotMatch(fs.readFileSync(fixture.systemctlLog, "utf8"), /start/);
+  });
+});
+
+test("rolling transaction stops before cutover when candidate readiness times out", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    writeExecutable(fixture.curl, `#!/usr/bin/env bash
+if [[ "$*" == *"readyz"* ]]; then
+  printf '503'
+else
+  printf '200'
+fi
+exit 0
+`);
+    const original = fixture.files.map((file) => fs.readFileSync(file, "utf8"));
+    const result = invokeRolling(["--apply"], dir, fixture);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /health check did not return 200: http:\/\/candidate\.invalid\/api\/readyz/);
+    assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
+    assert.equal(fs.existsSync(fixture.reloadLog), false);
+  });
+});
+
+test("rolling transaction does not partially switch unrelated or mismatched upstreams", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    fs.appendFileSync(fixture.files[1], "upstream unrelated_service { server 127.0.0.1:5000; }\n");
+    fs.writeFileSync(fixture.files[2], fs.readFileSync(fixture.files[2], "utf8").replace("127.0.0.1:4175 backup", "127.0.0.1:4180 backup"));
+    const original = fixture.files.map((file) => fs.readFileSync(file, "utf8"));
+    const result = invokeRolling(["--apply"], dir, fixture);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /all traffic upstreams must contain the same backend set/);
+    assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
+    assert.equal(fs.existsSync(fixture.reloadLog), false);
+  });
+});
+
+test("rolling transaction never replays request methods or bodies", () => {
+  assert.doesNotMatch(rollingTransactionSource, /--(?:request|data|form|upload-file|json)\b/);
+  assert.doesNotMatch(rollingTransactionSource, /requests\.(?:post|put|patch|delete)/);
+  assert.doesNotMatch(upstreamSwitchScriptSource, /--(?:request|data|form|upload-file|json)\b/);
+});
+
+test("rolling transaction ignores unrelated upstream groups when discovering traffic", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    fs.appendFileSync(fixture.files[1], "upstream unrelated_service { server 127.0.0.1:5000; }\n");
+    const result = invokeRolling([], dir, fixture);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /OBSERVED active_port=4174/);
+    assert.match(result.stdout, /PLAN upstream_switch=4174->4175/);
+  });
+});
+
+test("rolling transaction rejects symlinked and invalid shared media roots before mutation", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    const link = path.join(dir, "linked-assets");
+    fs.symlinkSync(fixture.shared, link);
+    fs.writeFileSync(fixture.envFile, `RUNTIME_MEDIA_ROOT=${link}\n`);
+    const linked = invokeRolling(["--apply"], dir, fixture);
+    assert.notEqual(linked.status, 0);
+    assert.match(`${linked.stdout}${linked.stderr}`, /RUNTIME_MEDIA_ROOT must not be a symlink/);
+    assert.equal(fs.existsSync(fixture.reloadLog), false);
+
+    fs.writeFileSync(fixture.envFile, `RUNTIME_MEDIA_ROOT=${path.join(dir, "missing-assets")}\n`);
+    const missing = invokeRolling(["--apply"], dir, fixture);
+    assert.notEqual(missing.status, 0);
+    assert.match(`${missing.stdout}${missing.stderr}`, /RUNTIME_MEDIA_ROOT must be an existing directory/);
+    assert.equal(fs.existsSync(fixture.reloadLog), false);
+  });
+});
+
+test("rolling transaction rolls all upstreams back when a post-cutover health check fails", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    const original = fixture.files.map((file) => fs.readFileSync(file, "utf8"));
+    const promotedHealthCount = path.join(dir, "promoted-health-count");
+    writeExecutable(fixture.reload, `#!/usr/bin/env bash
+printf 'reload\\n' >> ${JSON.stringify(fixture.reloadLog)}
+exit 0
+`);
+    writeExecutable(fixture.curl, `#!/usr/bin/env bash
+if [[ "$*" == *"https://example.invalid/api/health"* ]] && grep -q '127.0.0.1:4175; server 127.0.0.1:4174 backup' ${JSON.stringify(fixture.files[0])}; then
+  n=0
+  [[ -f ${JSON.stringify(promotedHealthCount)} ]] && n=$(cat ${JSON.stringify(promotedHealthCount)})
+  n=$((n + 1))
+  printf '%s' "$n" > ${JSON.stringify(promotedHealthCount)}
+  [[ "$n" -eq 1 ]] && printf '200' && exit 0
+  printf '503'
+else
+  printf '200'
+fi
+exit 0
+`);
+    const result = invokeRolling(["--apply"], dir, fixture);
+    assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(`${result.stdout}${result.stderr}`, /health check did not return 200/);
+    assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
+    assert.match(result.stdout, /ROLLBACK_OK upstream=4174/);
+    assert.equal(fs.readFileSync(fixture.reloadLog, "utf8").trim().split("\n").length, 2);
+  });
+});
+
+test("rolling transaction reports rollback failure instead of claiming recovery", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    const promotedHealthCount = path.join(dir, "promoted-health-count");
+    writeExecutable(fixture.reload, `#!/usr/bin/env bash
+printf 'reload\\n' >> ${JSON.stringify(fixture.reloadLog)}
+if grep -q 'server 127.0.0.1:4174; server 127.0.0.1:4175 backup' ${JSON.stringify(fixture.files[0])}; then
+  exit 9
+fi
+exit 0
+`);
+    writeExecutable(fixture.curl, `#!/usr/bin/env bash
+if [[ "$*" == *"https://example.invalid/api/health"* ]] && grep -q '127.0.0.1:4175; server 127.0.0.1:4174 backup' ${JSON.stringify(fixture.files[0])}; then
+  n=0
+  [[ -f ${JSON.stringify(promotedHealthCount)} ]] && n=$(cat ${JSON.stringify(promotedHealthCount)})
+  n=$((n + 1))
+  printf '%s' "$n" > ${JSON.stringify(promotedHealthCount)}
+  [[ "$n" -eq 1 ]] && printf '200' && exit 0
+  printf '503'
+else
+  printf '200'
+fi
+exit 0
+`);
+    const result = invokeRolling(["--apply"], dir, fixture);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /ROLLBACK_FAILED upstream=4174/);
+    assert.match(`${result.stdout}${result.stderr}`, /manual intervention required/);
+  });
+});
+
+test("rolling transaction verifies an already-active candidate and never self-switches", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir, { activePort: 4174 });
+    // Make 4175 the active member while preserving the same candidate port.
+    for (const file of fixture.files) {
+      fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("server 127.0.0.1:4174; server 127.0.0.1:4175 backup;", "server 127.0.0.1:4175; server 127.0.0.1:4174 backup;"));
+    }
+    const result = invokeRolling(["--apply"], dir, fixture);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /ROLLING_DEPLOY_NOOP active_port=4175/);
+    assert.equal(fs.existsSync(fixture.reloadLog), false);
   });
 });

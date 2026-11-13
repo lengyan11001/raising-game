@@ -153,13 +153,20 @@ install -d -m 0755 "$UNIT_DIR"
 install_atomic "$SOURCE_SERVICE" "$UNIT_DIR/$SERVICE_NAME"
 install_atomic "$SOURCE_TIMER" "$UNIT_DIR/$TIMER_NAME"
 
-install -d -m 0755 "$DROPIN_DIR"
-cat > "$DROPIN_FILE.tmp" <<DROPIN
+if [[ "$MODE" == "active" ]]; then
+  # Active mode must not inherit a stale dry-run drop-in. Other operator
+  # drop-ins remain untouched.
+  rm -f "$DROPIN_FILE"
+  rmdir "$DROPIN_DIR" 2>/dev/null || true
+else
+  install -d -m 0755 "$DROPIN_DIR"
+  cat > "$DROPIN_FILE.tmp" <<'DROPIN'
 [Service]
-Environment=WATCHDOG_DRY_RUN=$([[ "$MODE" == "active" ]] && printf 0 || printf 1)
+Environment=WATCHDOG_DRY_RUN=1
 DROPIN
-chmod 0644 "$DROPIN_FILE.tmp"
-mv -f "$DROPIN_FILE.tmp" "$DROPIN_FILE"
+  chmod 0644 "$DROPIN_FILE.tmp"
+  mv -f "$DROPIN_FILE.tmp" "$DROPIN_FILE"
+fi
 
 if [[ "$ALLOW_NONROOT" == "1" ]]; then
   log "test mode: units written to $UNIT_DIR; invoking systemctl unchanged"

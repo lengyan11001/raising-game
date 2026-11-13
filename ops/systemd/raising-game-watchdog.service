@@ -7,6 +7,10 @@ ConditionPathExists=/opt/raising-game-demo/ops/service-watchdog.sh
 Type=oneshot
 User=root
 Environment=HEALTH_URL=http://127.0.0.1:4174/api/livez
+Environment=READINESS_URL=http://127.0.0.1:4174/api/readyz
+Environment=READINESS_REQUIRED=1
+Environment=DEPENDENCY_FAILURE_THRESHOLD=3
+Environment=DEPENDENCY_STATE_FILE=/run/raising-game-watchdog.dependency.failures
 Environment=FAILURE_THRESHOLD=3
 Environment=TIMEOUT_SECONDS=3
 Environment=SERVICE=raising-game-demo
