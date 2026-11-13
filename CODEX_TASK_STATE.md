@@ -4141,3 +4141,10 @@ CODEX_TASK_STATE.md
 - Deployment: source commit `55aa17bbdf0187aec003af5bc86db098792a88d0`; platform release `1dbd3380fdee1541ded849cfa731581d354b7641` was built from that source, pushed only to `platform-release`, and deployed only to Old with `scripts/deploy_local.sh --site old`.
 - Post-deploy verification: server release is `1dbd338`; `raising-game-demo` is active/running with `NRestarts=0`; no matching uncaught/unhandled exception, fatal, connection, pool-timeout, or generation-timeout signatures in the recent service logs; `/api/health`, `/api/readyz`, and the homepage all return 200; the public UI chunk contains `advancedImageModeForProvider` and `syncAdvancedCreateModeTabState`.
 - Status: deployed Old only. Existing login sessions were not cleared, and Live remains untouched.
+
+## 2026-11-13 Step BO: Seedream 5 aspect-ratio control restored
+
+- User reported Seedream 5 still exposed only one generation parameter. Root cause: the Seedream image ratio field was explicitly hidden while only resolution remained visible.
+- Restored the five configured Seedream ratios (`1:1`, `3:4`, `4:3`, `9:16`, `16:9`) and stopped hiding the ratio field for `seedream5-image`; Qwen Image Edit remains follow-source size with no independent ratio/resolution controls.
+- Regression coverage added to `test/image-model-size-selection.test.js`. Full suite: `1307 pass / 0 fail / 1 skip`.
+- Status: ready to commit and deploy Old only; existing sessions must remain valid and Live must remain untouched.
