@@ -95,6 +95,15 @@
 
 ## 2026-11-12 Step BB: generation-record polling skips full history counts
 
+## 2026-11-13 Step BC: 11.11 activity closed in source; Old deployment blocked by SSH
+
+- User requested the top-right activity go offline. Scope was narrowed to the shared 11.11 promotion entry/checkout only; `联系我们`, fans Cases rollback, wallet infrastructure, and Live were left unchanged.
+- Source commit `8a10e85d` adds a server-authoritative `enabled: false` campaign flag, makes `/api/promo/1111` report `visible:false / active:false`, and closes new checkout with `403 PROMO_CLOSED / 本次活动已结束。`. Existing dialog HTML, payment-return handling, Stripe settlement, and historical purchase state remain intact.
+- Focused promotion regression passed `9/9`; `node --check` for the changed server/UI files and `git diff --check` passed. A clean platform release `f8ef2b5c` was built from that source; its diff from the prior release is exactly `server.parts/part-44.js` and `test/eleven-eleven-promo.test.js`.
+- `old-site` and `platform-release` were pushed atomically. `live-release` remains `f40e7a35` and was not pushed or deployed.
+- Deployment attempt through `scripts/deploy_local.sh --site old` stopped at SSH connection: `47.84.76.131:22` returns `Connection refused`. Three repeated probes over 15 seconds failed; TCP `80/443` and both `123vips.com` / `123vip.fans` health endpoints remain available. The host was not modified.
+- Post-attempt production status still reports the old promotion state: `GET https://123vips.com/api/promo/1111` returns `visible:true / active:true`. No deployment is considered complete until the management port recovers and the release is installed and verified.
+
 - `GET /api/generation-records?...&refresh=1&poll=1` now uses a bounded first-page query without `COUNT(*) OVER()`. Normal history pagination still returns the authoritative `total` and `totalPages`; the poll response keeps the same fields but treats its total as a non-authoritative page estimate.
 - Production read-only `EXPLAIN (ANALYZE, BUFFERS)` on the largest sampled user with 2,891 live records: old counted query `92.877 ms`, 15,709 shared buffers and 2,891 scanned rows; lightweight query `1.363 ms`, 160 shared buffers and 21 scanned rows. Both use `app_generation_records_user_created_idx`; no schema or index change.
 - Candidate source `259ae4f173315002dbc1e49033176579945821e5`; exact platform release `9ea834f955235e2a38539eb5c7aae171b310c29e`. The release differs from deployed `085254748d153fc7e20247d376176536332e615c` only by this state file and the three intended polling files.
