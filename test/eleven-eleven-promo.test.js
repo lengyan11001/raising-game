@@ -97,18 +97,19 @@ test("server defines the two campaign SKUs with authoritative price and credit v
   assert.doesNotMatch(source, /readDb\(|readFile|data\/.+\.json/);
 });
 
-test("promotion status reports inventory and per-user purchase state from the server clock", () => {
+test("promotion status stays closed while preserving historical purchase state", () => {
   const { ELEVEN_ELEVEN_PROMO, elevenElevenCampaignOpen, elevenElevenCampaignVisible, elevenElevenCampaignWindow, elevenElevenPublicPromo } = promotionHelpers();
   const beforeStart = ELEVEN_ELEVEN_PROMO.startsAt - 1;
   const during = ELEVEN_ELEVEN_PROMO.startsAt + 1;
   const afterFirstPeriod = ELEVEN_ELEVEN_PROMO.startsAt + ELEVEN_ELEVEN_PROMO.periodSeconds * 1000 + 1;
   const afterEnd = ELEVEN_ELEVEN_PROMO.startsAt + ELEVEN_ELEVEN_PROMO.periodSeconds * 1000 * 2;
 
-  assert.equal(elevenElevenCampaignVisible(beforeStart), true);
+  assert.equal(ELEVEN_ELEVEN_PROMO.enabled, false);
+  assert.equal(elevenElevenCampaignVisible(beforeStart), false);
   assert.equal(elevenElevenCampaignOpen(beforeStart), false);
-  assert.equal(elevenElevenCampaignOpen(during), true);
-  assert.equal(elevenElevenCampaignVisible(afterEnd), true);
-  assert.equal(elevenElevenCampaignOpen(afterEnd), true);
+  assert.equal(elevenElevenCampaignOpen(during), false);
+  assert.equal(elevenElevenCampaignVisible(afterEnd), false);
+  assert.equal(elevenElevenCampaignOpen(afterEnd), false);
   assert.equal(elevenElevenCampaignWindow(afterFirstPeriod).startsAt, ELEVEN_ELEVEN_PROMO.startsAt + ELEVEN_ELEVEN_PROMO.periodSeconds * 1000);
   assert.equal(elevenElevenCampaignWindow(afterFirstPeriod).endsAt, ELEVEN_ELEVEN_PROMO.startsAt + ELEVEN_ELEVEN_PROMO.periodSeconds * 1000 * 2);
 
@@ -121,7 +122,8 @@ test("promotion status reports inventory and per-user purchase state from the se
   const member = promo.skus.find((sku) => sku.id === "member");
   const credits = promo.skus.find((sku) => sku.id === "credits");
 
-  assert.equal(promo.active, true);
+  assert.equal(promo.visible, false);
+  assert.equal(promo.active, false);
   assert.equal(member.sold, 896);
   assert.equal(member.purchased, true);
   assert.equal(member.owned, false);
@@ -158,7 +160,7 @@ test("checkout allows unlimited credits purchases while the member SKU stays onc
   const db = read("db.js");
 
   assert.match(source, /if \(!dbEnabled\(\)\) return sendJson\(res, 503,[\s\S]*?DATABASE_REQUIRED/);
-  assert.match(source, /if \(!elevenElevenCampaignStarted\(\)\)[\s\S]*?PROMO_CLOSED/);
+  assert.match(source, /if \(!elevenElevenCampaignOpen\(\)\)[\s\S]*?PROMO_CLOSED/);
   assert.match(source, /reservePromotionPurchaseInDb\(\{/);
   assert.doesNotMatch(source, /capacity: sku\.capacity|PROMO_SOLD_OUT/);
   assert.match(source, /reservationSeconds: ELEVEN_ELEVEN_PROMO\.reservationSeconds/);

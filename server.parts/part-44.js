@@ -1,6 +1,7 @@
 // 11.11 promotion campaign: server-authoritative SKUs, purchase reservations, and Stripe checkout.
 const ELEVEN_ELEVEN_PROMO = Object.freeze({
   id: "eleven-eleven-2026",
+  enabled: false,
   startsAt: Date.parse(process.env.ELEVEN_ELEVEN_STARTS_AT || "2026-11-06T00:00:00+07:00"),
   periodSeconds: Math.max(3600, Number(process.env.ELEVEN_ELEVEN_PERIOD_SECONDS || 3 * 24 * 60 * 60) || 3 * 24 * 60 * 60),
   reservationSeconds: Math.max(300, Math.min(3600, Number(process.env.ELEVEN_ELEVEN_RESERVATION_SECONDS || 1500) || 1500)),
@@ -37,7 +38,7 @@ function elevenElevenCampaignWindow(now = Date.now()) {
   const period = Math.floor(elapsed / periodMs);
   return {
     started,
-    active: started,
+    active: ELEVEN_ELEVEN_PROMO.enabled && started,
     startsAt: ELEVEN_ELEVEN_PROMO.startsAt + period * periodMs,
     endsAt: ELEVEN_ELEVEN_PROMO.startsAt + (period + 1) * periodMs,
     nextStartsAt: ELEVEN_ELEVEN_PROMO.startsAt + (period + 1) * periodMs,
@@ -53,7 +54,7 @@ function elevenElevenCampaignOpen(now = Date.now()) {
 }
 
 function elevenElevenCampaignVisible(now = Date.now()) {
-  return true;
+  return ELEVEN_ELEVEN_PROMO.enabled;
 }
 
 function elevenElevenCampaignRenewed(now = Date.now(), previousPeriodStartedAt = 0) {
@@ -111,8 +112,8 @@ async function createElevenElevenCheckout(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "活动数据需要 PostgreSQL，当前服务未配置 DATABASE_URL。" });
-  if (!elevenElevenCampaignStarted()) {
-    return sendJson(res, 403, { ok: false, code: "PROMO_CLOSED", message: "活动尚未开始。" });
+  if (!elevenElevenCampaignOpen()) {
+    return sendJson(res, 403, { ok: false, code: "PROMO_CLOSED", message: "本次活动已结束。" });
   }
   const body = await readJson(req);
   const sku = elevenElevenSku(body.sku);
