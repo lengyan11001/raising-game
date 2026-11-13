@@ -4126,3 +4126,16 @@ CODEX_TASK_STATE.md
 - Verification: focused size tests `6/6` pass; prior Qwen/Vega regeneration tests `30/30` pass; full suite `1305 pass / 0 fail / 1 skip` in `/tmp/raising-size-full-final-2.log`; modified JS syntax checks and `git diff --check` pass.
 - Source commit: `b1033a0d Fix image model size capabilities`.
 - Deployment status at record time: not yet published. Intended scope is Old only via committed `old-site` integration, `platform-release`, and `scripts/deploy_local.sh --site old`; Live must remain untouched. Existing login sessions must not be invalidated.
+- Deployment completed after the initial record above. Integration commit `b1777075` was pushed to `old-site`; platform release `1fd66f0b4279b48e6175ef3b13705179dde72287` was built from it and pushed only to `platform-release`; Old was deployed with `scripts/deploy_local.sh --site old`.
+- Post-deploy checks: Old release is `1fd66f0`; `/api/health` and `/api/readyz` return 200; public config exposes Qwen Edit with no size selection while Seedream 5, Z-Image Spicy Pro, and Qwen Image 3 retain size controls; startup logs show no new generation errors or refund failures. Existing sessions were not cleared.
+- Read-only production DB verification: `img-20261113145859-b90c37` is succeeded with stored provider `z-image-spicy-pro`, upstream task `mr:qwen-image-edit-spicy:...`, historical `params.size=1536*2048`, and `ratio=3:4 / resolution=2K`. With MuleRouter routing enabled, reference-image edits are routed to Qwen Edit, whose output size follows the source image. The historical fields explain the discrepancy; the fix stops new Qwen Edit requests from persisting or sending invalid size values and rejects Z-Image requests with reference images.
+- Additional post-deploy regression: `test/image-model-size-selection.test.js` plus `test/vega-regeneration-media.test.js` pass `36/36`; the last two hours have 7 image records and 0 failures. Live `live-release` remains `f40e7a35` and was neither pushed nor deployed.
+
+## 2026-11-13 Step BN: Seedream 5 generation-mode consistency
+
+- Confirmed Seedream 5 is not an image-edit model: client submission goes through `/api/advanced/generate`; backend routes `seedream5-image` to `/api/v3/images/generations`; records use action `text_to_image` or `image_reference`. Reference images are generation references, not source images to edit.
+- Confirmed the only advanced image-edit provider remains `qwen-image-edit-spicy`; Seedream 5 is absent from `ADVANCED_IMAGE_PROVIDERS`.
+- Fixed a UI-state inconsistency: selecting Seedream 5 (or Qwen Image 3 / Z-Image) while the image tab still showed `image-edit` now switches the mode to `image-create`; selecting Qwen Image Edit switches to `image-edit`. Mode tabs and the selected asset target stay synchronized with the provider.
+- Files changed: `platform.ui.parts/part-04.js`, `platform.main.js`, `test/image-model-size-selection.test.js`.
+- Verification: focused image/advanced/media tests `80/80` pass; full suite `1306 pass / 0 fail / 1 skip`; syntax checks and `git diff --check` pass.
+- Status: ready to commit and deploy Old only. Existing sessions must not be cleared; Live must remain untouched.

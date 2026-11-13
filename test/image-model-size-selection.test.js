@@ -9,6 +9,8 @@ const root = path.resolve(__dirname, "..");
 const serverSource = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const platformConfig = fs.readFileSync(path.join(root, "platform.config.js"), "utf8");
 const createSource = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
+const platformUiSource = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
+const platformMainSource = fs.readFileSync(path.join(root, "platform.main.js"), "utf8");
 const workflowReactSource = fs.readFileSync(path.join(root, "platform.workflow-react.js"), "utf8");
 const siteImageNodeSource = fs.readFileSync(path.join(root, "workflow-react", "src", "components", "canvas", "siteNodes", "SiteImageGenerationNode.js"), "utf8");
 
@@ -154,4 +156,25 @@ test("server enforces Z-Image text-only and Qwen Image Edit reference-image requ
   assert.match(serverSource, /pricingProvider === "qwen-image-edit-spicy" && !hasReferenceImages/);
   assert.match(serverSource, /QWEN_IMAGE_EDIT_REFERENCE_REQUIRED/);
   assert.match(serverSource, /includeSizeSelection: pricingProvider !== "qwen-image-edit-spicy"/);
+});
+
+test("Seedream 5 is image generation, never an image-edit mode", () => {
+  assert.match(createSource, /const ADVANCED_IMAGE_PROVIDERS = \["z-image-spicy-pro", "qwen-image-edit-spicy"\];/);
+  assert.doesNotMatch(createSource, /ADVANCED_IMAGE_PROVIDERS = \[[^\]]*seedream5-image/);
+  assert.match(createSource, /if \(\["seedream5-image", "qwen-image3"\]\.includes\(provider\)\)[\s\S]*?requestJson\("\/api\/advanced\/generate"/);
+  assert.match(serverSource, /action: referenceInputs\.length \? "image_reference" : "text_to_image"/);
+
+  const modeForProvider = new Function(
+    "state",
+    "normalizeAdvancedProvider",
+    [
+      extractFunction(platformUiSource, "advancedImageModeForProvider"),
+      "return advancedImageModeForProvider;",
+    ].join("\n"),
+  )({ advancedCreateKind: "image" }, (value) => String(value || "").trim().toLowerCase());
+  assert.equal(modeForProvider("seedream5-image"), "image-create");
+  assert.equal(modeForProvider("qwen-image3"), "image-create");
+  assert.equal(modeForProvider("z-image-spicy-pro"), "image-create");
+  assert.equal(modeForProvider("qwen-image-edit-spicy"), "image-edit");
+  assert.match(platformMainSource, /const nextImageMode = advancedImageModeForProvider\(provider\);\n  if \(nextImageMode && state\.advancedCreateMode !== nextImageMode\) \{\n    state\.advancedCreateMode = nextImageMode;\n    syncAdvancedCreateModeTabState\(\);/);
 });
