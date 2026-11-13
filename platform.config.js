@@ -136,7 +136,7 @@ const WORKFLOW_IMAGE_MODEL_LIBRARY = Object.freeze([
   Object.freeze({ id: "qwen-image3", label: "Qwen Image 3.0", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], tiers: ["pro", "standard"], defaultTier: "pro", outputCounts: [1, 2, 3, 4, 5, 6], promptExtend: true, watermark: false, referenceLimit: 3 }),
   Object.freeze({ id: "seedream5-image", label: "Seedream 5.0 Image", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], tiers: ["pro"], defaultTier: "pro", referenceLimit: 9 }),
   Object.freeze({ id: "z-image-spicy-pro", label: "Z-Image Spicy Pro", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], referenceLimit: 0 }),
-  Object.freeze({ id: "qwen-image-edit-spicy", label: "Qwen Image Edit Spicy", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], referenceLimit: 3 }),
+  Object.freeze({ id: "qwen-image-edit-spicy", label: "Qwen Image Edit Spicy", resolution: "", ratio: "", resolutions: [], ratios: [], supportsSizeSelection: false, referenceLimit: 3 }),
 ]);
 const WORKFLOW_VIDEO_MODEL_LIBRARY = Object.freeze([
   Object.freeze({ id: "seedance", label: "Seedance 2.0", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["480p", "720p", "1080p", "4k"], ratios: ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 30], modes: [{ value: "reference_video", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "reference_video" }),
@@ -1522,6 +1522,7 @@ const els = {
   advancedQwen37Temperature: document.querySelector("#advancedQwen37Temperature"),
   advancedRatio: document.querySelector("#advancedRatio"),
   advancedResolution: document.querySelector("#advancedResolution"),
+  advancedSizeFollowNote: document.querySelector("#advancedSizeFollowNote"),
   advancedDuration: document.querySelector("#advancedDuration"),
   advancedVideoSettings: document.querySelector("#advancedVideoSettings"),
   advancedVideoResolutionChoices: document.querySelector("#advancedVideoResolutionChoices"),

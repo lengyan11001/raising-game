@@ -30,22 +30,36 @@ async function resolveWan27ImageResult(raw = {}, { timeoutMs = 10 * 60 * 1000, p
   return task;
 }
 
-function wan27ImageRequestOptions(body = {}, { defaultModel = WAN27_IMAGE_PRO_MODEL, defaultRatio = "9:16", defaultResolution = "2K" } = {}) {
+function wan27ImageRequestOptions(body = {}, {
+  defaultModel = WAN27_IMAGE_PRO_MODEL,
+  defaultRatio = "9:16",
+  defaultResolution = "2K",
+  includeSizeSelection = true,
+} = {}) {
   const source = { ...requestParamsFromBody(body), ...body };
-  const ratio = normalizeWan27ImageRatio(firstPresent(source.ratio, source.aspect_ratio, defaultRatio));
-  const resolution = normalizeWan27ImageResolution(firstPresent(source.resolution, defaultResolution));
+  const ratio = includeSizeSelection
+    ? normalizeWan27ImageRatio(firstPresent(source.ratio, source.aspect_ratio, defaultRatio))
+    : "";
+  const resolution = includeSizeSelection
+    ? normalizeWan27ImageResolution(firstPresent(source.resolution, defaultResolution))
+    : "";
   const parameters = {
     ...plainObject(source.parameters),
     ...plainObject(source.parameter),
   };
-  if (firstPresent(source.size, parameters.size) !== undefined) parameters.size = String(firstPresent(source.size, parameters.size));
-  else parameters.size = wan27ImageSize(resolution, ratio);
+  if (includeSizeSelection) {
+    if (firstPresent(source.size, parameters.size) !== undefined) parameters.size = String(firstPresent(source.size, parameters.size));
+    else parameters.size = wan27ImageSize(resolution, ratio);
+  } else {
+    delete parameters.size;
+  }
   parameters.n = Number(firstPresent(parameters.n, source.n, 1)) || 1;
   parameters.watermark = boolFromRequest(firstPresent(parameters.watermark, source.watermark), false);
   return {
     model: String(firstPresent(source.model, defaultModel, WAN27_IMAGE_PRO_MODEL)),
     ratio,
     resolution,
+    includeSizeSelection,
     input: plainObject(source.input),
     parameters,
   };
@@ -56,12 +70,27 @@ function exposedWan27ImageParams(imageOptions = {}) {
   const size = parameters.size;
   delete parameters.size;
   return {
-    ratio: imageOptions.ratio,
-    resolution: imageOptions.resolution,
+    ...(imageOptions.ratio ? { ratio: imageOptions.ratio } : {}),
+    ...(imageOptions.resolution ? { resolution: imageOptions.resolution } : {}),
     model: imageOptions.model,
     ...(size ? { size } : {}),
     ...(Object.keys(parameters).length ? { parameters } : {}),
   };
+}
+
+function wan27ImageParamsForRecord(body = {}, imageOptions = {}, extra = {}) {
+  const source = {
+    ...requestParamsFromBody(body),
+    ...plainObject(body?.params),
+  };
+  if (imageOptions.includeSizeSelection === false) {
+    ["ratio", "aspect_ratio", "aspectRatio", "resolution", "resolution_name", "resolutionName", "size"].forEach((key) => delete source[key]);
+    const nested = plainObject(source.parameters);
+    delete nested.size;
+    if (Object.keys(nested).length) source.parameters = nested;
+    else delete source.parameters;
+  }
+  return { ...source, ...extra, ...exposedWan27ImageParams(imageOptions) };
 }
 
 async function submitWan27ImageModify({
@@ -74,12 +103,13 @@ async function submitWan27ImageModify({
   input = {},
   parameters = {},
   waitForResult = true,
+  includeSizeSelection = true,
   user = null,
   userId = "",
 } = {}) {
   const orderedImages = arrayFromBody(imageUrls).map((item) => String(item || "").trim()).filter(Boolean);
   if (!orderedImages.length && imageUrl) orderedImages.push(String(imageUrl || "").trim());
-  if (normalizeWan27ImageResolution(resolution) === "4K" && orderedImages.length) {
+  if (includeSizeSelection && normalizeWan27ImageResolution(resolution) === "4K" && orderedImages.length) {
     const error = new Error("Wan2.7 Image 4K is only available for text-to-image without reference images.");
     error.statusCode = 400;
     error.code = "WAN27_IMAGE_4K_TEXT_ONLY";
@@ -108,11 +138,12 @@ async function submitWan27ImageModify({
     },
     parameters: {
       ...plainObject(parameters),
-      size: firstPresent(parameters.size, wan27ImageSize(resolution, ratio)),
+      ...(includeSizeSelection ? { size: firstPresent(parameters.size, wan27ImageSize(resolution, ratio)) } : {}),
       n: firstPresent(parameters.n, 1),
       watermark: firstPresent(parameters.watermark, false),
     },
   };
+  if (!includeSizeSelection) delete payload.parameters.size;
   payload.parameters.n = Number(firstPresent(parameters.n, payload.parameters.n, 1)) || 1;
   payload.parameters.watermark = boolFromRequest(firstPresent(parameters.watermark, payload.parameters.watermark), false);
   let routeUser = user || currentAuthContext()?.user || null;

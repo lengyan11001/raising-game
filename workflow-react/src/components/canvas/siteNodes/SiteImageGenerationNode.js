@@ -11,6 +11,7 @@ export function SiteImageGenerationNode({ id, selected = false }) {
   const library = window.WORKFLOW_IMAGE_MODEL_LIBRARY || [model];
   const ratios = optionsFrom(typeof window.workflowImageModelOptions === 'function' ? window.workflowImageModelOptions(model) : ['1:1']);
   const resolutions = optionsFrom(typeof window.workflowImageResolutionOptions === 'function' ? window.workflowImageResolutionOptions(model) : ['2K']);
+  const supportsSizeSelection = model.supportsSizeSelection !== false && ratios.length > 0 && resolutions.length > 0;
   const tiers = optionsFrom(model.tiers || [], { standard: 'Standard', pro: 'Pro' });
   const outputCounts = optionsFrom(model.outputCounts || [1], Object.fromEntries((model.outputCounts || [1]).map((value) => [value, `${value} 张`])));
   // A controlled React Flow node can briefly outlive its business record while
@@ -22,10 +23,11 @@ export function SiteImageGenerationNode({ id, selected = false }) {
   const savePrompt = () => update({ prompt });
   const changeModel = (modelId) => {
     const next = typeof window.workflowImageModelById === 'function' ? window.workflowImageModelById(modelId) : model;
+    const nextSupportsSize = next.supportsSizeSelection !== false && next.ratios?.length > 0 && next.resolutions?.length > 0;
     update({
       modelId: next.id,
-      ratio: next.ratios?.includes(data.ratio) ? data.ratio : next.ratio,
-      resolution: next.resolutions?.includes(data.resolution) ? data.resolution : next.resolution,
+      ratio: nextSupportsSize ? (next.ratios?.includes(data.ratio) ? data.ratio : next.ratio) : '',
+      resolution: nextSupportsSize ? (next.resolutions?.includes(data.resolution) ? data.resolution : next.resolution) : '',
       qwenTier: next.id === 'qwen-image3' ? (data.qwenTier || next.defaultTier || 'pro') : data.qwenTier,
       seedreamTier: next.id === 'seedream5-image' ? (data.seedreamTier || next.defaultTier || 'pro') : data.seedreamTier,
       outputImageCount: Number(data.outputImageCount || 1),
@@ -47,7 +49,7 @@ export function SiteImageGenerationNode({ id, selected = false }) {
       <div className="site-generation-node">
         <div className="site-generation-summary">
           <span><i className="bi bi-stars" /> {model.label || model.id || '图片生成'}</span>
-          <small>{data.status ? String(data.status) : '就绪'} · {data.ratio || model.ratio || '1:1'} · {data.resolution || model.resolution || '2K'}</small>
+          <small>{data.status ? String(data.status) : '就绪'} · {supportsSizeSelection ? `${data.ratio || model.ratio || '1:1'} · ${data.resolution || model.resolution || '2K'}` : '尺寸跟随原图'}</small>
         </div>
         <div className="site-generation-controls">
           <label className="site-field site-prompt-field">
@@ -75,18 +77,24 @@ export function SiteImageGenerationNode({ id, selected = false }) {
                 {library.map((item) => <option key={item.id} value={item.id}>{item.label || item.id}</option>)}
               </select>
             </label>
-            <label className="site-field">
-              <span>比例</span>
-              <select value={selectedOption(ratios, data.ratio || model.ratio)} onChange={(event) => update({ ratio: event.target.value })}>
-                {ratios.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
-            <label className="site-field">
-              <span>分辨率</span>
-              <select value={selectedOption(resolutions, data.resolution || model.resolution)} onChange={(event) => update({ resolution: event.target.value })}>
-                {resolutions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
+            {supportsSizeSelection && (
+              <label className="site-field">
+                <span>比例</span>
+                <select value={selectedOption(ratios, data.ratio || model.ratio)} onChange={(event) => update({ ratio: event.target.value })}>
+                  {ratios.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+            )}
+            {supportsSizeSelection ? (
+              <label className="site-field">
+                <span>分辨率</span>
+                <select value={selectedOption(resolutions, data.resolution || model.resolution)} onChange={(event) => update({ resolution: event.target.value })}>
+                  {resolutions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+            ) : (
+              <div className="site-generation-size-note"><span>尺寸</span><strong>跟随原图</strong></div>
+            )}
             {tiers.length > 1 && (
               <label className="site-field">
                 <span>档位</span>

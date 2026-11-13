@@ -1052,23 +1052,26 @@ async function gatewaySubmitWan27ImageEditTask({
   imageUrl,
   imageUrls,
   prompt,
-  ratio = "9:16",
-  resolution = "2K",
+  ratio = "",
+  resolution = "",
   model = WAN27_IMAGE_PRO_MODEL,
   input = {},
   parameters = {},
   waitForResult = true,
+  includeSizeSelection = true,
 } = {}) {
   const orderedImages = arrayFromBody(imageUrls).map((item) => String(item || "").trim()).filter(Boolean);
   if (!orderedImages.length && imageUrl) orderedImages.push(String(imageUrl || "").trim());
   const gatewayBody = {
     prompt,
-    ratio,
-    resolution,
+    ...(includeSizeSelection && ratio ? { ratio } : {}),
+    ...(includeSizeSelection && resolution ? { resolution } : {}),
     model,
     imageUrls: orderedImages,
     input: plainObject(input),
-    parameters: plainObject(parameters),
+    parameters: includeSizeSelection
+      ? plainObject(parameters)
+      : Object.fromEntries(Object.entries(plainObject(parameters)).filter(([key]) => key !== "size")),
     async: waitForResult ? false : true,
   };
   const payload = await gatewayRequest("POST", "/api/wan27/image-edit", gatewayBody);

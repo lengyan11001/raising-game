@@ -629,12 +629,17 @@ function workflowReferencePayload(values = []) {
 function workflowImageGenerationBody(node = {}) {
   const model = workflowImageModelById(node.data?.modelId);
   const references = workflowNodeImageInputs(node);
+  const supportsSizeSelection = model.supportsSizeSelection !== false
+    && Array.isArray(model.ratios) && model.ratios.length > 0
+    && Array.isArray(model.resolutions) && model.resolutions.length > 0;
   const body = {
     provider: model.id,
     prompt: workflowEffectivePrompt(node),
     referenceImages: workflowReferencePayload(references),
-    ratio: node.data?.ratio || model.ratio,
-    resolution: node.data?.resolution || model.resolution,
+    ...(supportsSizeSelection ? {
+      ratio: node.data?.ratio || model.ratio,
+      resolution: node.data?.resolution || model.resolution,
+    } : {}),
     duration: 1,
     params: {
       createKind: "workflow",
@@ -752,8 +757,6 @@ async function workflowSubmitImageTask(node = {}) {
       body: {
         ...source,
         prompt: workflowEffectivePrompt(node),
-        ratio: node.data?.ratio || model.ratio,
-        resolution: node.data?.resolution || model.resolution,
         params: { createKind: "workflow", workflowNodeId: node.id, workflowModelId: model.id },
       },
     });
@@ -763,8 +766,10 @@ async function workflowSubmitImageTask(node = {}) {
   const submitted = workflowRecordFromPayload(payload, {
     prompt: node.data?.prompt || "",
     model: model.label,
-    resolution: node.data?.resolution || model.resolution,
-    ratio: node.data?.ratio || model.ratio,
+    ...(model.supportsSizeSelection === false ? {} : {
+      resolution: node.data?.resolution || model.resolution,
+      ratio: node.data?.ratio || model.ratio,
+    }),
     duration: 1,
   });
   const taskId = payload.taskId || payload.task?.taskId || submitted.taskId || "";

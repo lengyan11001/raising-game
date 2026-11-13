@@ -1007,7 +1007,8 @@ return { advancedRegenerationPrompt };`,
 test("Image regeneration accepts complete img records without a video duration", () => {
   const names = ["advancedRegenerationRecordIsImage", "advancedRegenerationRecordIsComplete"];
   const runtime = new Function(
-    `${extractFunction(createSource, "recordParams")}
+    `const normalizeAdvancedProvider = (value = "") => String(value || "").trim().toLowerCase();
+${extractFunction(createSource, "recordParams")}
 ${names.map((name) => extractFunction(createSource, name)).join("\n")}
 return { advancedRegenerationRecordIsComplete };`,
   )();
@@ -1129,7 +1130,8 @@ test("Regeneration waits for complete detail instead of applying partial poll re
     "t",
     "advancedRegenerationMediaFingerprint",
     "refreshAdvancedRegenerationMediaInBackground",
-    `${extractFunction(createSource, "recordParams")}
+    `const normalizeAdvancedProvider = (value = "") => String(value || "").trim().toLowerCase();
+${extractFunction(createSource, "recordParams")}
 ${createNames.map((name) => extractFunction(createSource, name)).join("\n")}
 return { restoreRecordToAdvancedCreate, advancedRegenerationRecordIsComplete };`,
   )(

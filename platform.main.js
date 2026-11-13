@@ -1170,6 +1170,25 @@ els.advancedProvider?.addEventListener("change", () => {
     if (els.advancedDuration) els.advancedDuration.value = "1";
     state.advancedAssetTarget = "referenceImages";
   }
+  if (currentAdvancedProvider() === "qwen-image-edit-spicy") {
+    state.advancedAssetTarget = "sourceImages";
+  }
+  if (currentAdvancedProvider() === "z-image-spicy-pro") {
+    // Z-Image is text-to-image only. Drop stale source images but preserve the
+    // prompt and unrelated video inputs when the user switches models.
+    state.advancedReferenceImages = [];
+    state.advancedUploadDataUrl = "";
+    state.advancedSourceImageAssetId = "";
+    state.advancedFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameDataUrl = "";
+    state.advancedSeedanceLastFrameAssetId = "";
+    state.advancedSeedanceLastFrameDataUrl = "";
+    state.advancedAssetTarget = "primary";
+    if (els.advancedImage) els.advancedImage.value = "";
+    if (els.advancedSeedanceFirstFrame) els.advancedSeedanceFirstFrame.value = "";
+    if (els.advancedSeedanceLastFrame) els.advancedSeedanceLastFrame.value = "";
+  }
   syncAdvancedVideoCapabilityOptions();
   updateAdvancedModelControls();
   updateAdvancedButtonCost();

@@ -331,7 +331,11 @@ function advancedAssetTargetItems() {
     }
     return targets;
   } else if (isAdvancedImageProvider(provider)) {
-    targets.push({ id: "sourceImages", label: t("advanced.assetTargetSourceImages"), type: "image" });
+    // Z-Image Spicy Pro is text-to-image only. Qwen Image Edit is the
+    // reference-image provider and is the only one that should expose upload.
+    if (provider !== "z-image-spicy-pro") {
+      targets.push({ id: "sourceImages", label: t("advanced.assetTargetSourceImages"), type: "image" });
+    }
   } else if (["seedream5-image", "qwen-image3"].includes(provider)) {
     targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
   } else if (provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)) {
