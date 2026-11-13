@@ -164,8 +164,10 @@ Environment=WATCHDOG_DRY_RUN=1
 DROPIN
   chmod 0644 "$DROPIN_FILE.tmp"
   mv -f "$DROPIN_FILE.tmp" "$DROPIN_FILE"
-else
-  rm -rf "$DROPIN_DIR"
+elif [[ -f "$DROPIN_FILE" ]]; then
+  # Switching from dry-run to active must remove only this installer-owned drop-in.
+  rm -f "$DROPIN_FILE"
+  rmdir "$DROPIN_DIR" 2>/dev/null || true
 fi
 
 if [[ "$ALLOW_NONROOT" == "1" ]]; then

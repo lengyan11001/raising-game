@@ -603,7 +603,7 @@ exit 0
 
     result = spawnSync(script, ["--mode", "active", "--confirm-active"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.service.d")), false);
+    assert.equal(fs.existsSync(path.join(unitDir, "raising-game-watchdog.service.d", "50-dry-run.conf")), false);
 
     result = spawnSync(script, ["--mode", "rollback"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -643,7 +643,7 @@ exit 0
 
     result = spawnSync(script, ["--mode", "active", "--confirm-active"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(fs.readFileSync(dropin, "utf8"), /WATCHDOG_DRY_RUN=0/);
+    assert.equal(fs.existsSync(dropin), false);
 
     result = spawnSync(script, ["--mode", "rollback"], { cwd: root, env: { ...process.env, ...common }, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
