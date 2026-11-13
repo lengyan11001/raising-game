@@ -69,6 +69,7 @@ const {
   qwenImage3OutputUrls,
   qwenImage3ResolutionForSize,
   qwenImage3Size,
+  qwenImage3SizeForSelection,
 } = require("./qwen-image3");
 const {
   VIDEO_TOOL_FACE_SWAP_PROMPT,

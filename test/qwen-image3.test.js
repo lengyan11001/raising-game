@@ -9,6 +9,7 @@ const {
   qwenImage3OfficialPricing,
   qwenImage3OutputUrls,
   qwenImage3Size,
+  qwenImage3SizeForSelection,
 } = require("../qwen-image3");
 
 const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
@@ -42,6 +43,52 @@ test("builds Qwen Image 3.0 multimodal request with official parameter names", (
     negative_prompt: "blur",
     seed: 42,
   });
+});
+
+test("maps every exposed Qwen ratio and resolution to an exact upstream size", () => {
+  const expected = {
+    "1K": {
+      "1:1": "1024*1024",
+      "3:4": "896*1152",
+      "4:3": "1152*896",
+      "9:16": "768*1360",
+      "16:9": "1360*768",
+    },
+    "2K": {
+      "1:1": "2048*2048",
+      "3:4": "1776*2360",
+      "4:3": "2360*1776",
+      "9:16": "1536*2728",
+      "16:9": "2728*1536",
+    },
+  };
+  for (const [resolution, ratios] of Object.entries(expected)) {
+    for (const [ratio, size] of Object.entries(ratios)) {
+      const payload = buildQwenImage3Request({ prompt: "size matrix", resolution, ratio });
+      assert.equal(payload.parameters.size, size, `${resolution} ${ratio}`);
+    }
+  }
+});
+
+test("explicit aspect ratio wins over a conflicting custom size", () => {
+  assert.equal(qwenImage3SizeForSelection({
+    size: "2720*1536",
+    resolution: "2K",
+    ratio: "1:1",
+    ratioSpecified: true,
+  }), "2048*2048");
+  assert.equal(buildQwenImage3Request({
+    prompt: "conflicting size and ratio",
+    size: "2720*1536",
+    resolution: "2K",
+    ratio: "1:1",
+  }).parameters.size, "2048*2048");
+  assert.equal(qwenImage3SizeForSelection({
+    size: "2720*1536",
+    resolution: "2K",
+    ratio: "1:1",
+    ratioSpecified: false,
+  }), "2720*1536");
 });
 
 test("uses agent prompt extension only for text-to-image", () => {

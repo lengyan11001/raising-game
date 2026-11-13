@@ -4149,3 +4149,25 @@ CODEX_TASK_STATE.md
 - Regression coverage added to `test/image-model-size-selection.test.js`. Full suite: `1307 pass / 0 fail / 1 skip`.
 - Deployment: source `a53679cd565c7091a6d9b0cbe31078739ac2c3a7`; platform release `7ae814dbc35d538ad90f1623b76a09ed2fe684a5` pushed only to `platform-release` and deployed only to Old with `scripts/deploy_local.sh --site old`.
 - Post-deploy verification: server release is `7ae814d`; service is active/running with `NRestarts=0`; recent matching error count is 0; `/api/health`, `/api/readyz`, homepage, and `platform.html` return 200; the public create UI chunk contains the restored Seedream ratio logic. Existing sessions were not cleared and Live remained untouched.
+
+## 2026-11-13 Step BP: Seedream 5 ratio dropped upstream
+
+- User report `img-20261113170410-0bf5b0`: selected Seedream `1:1`, but the generated result was `9:16`. The historical result is fixed-size portrait output and cannot be converted retroactively; new generations use the corrected request path.
+- Root cause: the frontend sent `ratio: "1:1"`, but the Seedream server handler persisted/used only `size: "2K"` and sent no ratio or exact dimensions upstream. The upstream interpreted that as `1488x2656` (`9:16`).
+- Fix: added `normalizeSeedream5ImageRatio()` and `seedream5ImageSize(resolution, ratio)` using the official Volcengine pixel mappings, propagated ratio through request fingerprints and generation parameters, persisted `ratio`/`resolution`/exact `size`, and sent exact dimensions in both direct and gateway upstream payloads.
+- Supported mappings:
+  - `1K`: `1:1=1024x1024`, `3:4=864x1152`, `4:3=1152x864`, `9:16=800x1424`, `16:9=1424x800`
+  - `2K`: `1:1=2048x2048`, `3:4=1776x2368`, `4:3=2368x1776`, `9:16=1584x2816`, `16:9=2816x1584`
+- Verification: focused tests `9/9` and full suite `1308 pass / 0 fail / 1 skip`; `node --check` and `git diff --check` pass.
+- Production end-to-end verification with existing logged-in `test01` created task `img-20261113171312-17ff34` with DB `ratio: 1:1`, resolved `size: 2048x2048`, upstream payload `size: 2048x2048`, successful/settled billing, and downloaded output dimensions confirmed by `sips` as `2048x2048`; UI thumbnail/preview showed the square result. Existing sessions were not invalidated.
+- Deployment: source commit `88617c63fb355de19e64f51fc4d40159602be4c2`; platform release `182a9341232143fe595f136e946c153bfeafe81e` deployed only to Old through `scripts/deploy_local.sh --site old`. Production release HEAD `182a934`; service active/running with `NRestarts=0`; health and readiness both 200.
+- Status: deployed Old only. Remote Live remains `f40e7a35` and was not pushed or deployed.
+
+## 2026-11-13 Step BQ: systematic image size audit and Qwen ratio precedence
+
+- Audited seven days of production image tasks across the create page and workflow image paths. Found one real historical mismatch beyond the previously fixed Seedream report: `img-20261111175315-8e8113` selected `qwen-image3` / `1:1` / `2K`, but persisted and generated `2720x1536` (`16:9`). Cause: a conflicting explicit `size=2720*1536` overrode the user's selected ratio.
+- Fixed Qwen Image 3 precedence: an explicit/valid ratio now overrides a conflicting custom size, while a valid explicit size remains supported when no ratio is supplied. Applied consistently in `qwen-image3.js`, `server.parts/part-01.js`, and `server.parts/part-28.js`.
+- Added regression coverage for Qwen Image 3, Seedream 5, Z-Image, Wan2.7, MuleRouter Z-Image, create page, workflow image node, and Qwen Image Edit follow-source behavior. Conflicting Qwen ratio+size, all five ratios at 1K/2K, and explicit custom-size compatibility are covered.
+- Verification: focused tests `26/26`; full suite `1315 pass / 0 fail / 1 skip`; `node --check` and `git diff --check` pass. Evidence: `/tmp/raising-size-full-3.log`.
+- Source commit `65bbe346 Harden image size selection across models`. Historical images are not regenerated or rewritten; the fix affects new tasks.
+- Deployment status at record time: not yet published. Intended scope is Old only via committed `old-site` integration and `platform-release`; Live must remain untouched. Existing login sessions must not be invalidated.
