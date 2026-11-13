@@ -178,3 +178,11 @@ test("Seedream 5 is image generation, never an image-edit mode", () => {
   assert.equal(modeForProvider("qwen-image-edit-spicy"), "image-edit");
   assert.match(platformMainSource, /const nextImageMode = advancedImageModeForProvider\(provider\);\n  if \(nextImageMode && state\.advancedCreateMode !== nextImageMode\) \{\n    state\.advancedCreateMode = nextImageMode;\n    syncAdvancedCreateModeTabState\(\);/);
 });
+
+test("Seedream 5 exposes both aspect ratio and resolution controls", () => {
+  assert.match(createSource, /const imageRatios = \["1:1", "3:4", "4:3", "9:16", "16:9"\]/);
+  assert.match(createSource, /const options = isImageEdit \|\| isSeedreamImage \|\| isQwenImage \? imageRatios : videoRatios/);
+  const ratioVisibility = createSource.match(/els\.advancedRatio\.closest\("\.field"\)\?\.toggleAttribute\("hidden", ([^;]+)\)/);
+  assert.ok(ratioVisibility, "expected Seedream ratio visibility rule");
+  assert.doesNotMatch(ratioVisibility[1], /isSeedreamImage/);
+});

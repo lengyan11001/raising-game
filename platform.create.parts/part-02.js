@@ -910,14 +910,14 @@ function updateAdvancedModelControls() {
       : provider === "wan30" || provider === "seedance-nsfw"
       ? ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"]
       : ["9:16", "16:9", "1:1"];
-    const options = isImageEdit || isQwenImage ? imageRatios : videoRatios;
+    const options = isImageEdit || isSeedreamImage || isQwenImage ? imageRatios : videoRatios;
     if (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) els.advancedRatio.value = "adaptive";
     const fallbackRatio = vegaProvider || provider === "seedance25" ? "16:9" : ["wan30", "seedance-nsfw"].includes(provider) ? "adaptive" : "9:16";
     const rawRatio = String(els.advancedRatio.value || fallbackRatio).trim();
     const current = (["wan30", "seedance-nsfw"].includes(provider) || vegaProvider) && rawRatio.toLowerCase() === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
     els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedRatio.value = fallbackRatio;
-    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isQwenEditImage || isSeedreamImage || isQwenText || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) || vegaDraftFollowup);
+    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isQwenEditImage || isQwenText || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) || vegaDraftFollowup);
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !capabilityNeedsMedia;
