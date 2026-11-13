@@ -70,6 +70,20 @@ function advancedCreateModeConfig(kind = state.advancedCreateKind, mode = state.
   return modes.find((item) => item.id === mode) || modes[0];
 }
 
+function advancedImageModeForProvider(provider = "") {
+  if (state.advancedCreateKind !== "image") return "";
+  return normalizeAdvancedProvider(provider) === "qwen-image-edit-spicy" ? "image-edit" : "image-create";
+}
+
+function syncAdvancedCreateModeTabState() {
+  const activeMode = advancedCreateModeConfig().id;
+  els.advancedCreateModeTabs?.querySelectorAll("[data-advanced-create-mode]").forEach((button) => {
+    const active = button.dataset.advancedCreateMode === activeMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+}
+
 function clearAdvancedMediaInputs() {
   const previousPromptRefs = typeof advancedPromptMentionSnapshot === "function" ? advancedPromptMentionSnapshot() : [];
   state.activeAdvancedCaseId = "";
@@ -215,6 +229,7 @@ function renderAdvancedCreateControls() {
         <i data-lucide="${escapeHtml(mode.icon)}"></i><span>${escapeHtml(t(mode.labelKey))}</span>
       </button>
     `).join("");
+    syncAdvancedCreateModeTabState();
   }
   applyAdvancedCreateMode();
   if (typeof syncMainTabState === "function") syncMainTabState();
