@@ -4138,4 +4138,6 @@ CODEX_TASK_STATE.md
 - Fixed a UI-state inconsistency: selecting Seedream 5 (or Qwen Image 3 / Z-Image) while the image tab still showed `image-edit` now switches the mode to `image-create`; selecting Qwen Image Edit switches to `image-edit`. Mode tabs and the selected asset target stay synchronized with the provider.
 - Files changed: `platform.ui.parts/part-04.js`, `platform.main.js`, `test/image-model-size-selection.test.js`.
 - Verification: focused image/advanced/media tests `80/80` pass; full suite `1306 pass / 0 fail / 1 skip`; syntax checks and `git diff --check` pass.
-- Status: ready to commit and deploy Old only. Existing sessions must not be cleared; Live must remain untouched.
+- Deployment: source commit `55aa17bbdf0187aec003af5bc86db098792a88d0`; platform release `1dbd3380fdee1541ded849cfa731581d354b7641` was built from that source, pushed only to `platform-release`, and deployed only to Old with `scripts/deploy_local.sh --site old`.
+- Post-deploy verification: server release is `1dbd338`; `raising-game-demo` is active/running with `NRestarts=0`; no matching uncaught/unhandled exception, fatal, connection, pool-timeout, or generation-timeout signatures in the recent service logs; `/api/health`, `/api/readyz`, and the homepage all return 200; the public UI chunk contains `advancedImageModeForProvider` and `syncAdvancedCreateModeTabState`.
+- Status: deployed Old only. Existing login sessions were not cleared, and Live remains untouched.
