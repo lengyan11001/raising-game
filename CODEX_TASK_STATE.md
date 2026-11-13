@@ -1,5 +1,14 @@
 ## 2026-11-13 Step BK: Telegram auth-failure circuit breaker prepared, not deployed
 
+## 2026-11-13 Step BL: Seedance 2.5 1080p exposure and pricing prepared
+
+- Verified upstream model support: Seedance 2.5 supports 480p, 720p, and 1080p but not 4K. Seedance 2.0 standard continues to expose 480p/720p/1080p/4K. Seedance 2.0 Fast and Mini remain 480p/720p only.
+- Exposed 1080p only for the direct `seedance-nsfw` provider in the generation UI, server validation, normalization, public/admin pricing rows, and admin save parsing. The internal `seedance25` gateway remains limited to 480p/720p because its 1080p gateway support is unproven.
+- Direct 1080p contract pricing uses $10.7/M output tokens and $6.4/M input-video tokens at 1920x1080, 24fps: purchase $0.52002/output-second and $0.31104/combined video-input-second. Default 1.5x sale rates are 78.003 and 46.656 credits/second; five output seconds estimate 243000 tokens.
+- Files changed: `seedance25-direct.js`, `platform.config.js`, `platform.ui.parts/part-03.js`, `server.parts/part-01.js`, `server.parts/part-02.js`, `server.parts/part-11.js`, `server.parts/part-38.js`, `server.parts/part-39.js`, `test/seedance25-direct.test.js`, `test/advanced-pricing.test.js`.
+- Verification: all modified JS files pass `node --check`; `git diff --check` passes; focused Seedance/pricing tests pass `54/54`; full `npm test` passes `1299 pass / 0 fail / 1 skip`.
+- Deployment status: pending commit, release snapshot build, and Old-site deployment through `scripts/deploy_local.sh --site old`. Live remains untouched. Existing login sessions must not be invalidated.
+
 - Added per-client 5-minute circuit breaking for explicit Telegram API `401/403` responses. Once auth is rejected, the client returns `TELEGRAM_API_AUTH_COOLDOWN` without making another network call until the cooldown expires; ordinary `5xx`, timeout, and business errors do not open the breaker. `TELEGRAM_API_AUTH_COOLDOWN_MS=0` explicitly disables the cooldown; unset or invalid non-zero values safely fall back to 300000 ms.
 - This targets the repeated `Unauthorized` noise without disabling inbound Telegram handling or making Telegram a dependency of generation/request paths. Notification claims still release through the existing error path, so delivery semantics remain PostgreSQL-backed. Synchronized `telegram-bot*.js` into platform release/deploy boundary rules and added `.env.example` documentation.
 - Verification: Telegram/auth/resilience focused run `133/133`; complete source test set excluding the explicitly environment-gated `test/postgres-fault-injection.js` passed `1296 pass / 0 fail / 1 skip` (`/tmp/telegram-auth-full-skip-db-drill.log`). The raw all-files run had one expected harness failure solely because `TEST_DATABASE_URL` is absent; local PostgreSQL is not running. Existing disposable-DB fault-injection evidence remains unchanged.

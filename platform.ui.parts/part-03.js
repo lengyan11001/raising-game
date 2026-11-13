@@ -311,8 +311,8 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       ? configPricing.seedanceNsfwVideoCreditsPerSecondByResolution || {}
       : configPricing.seedanceNsfwCreditsPerSecondByResolution || {};
     const fallbackPerSecond = hasVideoInput
-      ? normalizedResolution === "720p" ? ADVANCED_SEEDANCE_NSFW_VIDEO_720P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_NSFW_VIDEO_480P_CREDITS_PER_SECOND
-      : normalizedResolution === "720p" ? ADVANCED_SEEDANCE_NSFW_720P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_NSFW_480P_CREDITS_PER_SECOND;
+      ? normalizedResolution === "1080p" ? ADVANCED_SEEDANCE_NSFW_VIDEO_1080P_CREDITS_PER_SECOND : normalizedResolution === "720p" ? ADVANCED_SEEDANCE_NSFW_VIDEO_720P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_NSFW_VIDEO_480P_CREDITS_PER_SECOND
+      : normalizedResolution === "1080p" ? ADVANCED_SEEDANCE_NSFW_1080P_CREDITS_PER_SECOND : normalizedResolution === "720p" ? ADVANCED_SEEDANCE_NSFW_720P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_NSFW_480P_CREDITS_PER_SECOND;
     const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
     const outputCredits = creditsAmount(outputSeconds * perSecond);
     const inputVideoCredits = hasVideoInput ? creditsAmount(inputVideoSeconds * perSecond) : 0;
@@ -482,7 +482,8 @@ function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
   if (isVegaProviderId(normalizeAdvancedProvider(provider))) return [...(vegaCapabilities(normalizeAdvancedProvider(provider))?.resolutions || VEGA_ALL_RESOLUTIONS)];
   if (normalizeAdvancedProvider(provider) === "qwen-image3") return ["1K", "2K"];
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return ["1K", "2K"];
-  if (["seedance25", "seedance-nsfw"].includes(normalizeAdvancedProvider(provider))) return ["480p", "720p"];
+  if (normalizeAdvancedProvider(provider) === "seedance25") return ["480p", "720p"];
+  if (normalizeAdvancedProvider(provider) === "seedance-nsfw") return ["480p", "720p", "1080p"];
   if (normalizeAdvancedProvider(provider) === "wan30") {
     const capability = currentAdvancedVideoCapability(provider);
     if (capability === "wan30-video-pro" || capability === "wan30-video-prime-pro") return ["1080p", "2k", "4k"];

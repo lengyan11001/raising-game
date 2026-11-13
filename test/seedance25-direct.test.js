@@ -25,10 +25,33 @@ test("generated videos retry upstream downloads when the saved file is shorter t
 test("direct Seedance 2.5 purchase rates match the endpoint contract", () => {
   assert.equal(directPurchaseUsdPerSecond("480p"), 0.10280025);
   assert.equal(directPurchaseUsdPerSecond("720p"), 0.23112);
+  assert.equal(directPurchaseUsdPerSecond("1080p"), 0.52002);
   assert.equal(directPurchaseUsdPerSecond("480p", { hasVideoInput: true }), 0.061488);
   assert.equal(directPurchaseUsdPerSecond("720p", { hasVideoInput: true }), 0.13824);
+  assert.equal(directPurchaseUsdPerSecond("1080p", { hasVideoInput: true }), 0.31104);
   assert.equal(directEstimatedCompletionTokens({ resolution: "720p", outputSeconds: 5 }), 108000);
+  assert.equal(directEstimatedCompletionTokens({ resolution: "1080p", outputSeconds: 5 }), 243000);
   assert.equal(directEstimatedCompletionTokens({ resolution: "480p", outputSeconds: 5, inputVideoSeconds: 3 }), 76860);
+});
+
+test("direct Seedance 2.5 accepts 1080p but not 4K", () => {
+  const normalized = validateSeedance25DirectInput({
+    mode: "reference",
+    prompt: "Use the reference.",
+    imageAssets: ["asset://image-1"],
+    resolution: "1080p",
+    ratio: "16:9",
+    duration: 5,
+  });
+  assert.equal(normalized.resolution, "1080p");
+  assert.throws(() => validateSeedance25DirectInput({
+    mode: "reference",
+    prompt: "Use the reference.",
+    imageAssets: ["asset://image-1"],
+    resolution: "4k",
+    ratio: "16:9",
+    duration: 5,
+  }), (error) => error.code === "SEEDANCE25_DIRECT_INVALID_RESOLUTION");
 });
 
 test("Seedance 2.5 NSFW customer billing stays at the configured sale price", () => {

@@ -9,7 +9,7 @@ const SEEDANCE25_DIRECT_PROVIDER = "seedance-nsfw";
 const SEEDANCE25_DIRECT_LABEL = "Seedance 2.5";
 const SEEDANCE25_DIRECT_MODEL = "dreamina-seedance-2-5-260628";
 const SEEDANCE25_DIRECT_ENDPOINT_ID = "ep-20260810163546-xzn5m";
-const SEEDANCE25_DIRECT_RESOLUTIONS = Object.freeze(["480p", "720p"]);
+const SEEDANCE25_DIRECT_RESOLUTIONS = Object.freeze(["480p", "720p", "1080p"]);
 const SEEDANCE25_DIRECT_RATIOS = Object.freeze(["16:9", "21:9", "9:16", "4:3", "3:4", "1:1", "adaptive"]);
 const SEEDANCE25_DIRECT_USD_PER_MILLION_TOKENS = Object.freeze({
   withoutVideo: 10.7,
@@ -18,6 +18,7 @@ const SEEDANCE25_DIRECT_USD_PER_MILLION_TOKENS = Object.freeze({
 const SEEDANCE25_DIRECT_FRAME_SIZE = Object.freeze({
   "480p": Object.freeze({ width: 854, height: 480 }),
   "720p": Object.freeze({ width: 1280, height: 720 }),
+  "1080p": Object.freeze({ width: 1920, height: 1080 }),
 });
 const SEEDANCE25_DIRECT_FPS = 24;
 
@@ -80,7 +81,7 @@ function validateSeedance25DirectInput(input = {}) {
   }
   if (prompt.length > 6000) throw directInputError("SEEDANCE25_DIRECT_PROMPT_TOO_LONG", "Prompt must not exceed 6000 characters.", { max: 6000 });
   if (!SEEDANCE25_DIRECT_RESOLUTIONS.includes(resolution)) {
-    throw directInputError("SEEDANCE25_DIRECT_INVALID_RESOLUTION", "Seedance 2.5 resolution must be 480p or 720p.", { allowed: SEEDANCE25_DIRECT_RESOLUTIONS });
+    throw directInputError("SEEDANCE25_DIRECT_INVALID_RESOLUTION", "Seedance 2.5 resolution must be 480p, 720p, or 1080p.", { allowed: SEEDANCE25_DIRECT_RESOLUTIONS });
   }
   if (!SEEDANCE25_DIRECT_RATIOS.includes(ratio)) {
     throw directInputError("SEEDANCE25_DIRECT_INVALID_RATIO", "Seedance 2.5 ratio is not supported.", { allowed: SEEDANCE25_DIRECT_RATIOS });
