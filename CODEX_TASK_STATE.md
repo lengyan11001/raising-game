@@ -4112,3 +4112,17 @@ CODEX_TASK_STATE.md
 - Updated `test/support-notifications.test.js` to assert the new label, support action, clickable row, and `setTab("cases")` wiring.
 - Verification: focused regression command `node --test test/support-notifications.test.js test/side-navigation-overflow.test.js test/session-login-race.test.js test/platform-refresh-performance.test.js` passes 24/24; source assertions and `git diff --check` pass.
 - Deployment status: pending at time of this record. Intended scope is Old only via `scripts/deploy_local.sh --site old --no-restart`; Live untouched. No session invalidation or service restart.
+
+## 2026-11-13 Step BM: Image-model size capability correction for img-20261113145859-b90c37
+
+- Investigated `img-20261113145859-b90c37`: routed to `qwen-image-edit-spicy`; stored record has `ratio=3:4`, `resolution=2K`, `params.size=1536*2048`, but the upstream payload contains only reference image and prompt. Root cause is the old UI incorrectly exposing/recording size for an edit model whose upstream does not accept a size parameter; this was not a dropped submit parameter.
+- Comparable historical records: `img-20261113145543-9a99a0` and `img-20261113145643-f71055`.
+- Capability contract now enforced in UI, server validation/submission, workflow nodes, regeneration, and gateway payloads:
+  - Qwen Image Edit: size follows the source image; no ratio/resolution control, no `size` persisted or sent; reference image required.
+  - Z-Image Spicy Pro: ratio/resolution retained; text-to-image only, reference image rejected.
+  - Qwen Image 3: ratio/resolution and reference image retained.
+  - Seedream 5: its existing supported size and reference-image capabilities retained.
+- Files changed: 19 files across `platform.config.js`, `platform.create.parts/*`, `platform.ui.parts/*`, `platform.html`, `platform.css`, `platform.main.js`, `platform.workflow-react.js`, React workflow image node/CSS, `server.parts/part-18.js`, `server.parts/part-24.js`, `server.parts/part-37.js`, `test/image-model-size-selection.test.js`, and `test/vega-regeneration-media.test.js`.
+- Verification: focused size tests `6/6` pass; prior Qwen/Vega regeneration tests `30/30` pass; full suite `1305 pass / 0 fail / 1 skip` in `/tmp/raising-size-full-final-2.log`; modified JS syntax checks and `git diff --check` pass.
+- Source commit: `b1033a0d Fix image model size capabilities`.
+- Deployment status at record time: not yet published. Intended scope is Old only via committed `old-site` integration, `platform-release`, and `scripts/deploy_local.sh --site old`; Live must remain untouched. Existing login sessions must not be invalidated.
