@@ -23,4 +23,5 @@ test("disabling generation notifications leaves inbound Telegram handling availa
 test("payment notifications remain independently disabled by default", () => {
   assert.match(server, /TELEGRAM_PAYMENT_NOTIFICATIONS_ENABLED \|\| "0"/);
   assert.match(server, /TELEGRAM_GENERATION_NOTIFICATIONS_ENABLED \|\| "1"/);
+  assert.match(server, /TELEGRAM_API_AUTH_COOLDOWN_RAW === ""[\s\S]*?300000[\s\S]*?TELEGRAM_API_AUTH_COOLDOWN_RAW === "0"[\s\S]*?\? 0[\s\S]*?\|\| 300000/);
 });

@@ -1119,6 +1119,7 @@ const telegramBotClient = createTelegramBotClient({
   webAppUrl: TELEGRAM_BOT_WEBAPP_URL,
   telegramChannelUrl: VIPEAK_TELEGRAM_CHANNEL_URL,
   xUrl: VIPEAK_X_URL,
+  authCooldownMs: TELEGRAM_API_AUTH_COOLDOWN_MS,
 });
 const telegramTaskNotificationStages = new Map();
 const telegramUserContextCache = new Map();

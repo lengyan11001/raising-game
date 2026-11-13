@@ -195,6 +195,83 @@ test("Telegram start welcome includes the community links", async () => {
   }
 });
 
+test("Telegram auth failures open a short circuit breaker", async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: false, description: "Unauthorized" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const client = createTelegramBotClient({ token: "123456:unit-test-token", authCooldownMs: 60000 });
+    await assert.rejects(client.sendMessage("42", "first"), (error) => (
+      error.code === "TELEGRAM_API_AUTH_FAILED" && error.statusCode === 401 && Boolean(error.retryAt)
+    ));
+    await assert.rejects(client.sendMessage("42", "second"), (error) => (
+      error.code === "TELEGRAM_API_AUTH_COOLDOWN" && error.statusCode === 401 && Boolean(error.retryAt)
+    ));
+    assert.equal(calls, 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("Telegram 403 opens the circuit breaker and non-auth errors do not", async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    const status = calls === 1 ? 403 : 503;
+    return new Response(JSON.stringify({ ok: false, description: status === 403 ? "Forbidden" : "Service unavailable" }), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const client = createTelegramBotClient({ token: "123456:unit-test-token", authCooldownMs: 60000 });
+    await assert.rejects(client.sendMessage("42", "forbidden"), (error) => error.code === "TELEGRAM_API_AUTH_FAILED");
+    await assert.rejects(client.sendMessage("42", "blocked"), (error) => error.code === "TELEGRAM_API_AUTH_COOLDOWN");
+    assert.equal(calls, 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  global.fetch = async () => new Response(JSON.stringify({ ok: false, description: "Service unavailable" }), {
+    status: 503,
+    headers: { "content-type": "application/json" },
+  });
+  try {
+    const client = createTelegramBotClient({ token: "123456:unit-test-token", authCooldownMs: 60000 });
+    await assert.rejects(client.sendMessage("42", "first"), (error) => error.code === "TELEGRAM_API_ERROR");
+    await assert.rejects(client.sendMessage("42", "second"), (error) => error.code === "TELEGRAM_API_ERROR");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("Telegram auth circuit breaker can be disabled", async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: false, description: "Unauthorized" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const client = createTelegramBotClient({ token: "123456:unit-test-token", authCooldownMs: 0 });
+    await assert.rejects(client.sendMessage("42", "first"), (error) => error.code === "TELEGRAM_API_ERROR");
+    await assert.rejects(client.sendMessage("42", "second"), (error) => error.code === "TELEGRAM_API_ERROR");
+    assert.equal(calls, 2);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("tool navigation exposes community and support entries", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "platform.html"), "utf8");
   const undressCss = fs.readFileSync(path.join(__dirname, "..", "tool-undress.css"), "utf8");
