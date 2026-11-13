@@ -1393,7 +1393,7 @@ function seedream5ImageRecordHasResult(record = {}) {
   return Boolean(record.imageResultUrl || record.localImageUrl || record.cdnImageUrl || record.remoteImageUrl || record.providerImageUrl || record.upstreamImageUrl);
 }
 
-function seedream5ImageRequestFingerprint({ userId = "", model = "", prompt = "", resolution = "", tier = "", outputFormat = "", optimizePromptOptions = null, referenceInputs = [] } = {}) {
+function seedream5ImageRequestFingerprint({ userId = "", model = "", prompt = "", ratio = "", resolution = "", size = "", tier = "", outputFormat = "", optimizePromptOptions = null, referenceInputs = [] } = {}) {
   const normalizedReferences = (Array.isArray(referenceInputs) ? referenceInputs : [])
     .map((item) => {
       if (typeof item === "string") return item.trim();
@@ -1408,7 +1408,9 @@ function seedream5ImageRequestFingerprint({ userId = "", model = "", prompt = ""
       userId: String(userId || ""),
       model: String(model || ""),
       prompt: String(prompt || "").trim(),
+      ratio: String(ratio || ""),
       resolution: String(resolution || ""),
+      size: String(size || ""),
       tier: String(tier || ""),
       outputFormat: String(outputFormat || ""),
       optimizePromptOptions: optimizePromptOptions || null,

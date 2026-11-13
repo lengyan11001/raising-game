@@ -517,6 +517,34 @@ function normalizeSeedream5Resolution(value = "") {
   return "2K";
 }
 
+function normalizeSeedream5ImageRatio(value = "") {
+  const ratio = normalizeVideoRatio(value);
+  return new Set(["1:1", "3:4", "4:3", "9:16", "16:9"]).has(ratio) ? ratio : "";
+}
+
+function seedream5ImageSize(resolution = "2K", ratio = "") {
+  const normalizedResolution = normalizeSeedream5Resolution(resolution);
+  const normalizedRatio = normalizeSeedream5ImageRatio(ratio);
+  if (!normalizedRatio) return normalizedResolution;
+  const sizes = {
+    "1K": {
+      "1:1": "1024x1024",
+      "3:4": "864x1152",
+      "4:3": "1152x864",
+      "9:16": "800x1424",
+      "16:9": "1424x800",
+    },
+    "2K": {
+      "1:1": "2048x2048",
+      "3:4": "1776x2368",
+      "4:3": "2368x1776",
+      "9:16": "1584x2816",
+      "16:9": "2816x1584",
+    },
+  };
+  return sizes[normalizedResolution][normalizedRatio];
+}
+
 function seedream5ModelForTier(model = "", tier = "pro") {
   const raw = String(model || "").trim();
   if (raw === SEEDREAM5_LITE_ENDPOINT_ID) return SEEDREAM5_PRO_ENDPOINT_ID;
