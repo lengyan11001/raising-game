@@ -40,6 +40,7 @@ PLATFORM_PATTERNS = (
     "platform*.js",
     "vendor/vipeak-prompt-editor.js",
     "server-source.js",
+    "telegram-bot*.js",
     "server.parts/**",
     "platform.ui.parts/**",
     "platform.create.parts/**",

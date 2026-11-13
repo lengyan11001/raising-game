@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60;
 const TELEGRAM_API_TIMEOUT_MS = 15000;
 const TELEGRAM_LOGIN_NONCE_MAX_AGE_SECONDS = 10 * 60;
+const TELEGRAM_AUTH_COOLDOWN_DEFAULT_MS = 5 * 60 * 1000;
 
 function normalizedText(value = "", maxLength = 4096) {
   return String(value || "")
@@ -261,8 +262,12 @@ function createTelegramBotClient({
   telegramChannelUrl = "https://t.me/VipeakAILab",
   xUrl = "https://x.com/VipeakAI",
   timeoutMs = TELEGRAM_API_TIMEOUT_MS,
+  authCooldownMs = TELEGRAM_AUTH_COOLDOWN_DEFAULT_MS,
 } = {}) {
   const botToken = String(token || "").trim();
+  const normalizedAuthCooldownMs = Math.max(0, Number(authCooldownMs) || 0);
+  let authBlockedUntil = 0;
+  let authBlockedStatus = 0;
   const baseUrl = String(webAppUrl || "https://undress.14vips.com/").trim();
   const channelUrl = String(telegramChannelUrl || "https://t.me/VipeakAILab").trim();
   const socialXUrl = String(xUrl || "https://x.com/VipeakAI").trim();
@@ -270,6 +275,13 @@ function createTelegramBotClient({
 
   async function call(method, payload = {}) {
     if (!botToken) return { ok: false, description: "Telegram bot is not configured." };
+    if (normalizedAuthCooldownMs > 0 && Date.now() < authBlockedUntil) {
+      const error = new Error("Telegram API credentials are temporarily blocked after an authentication failure.");
+      error.statusCode = authBlockedStatus || 401;
+      error.code = "TELEGRAM_API_AUTH_COOLDOWN";
+      error.retryAt = new Date(authBlockedUntil).toISOString();
+      throw error;
+    }
     const response = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -282,6 +294,12 @@ function createTelegramBotClient({
       error.statusCode = response.status || 502;
       error.code = "TELEGRAM_API_ERROR";
       error.payload = result;
+      if (normalizedAuthCooldownMs > 0 && [401, 403].includes(response.status)) {
+        authBlockedUntil = Date.now() + normalizedAuthCooldownMs;
+        authBlockedStatus = response.status;
+        error.code = "TELEGRAM_API_AUTH_FAILED";
+        error.retryAt = new Date(authBlockedUntil).toISOString();
+      }
       throw error;
     }
     return result;

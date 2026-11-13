@@ -220,6 +220,7 @@ PLATFORM_RELEASE_PATHS = (
     "chat-live.js",
     "server.js",
     "server-source.js",
+    "telegram-bot*.js",
     "server.parts/**",
     "platform.ui.parts/**",
     "platform.create.parts/**",
