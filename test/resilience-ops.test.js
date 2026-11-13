@@ -109,10 +109,20 @@ function writeUpstreamConfig(file, body = `upstream raising_game_app {
 
 async function withHealthServer(fn) {
   let healthy = true;
+  let ready = true;
   const server = http.createServer((req, res) => {
-    if (req.url !== "/api/livez") {
+    if (req.url !== "/api/livez" && req.url !== "/api/readyz") {
       res.writeHead(404, { "content-type": "text/plain" });
       res.end("not found\n");
+      return;
+    }
+    if (req.url === "/api/readyz") {
+      res.writeHead(ready ? 200 : 503, { "content-type": "application/json" });
+      res.end(JSON.stringify(ready ? { ok: true, ready: true } : {
+        ok: false,
+        ready: false,
+        database: { ok: false, code: "DATABASE_READINESS_TIMEOUT" },
+      }));
       return;
     }
     if (healthy) {
@@ -128,8 +138,11 @@ async function withHealthServer(fn) {
   try {
     return await fn({
       url: `http://127.0.0.1:${port}/api/livez`,
+      readyUrl: `http://127.0.0.1:${port}/api/readyz`,
       fail: () => { healthy = false; },
       recover: () => { healthy = true; },
+      readyFail: () => { ready = false; },
+      readyRecover: () => { ready = true; },
     });
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -215,8 +228,14 @@ test("watchdog uses liveness, requires consecutive failures, and skips inactive 
   assert.match(watchdogScript, /127\.0\.0\.1:4174\/api\/livez/);
   assert.match(watchdogScript, /FAILURE_THRESHOLD/);
   assert.match(watchdogScript, /SERVICE_CHECK_ACTIVE/);
+  assert.match(watchdogScript, /READINESS_REQUIRED/);
+  assert.match(watchdogScript, /restart suppressed reason=dependency_unavailable/);
   assert.match(watchdogService, /Environment=HEALTH_URL=http:\/\/127\.0\.0\.1:4174\/api\/livez/);
+  assert.match(watchdogService, /Environment=READINESS_URL=http:\/\/127\.0\.0\.1:4174\/api\/readyz/);
+  assert.match(watchdogService, /Environment=READINESS_REQUIRED=1/);
   assert.match(watchdogService, /Environment=FAILURE_THRESHOLD=3/);
+  assert.match(secondaryWatchdogService, /Environment=READINESS_URL=http:\/\/127\.0\.0\.1:4175\/api\/readyz/);
+  assert.match(secondaryWatchdogService, /Environment=READINESS_REQUIRED=1/);
   assert.match(watchdogTimer, /OnUnitActiveSec=10s/);
   assert.match(watchdogTimer, /WantedBy=timers\.target/);
 });
@@ -321,6 +340,80 @@ test("watchdog restarts exactly once at threshold and skips inactive services", 
       assert.equal(skipped.status, 0, skipped.stderr);
       assert.match(skipped.stderr, /service is not active/);
       assert.equal(fs.existsSync(skippedState), false);
+    });
+  });
+});
+
+test("watchdog suppresses restarts for a prompt dependency 503 and clears state on recovery", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      const state = path.join(dir, "failures");
+      const dependencyState = path.join(dir, "dependency.failures");
+      const restart = path.join(dir, "restart");
+      const env = {
+        HEALTH_URL: health.url,
+        READINESS_URL: health.readyUrl,
+        READINESS_REQUIRED: "1",
+        STATE_FILE: state,
+        DEPENDENCY_STATE_FILE: dependencyState,
+        LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: path.join(dir, "restarts"),
+        RESTART_PENDING_FILE: path.join(dir, "restart.pending"),
+        FAILURE_THRESHOLD: "1",
+        DEPENDENCY_FAILURE_THRESHOLD: "2",
+        WATCHDOG_DRY_RUN: "0",
+        RESTART_COMMAND: `printf restart >> ${restart}`,
+      };
+      health.fail();
+      health.readyFail();
+
+      let result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /dependency readiness failed/);
+      assert.doesNotMatch(result.stderr, /restart suppressed reason=dependency_unavailable/);
+      assert.equal(fs.readFileSync(dependencyState, "utf8").trim(), "1");
+      assert.equal(fs.existsSync(restart), false);
+
+      result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /restart suppressed reason=dependency_unavailable/);
+      assert.equal(fs.readFileSync(dependencyState, "utf8").trim(), "0");
+      assert.equal(fs.existsSync(restart), false);
+
+      health.recover();
+      health.readyRecover();
+      result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(fs.readFileSync(state, "utf8").trim(), "0");
+      assert.equal(fs.readFileSync(dependencyState, "utf8").trim(), "0");
+      assert.equal(fs.existsSync(restart), false);
+    });
+  });
+});
+
+test("watchdog keeps the process restart path when readiness is unreachable", async () => {
+  await withTempDir(async (dir) => {
+    await withHealthServer(async (health) => {
+      const restart = path.join(dir, "restart");
+      const env = {
+        HEALTH_URL: health.url,
+        READINESS_URL: "http://127.0.0.1:9/api/readyz",
+        READINESS_REQUIRED: "1",
+        STATE_FILE: path.join(dir, "failures"),
+        DEPENDENCY_STATE_FILE: path.join(dir, "dependency.failures"),
+        LOCK_FILE: path.join(dir, "lock"),
+        RESTART_STATE_FILE: path.join(dir, "restarts"),
+        RESTART_PENDING_FILE: path.join(dir, "restart.pending"),
+        FAILURE_THRESHOLD: "1",
+        WATCHDOG_DRY_RUN: "0",
+        RESTART_COMMAND: `printf restart >> ${restart}`,
+      };
+      health.fail();
+      const result = await invokeWatchdogAsync(env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /readiness probe unavailable or slow/);
+      assert.match(result.stderr, /restart queued/);
+      assert.equal(fs.readFileSync(restart, "utf8"), "restart");
     });
   });
 });

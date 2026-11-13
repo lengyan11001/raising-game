@@ -2,6 +2,7 @@
 set -euo pipefail
 
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:4174/api/livez}"
+READINESS_URL="${READINESS_URL:-}"
 FAILURE_THRESHOLD="${FAILURE_THRESHOLD:-3}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-3}"
 HEALTH_RETRY_DELAY_SECONDS="${HEALTH_RETRY_DELAY_SECONDS:-1}"
@@ -21,6 +22,9 @@ RESTART_MAX_PER_HOUR="${RESTART_MAX_PER_HOUR:-3}"
 RESTART_STATE_FILE="${RESTART_STATE_FILE:-/run/raising-game-watchdog.restarts}"
 RESTART_PENDING_FILE="${RESTART_PENDING_FILE:-/run/raising-game-watchdog.restart.pending}"
 SIGKILL_AFTER_SECONDS="${SIGKILL_AFTER_SECONDS:-15}"
+READINESS_REQUIRED="${READINESS_REQUIRED:-0}"
+DEPENDENCY_FAILURE_THRESHOLD="${DEPENDENCY_FAILURE_THRESHOLD:-3}"
+DEPENDENCY_STATE_FILE="${DEPENDENCY_STATE_FILE:-}"
 
 log() {
   printf '%s service-watchdog %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf unknown-time)" "$*" >&2
@@ -34,7 +38,7 @@ if [[ ! "$TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
   log "invalid TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
   exit 2
 fi
-for value_name in WARMUP_SECONDS HEALTH_RETRY_DELAY_SECONDS RESTART_COOLDOWN_SECONDS RESTART_BACKOFF_MAX_SECONDS RESTART_MAX_PER_HOUR SIGKILL_AFTER_SECONDS; do
+for value_name in WARMUP_SECONDS HEALTH_RETRY_DELAY_SECONDS RESTART_COOLDOWN_SECONDS RESTART_BACKOFF_MAX_SECONDS RESTART_MAX_PER_HOUR SIGKILL_AFTER_SECONDS DEPENDENCY_FAILURE_THRESHOLD; do
   value="${!value_name}"
   if [[ ! "$value" =~ ^[0-9]+$ ]]; then
     log "invalid ${value_name}=${value}"
@@ -45,8 +49,23 @@ if [[ "$RESTART_MAX_PER_HOUR" -lt 1 ]]; then
   log "invalid RESTART_MAX_PER_HOUR=$RESTART_MAX_PER_HOUR"
   exit 2
 fi
+if [[ "$DEPENDENCY_FAILURE_THRESHOLD" -lt 1 ]]; then
+  log "invalid DEPENDENCY_FAILURE_THRESHOLD=$DEPENDENCY_FAILURE_THRESHOLD"
+  exit 2
+fi
+if [[ "$READINESS_REQUIRED" != "0" && "$READINESS_REQUIRED" != "1" ]]; then
+  log "invalid READINESS_REQUIRED=$READINESS_REQUIRED"
+  exit 2
+fi
+if [[ "$READINESS_REQUIRED" == "1" && -z "$READINESS_URL" ]]; then
+  log "READINESS_URL is required when READINESS_REQUIRED=1"
+  exit 2
+fi
 
 mkdir -p "$(dirname "$STATE_FILE")" "$(dirname "$LOCK_FILE")" "$(dirname "$RESTART_STATE_FILE")" "$(dirname "$RESTART_PENDING_FILE")"
+if [[ -n "$DEPENDENCY_STATE_FILE" ]]; then
+  mkdir -p "$(dirname "$DEPENDENCY_STATE_FILE")"
+fi
 exec 9>"$LOCK_FILE"
 if command -v flock >/dev/null 2>&1; then
   flock -n 9 || exit 0
@@ -58,6 +77,40 @@ now_epoch() {
 
 reset_failures() {
   printf '0\n' > "$STATE_FILE"
+}
+
+reset_dependency_failures() {
+  [[ -n "$DEPENDENCY_STATE_FILE" ]] || return 0
+  printf '0\n' > "$DEPENDENCY_STATE_FILE"
+}
+
+dependency_failure_count() {
+  local count=0
+  if [[ -n "$DEPENDENCY_STATE_FILE" && -f "$DEPENDENCY_STATE_FILE" ]]; then
+    count="$(tr -dc '0-9' < "$DEPENDENCY_STATE_FILE" || true)"
+  fi
+  printf '%s\n' "${count:-0}"
+}
+
+# Returns 0 for healthy readiness, 3 for a prompt HTTP readiness failure (the
+# process answers but its shared dependency is unavailable), and 2 for a
+# timeout/unreachable/ambiguous response that retains the process restart path.
+readiness_check() {
+  local code duration_ms body_time
+  # Do not use --fail: a prompt readiness 503 is a valid protocol response and
+  # must remain distinguishable from an unreachable or stalled process.
+  duration_ms="$("$CURL_BIN" --silent --show-error --max-time "$TIMEOUT_SECONDS" -o /dev/null -w '%{http_code} %{time_total}' "$READINESS_URL" 2>/dev/null || true)"
+  read -r code body_time <<< "$duration_ms"
+  [[ "$code" =~ ^[0-9]{3}$ && "$body_time" =~ ^[0-9]+([.][0-9]+)?$ ]] || return 2
+  if [[ "$code" == "503" ]]; then
+    if awk -v t="$body_time" -v limit="$TIMEOUT_SECONDS" 'BEGIN { exit !(t < limit * 0.8) }'; then
+      printf '%s\n' "$code $body_time"
+      return 3
+    fi
+    return 2
+  fi
+  [[ "$code" == "200" ]] || return 2
+  printf '%s\n' "$code $body_time"
 }
 
 service_uptime_seconds() {
@@ -204,6 +257,13 @@ if health_check || { sleep "$HEALTH_RETRY_DELAY_SECONDS"; health_check; }; then
       rm -f "$RESTART_PENDING_FILE"
     fi
   fi
+  if [[ "$READINESS_REQUIRED" == "1" ]]; then
+    dependency_failures="$(dependency_failure_count)"
+    if [[ "$dependency_failures" -ne 0 ]]; then
+      log "dependency state cleared after liveness recovery previous_failures=$dependency_failures"
+    fi
+    reset_dependency_failures
+  fi
   reset_failures
   exit 0
 fi
@@ -214,6 +274,39 @@ log "health check failed url=$HEALTH_URL consecutive_failures=$failures threshol
 
 if [[ "$failures" -lt "$FAILURE_THRESHOLD" ]]; then
   exit 0
+fi
+
+# A restart cannot repair an unavailable shared dependency. Probe readiness
+# only after liveness has failed enough to justify a restart, so normal ticks do
+# not add database traffic. A prompt readiness 503 proves the process still
+# serves HTTP while PostgreSQL is unavailable. A slow or unreachable readiness
+# probe remains on the conservative process-restart path.
+if [[ "$READINESS_REQUIRED" == "1" ]]; then
+  dependency_failures="$(dependency_failure_count)"
+  readiness_result=""
+  readiness_status=0
+  readiness_result="$(readiness_check)" || readiness_status=$?
+  if [[ "$readiness_status" == "0" ]]; then
+    if [[ "$dependency_failures" -ne 0 ]]; then
+      log "dependency recovered readiness=$readiness_result previous_failures=$dependency_failures"
+    fi
+    reset_dependency_failures
+  elif [[ "$readiness_status" == "3" ]]; then
+    dependency_failures=$((dependency_failures + 1))
+    if [[ "$dependency_failures" -eq 1 ]]; then
+      log "dependency readiness failed readiness=$readiness_result; suppressing process restart"
+    fi
+    if [[ "$dependency_failures" -ge "$DEPENDENCY_FAILURE_THRESHOLD" ]]; then
+      log "dependency unavailable readiness=$readiness_result consecutive_failures=$dependency_failures threshold=$DEPENDENCY_FAILURE_THRESHOLD"
+      log "restart suppressed reason=dependency_unavailable service=$SERVICE consecutive_failures=$failures"
+      dependency_failures=0
+    fi
+    [[ -n "$DEPENDENCY_STATE_FILE" ]] && printf '%s\n' "$dependency_failures" > "$DEPENDENCY_STATE_FILE"
+    reset_failures
+    exit 0
+  else
+    log "readiness probe unavailable or slow; keeping process restart path readiness=$readiness_result"
+  fi
 fi
 
 if [[ "$WATCHDOG_DRY_RUN" == "1" ]]; then
