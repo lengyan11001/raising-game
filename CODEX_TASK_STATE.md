@@ -4102,3 +4102,9 @@ CODEX_TASK_STATE.md
 - Updated `test/support-notifications.test.js` to assert the new label, support action, clickable row, and `setTab("cases")` wiring.
 - Verification: focused regression command `node --test test/support-notifications.test.js test/side-navigation-overflow.test.js test/session-login-race.test.js test/platform-refresh-performance.test.js` passes 24/24; source assertions and `git diff --check` pass.
 - Deployment status: pending at time of this record. Intended scope is Old only via `scripts/deploy_local.sh --site old --no-restart`; Live untouched. No session invalidation or service restart.
+
+## 2026-11-13 Step CS: release preparation for preserving create inputs
+
+- Fresh release worktree `/private/tmp/raising-preserve-create-inputs` created from `origin/old-site` commit `ba08f185` to avoid mixing unrelated dirty-worktree changes.
+- Clean integration change removes the five successful submit-path `clearAdvancedCreationInputs()` calls and adds regression coverage. The explicit reset helper remains for regeneration only.
+- Verification in clean worktree: `node --check platform.create.parts/part-03.js`, targeted test `1/1`, and `git diff --check` pass.
