@@ -121,6 +121,89 @@ def add_http_checks(checks: list[Check], base: str, phase: str) -> None:
         )
 
 
+def fetch_json(url: str, timeout: int = 10) -> tuple[int | None, dict | str]:
+    result = run(
+        [
+            "curl", "-sS", "--max-time", str(timeout),
+            "--write-out", "\n%{http_code}", url,
+        ],
+        timeout=timeout + 5,
+    )
+    body, separator, status_text = result.stdout.rpartition("\n")
+    if result.returncode != 0 or not separator:
+        return None, result.stderr.strip() or "curl failed"
+    try:
+        status = int(status_text.strip())
+    except ValueError:
+        return None, "invalid HTTP status"
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return status, "invalid JSON"
+    if not isinstance(payload, dict):
+        return status, "non-object JSON"
+    return status, payload
+
+
+def release_identity_from_checkout(release: Path) -> str:
+    result = run(["git", "-C", str(release), "rev-parse", "--verify", "HEAD"])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "cannot read release commit")
+    identity = result.stdout.strip().lower()
+    if len(identity) not in (40, 64) or any(char not in "0123456789abcdef" for char in identity):
+        raise RuntimeError(f"invalid release commit: {identity!r}")
+    dirty = run([
+        "git", "-C", str(release), "status", "--porcelain=v1",
+        "--untracked-files=no", "--ignore-submodules=dirty",
+    ])
+    if dirty.returncode != 0 or dirty.stdout.strip():
+        raise RuntimeError("release checkout is dirty")
+    return identity
+
+
+def add_loaded_release_check(
+    checks: list[Check],
+    *,
+    base: str,
+    phase: str,
+    expected_release: str,
+    expected_pid: str,
+) -> None:
+    livez_status, livez = fetch_json(f"{base}/api/livez")
+    readyz_status, readyz = fetch_json(f"{base}/api/readyz")
+    problems: list[str] = []
+    if livez_status != 200 or not isinstance(livez, dict):
+        problems.append(f"livez={livez_status}:{livez}")
+    if readyz_status != 200 or not isinstance(readyz, dict):
+        problems.append(f"readyz={readyz_status}:{readyz}")
+    if isinstance(livez, dict) and isinstance(readyz, dict):
+        if readyz.get("ready") is not True:
+            problems.append("ready=false")
+        for label, payload in (("livez", livez), ("readyz", readyz)):
+            release = payload.get("release")
+            process = payload.get("process")
+            if not isinstance(release, dict):
+                problems.append(f"{label}.release=missing")
+            else:
+                if release.get("id") != expected_release:
+                    problems.append(f"{label}.release={release.get('id')}")
+                if release.get("clean") is not True or release.get("source") != "git":
+                    problems.append(f"{label}.release_not_clean_git")
+            if not isinstance(process, dict) or str(process.get("pid")) != expected_pid:
+                problems.append(f"{label}.pid={process}")
+        runtime = readyz.get("runtime")
+        required = ("backgroundSchedulers", "generationSubmitQueue", "generationSubmitWorker")
+        if not isinstance(runtime, dict) or any(runtime.get(key) is not False for key in required):
+            problems.append(f"worker_flags={runtime}")
+    checks.append(
+        Check(
+            f"{phase}:loaded-release",
+            not problems,
+            "; ".join(problems) if problems else f"release={expected_release} pid={expected_pid} workers=off",
+        )
+    )
+
+
 def add_public_checks(checks: list[Check], phase: str) -> None:
     for url in PUBLIC_URLS:
         status, elapsed, error = http_status(url)
@@ -255,6 +338,8 @@ def main() -> int:
     )
     parser.add_argument("--candidate-port", type=int, default=SECONDARY_PORT)
     parser.add_argument("--primary-port", type=int, default=PRIMARY_PORT)
+    parser.add_argument("--release", type=Path, default=Path("/opt/raising-game-demo"))
+    parser.add_argument("--expected-release-id", default="")
     parser.add_argument(
         "--secondary-env",
         type=Path,
@@ -269,6 +354,18 @@ def main() -> int:
             return 2
 
     checks: list[Check] = []
+    try:
+        expected_release = args.expected_release_id or release_identity_from_checkout(args.release)
+        if len(expected_release) not in (40, 64) or any(
+            char not in "0123456789abcdef" for char in expected_release.lower()
+        ):
+            raise RuntimeError("--expected-release-id must be a full Git commit")
+        expected_release = expected_release.lower()
+    except (OSError, RuntimeError) as error:
+        expected_release = ""
+        release_error = str(error)
+    else:
+        release_error = ""
     primary = add_service_check(checks, PRIMARY_SERVICE, True, args.phase)
     primary_pid = primary.get("MainPID", "0")
     primary_listening, primary_detail = listening_pid(args.primary_port)
@@ -303,6 +400,16 @@ def main() -> int:
             )
         )
         add_http_checks(checks, f"http://127.0.0.1:{args.candidate_port}", f"{args.phase}:candidate")
+        if expected_release:
+            add_loaded_release_check(
+                checks,
+                base=f"http://127.0.0.1:{args.candidate_port}",
+                phase=args.phase,
+                expected_release=expected_release,
+                expected_pid=secondary_pid,
+            )
+        else:
+            checks.append(Check(f"{args.phase}:loaded-release", False, release_error))
     elif args.phase in {"pre", "post"}:
         add_public_checks(checks, args.phase)
     elif args.phase == "rollback":

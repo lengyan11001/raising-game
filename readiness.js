@@ -1,5 +1,8 @@
 "use strict";
 
+const { execFileSync } = require("node:child_process");
+const path = require("node:path");
+
 const PHASES = Object.freeze({
   STARTING: "starting",
   READY: "ready",
@@ -7,14 +10,67 @@ const PHASES = Object.freeze({
   FAILED: "failed",
 });
 
-function createReadinessState() {
-  return {
+function createReadinessState({ release, pid, runtime } = {}) {
+  const state = {
     phase: PHASES.STARTING,
     startedAt: new Date().toISOString(),
     readyAt: "",
     failedAt: "",
     errorCode: "",
     errorMessage: "",
+  };
+  if (release && typeof release === "object") state.release = { ...release };
+  if (Number.isInteger(pid) && pid > 0) state.pid = pid;
+  if (runtime && typeof runtime === "object") state.runtime = { ...runtime };
+  return state;
+}
+
+function resolveReleaseIdentity({
+  root = __dirname,
+  gitBin = "git",
+  timeoutMs = 3000,
+} = {}) {
+  const repoRoot = path.resolve(root);
+  try {
+    const id = String(execFileSync(gitBin, [
+      "-C",
+      repoRoot,
+      "rev-parse",
+      "--verify",
+      "HEAD",
+    ], {
+      encoding: "utf8",
+      timeout: timeoutMs,
+      stdio: ["ignore", "pipe", "ignore"],
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+    })).trim().toLowerCase();
+    if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(id)) {
+      return { id: "", clean: false, source: "git-invalid" };
+    }
+    const status = String(execFileSync(gitBin, [
+      "-C",
+      repoRoot,
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=no",
+      "--ignore-submodules=dirty",
+    ], {
+      encoding: "utf8",
+      timeout: timeoutMs,
+      stdio: ["ignore", "pipe", "ignore"],
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+    }));
+    return { id, clean: status.trim() === "", source: "git" };
+  } catch {
+    return { id: "", clean: false, source: "unavailable" };
+  }
+}
+
+function processMetadata(state) {
+  return {
+    ...(state.release ? { release: { ...state.release } } : {}),
+    ...(Number.isInteger(state.pid) ? { process: { pid: state.pid } } : {}),
+    ...(state.runtime ? { runtime: { ...state.runtime } } : {}),
   };
 }
 
@@ -57,6 +113,7 @@ function readinessView(state) {
     phase: state.phase,
     startedAt: state.startedAt,
     readyAt: state.readyAt,
+    ...processMetadata(state),
     ...(state.failedAt ? {
       failedAt: state.failedAt,
       error: {
@@ -72,6 +129,7 @@ function liveView(state) {
     ok: state.phase !== PHASES.FAILED,
     phase: state.phase,
     startedAt: state.startedAt,
+    ...processMetadata(state),
   };
 }
 
@@ -130,6 +188,7 @@ async function readinessResponse(state, {
 module.exports = {
   PHASES,
   createReadinessState,
+  resolveReleaseIdentity,
   markReady,
   markStarting,
   markStopping,

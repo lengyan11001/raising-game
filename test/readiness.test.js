@@ -1,11 +1,14 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
   PHASES,
   createReadinessState,
+  resolveReleaseIdentity,
   markReady,
   markStarting,
   markStopping,
@@ -15,6 +18,38 @@ const {
   probeReadiness,
   readinessResponse,
 } = require("../readiness");
+
+test("readiness exposes immutable loaded-process metadata", () => {
+  const state = createReadinessState({
+    release: { id: "a".repeat(40), clean: true, source: "git" },
+    pid: 4242,
+    runtime: {
+      backgroundSchedulers: false,
+      generationSubmitQueue: false,
+      generationSubmitWorker: false,
+    },
+  });
+  markReady(state, new Date("2026-11-15T00:00:00.000Z"));
+  const view = readinessView(state);
+  assert.deepEqual(view.release, { id: "a".repeat(40), clean: true, source: "git" });
+  assert.deepEqual(view.process, { pid: 4242 });
+  assert.deepEqual(view.runtime, {
+    backgroundSchedulers: false,
+    generationSubmitQueue: false,
+    generationSubmitWorker: false,
+  });
+  view.release.id = "mutated";
+  assert.equal(readinessView(state).release.id, "a".repeat(40));
+});
+
+test("release identity resolves from the code checkout at process startup", () => {
+  const root = path.resolve(__dirname, "..");
+  const expected = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const identity = resolveReleaseIdentity({ root });
+  assert.equal(identity.id, expected);
+  assert.equal(identity.source, "git");
+  assert.equal(typeof identity.clean, "boolean");
+});
 
 test("readiness starts before accepting traffic", () => {
   const state = createReadinessState();

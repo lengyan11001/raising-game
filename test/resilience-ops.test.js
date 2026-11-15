@@ -1584,8 +1584,37 @@ case "$*" in
   *) exit 92 ;;
 esac
 `);
+    const release = path.join(dir, "release");
+    fs.mkdirSync(release, { recursive: true });
+    fs.writeFileSync(path.join(release, "release.txt"), "release\n");
+    run("git", ["init", "-q", release]);
+    run("git", ["-C", release, "config", "user.name", "Cutover Test"]);
+    run("git", ["-C", release, "config", "user.email", "cutover@example.invalid"]);
+    run("git", ["-C", release, "add", "release.txt"]);
+    run("git", ["-C", release, "commit", "-q", "-m", "release"]);
+    const releaseId = run("git", ["-C", release, "rev-parse", "HEAD"]).trim();
+    const runtime = { backgroundSchedulers: false, generationSubmitQueue: false, generationSubmitWorker: false };
+    const releaseInfo = { id: releaseId, clean: true, source: "git" };
+    const primaryPayload = JSON.stringify({ ok: true, ready: true, phase: "ready", release: releaseInfo, process: { pid: 100 }, runtime });
+    const secondaryPayload = JSON.stringify({ ok: true, ready: true, phase: "ready", release: releaseInfo, process: { pid: 200 }, runtime });
     writeExecutable(path.join(bin, "curl"), `#!/usr/bin/env bash
-printf '200 0.010'
+url=""
+output_mode=0
+for arg in "$@"; do
+  case "$arg" in
+    http://*|https://*) url="$arg" ;;
+    -o|--output) output_mode=1 ;;
+  esac
+done
+if [[ "$output_mode" -eq 1 ]]; then
+  printf '200 0.010'
+  exit 0
+fi
+case "$url" in
+  *:4174/api/livez|*:4174/api/readyz) printf '%s\n200' ${JSON.stringify(primaryPayload)} ;;
+  *:4175/api/livez|*:4175/api/readyz) printf '%s\n200' ${JSON.stringify(secondaryPayload)} ;;
+  *) exit 93 ;;
+esac
 `);
     writeExecutable(path.join(bin, "psql"), `#!/usr/bin/env bash
 printf '100|10|0|0|0\n'
@@ -1611,6 +1640,7 @@ GENERATION_SUBMIT_WORKER_ENABLED=0
       "--phase", "candidate",
       "--candidate-port", "4175",
       "--primary-port", "4174",
+      "--release", release,
       "--secondary-env", secondaryEnv,
     ], { cwd: root, env: { ...process.env, ...env }, encoding: "utf8" });
 
@@ -1926,12 +1956,19 @@ function rollingFixture(dir, { activePort = 4174, candidatePort = 4175, runtimeR
   // the orchestrator receives the explicit path. Keep both pointed at the
   // same executable through PATH so failure injection covers both layers.
   const curl = path.join(dir, "curl");
+  const curlBase = path.join(dir, "curl-base");
   const systemctlLog = path.join(dir, "systemctl.log");
   const reloadLog = path.join(dir, "reload.log");
   fs.mkdirSync(release, { recursive: true });
   fs.mkdirSync(shared, { recursive: true });
   fs.writeFileSync(path.join(release, "RUNTIME_MEDIA_ROOT"), `${fs.realpathSync(shared)}\n`);
   fs.writeFileSync(envFile, `RUNTIME_MEDIA_ROOT=${fs.realpathSync(shared)}\n`);
+  run("git", ["init", "-q", release]);
+  run("git", ["-C", release, "config", "user.name", "Rolling Deploy Test"]);
+  run("git", ["-C", release, "config", "user.email", "rolling-deploy@example.invalid"]);
+  run("git", ["-C", release, "add", "RUNTIME_MEDIA_ROOT"]);
+  run("git", ["-C", release, "commit", "-q", "-m", "fixture release"]);
+  const releaseId = run("git", ["-C", release, "rev-parse", "HEAD"]).trim();
   const files = [
     path.join(dir, "default.conf"),
     path.join(dir, "chat.conf"),
@@ -1944,7 +1981,38 @@ function rollingFixture(dir, { activePort = 4174, candidatePort = 4175, runtimeR
   }
   writeExecutable(nginx, "#!/usr/bin/env bash\nexit 0\n");
   writeExecutable(reload, `#!/usr/bin/env bash\nprintf 'reload\\n' >> ${JSON.stringify(reloadLog)}\nexit 0\n`);
-  writeExecutable(curl, "#!/usr/bin/env bash\nprintf '200'\nexit 0\n");
+  const releaseInfo = { id: releaseId, clean: true, source: "git" };
+  const processInfo = { pid: 4242 };
+  const runtime = {
+    backgroundSchedulers: false,
+    generationSubmitQueue: false,
+    generationSubmitWorker: false,
+  };
+  const livez = JSON.stringify({ ok: true, phase: "ready", release: releaseInfo, process: processInfo, runtime });
+  const readyz = JSON.stringify({ ok: true, ready: true, phase: "ready", release: releaseInfo, process: processInfo, runtime });
+  writeExecutable(curlBase, `#!/usr/bin/env bash
+url=""
+output_mode=0
+for arg in "$@"; do
+  case "$arg" in
+    http://*|https://*) url="$arg" ;;
+    --output) output_mode=1 ;;
+  esac
+done
+if [[ "$output_mode" -eq 1 ]]; then
+  printf '200'
+  exit 0
+fi
+case "$url" in
+  */api/livez) printf '%s\n200' ${JSON.stringify(livez)} ;;
+  */api/readyz) printf '%s\n200' ${JSON.stringify(readyz)} ;;
+  *) printf '200' ;;
+esac
+exit 0
+`);
+  writeExecutable(curl, `#!/usr/bin/env bash
+exec ${JSON.stringify(curlBase)} "$@"
+`);
   writeExecutable(systemctl, `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(systemctlLog)}
 if [[ "$1" == show ]]; then
@@ -1952,7 +2020,7 @@ if [[ "$1" == show ]]; then
 fi
 exit 0
 `);
-  return { release, shared, envFile, nginx, reload, systemctl, curl, systemctlLog, reloadLog, files, names };
+  return { release, releaseId, shared, envFile, nginx, reload, systemctl, curl, curlBase, systemctlLog, reloadLog, files, names };
 }
 
 function invokeRolling(args, dir, fixture, extraEnv = {}) {
@@ -2027,13 +2095,13 @@ printf '%s\\n' "$*" >> ${JSON.stringify(fixture.systemctlLog)}
 if [[ "$1" == show ]]; then
   printf 'ActiveState=active\\nSubState=running\\nMainPID=4242\\n'
 fi
-if [[ "$1" == start ]]; then exit 1; fi
+if [[ "$1" == restart ]]; then exit 1; fi
 exit 0
 `);
     const original = fixture.files.map((file) => fs.readFileSync(file, "utf8"));
     const result = invokeRolling(["--apply"], dir, fixture);
     assert.notEqual(result.status, 0);
-    assert.match(`${result.stdout}${result.stderr}`, /command failed .*start/);
+    assert.match(`${result.stdout}${result.stderr}`, /command failed .*restart/);
     assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
     assert.equal(fs.existsSync(fixture.reloadLog), false);
   });
@@ -2070,7 +2138,7 @@ exit 0
     assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
     assert.equal(fs.existsSync(fixture.reloadLog), false);
     assert.equal(fs.existsSync(fixture.systemctlLog), true);
-    assert.doesNotMatch(fs.readFileSync(fixture.systemctlLog, "utf8"), /start/);
+    assert.doesNotMatch(fs.readFileSync(fixture.systemctlLog, "utf8"), / (?:start|restart) /);
   });
 });
 
@@ -2144,6 +2212,27 @@ test("rolling transaction rejects symlinked and invalid shared media roots befor
   });
 });
 
+test("rolling transaction restarts the idle candidate, verifies its loaded release, and switches every upstream", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    const result = invokeRolling(["--apply"], dir, fixture);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, new RegExp(`OBSERVED active_port=4174 release=${fixture.releaseId}`));
+    assert.match(result.stdout, /PHASE restart_candidate/);
+    assert.match(result.stdout, /DONE service=raising-game-demo-b\.service action=restart/);
+    assert.match(result.stdout, /PHASE candidate_ready/);
+    assert.match(result.stdout, /PHASE cutover=4174->4175/);
+    assert.match(result.stdout, /ROLLING_DEPLOY_OK/);
+    const systemctl = fs.readFileSync(fixture.systemctlLog, "utf8");
+    assert.match(systemctl, /restart raising-game-demo-b\.service/);
+    assert.doesNotMatch(systemctl, /(?:^|\n)start raising-game-demo-b\.service/);
+    for (const file of fixture.files) {
+      assert.match(fs.readFileSync(file, "utf8"), /server 127\.0\.0\.1:4175; server 127\.0\.0\.1:4174 backup;/);
+    }
+    assert.equal(fs.readFileSync(fixture.reloadLog, "utf8").trim().split("\n").length, 1);
+  });
+});
+
 test("rolling transaction rolls all upstreams back when a post-cutover health check fails", async () => {
   await withTempDir((dir) => {
     const fixture = rollingFixture(dir);
@@ -2161,10 +2250,9 @@ if [[ "$*" == *"https://example.invalid/api/health"* ]] && grep -q '127.0.0.1:41
   printf '%s' "$n" > ${JSON.stringify(promotedHealthCount)}
   [[ "$n" -eq 1 ]] && printf '200' && exit 0
   printf '503'
-else
-  printf '200'
+  exit 0
 fi
-exit 0
+exec ${JSON.stringify(fixture.curlBase)} "$@"
 `);
     const result = invokeRolling(["--apply"], dir, fixture);
     assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
@@ -2194,10 +2282,9 @@ if [[ "$*" == *"https://example.invalid/api/health"* ]] && grep -q '127.0.0.1:41
   printf '%s' "$n" > ${JSON.stringify(promotedHealthCount)}
   [[ "$n" -eq 1 ]] && printf '200' && exit 0
   printf '503'
-else
-  printf '200'
+  exit 0
 fi
-exit 0
+exec ${JSON.stringify(fixture.curlBase)} "$@"
 `);
     const result = invokeRolling(["--apply"], dir, fixture);
     assert.notEqual(result.status, 0);

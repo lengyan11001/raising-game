@@ -12,6 +12,11 @@ the measured baseline and change window are approved.
   `GENERATION_SUBMIT_QUEUE_ENABLED=0`, and
   `GENERATION_SUBMIT_WORKER_ENABLED=0`. PostgreSQL advisory leases may only be
   promoted after HTTP cutover is stable.
+- A green health endpoint is not release proof. `/api/livez` and `/api/readyz`
+  expose the commit, PID, and worker flags captured when the process started.
+  The candidate must be restarted and must match the expected commit, systemd
+  `MainPID`, and disabled worker flags before any traffic moves. A stale
+  already-running process is rejected, never accepted as a successful start.
 - Every real traffic upstream moves in one journaled cross-file Nginx transaction. Never
   leave `raising_game_app`, `raising_game_app_chat`, or `raising_game_app_live`
   on different releases.
@@ -86,6 +91,18 @@ the measured baseline and change window are approved.
      curl -fsS -o /dev/null -w "$path %{http_code}\n" "http://127.0.0.1:4175$path"
    done
    ```
+   Require the loaded release and PID to match the intended release and the
+   unit, and require all worker flags to be false:
+   ```bash
+   expected="$(git -C /opt/raising-game-demo rev-parse HEAD)"
+   pid="$(systemctl show raising-game-demo-b.service -p MainPID --value)"
+   curl -fsS http://127.0.0.1:4175/api/livez
+   curl -fsS http://127.0.0.1:4175/api/readyz
+   ```
+   The JSON must contain `release.id` equal to `$expected`, `release.clean=true`,
+   `process.pid` equal to `$pid`, and all three `runtime` worker fields equal to
+   `false`. Missing identity means the process is stale and must be restarted as
+   the inactive candidate; it must not receive traffic.
 3. Confirm the candidate has schedulers and the worker disabled, is a separate
    cgroup, and has not touched 4174:
    ```bash
@@ -237,10 +254,11 @@ worker-lease gate described above.
 ## Permanent rolling deployment transaction
 
 Use `ops/rolling-deploy-transaction.py` for release replacement once the
-release snapshot is already present on the host. The command starts and verifies
-the idle candidate before moving any traffic, runs migration hooks while the
-original upstream is still active, and moves every traffic upstream in one
-journaled transaction. It never replays request methods or bodies.
+release snapshot is already present on the host. The command restarts and verifies
+the idle candidate's loaded commit, PID, and disabled worker flags before moving
+any traffic, runs migration hooks while the original upstream is still active,
+and moves every traffic upstream in one journaled transaction. It never replays
+request methods or bodies.
 
 The permanent transaction requires the same non-symlink shared runtime media
 root in the service environment and both release markers:
@@ -260,6 +278,9 @@ Prerequisites for a real run:
    healthy.
 3. Record service PIDs and `NRestarts`, all three Nginx hashes, public health,
    Nginx 5xx/499, PostgreSQL connections/locks, load, memory, and disk.
+4. Publish only a clean committed release checkout. The transaction derives the
+   expected full commit from the release checkout and also accepts an exact
+   `--expected-release-id` pin. A dirty checkout is rejected before startup.
 
 Dry-run against the installed release first. It is the default and must not
 start, stop, migrate, validate, reload, or alter any file:
@@ -282,16 +303,19 @@ python3 /opt/raising-game-demo/ops/rolling-deploy-transaction.py \
 ```
 
 The command succeeds only after Nginx validation, reload, complete upstream
-topology verification, and all three public health URLs return HTTP 200. It
-prints `ROLLING_DEPLOY_OK`. If a failure occurs after cutover, it restores the
+topology verification, exact loaded-release/PID checks, disabled candidate
+worker flags, and all three public health URLs return HTTP 200. It prints
+`ROLLING_DEPLOY_OK`. If a failure occurs after cutover, it restores the
 complete original topology and prints `ROLLBACK_OK`. If recovery cannot be
 validated, it prints `ROLLBACK_FAILED ... manual intervention required`, keeps
 the journal, and exits non-zero; do not report that run as recovered.
 
-An already-active candidate is a safe no-op only when the candidate and public
-health checks pass. It prints `ROLLING_DEPLOY_NOOP active_port=...` and never
-performs a reverse switch. A missing, symlinked, invalid, or inconsistent
-`RUNTIME_MEDIA_ROOT` must stop before candidate startup or traffic mutation.
+An already-active candidate is a safe no-op only when its loaded commit and PID
+match the expected release and public health checks pass. A healthy but stale
+process is rejected. It prints `ROLLING_DEPLOY_NOOP active_port=...` only after
+those checks pass and never performs a reverse switch. A missing, symlinked,
+invalid, or inconsistent `RUNTIME_MEDIA_ROOT` must stop before candidate startup
+or traffic mutation.
 
 ## Shared runtime media cutover
 

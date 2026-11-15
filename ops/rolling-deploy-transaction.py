@@ -4,7 +4,9 @@
 Safety properties:
 - dry-run is the default; every mutating phase requires --apply;
 - the current active upstream is discovered, never assumed to be 4174;
-- the candidate is started and verified before traffic moves;
+- the candidate process is restarted and verified before traffic moves;
+- the loaded release commit, PID, and disabled worker flags must match exactly;
+- an already-running stale process is never accepted merely because health is green;
 - migrations/hooks run before any Nginx transaction;
 - all traffic upstreams switch in one journaled Nginx transaction;
 - failures after cutover restore the discovered original upstream;
@@ -15,7 +17,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -40,12 +44,12 @@ DEFAULT_UPSTREAM_NAMES = (
     "raising_game_app_chat",
     "raising_game_app_live",
 )
-UPSTREAM_RE = __import__("re").compile(
+UPSTREAM_RE = re.compile(
     r"upstream\s+(?P<name>[A-Za-z0-9_.-]+)\s*\{(?P<body>.*?)\}",
     __import__("re").S,
 )
-SERVER_RE = __import__("re").compile(r"(?<![A-Za-z0-9_])server\s+([^;{}]+);")
-LOCAL_MEMBER_RE = __import__("re").compile(
+SERVER_RE = re.compile(r"(?<![A-Za-z0-9_])server\s+([^;{}]+);")
+LOCAL_MEMBER_RE = re.compile(
     r"^(?:127\.0\.0\.1|localhost):(?P<port>[0-9]+)(?P<options>.*)$"
 )
 
@@ -216,6 +220,126 @@ def candidate_health_url(base: str, endpoint: str) -> str:
     return f"{base.rstrip('/')}/api/{endpoint}"
 
 
+def release_identity(release: Path) -> str:
+    identity = run(
+        ["git", "-C", str(release), "rev-parse", "--verify", "HEAD"],
+        timeout=15,
+    ).lower()
+    if not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", identity):
+        raise TransactionError(f"release checkout returned an invalid commit: {identity!r}")
+    dirty = run(
+        [
+            "git", "-C", str(release), "status", "--porcelain=v1",
+            "--untracked-files=no", "--ignore-submodules=dirty",
+        ],
+        timeout=15,
+    )
+    if dirty:
+        raise TransactionError("release checkout is dirty; publish an immutable committed release first")
+    return identity
+
+
+def fetch_json(url: str, curl_bin: str = "curl", timeout: int = 15) -> dict:
+    try:
+        completed = subprocess.run(
+            [
+                curl_bin, "-sS", "--max-time", "10",
+                "--write-out", "\n%{http_code}", url,
+            ],
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise TransactionError(f"HTTP identity check timed out: {url}") from error
+    body, separator, status_text = completed.stdout.rpartition("\n")
+    if completed.returncode != 0 or not separator:
+        detail = (completed.stderr or completed.stdout).strip()
+        raise TransactionError(f"HTTP identity check failed: {url}: {detail}")
+    try:
+        status = int(status_text.strip())
+    except ValueError as error:
+        raise TransactionError(f"HTTP identity check returned no status: {url}") from error
+    if status != 200:
+        raise TransactionError(f"HTTP identity check returned {status}: {url}")
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as error:
+        raise TransactionError(f"HTTP identity check returned invalid JSON: {url}") from error
+    if not isinstance(payload, dict):
+        raise TransactionError(f"HTTP identity check returned a non-object: {url}")
+    return payload
+
+
+def validate_loaded_candidate(
+    livez: dict,
+    readyz: dict,
+    *,
+    expected_release: str,
+    expected_pid: int,
+    require_workers_disabled: bool,
+) -> None:
+    if livez.get("ok") is not True or readyz.get("ok") is not True or readyz.get("ready") is not True:
+        raise TransactionError(f"candidate is not ready: livez={livez} readyz={readyz}")
+    for label, payload in (("livez", livez), ("readyz", readyz)):
+        release = payload.get("release")
+        if not isinstance(release, dict):
+            raise TransactionError(
+                f"candidate {label} has no loaded release identity; it is stale or predates the release gate"
+            )
+        if release.get("clean") is not True or release.get("source") != "git":
+            raise TransactionError(f"candidate {label} release is not a clean Git checkout: {release}")
+        if release.get("id") != expected_release:
+            raise TransactionError(
+                f"candidate {label} release={release.get('id')} expected={expected_release}"
+            )
+        process_info = payload.get("process")
+        if not isinstance(process_info, dict) or process_info.get("pid") != expected_pid:
+            raise TransactionError(
+                f"candidate {label} pid={process_info} expected={expected_pid}"
+            )
+    if require_workers_disabled:
+        runtime = readyz.get("runtime")
+        required = (
+            "backgroundSchedulers",
+            "generationSubmitQueue",
+            "generationSubmitWorker",
+        )
+        if not isinstance(runtime, dict) or any(runtime.get(key) is not False for key in required):
+            raise TransactionError(
+                f"candidate background work must be disabled during validation: {runtime}"
+            )
+
+
+def wait_loaded_candidate(
+    base: str,
+    *,
+    expected_release: str,
+    expected_pid: int,
+    require_workers_disabled: bool,
+    attempts: int,
+    delay: float,
+    curl_bin: str,
+) -> None:
+    last_error: Exception | None = None
+    for _ in range(attempts):
+        try:
+            livez = fetch_json(candidate_health_url(base, "livez"), curl_bin)
+            readyz = fetch_json(candidate_health_url(base, "readyz"), curl_bin)
+            validate_loaded_candidate(
+                livez,
+                readyz,
+                expected_release=expected_release,
+                expected_pid=expected_pid,
+                require_workers_disabled=require_workers_disabled,
+            )
+            return
+        except TransactionError as error:
+            last_error = error
+        time.sleep(delay)
+    raise TransactionError(f"candidate identity check failed: {last_error}")
+
+
 def systemctl_show(service: str, properties: str, systemctl: str = "systemctl") -> dict[str, str]:
     text = run([systemctl, "show", service, "-p", properties], timeout=15)
     result: dict[str, str] = {}
@@ -320,9 +444,20 @@ def rollout(args: argparse.Namespace) -> int:
     service_env = read_env(env_file)
     combined_env = {**os.environ, **service_env}
     runtime_root = validate_runtime_media(release, release, combined_env)
+    checked_out_release = release_identity(release)
+    expected_release = args.expected_release_id or checked_out_release
+    if not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", expected_release):
+        raise TransactionError("--expected-release-id must be a full 40- or 64-character Git commit")
+    if expected_release != checked_out_release:
+        raise TransactionError(
+            f"expected release={expected_release} does not match checkout={checked_out_release}"
+        )
     before_hashes = nginx_snapshot(files)
     original_port = discover_active_port(files, names, args.primary_port, args.candidate_port)
-    log(f"OBSERVED active_port={original_port} runtime_media={runtime_root} files={len(files)}")
+    log(
+        f"OBSERVED active_port={original_port} release={expected_release} "
+        f"runtime_media={runtime_root} files={len(files)}"
+    )
 
     if not args.apply:
         log("PLAN phase=preflight")
@@ -336,8 +471,9 @@ def rollout(args: argparse.Namespace) -> int:
         run(command, env=combined_env, timeout=60)
         log("PLAN phase=migrate")
         run_commands(args.migrate_command, apply=False, env=combined_env)
-        log("PLAN phase=start_candidate")
-        service_action(args.systemctl, "start", args.candidate_service, apply=False)
+        log("PLAN phase=restart_candidate")
+        service_action(args.systemctl, "restart", args.candidate_service, apply=False)
+        log(f"PLAN phase=verify_loaded_release id={expected_release} workers_disabled=true")
         log("PLAN phase=cutover")
         log(f"PLAN upstream_switch={original_port}->{preview_target} files={len(files)}")
         log("PLAN phase=verify")
@@ -354,7 +490,16 @@ def rollout(args: argparse.Namespace) -> int:
         if original_port == args.candidate_port:
             # A previous attempt may already have completed the cutover. Treat
             # this as a verified recovery-state no-op, never a reverse switch.
-            require_active(args.candidate_service, args.systemctl)
+            candidate_pid = int(require_active(args.candidate_service, args.systemctl))
+            wait_loaded_candidate(
+                args.candidate_health_base,
+                expected_release=expected_release,
+                expected_pid=candidate_pid,
+                require_workers_disabled=False,
+                attempts=args.wait_attempts,
+                delay=args.wait_delay,
+                curl_bin=args.curl_bin,
+            )
             for endpoint in ("livez", "health", "readyz"):
                 wait_http_200(candidate_health_url(args.candidate_health_base, endpoint), args.wait_attempts, args.wait_delay, args.curl_bin)
             for url in args.health_url:
@@ -365,11 +510,21 @@ def rollout(args: argparse.Namespace) -> int:
         require_active(args.primary_service, args.systemctl)
         run_commands(args.migrate_command, apply=True, env=combined_env)
 
-        log("PHASE start_candidate")
+        log("PHASE restart_candidate")
         candidate_started = True
-        service_action(args.systemctl, "start", args.candidate_service, apply=True)
+        service_action(args.systemctl, "restart", args.candidate_service, apply=True)
+        candidate_pid = int(require_active(args.candidate_service, args.systemctl))
         for endpoint in ("livez", "health", "readyz"):
             wait_http_200(candidate_health_url(args.candidate_health_base, endpoint), args.wait_attempts, args.wait_delay, args.curl_bin)
+        wait_loaded_candidate(
+            args.candidate_health_base,
+            expected_release=expected_release,
+            expected_pid=candidate_pid,
+            require_workers_disabled=True,
+            attempts=args.wait_attempts,
+            delay=args.wait_delay,
+            curl_bin=args.curl_bin,
+        )
         log("PHASE candidate_ready")
 
         log(f"PHASE cutover={current}->{target}")
@@ -443,6 +598,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="execute mutations; without it, print the plan")
     parser.add_argument("--release", default=str(DEFAULT_RELEASE))
+    parser.add_argument(
+        "--expected-release-id",
+        default="",
+        help="full Git commit expected in the loaded candidate process; defaults to the release checkout HEAD",
+    )
     parser.add_argument("--primary-service", default=PRIMARY_SERVICE)
     parser.add_argument("--candidate-service", default=SECONDARY_SERVICE)
     parser.add_argument("--primary-port", default=PRIMARY_PORT)
