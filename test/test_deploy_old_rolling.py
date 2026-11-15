@@ -109,6 +109,16 @@ class DeployOldRollingTests(unittest.TestCase):
             with self.assertRaisesRegex(ROLLING.DeployError, "marker is missing or unsafe"):
                 ROLLING.release_marker(root)
 
+    def test_dropin_targets_one_service_suffix(self) -> None:
+        self.assertEqual(
+            ROLLING.dropin_path("raising-game-demo-b.service"),
+            Path("/etc/systemd/system/raising-game-demo-b.service.d/89-release-root.conf"),
+        )
+        self.assertEqual(
+            ROLLING.dropin_path("raising-game-demo-b"),
+            Path("/etc/systemd/system/raising-game-demo-b.service.d/89-release-root.conf"),
+        )
+
     def test_dropin_always_targets_exact_immutable_release(self) -> None:
         self.assertEqual(
             ROLLING.render_dropin(
