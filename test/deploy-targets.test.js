@@ -97,6 +97,11 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deploySite, /"rolling_source_root": "\/opt\/raising-game-release-src"/);
   assert.match(deploySite, /"rolling_candidate_service": "raising-game-demo-b.service"/);
   assert.match(deploySite, /"rolling_candidate_port": "4175"/);
+  assert.match(deploySite, /"rolling_python": "\/usr\/bin\/python3"/);
+  assert.match(deploySite, /"required_file_counts": \(\("\/opt\/raising-game-demo\/assets\/ourdream\/characters", 1000\),\),/);
+  assert.match(deploySite, /"https:\/\/github\.com\/lengyan11001\/raising-game\.git",/);
+  assert.doesNotMatch(deploySite, /"ssh:\/\/git@ssh\.github\.com:443\/lengyan11001\/raising-game\.git",/);
+  assert.match(deployPull, /actual_files=\$\(find \{path_q\} -type f 2>\/dev\/null \| wc -l \|\| true\)/);
   assert.match(deploySite, /--rolling cannot be combined with --no-restart/);
   assert.match(deploySite, /--rolling is supported only for the Old production target/);
   assert.match(deploySite, /use_rolling = \(bool\(target\.get\("rolling"\)\) or args\.candidate_only\) and not args\.no_restart/);
@@ -447,12 +452,16 @@ test("candidate-only deployment is an explicit inactive-service dry-run by defau
     "--rolling-candidate-only",
     "--rolling-migrate-command", "echo MIGRATION_MUST_NOT_RUN",
     "--rolling-post-cutover-command", "echo CUTOVER_MUST_NOT_RUN",
+    "--pre-restart-command", "echo LEGACY_PRE_MUST_NOT_RUN",
+    "--post-restart-command", "echo LEGACY_POST_MUST_NOT_RUN",
     "--verify-url", "https://123vips.com/",
     "--verify-contains", "https://123vips.com/=platform.css",
   ]);
   assert.match(command, /scripts\/deploy_old_rolling\.py --candidate-only --commit/);
   assert.doesNotMatch(command, /scripts\/deploy_old_rolling\.py --apply/);
-  assert.doesNotMatch(command, /MIGRATION_MUST_NOT_RUN|CUTOVER_MUST_NOT_RUN/);
+  assert.doesNotMatch(command, /MIGRATION_MUST_NOT_RUN|CUTOVER_MUST_NOT_RUN|LEGACY_PRE_MUST_NOT_RUN|LEGACY_POST_MUST_NOT_RUN/);
+  assert.match(command, /\/usr\/bin\/python3 scripts\/deploy_old_rolling\.py/);
+  assert.doesNotMatch(command, /\/Library\/Developer\/CommandLineTools/);
 });
 
 test("candidate-only apply requires an explicit second switch", () => {

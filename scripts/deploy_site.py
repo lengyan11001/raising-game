@@ -66,6 +66,7 @@ TARGETS = {
         "rolling_releases_root": "/opt/raising-game-releases",
         "rolling_shared_assets": "/opt/raising-game-shared/assets",
         "rolling_node_path": "/opt/raising-game-demo/node_modules",
+        "rolling_python": "/usr/bin/python3",
         "rolling_primary_service": "raising-game-demo.service",
         "rolling_candidate_service": "raising-game-demo-b.service",
         "rolling_primary_port": "4174",
@@ -77,7 +78,7 @@ TARGETS = {
         "rolling_post_cutover_commands": (
             "__RELEASE__/ops/harden-old-nginx-private-media.sh",
         ),
-        "required_file_counts": (("/opt/raising-game-shared/assets/ourdream/characters", 1000),),
+        "required_file_counts": (("/opt/raising-game-demo/assets/ourdream/characters", 1000),),
         "password_env": ("OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
         "key_env": ("DEPLOY_SSH_KEY", "OLD_SITE_SSH_KEY"),
         "forbidden_changed_paths": (
@@ -494,7 +495,7 @@ def main() -> None:
         "--commit",
         expected_commit,
         "--bootstrap-clone-url",
-        "ssh://git@ssh.github.com:443/lengyan11001/raising-game.git",
+        "https://github.com/lengyan11001/raising-game.git",
         "--port",
         str(port),
     ]
@@ -509,6 +510,7 @@ def main() -> None:
             "--rolling-releases-root", target["rolling_releases_root"],
             "--rolling-shared-assets", target["rolling_shared_assets"],
             "--rolling-node-path", target["rolling_node_path"],
+            "--rolling-python", target["rolling_python"],
             "--rolling-primary-service", target["rolling_primary_service"],
             "--rolling-candidate-service", target["rolling_candidate_service"],
             "--rolling-primary-port", target["rolling_primary_port"],
@@ -542,11 +544,12 @@ def main() -> None:
         command.extend(["--verify-status", verify_status])
     if target.get("verify_private_media"):
         command.append("--verify-private-media")
-    if use_rolling and not args.candidate_only:
-        for rolling_command in target.get("rolling_migrate_commands", ()):
-            command.extend(["--rolling-migrate-command", rolling_command])
-        for rolling_command in target.get("rolling_post_cutover_commands", ()):
-            command.extend(["--rolling-post-cutover-command", rolling_command])
+    if use_rolling:
+        if not args.candidate_only:
+            for rolling_command in target.get("rolling_migrate_commands", ()):
+                command.extend(["--rolling-migrate-command", rolling_command])
+            for rolling_command in target.get("rolling_post_cutover_commands", ()):
+                command.extend(["--rolling-post-cutover-command", rolling_command])
     else:
         for pre_restart_command in target.get("pre_restart_commands", ()):
             command.extend(["--pre-restart-command", pre_restart_command])

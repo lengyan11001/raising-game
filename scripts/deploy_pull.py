@@ -315,6 +315,7 @@ def main() -> None:
     parser.add_argument("--rolling-releases-root", default="/opt/raising-game-releases")
     parser.add_argument("--rolling-shared-assets", default="/opt/raising-game-shared/assets")
     parser.add_argument("--rolling-node-path", default="/opt/raising-game-demo/node_modules")
+    parser.add_argument("--rolling-python", default="/usr/bin/python3")
     parser.add_argument("--rolling-primary-service", default="raising-game-demo.service")
     parser.add_argument("--rolling-candidate-service", default="raising-game-demo-b.service")
     parser.add_argument("--rolling-primary-port", default="4174")
@@ -415,7 +416,7 @@ systemctl cat {service_q} | grep -F -- {env_line_q} >/dev/null || {{ echo "Missi
         minimum = int(count_text)
         path_q = shlex.quote(path_text)
         required_file_checks.append(
-            f"actual_files=$(find {path_q} -type f 2>/dev/null | wc -l); "
+            f"actual_files=$(find {path_q} -type f 2>/dev/null | wc -l || true); "
             f"test \"$actual_files\" -ge {minimum} || "
             f"{{ echo \"Required media incomplete: {path_text} has $actual_files files, expected at least {minimum}\"; exit 23; }}"
         )
@@ -588,7 +589,7 @@ fi
             "https://live.123vipeak.com/api/health",
         ]
         rolling_arguments = [
-            sys.executable,
+            args.rolling_python,
             "scripts/deploy_old_rolling.py",
         ]
         if not args.rolling_candidate_only or args.rolling_candidate_apply:
