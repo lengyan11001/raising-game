@@ -4265,3 +4265,10 @@ CODEX_TASK_STATE.md
 - Files changed: `admin.css`, `admin.js`, `platform.create.parts/part-02.js`, `platform.css`, `platform.ui.parts/part-04.js`, `server.parts/part-02.js`, `server.parts/part-39.js`, `test/advanced-pricing.test.js`.
 - Verification: modified JS files pass `node --check`; `git diff --check` passes; focused pricing test passes `32/32`; full `npm test` passes `1341 / 0 failures / 1 skip`. Static review also caught and restored an accidentally removed `pricingModelDiscount()` definition with a regression assertion.
 - Status at record time: source prepared locally; Old deployment pending. Live must remain untouched.
+
+## 2026-11-15 Step BZ: Pricing model groups and ordering deployed to Old
+
+- Integrated source commit `79b78f9f5383f42b23af709fc9ccb63d8e3bd5fb` onto release clone `old-site`; focused pricing test passed `32/32` in the release clone.
+- Built with `python3 scripts/build_release_snapshot.py --source old-site`; platform release commit is `9304593a2710f4c8f009458685e2b1061a91f720`. Pushed only `platform-release` and deployed only Old with `scripts/deploy_local.sh --site old`.
+- Deployment reports remote HEAD `9304593a`, `raising-game-demo` active/running, and `/api/health` plus `/api/readyz` both healthy. Static deployment verification confirms served `admin.js` contains the three pricing groups, model-order controls, and `pricingModelDiscount()`, while `platform.create.parts/part-02.js` contains the title/name presentation and ordering logic.
+- Remote `live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`; Live was not pushed or deployed. Temporary credential copy in the release worktree was removed after deployment.
