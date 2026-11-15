@@ -1,3 +1,11 @@
+## 2026-11-16 Step BY: explicit Old promotion guard and blast-radius policy
+
+- Read-only production check at 2026-11-16 00:54 +08: primary 4174 remained MainPID `317565`, candidate 4175 remained MainPID `339397`, Nginx remained MainPID `3914088`, all `NRestarts=0`; internal 4174/4175 health and all three public health URLs returned 200. Root disk is 87% used with 6.5G free. No production process, traffic, Nginx, database, or file was changed.
+- Added a hard deployment gate in `scripts/deploy_site.py`: a full Old production promotion now fails unless the operator explicitly supplies `--promote-candidate`. Candidate-only preparation remains explicit and is a dry-run unless `--apply-candidate` is also supplied. This prevents a bare `scripts/deploy_local.sh --site old` from moving all public traffic.
+- Updated `AGENTS.md` so new sessions use the candidate-first workflow and cannot unknowingly bypass the promotion gate. Updated the cutover runbook to state that weighted canaries do not protect schema, static-asset, or shared-config side effects; those require backward-compatible expand/contract rollout and independent rollback plans.
+- Verification: `node --test test/deploy-targets.test.js test/resilience-ops.test.js` passed 93/93; direct parser checks confirmed bare Old promotion is rejected, explicit promotion is accepted, and candidate-only conflicts are rejected; `py_compile` and `git diff --check` passed.
+- No deployment, public cutover, service restart, migration, or Live action occurred. The Old candidate remains on release `9c77cf6b` with schedulers, submit queue, and submit worker disabled.
+
 ## 2026-11-16 Step BX: release verification, candidate promotion, media reconciliation, and bounded canary
 
 - Source regression at `a58f814d`: `npm test` passed 1359/1360 with 0 failures and 1 skip. `git diff --check` and Python compilation passed. Built platform release `9c77cf6bcfa3e1e63e9247764a5edbee48b005c1` from the committed source and tested the actual release tree in an isolated worktree: 1282/1284 passed, 0 failures, 2 skips.

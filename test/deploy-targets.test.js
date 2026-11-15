@@ -129,6 +129,33 @@ function printedDeployCommand(extraArgs = [], env = {}) {
   });
 }
 
+test("Old production traffic promotion requires an explicit candidate promotion flag", () => {
+  const blocked = spawnSync("python3", [
+    path.join(root, "scripts", "deploy_site.py"),
+    "--site", "old",
+  ], { cwd: root, encoding: "utf8" });
+  assert.notEqual(blocked.status, 0);
+  assert.match(`${blocked.stdout}\n${blocked.stderr}`, /requires --promote-candidate/);
+  assert.match(`${blocked.stdout}\n${blocked.stderr}`, /--candidate-only --apply-candidate/);
+
+  const dryRun = spawnSync("python3", [
+    path.join(root, "scripts", "deploy_site.py"),
+    "--site", "old",
+    "--dry-run",
+  ], { cwd: root, encoding: "utf8" });
+  assert.equal(dryRun.status, 0, `${dryRun.stdout}\n${dryRun.stderr}`);
+  assert.match(dryRun.stdout, /site=old/);
+
+  const conflict = spawnSync("python3", [
+    path.join(root, "scripts", "deploy_site.py"),
+    "--site", "old",
+    "--candidate-only",
+    "--promote-candidate",
+  ], { cwd: root, encoding: "utf8" });
+  assert.notEqual(conflict.status, 0);
+  assert.match(`${conflict.stdout}\n${conflict.stderr}`, /cannot be combined with --candidate-only/);
+});
+
 test("no-restart deploy command suppresses every service and Nginx mutation", () => {
   const command = printedDeployCommand([
     "--no-restart",

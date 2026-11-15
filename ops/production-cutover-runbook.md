@@ -6,6 +6,9 @@ the measured baseline and change window are approved.
 
 ## Safety invariants
 
+- Production promotion is candidate-first. The Old deployment entrypoint refuses
+  a full traffic deployment unless `--promote-candidate` is supplied; prepare and
+  verify the idle candidate with `--candidate-only --apply-candidate` first.
 - PostgreSQL through `DATABASE_URL` remains the only source of truth.
 - The second instance uses the same release and the same database as the primary.
 - The second instance starts with `BACKGROUND_SCHEDULERS_ENABLED=0`,
@@ -25,6 +28,11 @@ the measured baseline and change window are approved.
   the new instance.
 - No user, session, balance, order, refund, generation, webhook, or security
   fact is written to Redis or a local file as part of this change.
+- The weighted canary protects HTTP code paths, not global side effects. Schema
+  changes must be backward-compatible expand/contract migrations, static assets
+  must use immutable release paths, and shared configuration changes require a
+  separate rollback plan. Never make an all-process change in the same gate as
+  an unverified code change.
 
 ## Before the window
 

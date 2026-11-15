@@ -364,6 +364,11 @@ def main() -> None:
         action="store_true",
         help="Allow --candidate-only to restart the inactive candidate service. Without this flag the remote check is a dry-run.",
     )
+    parser.add_argument(
+        "--promote-candidate",
+        action="store_true",
+        help="Explicitly allow an Old production rolling transaction to move public traffic to the validated candidate.",
+    )
     args = parser.parse_args()
     if args.rolling and args.no_restart:
         parser.error("--rolling cannot be combined with --no-restart")
@@ -373,10 +378,27 @@ def main() -> None:
         parser.error("--candidate-only cannot be combined with --no-restart")
     if args.apply_candidate and not args.candidate_only:
         parser.error("--apply-candidate requires --candidate-only")
+    if args.promote_candidate and args.site != "old":
+        parser.error("--promote-candidate is supported only for the Old production target")
+    if args.promote_candidate and args.candidate_only:
+        parser.error("--promote-candidate cannot be combined with --candidate-only")
+    if args.promote_candidate and args.no_restart:
+        parser.error("--promote-candidate cannot be combined with --no-restart")
     if args.candidate_only and not TARGETS[args.site].get("rolling"):
         parser.error("--candidate-only requires a rolling deployment target")
 
     target = TARGETS[args.site]
+    if (
+        args.site == "old"
+        and not args.candidate_only
+        and not args.no_restart
+        and not args.dry_run
+        and not args.promote_candidate
+    ):
+        parser.error(
+            "Old production traffic promotion requires --promote-candidate; "
+            "validate with --candidate-only --apply-candidate first"
+        )
     use_rolling = (bool(target.get("rolling")) or args.candidate_only) and not args.no_restart
     if args.rolling and not use_rolling:
         parser.error("--rolling is supported only for the Old production target")
@@ -399,6 +421,8 @@ def main() -> None:
     print(f"[deploy-site] restart={restart_label}")
     if args.candidate_only:
         print(f"[deploy-site] candidate_only=yes apply_candidate={'yes' if args.apply_candidate else 'no'}")
+    if args.promote_candidate:
+        print("[deploy-site] promotion=explicit")
     print(f"[deploy-site] health_url={target['health_url']}")
     for verify_url in target.get("verify_urls", ()):
         print(f"[deploy-site] verify_url={verify_url}")

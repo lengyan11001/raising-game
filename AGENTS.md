@@ -7,7 +7,10 @@
 
 ## Production Deployment Rule
 
-- Use only the repository deployment entrypoint: `scripts/deploy_local.sh --site old` for `123vips.com`, or `scripts/deploy_local.sh --site live` for `live.123vipeak.com`.
+- Use only the repository deployment entrypoint: `scripts/deploy_local.sh` for production changes.
+- Old (`123vips.com`) is candidate-first. Prepare and validate the idle instance with `scripts/deploy_local.sh --site old --candidate-only --apply-candidate`. Candidate-only without `--apply-candidate` is a dry-run.
+- Old public traffic may move only with an explicit `scripts/deploy_local.sh --site old --promote-candidate`. The entrypoint rejects a full Old deployment without this flag. Do not bypass the flag with direct SSH or ad hoc scripts.
+- Live (`live.123vipeak.com`) remains `scripts/deploy_local.sh --site live`; do not mix Old and Live release branches.
 - The wrapper automatically loads local SSH credentials from the gitignored `LOCAL_CREDENTIALS.md` in the repository root. Never commit or print that file.
 - Build release snapshots from a committed `old-site` integration commit with `python3 scripts/build_release_snapshot.py --source old-site`, push `platform-release` and/or `live-release`, then deploy the corresponding site.
 - Never deploy `old-site` directly. Never mix platform files into `live-release` or Live files into `platform-release`.
