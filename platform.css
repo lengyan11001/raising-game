@@ -11346,6 +11346,41 @@ select:focus,
   font-weight: 850;
   white-space: nowrap;
 }
+.advanced-parameter-options.is-model-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.advanced-parameter-options.is-model-list .advanced-parameter-option {
+  justify-content: flex-start;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 10px;
+}
+.advanced-parameter-options.is-model-list .advanced-parameter-option strong {
+  flex: 1;
+  font-size: .84rem;
+}
+.advanced-parameter-option-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 8px;
+  color: rgba(247,247,251,.82);
+  background: rgba(255,255,255,.06);
+}
+.advanced-parameter-option-icon svg {
+  width: 15px;
+  height: 15px;
+}
+.advanced-parameter-model-check {
+  width: 16px !important;
+  height: 16px !important;
+  flex: 0 0 16px;
+  color: #fff;
+}
 .advanced-parameter-duration {
   display: grid;
   grid-template-columns: auto minmax(120px, 1fr);
