@@ -1262,6 +1262,7 @@ function renderAdvancedParameterPanel(kind = "") {
     return;
   }
   const current = String(select.value || "");
+  const modelList = kind === "model";
   let body = "";
   if (kind === "duration") {
     const numeric = options.map((item) => Number(item.value)).filter((value) => Number.isFinite(value) && value >= 0);
@@ -1288,7 +1289,6 @@ function renderAdvancedParameterPanel(kind = "") {
       </div>
     `;
   } else {
-    const modelList = kind === "model";
     body = `<div class="advanced-parameter-options${modelList ? " is-model-list" : ""}">
       ${options.map((item) => `
         <button class="advanced-parameter-option ${item.value === current ? "is-selected" : ""}" type="button" data-advanced-parameter-option-kind="${escapeHtml(kind)}" data-advanced-parameter-option-value="${escapeHtml(item.value)}">

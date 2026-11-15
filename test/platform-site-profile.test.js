@@ -136,6 +136,55 @@ test("Generate parameter pickers close after selection and duration uses a slide
   assert.doesNotMatch(setter, /keepPanelOpen/);
 });
 
+test("model picker render scrolls the selected row without a runtime reference error", () => {
+  const renderSource = extractFunction(create, "renderAdvancedParameterPanel");
+  let scrolled = null;
+  const selected = {
+    scrollIntoView(options) {
+      scrolled = options;
+    },
+  };
+  const panel = {
+    hidden: true,
+    innerHTML: "",
+    dataset: {},
+    style: { maxHeight: "" },
+    getBoundingClientRect: () => ({ height: 48 }),
+    querySelector: (selector) => selector === ".advanced-parameter-option.is-selected" ? selected : null,
+  };
+  let refreshCount = 0;
+  let positionCount = 0;
+  const renderAdvancedParameterPanel = new Function(
+    "advancedParameterNativeSelect",
+    "advancedParameterVisibleOptions",
+    "advancedParameterValueLabel",
+    "advancedParameterChipLabel",
+    "escapeHtml",
+    "els",
+    "closeAdvancedParameterPanel",
+    "positionAdvancedParameterPanel",
+    "refreshIcons",
+    `${renderSource}
+return renderAdvancedParameterPanel;`,
+  )(
+    () => ({ value: "seedance-nsfw" }),
+    () => [{ value: "seedance-nsfw", label: "Seedance 2.5（NSFW）" }],
+    () => "5s",
+    () => "Model",
+    String,
+    { advancedParameterPanel: panel },
+    () => {},
+    () => { positionCount += 1; },
+    () => { refreshCount += 1; },
+  );
+
+  assert.doesNotThrow(() => renderAdvancedParameterPanel("model"));
+  assert.match(panel.innerHTML, /is-model-list/);
+  assert.deepEqual(scrolled, { block: "nearest" });
+  assert.equal(positionCount, 1);
+  assert.equal(refreshCount, 1);
+});
+
 test("model picker selection writes through the native select and skips duplicate change events", () => {
   const setterSource = extractFunction(create, "setAdvancedParameterValue");
   const events = [];
