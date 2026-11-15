@@ -166,6 +166,11 @@ class DeployOldRollingTests(unittest.TestCase):
             with self.assertRaisesRegex(ROLLING.DeployError, "Node dependency manifest mismatch"):
                 ROLLING.validate_node_manifests(release, node_modules)
 
+    def test_candidate_only_mode_is_explicit_and_safe_by_default(self) -> None:
+        args = ROLLING.parse_args(["--commit", "a" * 40, "--candidate-only"])
+        self.assertTrue(args.candidate_only)
+        self.assertFalse(args.apply)
+
     def test_canary_percentages_are_fixed_for_production(self) -> None:
         base = [
             "--commit", "a" * 40,
