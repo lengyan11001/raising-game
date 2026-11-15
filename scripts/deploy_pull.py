@@ -299,8 +299,21 @@ def main() -> None:
     parser.add_argument(
         "--rolling",
         action="store_true",
-        help="Reject unsafe direct rolling mode; use the dual-unit transaction runner.",
+        help="Use the immutable-release dual-unit canary transaction instead of restarting the active checkout.",
     )
+    parser.add_argument("--rolling-source-root", default="/opt/raising-game-release-src")
+    parser.add_argument("--rolling-releases-root", default="/opt/raising-game-releases")
+    parser.add_argument("--rolling-shared-assets", default="/opt/raising-game-shared/assets")
+    parser.add_argument("--rolling-node-path", default="/opt/raising-game-demo/node_modules")
+    parser.add_argument("--rolling-primary-service", default="raising-game-demo.service")
+    parser.add_argument("--rolling-candidate-service", default="raising-game-demo-b.service")
+    parser.add_argument("--rolling-primary-port", default="4174")
+    parser.add_argument("--rolling-candidate-port", default="4175")
+    parser.add_argument("--rolling-nginx-file", action="append", default=[])
+    parser.add_argument("--rolling-upstream-name", action="append", default=[])
+    parser.add_argument("--rolling-health-url", action="append", default=[])
+    parser.add_argument("--rolling-migrate-command", action="append", default=[])
+    parser.add_argument("--rolling-post-cutover-command", action="append", default=[])
     parser.add_argument(
         "--no-mutations",
         action="store_true",
@@ -317,13 +330,6 @@ def main() -> None:
         help="Print the generated remote shell command and exit without opening SSH.",
     )
     args = parser.parse_args()
-    if args.rolling and (args.no_restart or args.no_mutations):
-        raise SystemExit("--rolling cannot be combined with --no-restart or --no-mutations")
-    if args.rolling:
-        raise SystemExit(
-            "--rolling is not implemented here; use the three-upstream transaction runbook "
-            "after candidate preflight and soak gates pass"
-        )
     if os.environ.get("DEPLOY_NO_RESTART") == "1":
         args.no_restart = True
     if os.environ.get("DEPLOY_NO_MUTATIONS") == "1":
@@ -332,6 +338,13 @@ def main() -> None:
         args.no_mutations = True
     if args.no_mutations:
         args.no_restart = True
+    if args.rolling and (args.no_restart or args.no_mutations):
+        raise SystemExit("--rolling cannot be combined with --no-restart or --no-mutations")
+    if args.rolling:
+        if args.branch != "platform-release":
+            raise SystemExit("--rolling is Old-only and requires --branch platform-release")
+        if not args.commit or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", args.commit.lower()):
+            raise SystemExit("--rolling requires --commit with the exact platform-release commit")
     if not PASSWORD and not SSH_KEY:
         raise SystemExit("DEPLOY_SSH_KEY or FYSHARK_SSH_PASSWORD is required.")
     if SSH_KEY and not Path(SSH_KEY).is_file():
@@ -504,7 +517,9 @@ echo "Verified page: {verify_url}"
 """)
     verification_check = "\n".join(verification_checks) or "true"
     if args.verify_private_media:
-        verification_check += r"""
+        private_assets_root = args.rolling_shared_assets if args.rolling else "/opt/raising-game-demo/assets"
+        private_media_check = r"""
+private_assets_root=__PRIVATE_ASSETS_ROOT__
 private_probe() {
   local prefix="$1" url code
   url=$(find "$2" -type f -print -quit 2>/dev/null || true)
@@ -512,7 +527,8 @@ private_probe() {
     echo "Private media verification skipped: no file under $2" >&2
     return 0
   fi
-  code=$(curl -ksS --max-time 15 --resolve 123vips.com:443:127.0.0.1 -o /dev/null -w '%{http_code}' "https://123vips.com${url}?verify-private=$(date +%s%N)") || code=000
+  relative=${url#"$2"/}
+  code=$(curl -ksS --max-time 15 --resolve 123vips.com:443:127.0.0.1 -o /dev/null -w '%{http_code}' "https://123vips.com${prefix}${relative}?verify-private=$(date +%s%N)") || code=000
   # 403 is the required deny. 404 is also safe and can occur when Nginx and
   # Node resolve the same file through different release-time snapshots. Never
   # accept a successful response or a redirect to shared media.
@@ -522,15 +538,92 @@ private_probe() {
   esac
   echo "Private media denied anonymously: $prefix (HTTP $code)"
 }
-private_probe /assets/user-uploads/ /opt/raising-game-demo/assets/user-uploads
-private_probe /assets/admin/voice-preview/ /opt/raising-game-demo/assets/admin/voice-preview
-private_probe /assets/user-characters/ /opt/raising-game-demo/assets/user-characters
-private_probe /assets/generated/characters/apiz/ /opt/raising-game-demo/assets/generated/characters/apiz
-private_probe /assets/generated/panoramas/ /opt/raising-game-demo/assets/generated/panoramas
-if nginx -T 2>/dev/null | grep -Eq '^[[:space:]]*alias[[:space:]]+/opt/raising-game-demo/assets/(user-uploads|admin/voice-preview|user-characters|generated/characters|generated/panoramas)/'; then
+private_probe /assets/user-uploads/ "$private_assets_root/user-uploads"
+private_probe /assets/admin/voice-preview/ "$private_assets_root/admin/voice-preview"
+private_probe /assets/user-characters/ "$private_assets_root/user-characters"
+private_probe /assets/generated/characters/apiz/ "$private_assets_root/generated/characters/apiz"
+private_probe /assets/generated/panoramas/ "$private_assets_root/generated/panoramas"
+if nginx -T 2>/dev/null | grep -Eq '^[[:space:]]*alias[[:space:]]+[^;]*/(user-uploads|admin/voice-preview|user-characters|generated/characters|generated/panoramas)/;'; then
   echo "Private media directory is still aliased by Nginx" >&2
   exit 35
 fi
+""".replace("__PRIVATE_ASSETS_ROOT__", shlex.quote(private_assets_root))
+        verification_check += private_media_check
+
+    rolling_command = ""
+    if args.rolling:
+        source_root_q = shlex.quote(args.rolling_source_root)
+        releases_root_q = shlex.quote(args.rolling_releases_root)
+        shared_assets_q = shlex.quote(args.rolling_shared_assets)
+        commit_q = shlex.quote(args.commit.lower())
+        branch_q = shlex.quote(args.branch)
+        clone_url_q = shlex.quote(args.bootstrap_clone_url)
+        rolling_nginx_files = args.rolling_nginx_file or [
+            "/etc/nginx/sites-enabled/default",
+            "/etc/nginx/sites-enabled/chat.5vips.com",
+        ]
+        rolling_upstream_names = args.rolling_upstream_name or [
+            "raising_game_app",
+            "raising_game_app_chat",
+        ]
+        rolling_health_urls = args.rolling_health_url or [
+            "https://123vips.com/api/health",
+            "https://chat.5vips.com/api/health",
+        ]
+        rolling_arguments = [
+            sys.executable,
+            "scripts/deploy_old_rolling.py",
+            "--apply",
+            "--commit", args.commit.lower(),
+            "--source-root", args.rolling_source_root,
+            "--releases-root", args.rolling_releases_root,
+            "--shared-assets", args.rolling_shared_assets,
+            "--node-path", args.rolling_node_path,
+            "--env-file", args.env_file,
+            "--primary-service", args.rolling_primary_service,
+            "--candidate-service", args.rolling_candidate_service,
+            "--primary-port", args.rolling_primary_port,
+            "--candidate-port", args.rolling_candidate_port,
+        ]
+        for path in rolling_nginx_files:
+            rolling_arguments.extend(["--nginx-file", path])
+        for name in rolling_upstream_names:
+            rolling_arguments.extend(["--upstream-name", name])
+        for url in rolling_health_urls:
+            rolling_arguments.extend(["--health-url", url])
+        for command in args.rolling_migrate_command:
+            rolling_arguments.extend(["--migrate-command", command])
+        for command in args.rolling_post_cutover_command:
+            rolling_arguments.extend(["--post-cutover-command", command])
+        if verification_check != "true":
+            rolling_arguments.extend(["--post-cutover-command", verification_check])
+        rolling_script_command = " ".join(shlex.quote(item) for item in rolling_arguments)
+        rolling_command = f"""
+set -euo pipefail
+{env_check}
+{required_files_check}
+source_root={source_root_q}
+if [ ! -d "$source_root/.git" ]; then
+  test -n {clone_url_q} || {{ echo 'Missing rolling release checkout and no --bootstrap-clone-url was provided.' >&2; exit 33; }}
+  mkdir -p "$(dirname "$source_root")"
+  git clone --no-checkout {clone_url_q} "$source_root"
+fi
+cd "$source_root"
+git fetch origin {branch_q}
+git -c core.hooksPath=/dev/null checkout --detach {commit_q}
+observed_commit=$(git rev-parse --verify HEAD)
+if [ "$observed_commit" != {commit_q} ]; then
+  echo "Rolling source commit mismatch: expected {args.commit.lower()}, got $observed_commit" >&2
+  exit 29
+fi
+if [ -n "$(git status --porcelain=v1 --untracked-files=no)" ]; then
+  echo 'Rolling release checkout is dirty; stop before any candidate or traffic mutation.' >&2
+  git status --short --untracked-files=no >&2
+  exit 30
+fi
+{forbidden_path_check}
+{rolling_script_command}
+echo "ROLLING_DEPLOY_ENTRYPOINT_OK commit=$observed_commit"
 """
 
     pre_restart_check = "true" if args.no_mutations else ("\n".join(args.pre_restart_command) or "true")
@@ -598,7 +691,7 @@ systemctl daemon-reload
 fi
 """
 
-    command = f"""
+    command = rolling_command or f"""
 set -euo pipefail
 if [ ! -d {shlex.quote(args.remote_root)}/.git ]; then
   test -n {shlex.quote(args.bootstrap_clone_url)} || {{ echo 'Missing release checkout and no --bootstrap-clone-url was provided.' >&2; exit 33; }}

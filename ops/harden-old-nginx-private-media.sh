@@ -14,6 +14,7 @@ FILES=(
 )
 STAMP="$(date +%Y%m%d%H%M%S)"
 BACKUP_DIR="/root/raising-game-config-backups"
+ASSETS_ROOT="${RUNTIME_MEDIA_ROOT:-/opt/raising-game-demo/assets}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root." >&2
@@ -33,7 +34,7 @@ for file in "${FILES[@]}"; do
   [[ -f "$file" ]] && cp -p "$file" "$BACKUP_DIR/$(echo "$file" | sed 's|^/||; s|/|__|g').private-media.${STAMP}"
 done
 
-if ! python3 "$SCRIPT" --apply "${FILES[@]}"; then
+if ! python3 "$SCRIPT" --assets-root "$ASSETS_ROOT" --apply "${FILES[@]}"; then
   echo "private-media hardening failed before nginx validation" >&2
   exit 1
 fi
@@ -48,6 +49,6 @@ if ! nginx -t; then
   exit 1
 fi
 
-python3 "$SCRIPT" --check "${FILES[@]}"
+python3 "$SCRIPT" --assets-root "$ASSETS_ROOT" --check "${FILES[@]}"
 systemctl reload nginx
 echo "nginx private-media hardening applied; Node service was not restarted"

@@ -932,6 +932,70 @@ upstream raising_game_app_chat { server 127.0.0.1:4174 max_fails=1 fail_timeout=
   });
 });
 
+test("Nginx canary weights preserve health options and restore the original topology exactly", async () => {
+  await withTempDir((dir) => {
+    const file = path.join(dir, "site.conf");
+    const original = writeUpstreamConfig(file, `upstream raising_game_app {
+    server 127.0.0.1:4174 max_fails=3 fail_timeout=10s;
+    server 127.0.0.1:4175 backup max_fails=2 fail_timeout=5s;
+    keepalive 64;
+}
+`);
+    const common = [
+      "--file", file,
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--nginx-bin", "/usr/bin/true",
+      "--nginx-test-command", "/usr/bin/true",
+      "--reload-command", "/usr/bin/true",
+    ];
+    const curl = path.join(dir, "curl");
+    writeExecutable(curl, "#!/usr/bin/env bash\nprintf '200'\n");
+    const env = { PATH: `${dir}:${process.env.PATH}` };
+
+    let result = invokeUpstreamSwitch([
+      ...common,
+      "--canary", "raising_game_app=4174:4175:99:1",
+      "--apply",
+    ], env);
+    assert.equal(result.status, 0, result.stderr);
+    const canary = fs.readFileSync(file, "utf8");
+    assert.match(canary, /server 127\.0\.0\.1:4174 max_fails=3 fail_timeout=10s weight=99;/);
+    assert.match(canary, /server 127\.0\.0\.1:4175 max_fails=2 fail_timeout=5s weight=1;/);
+    assert.doesNotMatch(canary, /backup/);
+
+    result = invokeUpstreamSwitch([
+      ...common,
+      "--canary", "raising_game_app=4174:4175:100:0",
+      "--apply",
+    ], env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
+  });
+});
+
+test("Nginx canary rejects invalid percentages before writing any file", async () => {
+  await withTempDir((dir) => {
+    const file = path.join(dir, "site.conf");
+    const original = writeUpstreamConfig(file, `upstream raising_game_app {
+    server 127.0.0.1:4174;
+    server 127.0.0.1:4175 backup;
+}
+`);
+    const result = invokeUpstreamSwitch([
+      "--file", file,
+      "--canary", "raising_game_app=4174:4175:90:5",
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--nginx-bin", "/usr/bin/true",
+      "--nginx-test-command", "/usr/bin/true",
+      "--reload-command", "/usr/bin/true",
+      "--apply",
+    ]);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /canary weights must total 100/);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
+  });
+});
+
 test("Nginx upstream switch rolls back an existing primary and backup on health failure", async () => {
   await withTempDir(async (dir) => {
     const file = path.join(dir, "site.conf");
@@ -1564,6 +1628,15 @@ test("cutover runbook uses one atomic switch for every real upstream", () => {
   assert.match(cutoverRunbook, /Redis remains disabled/);
 });
 
+test("cutover runbook requires the default 1 to 5 percent canary gates", () => {
+  assert.match(cutoverRunbook, /1% of requests/);
+  assert.match(cutoverRunbook, /5% for another 120 seconds/);
+  assert.match(cutoverRunbook, /CANARY_ROLLBACK_OK/);
+  assert.match(cutoverRunbook, /CANARY_ROLLBACK_FAILED/);
+  assert.match(cutoverRunbook, /read-only: it does not replay user request/);
+  assert.match(cutoverRunbook, /--canary-percent 0.*isolated recovery drills/);
+});
+
 test("cutover verifier accepts an explicit secondary env and fails closed on unsafe env files", async () => {
   await withTempDir(async (dir) => {
     const bin = path.join(dir, "bin");
@@ -1584,8 +1657,37 @@ case "$*" in
   *) exit 92 ;;
 esac
 `);
+    const release = path.join(dir, "release");
+    fs.mkdirSync(release, { recursive: true });
+    fs.writeFileSync(path.join(release, "release.txt"), "release\n");
+    run("git", ["init", "-q", release]);
+    run("git", ["-C", release, "config", "user.name", "Cutover Test"]);
+    run("git", ["-C", release, "config", "user.email", "cutover@example.invalid"]);
+    run("git", ["-C", release, "add", "release.txt"]);
+    run("git", ["-C", release, "commit", "-q", "-m", "release"]);
+    const releaseId = run("git", ["-C", release, "rev-parse", "HEAD"]).trim();
+    const runtime = { backgroundSchedulers: false, generationSubmitQueue: false, generationSubmitWorker: false };
+    const releaseInfo = { id: releaseId, clean: true, source: "git" };
+    const primaryPayload = JSON.stringify({ ok: true, ready: true, phase: "ready", release: releaseInfo, process: { pid: 100 }, runtime });
+    const secondaryPayload = JSON.stringify({ ok: true, ready: true, phase: "ready", release: releaseInfo, process: { pid: 200 }, runtime });
     writeExecutable(path.join(bin, "curl"), `#!/usr/bin/env bash
-printf '200 0.010'
+url=""
+output_mode=0
+for arg in "$@"; do
+  case "$arg" in
+    http://*|https://*) url="$arg" ;;
+    -o|--output) output_mode=1 ;;
+  esac
+done
+if [[ "$output_mode" -eq 1 ]]; then
+  printf '200 0.010'
+  exit 0
+fi
+case "$url" in
+  *:4174/api/livez|*:4174/api/readyz) printf '%s\n200' ${JSON.stringify(primaryPayload)} ;;
+  *:4175/api/livez|*:4175/api/readyz) printf '%s\n200' ${JSON.stringify(secondaryPayload)} ;;
+  *) exit 93 ;;
+esac
 `);
     writeExecutable(path.join(bin, "psql"), `#!/usr/bin/env bash
 printf '100|10|0|0|0\n'
@@ -1611,6 +1713,7 @@ GENERATION_SUBMIT_WORKER_ENABLED=0
       "--phase", "candidate",
       "--candidate-port", "4175",
       "--primary-port", "4174",
+      "--release", release,
       "--secondary-env", secondaryEnv,
     ], { cwd: root, env: { ...process.env, ...env }, encoding: "utf8" });
 
@@ -1926,12 +2029,19 @@ function rollingFixture(dir, { activePort = 4174, candidatePort = 4175, runtimeR
   // the orchestrator receives the explicit path. Keep both pointed at the
   // same executable through PATH so failure injection covers both layers.
   const curl = path.join(dir, "curl");
+  const curlBase = path.join(dir, "curl-base");
   const systemctlLog = path.join(dir, "systemctl.log");
   const reloadLog = path.join(dir, "reload.log");
   fs.mkdirSync(release, { recursive: true });
   fs.mkdirSync(shared, { recursive: true });
   fs.writeFileSync(path.join(release, "RUNTIME_MEDIA_ROOT"), `${fs.realpathSync(shared)}\n`);
   fs.writeFileSync(envFile, `RUNTIME_MEDIA_ROOT=${fs.realpathSync(shared)}\n`);
+  run("git", ["init", "-q", release]);
+  run("git", ["-C", release, "config", "user.name", "Rolling Deploy Test"]);
+  run("git", ["-C", release, "config", "user.email", "rolling-deploy@example.invalid"]);
+  run("git", ["-C", release, "add", "RUNTIME_MEDIA_ROOT"]);
+  run("git", ["-C", release, "commit", "-q", "-m", "fixture release"]);
+  const releaseId = run("git", ["-C", release, "rev-parse", "HEAD"]).trim();
   const files = [
     path.join(dir, "default.conf"),
     path.join(dir, "chat.conf"),
@@ -1944,7 +2054,38 @@ function rollingFixture(dir, { activePort = 4174, candidatePort = 4175, runtimeR
   }
   writeExecutable(nginx, "#!/usr/bin/env bash\nexit 0\n");
   writeExecutable(reload, `#!/usr/bin/env bash\nprintf 'reload\\n' >> ${JSON.stringify(reloadLog)}\nexit 0\n`);
-  writeExecutable(curl, "#!/usr/bin/env bash\nprintf '200'\nexit 0\n");
+  const releaseInfo = { id: releaseId, clean: true, source: "git" };
+  const processInfo = { pid: 4242 };
+  const runtime = {
+    backgroundSchedulers: false,
+    generationSubmitQueue: false,
+    generationSubmitWorker: false,
+  };
+  const livez = JSON.stringify({ ok: true, phase: "ready", release: releaseInfo, process: processInfo, runtime });
+  const readyz = JSON.stringify({ ok: true, ready: true, phase: "ready", release: releaseInfo, process: processInfo, runtime });
+  writeExecutable(curlBase, `#!/usr/bin/env bash
+url=""
+output_mode=0
+for arg in "$@"; do
+  case "$arg" in
+    http://*|https://*) url="$arg" ;;
+    --output) output_mode=1 ;;
+  esac
+done
+if [[ "$output_mode" -eq 1 ]]; then
+  printf '200'
+  exit 0
+fi
+case "$url" in
+  */api/livez) printf '%s\n200' ${JSON.stringify(livez)} ;;
+  */api/readyz) printf '%s\n200' ${JSON.stringify(readyz)} ;;
+  *) printf '200' ;;
+esac
+exit 0
+`);
+  writeExecutable(curl, `#!/usr/bin/env bash
+exec ${JSON.stringify(curlBase)} "$@"
+`);
   writeExecutable(systemctl, `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(systemctlLog)}
 if [[ "$1" == show ]]; then
@@ -1952,7 +2093,7 @@ if [[ "$1" == show ]]; then
 fi
 exit 0
 `);
-  return { release, shared, envFile, nginx, reload, systemctl, curl, systemctlLog, reloadLog, files, names };
+  return { release, releaseId, shared, envFile, nginx, reload, systemctl, curl, curlBase, systemctlLog, reloadLog, files, names };
 }
 
 function invokeRolling(args, dir, fixture, extraEnv = {}) {
@@ -1971,6 +2112,7 @@ function invokeRolling(args, dir, fixture, extraEnv = {}) {
     "--wait-delay", "0",
     "--health-url", "https://example.invalid/api/health",
     ...fixture.files.flatMap((file, index) => ["--nginx-file", file, "--upstream-name", fixture.names[index]]),
+    ...(args.includes("--canary-percent") ? [] : ["--canary-percent", "0"]),
     ...args,
   ], {
     cwd: root,
@@ -2027,13 +2169,13 @@ printf '%s\\n' "$*" >> ${JSON.stringify(fixture.systemctlLog)}
 if [[ "$1" == show ]]; then
   printf 'ActiveState=active\\nSubState=running\\nMainPID=4242\\n'
 fi
-if [[ "$1" == start ]]; then exit 1; fi
+if [[ "$1" == restart ]]; then exit 1; fi
 exit 0
 `);
     const original = fixture.files.map((file) => fs.readFileSync(file, "utf8"));
     const result = invokeRolling(["--apply"], dir, fixture);
     assert.notEqual(result.status, 0);
-    assert.match(`${result.stdout}${result.stderr}`, /command failed .*start/);
+    assert.match(`${result.stdout}${result.stderr}`, /command failed .*restart/);
     assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
     assert.equal(fs.existsSync(fixture.reloadLog), false);
   });
@@ -2070,7 +2212,7 @@ exit 0
     assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
     assert.equal(fs.existsSync(fixture.reloadLog), false);
     assert.equal(fs.existsSync(fixture.systemctlLog), true);
-    assert.doesNotMatch(fs.readFileSync(fixture.systemctlLog, "utf8"), /start/);
+    assert.doesNotMatch(fs.readFileSync(fixture.systemctlLog, "utf8"), / (?:start|restart) /);
   });
 });
 
@@ -2144,6 +2286,85 @@ test("rolling transaction rejects symlinked and invalid shared media roots befor
   });
 });
 
+test("rolling transaction canaries 1 and 5 percent before atomic cutover", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    const result = invokeRolling([
+      "--apply",
+      "--canary-percent", "1",
+      "--canary-second-percent", "5",
+      "--canary-observe-seconds", "0.01",
+      "--canary-poll-seconds", "0.01",
+    ], dir, fixture);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const canaryOne = result.stdout.indexOf("PHASE canary percent=1");
+    const observeOne = result.stdout.indexOf("CANARY_OBSERVE_OK percent=1");
+    const canaryFive = result.stdout.indexOf("PHASE canary percent=5");
+    const observeFive = result.stdout.indexOf("CANARY_OBSERVE_OK percent=5");
+    const restore = result.stdout.indexOf("PHASE canary_restore weights=100:0");
+    const cutover = result.stdout.indexOf("PHASE cutover=4174->4175");
+    assert.ok(canaryOne >= 0 && canaryOne < observeOne);
+    assert.ok(observeOne < canaryFive && canaryFive < observeFive);
+    assert.ok(observeFive < restore && restore < cutover);
+    assert.match(result.stdout, /DONE canary_weights=99:1/);
+    assert.match(result.stdout, /DONE canary_weights=95:5/);
+    assert.match(result.stdout, /ROLLING_DEPLOY_OK/);
+    assert.equal(fs.readFileSync(fixture.reloadLog, "utf8").trim().split("\n").length, 4);
+    for (const file of fixture.files) {
+      assert.match(fs.readFileSync(file, "utf8"), /server 127\.0\.0\.1:4175; server 127\.0\.0\.1:4174 backup;/);
+    }
+  });
+});
+
+test("rolling transaction restores 100 percent primary traffic when a canary smoke fails", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    const original = fixture.files.map((file) => fs.readFileSync(file, "utf8"));
+    writeExecutable(fixture.curl, `#!/usr/bin/env bash
+if [[ "$*" == *"http://candidate.invalid/failing"* ]]; then
+  printf '500'
+  exit 0
+fi
+exec ${JSON.stringify(fixture.curlBase)} "$@"
+`);
+    const result = invokeRolling([
+      "--apply",
+      "--canary-percent", "1",
+      "--canary-second-percent", "5",
+      "--canary-observe-seconds", "0.01",
+      "--canary-poll-seconds", "0.01",
+      "--candidate-smoke-path", "/failing",
+    ], dir, fixture);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /candidate smoke failed during 1% canary/);
+    assert.match(result.stdout, /CANARY_ROLLBACK_OK upstream=4174/);
+    assert.doesNotMatch(result.stdout, /PHASE cutover=4174->4175/);
+    assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
+    assert.equal(fs.readFileSync(fixture.reloadLog, "utf8").trim().split("\n").length, 2);
+  });
+});
+
+test("rolling transaction restarts the idle candidate, verifies its loaded release, and switches every upstream", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    const result = invokeRolling(["--apply"], dir, fixture);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, new RegExp(`OBSERVED active_port=4174 release=${fixture.releaseId}`));
+    assert.match(result.stdout, /PHASE restart_candidate/);
+    assert.match(result.stdout, /DONE service=raising-game-demo-b\.service action=restart/);
+    assert.match(result.stdout, /PHASE candidate_ready/);
+    assert.match(result.stdout, /PHASE cutover=4174->4175/);
+    assert.match(result.stdout, /ROLLING_DEPLOY_OK/);
+    const systemctl = fs.readFileSync(fixture.systemctlLog, "utf8");
+    assert.match(systemctl, /restart raising-game-demo-b\.service/);
+    assert.doesNotMatch(systemctl, /(?:^|\n)start raising-game-demo-b\.service/);
+    for (const file of fixture.files) {
+      assert.match(fs.readFileSync(file, "utf8"), /server 127\.0\.0\.1:4175; server 127\.0\.0\.1:4174 backup;/);
+    }
+    assert.equal(fs.readFileSync(fixture.reloadLog, "utf8").trim().split("\n").length, 1);
+  });
+});
+
 test("rolling transaction rolls all upstreams back when a post-cutover health check fails", async () => {
   await withTempDir((dir) => {
     const fixture = rollingFixture(dir);
@@ -2161,10 +2382,9 @@ if [[ "$*" == *"https://example.invalid/api/health"* ]] && grep -q '127.0.0.1:41
   printf '%s' "$n" > ${JSON.stringify(promotedHealthCount)}
   [[ "$n" -eq 1 ]] && printf '200' && exit 0
   printf '503'
-else
-  printf '200'
+  exit 0
 fi
-exit 0
+exec ${JSON.stringify(fixture.curlBase)} "$@"
 `);
     const result = invokeRolling(["--apply"], dir, fixture);
     assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
@@ -2194,10 +2414,9 @@ if [[ "$*" == *"https://example.invalid/api/health"* ]] && grep -q '127.0.0.1:41
   printf '%s' "$n" > ${JSON.stringify(promotedHealthCount)}
   [[ "$n" -eq 1 ]] && printf '200' && exit 0
   printf '503'
-else
-  printf '200'
+  exit 0
 fi
-exit 0
+exec ${JSON.stringify(fixture.curlBase)} "$@"
 `);
     const result = invokeRolling(["--apply"], dir, fixture);
     assert.notEqual(result.status, 0);

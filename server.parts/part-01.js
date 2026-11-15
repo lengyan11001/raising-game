@@ -525,6 +525,7 @@ const {
 } = require("./lib-http");
 const {
   createReadinessState,
+  resolveReleaseIdentity,
   markReady,
   markStarting,
   markStopping,
@@ -791,7 +792,6 @@ const GOOGLE_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.GOOGLE
 const GOOGLE_LOGIN_CLIENT_ID = String(process.env.GOOGLE_LOGIN_CLIENT_ID || "").trim();
 const EMAIL_SMTP_CONFIG = smtpConfig();
 const EMAIL_LOGIN_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.EMAIL_LOGIN_ENABLED || "0").trim()) || smtpConfigured(EMAIL_SMTP_CONFIG);
-const processReadiness = createReadinessState();
 const BASELINE_METRICS_ENABLED = envFlag(process.env.BASELINE_METRICS_ENABLED, false);
 const baselineMetrics = createBaselineMetrics({
   enabled: BASELINE_METRICS_ENABLED,
@@ -1003,6 +1003,15 @@ const GENERATION_SUBMIT_QUEUE_ENABLED = /^(1|true|yes|on)$/i.test(String(process
 const ADVANCED_GENERATION_SUBMIT_QUEUE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.ADVANCED_GENERATION_SUBMIT_QUEUE_ENABLED || "0").trim());
 const ADVANCED_GENERATION_SUBMIT_KIND = "advanced-generation";
 const GENERATION_SUBMIT_WORKER_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.GENERATION_SUBMIT_WORKER_ENABLED || "0").trim());
+const processReadiness = createReadinessState({
+  release: resolveReleaseIdentity({ root: __dirname }),
+  pid: process.pid,
+  runtime: {
+    backgroundSchedulers: BACKGROUND_SCHEDULERS_ENABLED,
+    generationSubmitQueue: GENERATION_SUBMIT_QUEUE_ENABLED,
+    generationSubmitWorker: GENERATION_SUBMIT_WORKER_ENABLED,
+  },
+});
 const GENERATION_SUBMIT_WORKER_INTERVAL_MS = Math.max(1000, Number(process.env.GENERATION_SUBMIT_WORKER_INTERVAL_MS || 2000) || 2000);
 const GENERATION_SUBMIT_WORKER_BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.GENERATION_SUBMIT_WORKER_BATCH_SIZE || 1) || 1));
 const GENERATION_SUBMIT_STALE_MS = Math.max(5 * 60 * 1000, Number(process.env.GENERATION_SUBMIT_STALE_MS || 10 * 60 * 1000) || 10 * 60 * 1000);

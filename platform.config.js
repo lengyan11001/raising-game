@@ -952,7 +952,6 @@ const state = {
   advancedCreateKind: isAdvancedCustomRoute(window.location.hash) ? "custom" : "video",
   advancedCreateMode: isAdvancedCustomRoute(window.location.hash) ? ADVANCED_CUSTOM_MODE.id : "video-image",
   advancedParameterOpen: "",
-  advancedProviderPreferenceKind: "",
   advancedCustomMediaKind: "video",
   advancedMobileTab: "create",
   advancedEstimate: null,

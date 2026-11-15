@@ -22,23 +22,8 @@ const platformCss = fs.readFileSync(path.resolve(__dirname, "..", "platform.css"
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);
   if (start === -1) throw new Error(`missing function ${name}`);
-  const openParen = source.indexOf("(", start);
-  let parenDepth = 0;
-  let closeParen = -1;
-  for (let index = openParen; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === "(") parenDepth += 1;
-    else if (char === ")") {
-      parenDepth -= 1;
-      if (parenDepth === 0) {
-        closeParen = index;
-        break;
-      }
-    }
-  }
-  if (closeParen === -1) throw new Error(`unterminated parameters for ${name}`);
   let depth = 0;
-  for (let index = source.indexOf("{", closeParen); index < source.length; index += 1) {
+  for (let index = source.indexOf("{", start); index < source.length; index += 1) {
     const char = source[index];
     if (char === "{") depth += 1;
     else if (char === "}") {
@@ -140,12 +125,6 @@ test("Generate parameter pickers close after selection and duration uses a slide
   assert.match(picker, /querySelector\("\.advanced-parameter-option\.is-selected"\)/);
   assert.match(picker, /scrollIntoView\?\.\(\{ block: "nearest" \}\)/);
   assert.match(createSource, /dataset\.advancedParameterPlacement = openUp \? "up" : "down"/);
-  assert.match(createSource, /syncAdvancedProviderExposure\(\);\n  restoreAdvancedProviderPreference\(\);\n  const provider = currentAdvancedProvider\(\);/);
-  const modelListRule = platformCss.match(/\.advanced-parameter-options\.is-model-list\s*\{([^}]*)\}/);
-  assert.ok(modelListRule, "model list must have its own scrolling rule");
-  assert.match(modelListRule[1], /max-height:\s*min\(344px/);
-  assert.match(modelListRule[1], /overflow-y:\s*auto/);
-  assert.match(modelListRule[1], /overscroll-behavior:\s*contain/);
 
   const setter = createSource.slice(
     createSource.indexOf("function setAdvancedParameterValue("),
@@ -153,63 +132,13 @@ test("Generate parameter pickers close after selection and duration uses a slide
   );
   assert.match(setter, /const nextValue = String\(value\);/);
   assert.match(setter, /const changed = select\.value !== nextValue;/);
-  assert.match(setter, /if \(changed\) \{[\s\S]*?rememberAdvancedProviderPreference\(nextValue\);[\s\S]*?select\.dispatchEvent\(new Event\("change", \{ bubbles: true \}\)\);/);
+  assert.match(setter, /if \(changed\) select\.dispatchEvent\(new Event\("change", \{ bubbles: true \}\)\);/);
   assert.doesNotMatch(setter, /keepPanelOpen/);
-});
-
-test("model picker render scrolls the selected row without a runtime reference error", () => {
-  const renderSource = extractFunction(create, "renderAdvancedParameterPanel");
-  let scrolled = null;
-  const selected = {
-    scrollIntoView(options) {
-      scrolled = options;
-    },
-  };
-  const panel = {
-    hidden: true,
-    innerHTML: "",
-    dataset: {},
-    style: { maxHeight: "" },
-    getBoundingClientRect: () => ({ height: 48 }),
-    querySelector: (selector) => selector === ".advanced-parameter-option.is-selected" ? selected : null,
-  };
-  let refreshCount = 0;
-  let positionCount = 0;
-  const renderAdvancedParameterPanel = new Function(
-    "advancedParameterNativeSelect",
-    "advancedParameterVisibleOptions",
-    "advancedParameterValueLabel",
-    "advancedParameterChipLabel",
-    "escapeHtml",
-    "els",
-    "closeAdvancedParameterPanel",
-    "positionAdvancedParameterPanel",
-    "refreshIcons",
-    `${renderSource}
-return renderAdvancedParameterPanel;`,
-  )(
-    () => ({ value: "seedance-nsfw" }),
-    () => [{ value: "seedance-nsfw", label: "Seedance 2.5（NSFW）" }],
-    () => "5s",
-    () => "Model",
-    String,
-    { advancedParameterPanel: panel },
-    () => {},
-    () => { positionCount += 1; },
-    () => { refreshCount += 1; },
-  );
-
-  assert.doesNotThrow(() => renderAdvancedParameterPanel("model"));
-  assert.match(panel.innerHTML, /is-model-list/);
-  assert.deepEqual(scrolled, { block: "nearest" });
-  assert.equal(positionCount, 1);
-  assert.equal(refreshCount, 1);
 });
 
 test("model picker selection writes through the native select and skips duplicate change events", () => {
   const setterSource = extractFunction(create, "setAdvancedParameterValue");
   const events = [];
-  const remembered = [];
   let closeCount = 0;
   let syncCount = 0;
   const select = {
@@ -223,14 +152,12 @@ test("model picker selection writes through the native select and skips duplicat
     "advancedParameterNativeSelect",
     "closeAdvancedParameterPanel",
     "syncAdvancedParameterChips",
-    "rememberAdvancedProviderPreference",
     `${setterSource}
 return setAdvancedParameterValue;`,
   )(
     (kind) => kind === "model" ? select : null,
     () => { closeCount += 1; },
     () => { syncCount += 1; },
-    (value) => { remembered.push(value); },
   );
 
   setAdvancedParameterValue("model", "seedance25-vega");
@@ -240,144 +167,12 @@ return setAdvancedParameterValue;`,
   assert.equal(events[0].bubbles, true);
   assert.equal(closeCount, 1);
   assert.equal(syncCount, 1);
-  assert.deepEqual(remembered, ["seedance25-vega"]);
 
   setAdvancedParameterValue("model", "seedance25-vega");
   assert.equal(select.value, "seedance25-vega");
   assert.equal(events.length, 1, "re-selecting the current model must not replay change handlers");
   assert.equal(closeCount, 2);
   assert.equal(syncCount, 2);
-  assert.deepEqual(remembered, ["seedance25-vega"], "re-selecting must not rewrite the preference");
-});
-
-test("model preferences are stored per media kind", () => {
-  const storage = new Map();
-  const localStorage = {
-    getItem: (key) => storage.has(key) ? storage.get(key) : null,
-    setItem: (key, value) => storage.set(key, String(value)),
-  };
-  const state = { advancedCreateKind: "custom", advancedCustomMediaKind: "video" };
-  const source = [
-    extractFunction(create, "advancedProviderPreferenceMediaKind"),
-    extractFunction(create, "readAdvancedProviderPreferences"),
-    extractFunction(create, "writeAdvancedProviderPreferences"),
-    extractFunction(create, "advancedProviderPreferenceForKind"),
-    extractFunction(create, "rememberAdvancedProviderPreference"),
-    "return { rememberAdvancedProviderPreference, advancedProviderPreferenceForKind };",
-  ].join("\n");
-  const helpers = new Function(
-    "state",
-    "localStorage",
-    "ADVANCED_PROVIDER_PREFERENCE_KEY",
-    source,
-  )(state, localStorage, "raisingGameAdvancedProviderPreferencesV1");
-
-  helpers.rememberAdvancedProviderPreference("seedance25-vega");
-  state.advancedCustomMediaKind = "image";
-  helpers.rememberAdvancedProviderPreference("seedream55-image");
-
-  assert.deepEqual(JSON.parse(storage.get("raisingGameAdvancedProviderPreferencesV1")), {
-    video: "seedance25-vega",
-    image: "seedream55-image",
-  });
-  assert.equal(helpers.advancedProviderPreferenceForKind("video"), "seedance25-vega");
-  assert.equal(helpers.advancedProviderPreferenceForKind("image"), "seedream55-image");
-});
-
-test("model restore applies once per media kind and never overrides a restored task", () => {
-  const restoreSource = extractFunction(create, "restoreAdvancedProviderPreference");
-  const makeOption = (value, extra = {}) => ({
-    value,
-    hidden: false,
-    disabled: false,
-    closest: () => null,
-    ...extra,
-  });
-  const state = {
-    advancedCreateKind: "custom",
-    advancedCustomMediaKind: "video",
-    advancedProviderPreferenceKind: "",
-  };
-  const select = {
-    value: "seedance-nsfw",
-    options: [
-      makeOption("seedance-nsfw"),
-      makeOption("seedance25-vega"),
-      makeOption("wan30", { hidden: true }),
-      makeOption("seedream55-image"),
-    ],
-  };
-  const preferences = {
-    video: "seedance25-vega",
-    image: "seedream55-image",
-  };
-  const restoreAdvancedProviderPreference = new Function(
-    "els",
-    "state",
-    "advancedProviderPreferenceMediaKind",
-    "advancedProviderPreferenceForKind",
-    "advancedProviderMatchesCustomKind",
-    `${restoreSource}
-return restoreAdvancedProviderPreference;`,
-  )(
-    { advancedProvider: select },
-    state,
-    () => state.advancedCreateKind === "custom" ? state.advancedCustomMediaKind : state.advancedCreateKind,
-    (kind) => preferences[kind] || "",
-    (value, kind) => value === "seedance25-vega"
-      ? kind === "video"
-      : value === "seedream55-image"
-        ? kind === "image"
-        : value === "seedance-nsfw" && kind === "video",
-  );
-
-  assert.equal(restoreAdvancedProviderPreference(), true);
-  assert.equal(select.value, "seedance25-vega");
-
-  // A loaded/re-generated task may assign its own model after the initial
-  // preference restore. Repeated control syncs for the same media kind must
-  // not replace that task model.
-  select.value = "seedance-nsfw";
-  assert.equal(restoreAdvancedProviderPreference(), false);
-  assert.equal(select.value, "seedance-nsfw");
-
-  state.advancedCustomMediaKind = "image";
-  assert.equal(restoreAdvancedProviderPreference(), true);
-  assert.equal(select.value, "seedream55-image");
-});
-
-test("unavailable or hidden model preference falls back to the current default", () => {
-  const restoreSource = extractFunction(create, "restoreAdvancedProviderPreference");
-  const state = {
-    advancedCreateKind: "video",
-    advancedCustomMediaKind: "video",
-    advancedProviderPreferenceKind: "",
-  };
-  const select = {
-    value: "seedance-nsfw",
-    options: [
-      { value: "seedance-nsfw", hidden: false, disabled: false, closest: () => null },
-      { value: "wan30", hidden: true, disabled: false, closest: () => null },
-    ],
-  };
-  const restoreAdvancedProviderPreference = new Function(
-    "els",
-    "state",
-    "advancedProviderPreferenceMediaKind",
-    "advancedProviderPreferenceForKind",
-    "advancedProviderMatchesCustomKind",
-    `${restoreSource}
-return restoreAdvancedProviderPreference;`,
-  )(
-    { advancedProvider: select },
-    state,
-    () => "video",
-    () => "wan30",
-    () => true,
-  );
-
-  assert.equal(restoreAdvancedProviderPreference(), false);
-  assert.equal(select.value, "seedance-nsfw");
 });
 
 test("model picker filters hidden and disabled options in native order", () => {

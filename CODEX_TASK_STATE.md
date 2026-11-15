@@ -1,3 +1,30 @@
+## 2026-11-15 Step BN: Old immutable rolling deploy wired, verified locally, not deployed
+
+- Goal: make a bad Old release fail on an idle immutable candidate instead of restarting or replacing the process serving every user.
+- Entrypoint: `scripts/deploy_local.sh --site old` now selects the rolling path by default; `--no-restart` remains code-pull-only. Live/new2 explicitly reject rolling mode.
+- Release isolation: rolling uses `/opt/raising-game-release-src` as a clean exact-commit checkout and prepares `/opt/raising-game-releases/<commit>` through `ops/prepare-independent-release.sh`. The active checkout is never restarted by the Old deployment path.
+- Candidate isolation: the inactive unit receives an exact `WorkingDirectory`, a validated regular `NODE_PATH`, and explicit `BACKGROUND_SCHEDULERS_ENABLED=0`, `GENERATION_SUBMIT_QUEUE_ENABLED=0`, and `GENERATION_SUBMIT_WORKER_ENABLED=0` overrides before restart.
+- Dependency gate: `package.json` and `package-lock.json` in the candidate must byte-match the dependency root behind `--node-path`; dependency drift fails before any systemd, Nginx, database, or traffic mutation. A future dependency change must provide a new dependency root built for that release.
+- Traffic gate remains: candidate process/release/PID/worker/health checks, then fixed 1% and 5% canary observations, then one atomic multi-upstream cutover. Canary, cutover, or post-cutover hook failures restore the original topology; recovery failure is reported as manual intervention.
+- Mode gate: `DEPLOY_NO_RESTART=1`/`DEPLOY_NO_MUTATIONS=1` are normalized before rolling validation, so environment-driven code-only mode can never silently enter the mutating rolling transaction.
+- Post-cutover verification includes public page/config/template checks and private-media denial through the shared runtime asset root. Nginx private-media hardening is a transaction hook, so failure participates in traffic rollback.
+- Changed files: `scripts/deploy_old_rolling.py`, `scripts/deploy_pull.py`, `scripts/deploy_site.py`, `scripts/build_release_snapshot.py`, `ops/rolling-deploy-transaction.py`, private-media hardening scripts/helpers, `readiness.js`, and targeted tests/state.
+- Verification: Python rolling/deploy tests 27/27; private-media tests 6/6; deploy-target tests 17/17; resilience/rolling ops 73/73; `npm run check:undef` passed; full `npm test` passed 1355 with 0 failures and 1 skip; `py_compile` and `git diff --check` passed.
+- Deployment status: not committed at the time this entry was written and not pushed. No release snapshot, SSH deployment, production service restart, Nginx reload, traffic switch, database mutation, or server configuration change occurred. Live remains untouched.
+- Next gate: commit the verified source, build/publish a uniquely named candidate release, then on the Old host run read-only preflight for the shared asset root, `/etc/raising-game-demo.env` `RUNTIME_MEDIA_ROOT`, dependency directory, candidate env, and available candidate port. Start only the idle candidate first; do not move traffic until that non-destructive staging gate is observed during an approved window.
+
+## 2026-11-15 Step BM: Old weighted canary deployment gate prepared, not deployed
+
+- Goal: prevent one bad Old release from affecting every user. The permanent rolling transaction now defaults to a read-only 1% canary, then 5%, with automatic traffic restoration before any final atomic cutover.
+- Canary mechanics: both Nginx upstream members become active with weights 99:1 then 95:5; managed `max_fails`/`fail_timeout` options are preserved. Restoring 100:0 returns the primary/backup topology. Invalid weights must total 100 and are rejected before any file mutation.
+- Observation gates: candidate systemd active/running, stable `MainPID`, unchanged `NRestarts`; candidate `/api/livez`, `/api/readyz`, `/`, `/api/config/public`, and `/api/platform/playflux-templates`; all configured public-health URLs. Candidate schedulers, queues, and workers must remain disabled.
+- Safety behavior: any canary failure restores 100:0, logs `CANARY_ROLLBACK_OK`, stops the candidate, and never attempts the final cutover. A failed canary rollback is surfaced as `CANARY_ROLLBACK_FAILED`/manual intervention, never reported as recovered.
+- Defaults: `--canary-percent=1`, `--canary-second-percent=5`, each observed for 120 seconds with 5-second polls. `--canary-percent 0` remains only as an explicit recovery-drill override.
+- Files changed: `ops/nginx-upstream-switch.py`, `ops/rolling-deploy-transaction.py`, `ops/production-cutover-runbook.md`, `test/resilience-ops.test.js`, `test/test_rolling_deploy_transaction.py`.
+- Verification: `npm run check:undef` passes; readiness 20/20; deploy-targets 16/16; resilience/rolling ops 72/72; Python rolling transaction 16/16; full `npm test` 1352 pass / 0 fail / 1 skip; `git diff --check` passes.
+- Deployment status: no release branch push, deployment, production restart, Nginx reload, database mutation, or SSH/UFW/fail2ban change occurred. Old production was not touched. Live was not touched.
+- Next gate: commit this source, build a uniquely named local candidate release, run the transaction first against isolated/idle 4175 only, and only later wire the repository deployment entrypoint after staged server verification.
+
 ## 2026-11-13 Step BK: Telegram auth-failure circuit breaker prepared, not deployed
 
 ## 2026-11-13 Step BL: Seedance 2.5 1080p exposure and pricing deployed
@@ -4293,22 +4320,18 @@ CODEX_TASK_STATE.md
 - Built final platform release `6e3ae64bc9c4e657259ce1785a9680ee54806733` from `old-site` commit `29cb01002f4b869ba47a6c161bd6c3990e47e3ce`; pushed only `platform-release` and deployed only Old through `scripts/deploy_local.sh --site old`.
 - Post-deploy acceptance: deployment exit 0, remote release `6e3ae64b`, service active/running at PID `305987`, `/api/health` `200`, homepage `200`; public `platform.html` contains both `seedance20-vega` and `seedance25-vega`, and `platform.create.parts/part-02.js` contains the one-row `is-model-list` selector and selected check. Live was not pushed or deployed.
 
-## 2026-11-15 Step CU: model picker runtime scope fixed and redeployed to Old
+## 2026-11-15 Step CU: release identity gate rebased onto latest Old source; all gates green
 
-- Post-deploy acceptance of the one-row picker found a real browser-only regression: `renderAdvancedParameterPanel()` referenced `modelList` after its `const` had gone out of scope inside the non-duration branch. The picker looked correct in some flows, but opening it logged `ReferenceError: modelList is not defined`.
-- Moved `const modelList = kind === "model";` to function scope before the duration/model branch. Added a runtime unit test that executes the extracted renderer with browser stubs, proving the selected model row is scrolled into view without a reference error. The earlier static-only assertions could not catch this.
-- Source commit `c573abf2`; exact `old-site` integration commit `41d35f45`. The fix changes only `platform.create.parts/part-02.js` and `test/platform-site-profile.test.js`; upload, generation, regeneration, retry, restore/backfill, and history workflows were not changed.
-- Verification: focused picker/Seedance/Vega/pricing tests `72/72` pass; full source suite `1345 pass / 0 fail / 1 skip`; exact release worktree `npm test` `1345 pass / 0 fail / 1 skip`; `npm run check:undef`, `node --check`, and `git diff --check` pass.
-- Built platform release `8f557a6439d7965c7f68890e69f944ba1c6f1f69` from `41d35f45`; diff from prior release `59e2848d` contains only the two files above. Pushed only `origin/platform-release` and deployed only Old through `scripts/deploy_local.sh --site old`; deployment exited 0, release-boundary/private-media checks passed, health/home return 200.
-- Post-deploy browser verification after a hard reload: 11 model rows, each 526x48px (one per line), sparkles icons present, exactly one selected check. Both `seedance2.0（vega）` and `seedance2.5-vega` select successfully; native `#advancedProvider`, chip, ratio, resolution, duration, and calculated price update. Re-selecting the current model closes the panel and preserves Adaptive/1080P/5s. No fresh browser console errors after the fix.
-- Live was not pushed or deployed. Remote `live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`.
-
-## 2026-11-15 Step CV: Advanced model selection persistence and scrollable picker
-
-- The Generate model picker now remembers the last user-selected model in `localStorage` under `raisingGameAdvancedProviderPreferencesV1`, keyed separately by `video`, `image`, and `conversation`. This is a UI preference only; generation records and business data remain in PostgreSQL.
-- Preferences are written only when the user changes the model through `setAdvancedParameterValue()`. Re-selecting the same model does not rewrite it, and regeneration/retry/history/case restore do not save provider assignments.
-- Restore runs inside `updateAdvancedModelControls()` after model exposure and before dependent controls sync. It applies at most once per media kind, validates that the remembered option is still visible/eligible, and therefore cannot replace a model assigned later by a restored task. Switching between image/video/conversation can restore each kind independently.
-- The one-row model list now has a bounded independently scrollable area (`max-height`, `overflow-y: auto`, stable scrollbar gutter, contained overscroll) with a smaller mobile cap; the selected row continues to scroll into nearest view.
-- Files changed: `platform.config.js`, `platform.create.parts/part-02.js`, `platform.css`, `test/platform-site-profile.test.js`.
-- Source commit `1ea2cb0c`; exact `old-site` integration commit `5a308628`. Focused picker/Advanced tests `100/100`; full source and exact old-site suites each `1348 pass / 0 fail / 1 skip`; `npm run check:undef`, `node --check`, and `git diff --check` pass. Evidence: `/tmp/raising-picker-pref-full.log`, `/tmp/raising-picker-pref-oldsite-full.log`.
-- Deployment status at record time: Old-only release build/deploy pending. Live must remain untouched; no upload, generation, regeneration, restore, pricing, or provider flow was intentionally changed.
+- Rebased the release-safety work onto latest Old integration commit `c745d7b9` rather than the older `old-site` baseline, preserving concurrent model/picker changes.
+- Branch: `codex/release-identity-gate-current`.
+- Commits: `cc9463f1` (loaded release ID + PID + worker-disabled rolling gate) and `e1c18d2b` (assembled-source newline normalization compatible with runtime source).
+- The undefined-symbol guard already existed in the latest baseline; this branch only normalizes each `server.parts` file with exactly one trailing newline when absent, matching runtime assembly and preventing token joins without changing normal function boundaries.
+- Verification on this branch:
+  - `npm run check:undef`: pass.
+  - readiness + deploy-target tests: 36 pass.
+  - resilience/rolling ops tests: 68 pass.
+  - Python rolling-transaction verifier tests: 11 pass.
+  - full `npm test`: 1347 pass / 0 fail / 1 skip.
+  - `git diff --check`: pass.
+- No release branch push, production deployment, service restart, Nginx/UFW/fail2ban/SSH/database mutation, or traffic switch was performed in this step.
+- Next safe step: build a uniquely named local candidate release from this committed branch, validate it only on idle port 4175 with workers disabled, then implement/test 1% -> 5% canary thresholds and automatic rollback before any production traffic switch.

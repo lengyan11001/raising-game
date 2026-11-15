@@ -61,7 +61,23 @@ TARGETS = {
             "https://123vips.com/=Vipeak Live",
         ),
         "env_file": "/etc/raising-game-demo.env",
-        "required_file_counts": (("/opt/raising-game-demo/assets/ourdream/characters", 1000),),
+        "rolling": True,
+        "rolling_source_root": "/opt/raising-game-release-src",
+        "rolling_releases_root": "/opt/raising-game-releases",
+        "rolling_shared_assets": "/opt/raising-game-shared/assets",
+        "rolling_node_path": "/opt/raising-game-demo/node_modules",
+        "rolling_primary_service": "raising-game-demo.service",
+        "rolling_candidate_service": "raising-game-demo-b.service",
+        "rolling_primary_port": "4174",
+        "rolling_candidate_port": "4175",
+        "rolling_migrate_commands": (
+            "/usr/bin/python3 __RELEASE__/scripts/ensure_media_signing_secret.py --env-file /etc/raising-game-demo.env",
+            "set -a; . /etc/raising-game-demo.env; set +a; cd __RELEASE__; DB_MIGRATION_RUNTIME_ROOT=/opt/raising-game-demo node ops/run-db-migrations.js --dry-run && node ops/run-db-migrations.js --apply && node ops/run-db-migrations.js --dry-run",
+        ),
+        "rolling_post_cutover_commands": (
+            "__RELEASE__/ops/harden-old-nginx-private-media.sh",
+        ),
+        "required_file_counts": (("/opt/raising-game-shared/assets/ourdream/characters", 1000),),
         "password_env": ("OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
         "key_env": ("DEPLOY_SSH_KEY", "OLD_SITE_SSH_KEY"),
         "forbidden_changed_paths": (
@@ -335,15 +351,16 @@ def main() -> None:
     parser.add_argument(
         "--rolling",
         action="store_true",
-        help="Reserved for the dual-unit transaction runner; never combine it with no-restart/no-mutation mode.",
+        help="Require the dual-unit transaction runner. Old uses it by default unless --no-restart is set.",
     )
     args = parser.parse_args()
     if args.rolling and args.no_restart:
         parser.error("--rolling cannot be combined with --no-restart")
-    if args.rolling:
-        parser.error("--rolling is not implemented in deploy_site.py; use the approved dual-unit runbook")
 
     target = TARGETS[args.site]
+    use_rolling = bool(target.get("rolling")) and not args.no_restart
+    if args.rolling and not use_rolling:
+        parser.error("--rolling is supported only for the Old production target")
     port = args.port or int(os.environ.get("DEPLOY_PORT") or target["port"])
     key_source, key_path = first_key(target)
     # Password lookup is only a fallback. Do not scan/read password sources
@@ -461,6 +478,18 @@ def main() -> None:
         command.extend(["--host-key-sha256", fingerprint])
     if args.no_restart:
         command.extend(["--no-restart", "--no-mutations"])
+    elif use_rolling:
+        command.extend([
+            "--rolling",
+            "--rolling-source-root", target["rolling_source_root"],
+            "--rolling-releases-root", target["rolling_releases_root"],
+            "--rolling-shared-assets", target["rolling_shared_assets"],
+            "--rolling-node-path", target["rolling_node_path"],
+            "--rolling-primary-service", target["rolling_primary_service"],
+            "--rolling-candidate-service", target["rolling_candidate_service"],
+            "--rolling-primary-port", target["rolling_primary_port"],
+            "--rolling-candidate-port", target["rolling_candidate_port"],
+        ])
     elif target.get("requires_restart") is False:
         # Live reuses the shared process, so it must not restart it, but its
         # static materialization hook still has to run during a release.
@@ -485,10 +514,16 @@ def main() -> None:
         command.extend(["--verify-status", verify_status])
     if target.get("verify_private_media"):
         command.append("--verify-private-media")
-    for pre_restart_command in target.get("pre_restart_commands", ()):
-        command.extend(["--pre-restart-command", pre_restart_command])
-    for post_restart_command in target.get("post_restart_commands", ()):
-        command.extend(["--post-restart-command", post_restart_command])
+    if use_rolling:
+        for rolling_command in target.get("rolling_migrate_commands", ()):
+            command.extend(["--rolling-migrate-command", rolling_command])
+        for rolling_command in target.get("rolling_post_cutover_commands", ()):
+            command.extend(["--rolling-post-cutover-command", rolling_command])
+    else:
+        for pre_restart_command in target.get("pre_restart_commands", ()):
+            command.extend(["--pre-restart-command", pre_restart_command])
+        for post_restart_command in target.get("post_restart_commands", ()):
+            command.extend(["--post-restart-command", post_restart_command])
     raise SystemExit(subprocess.call(command, env=env))
 
 

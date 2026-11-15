@@ -36,7 +36,8 @@ if (sourceRef) {
     .sort();
   sourceParts = partFiles.map((fileName) => fs.readFileSync(path.join(root, "server.parts", fileName), "utf8"));
 }
-const source = sourceParts.join("");
+const normalizedSourceParts = sourceParts.map((part) => (part.endsWith("\n") ? part : `${part}\n`));
+const source = normalizedSourceParts.join("");
 const globals = new Set([
   "require",
   "module",
@@ -63,7 +64,7 @@ const ranges = [];
 let firstLine = 1;
 for (let index = 0; index < partFiles.length; index += 1) {
   const fileName = partFiles[index];
-  const lineCount = sourceParts[index].split("\n").length;
+  const lineCount = normalizedSourceParts[index].split("\n").length - 1;
   ranges.push({ fileName, firstLine, lastLine: firstLine + lineCount - 1 });
   firstLine += lineCount;
 }

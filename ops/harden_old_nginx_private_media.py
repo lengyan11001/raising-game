@@ -36,10 +36,18 @@ PRIVATE_MEDIA_HEADERS = {
 }
 REMOVE_HEADERS = {"location ^~ /assets/admin/ {"} | PUBLIC_ADMIN_HEADERS | PRIVATE_MEDIA_HEADERS
 
-HARDENED_BLOCK = '''    # Public reference media is the only admin directory served from disk.
+DEFAULT_ASSETS_ROOT = "/opt/raising-game-demo/assets"
+
+
+def hardened_block(assets_root: str) -> str:
+    root = Path(assets_root)
+    if not root.is_absolute() or "\n" in assets_root or "{" in assets_root or "}" in assets_root:
+        raise ValueError(f"assets root must be a safe absolute path: {assets_root!r}")
+    root_text = root.as_posix().rstrip("/")
+    template = '''    # Public reference media is the only admin directory served from disk.
     location ^~ /assets/admin/home/ {
         # managed private-media allowlist
-        alias /opt/raising-game-demo/assets/admin/home/;
+        alias __ASSETS_ROOT__/admin/home/;
         access_log off;
         expires 1h;
         add_header Cache-Control "public, max-age=3600" always;
@@ -48,7 +56,7 @@ HARDENED_BLOCK = '''    # Public reference media is the only admin directory ser
 
     location ^~ /assets/admin/advanced-cases/ {
         # managed private-media allowlist
-        alias /opt/raising-game-demo/assets/admin/advanced-cases/;
+        alias __ASSETS_ROOT__/admin/advanced-cases/;
         access_log off;
         expires 7d;
         add_header Cache-Control "public, max-age=604800, immutable" always;
@@ -57,7 +65,7 @@ HARDENED_BLOCK = '''    # Public reference media is the only admin directory ser
 
     location ^~ /assets/admin/platform-templates/ {
         # managed private-media allowlist
-        alias /opt/raising-game-demo/assets/admin/platform-templates/;
+        alias __ASSETS_ROOT__/admin/platform-templates/;
         access_log off;
         expires 7d;
         add_header Cache-Control "public, max-age=604800, immutable" always;
@@ -141,6 +149,7 @@ HARDENED_BLOCK = '''    # Public reference media is the only admin directory ser
     }
 
 '''
+    return template.replace("__ASSETS_ROOT__", root_text)
 
 
 def location_blocks(text: str) -> list[tuple[int, int, str]]:
@@ -226,7 +235,7 @@ def server_blocks(text: str) -> list[tuple[int, int, str]]:
     return blocks
 
 
-def harden_server_block(block: str) -> str:
+def harden_server_block(block: str, assets_root: str = DEFAULT_ASSETS_ROOT) -> str:
     stale = []
     public_blocks = []
     private_blocks = []
@@ -268,10 +277,10 @@ def harden_server_block(block: str) -> str:
         if closing < 0:
             raise ValueError("expected a server block closing brace")
         insert_at = block.rfind("\n", 0, closing) + 1
-    return block[:insert_at] + HARDENED_BLOCK + block[insert_at:]
+    return block[:insert_at] + hardened_block(assets_root) + block[insert_at:]
 
 
-def harden_config(text: str) -> str:
+def harden_config(text: str, assets_root: str = DEFAULT_ASSETS_ROOT) -> str:
     # Never infer a single server from a sites-enabled file. Several files hold
     # redirect-only, API-only, and media-serving virtual hosts side by side.
     # Harden only hosts that already own a media location; leave unrelated hosts
@@ -281,7 +290,7 @@ def harden_config(text: str) -> str:
         headers = {first_line(span[2]) for span in location_blocks(block)}
         if not headers.intersection(REMOVE_HEADERS):
             continue
-        hardened = harden_server_block(block)
+        hardened = harden_server_block(block, assets_root)
         if hardened != block:
             replacements.append((start, end, hardened))
     for start, end, hardened in reversed(replacements):
@@ -311,11 +320,12 @@ def main() -> int:
     parser.add_argument("--output", help="Write fixture output instead of modifying the source")
     parser.add_argument("--check", action="store_true", help="Exit 1 when hardening changes are needed")
     parser.add_argument("--apply", action="store_true", help="Write hardened files atomically")
+    parser.add_argument("--assets-root", default=DEFAULT_ASSETS_ROOT)
     args = parser.parse_args()
 
     if args.source:
         text = Path(args.source).read_text(encoding="utf-8")
-        hardened = harden_config(text)
+        hardened = harden_config(text, args.assets_root)
         if args.output:
             Path(args.output).write_text(hardened, encoding="utf-8")
         elif args.check:
@@ -332,7 +342,7 @@ def main() -> int:
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8")
-        hardened = harden_config(text)
+        hardened = harden_config(text, args.assets_root)
         if hardened != text:
             pending.append(path)
             if args.apply:
