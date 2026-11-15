@@ -11,6 +11,11 @@ file.
 
 This is the final incremental-sync step after traffic has moved to the standby
 instance. PostgreSQL remains the authority for media metadata and ownership.
+For a production cutover, capture a Unix timestamp immediately before the full
+sync, then pass the same timestamp with `--modified-since-epoch` after stopping
+the old writer. The delta mode verifies only files created or modified since
+that snapshot, so recent uploads can be closed out without re-reading the whole
+shared tree.
 """
 from __future__ import annotations
 
@@ -151,10 +156,24 @@ def copy_missing_file(source: Path, destination: Path, target_root: Path) -> tup
     return before[1], 1
 
 
-def sync(source_assets: Path, target: Path, *, apply: bool) -> int:
+def sync(source_assets: Path, target: Path, *, apply: bool, modified_since_epoch: int | None = None) -> int:
     source_assets = clean_directory(source_assets, "--source-assets")
     target = clean_directory(target, "--target")
     files = list(iter_source_files(source_assets))
+    skipped = 0
+    delta_suffix = ""
+    if modified_since_epoch is not None:
+        if modified_since_epoch < 0:
+            raise SyncError("--modified-since-epoch must be zero or greater")
+        threshold_ns = modified_since_epoch * 1_000_000_000
+        selected = []
+        for source, relative in files:
+            if source.stat().st_mtime_ns >= threshold_ns:
+                selected.append((source, relative))
+            else:
+                skipped += 1
+        files = selected
+        delta_suffix = f" skipped={skipped} delta_since={modified_since_epoch}"
     for runtime_path in RUNTIME_MEDIA_PATHS:
         validate_target_path(target, Path(runtime_path))
     missing: list[tuple[Path, Path]] = []
@@ -173,7 +192,10 @@ def sync(source_assets: Path, target: Path, *, apply: bool) -> int:
 
     for relative, detail in collisions:
         print(f"RUNTIME_MEDIA_COLLISION path={relative} reason={detail}")
-    print(f"PLAN files={len(files)} same={same} missing={len(missing)} collisions={len(collisions)}")
+    print(
+        f"PLAN files={len(files)} same={same} missing={len(missing)} "
+        f"collisions={len(collisions)}{delta_suffix}"
+    )
     for source, destination in missing:
         print(f"PLAN copy={destination.relative_to(target).as_posix()} bytes={source.stat().st_size}")
     if collisions:
@@ -198,13 +220,26 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--source-assets", required=True, help="old release assets directory")
     parser.add_argument("--target", required=True, help="existing shared runtime-media root")
     parser.add_argument("--apply", action="store_true", help="copy missing files; otherwise plan only")
+    parser.add_argument(
+        "--modified-since-epoch",
+        type=int,
+        help=(
+            "only verify files modified at or after this Unix timestamp; use after a full sync "
+            "and after stopping the old writer"
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     try:
         args = parse_args(argv or sys.argv[1:])
-        return sync(Path(args.source_assets), Path(args.target), apply=args.apply)
+        return sync(
+            Path(args.source_assets),
+            Path(args.target),
+            apply=args.apply,
+            modified_since_epoch=args.modified_since_epoch,
+        )
     except SyncError as error:
         print(f"ERROR {error}", file=sys.stderr)
         return 2

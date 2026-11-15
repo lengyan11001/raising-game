@@ -1,3 +1,29 @@
+## 2026-11-15 Step BW: disk cleanup, media write-root discovery, and cutover delta sync
+
+- Reclaimed 1.2G of archived journal with `journalctl --vacuum-size=500M` and cleared APT package cache. Root disk improved from 88% (5.7G free) to 85% (7.1G free). Primary 4174, candidate 4175, and Nginx PIDs remained unchanged; all three public health URLs stayed 200.
+- Disk growth is media-dominated. `/opt/raising-game-demo/assets` is 15G and `/opt/raising-game-shared/assets` is 7.1G. The shared tree contains about 7.6G of runtime media but was not receiving current uploads.
+- Critical cutover finding: the running primary process PID `317565` has no `RUNTIME_MEDIA_ROOT` in `/proc/317565/environ`; the environment file now contains the shared root, but that process predates the change. New uploads at 2026-11-16 00:06 through 00:29 continued landing in `/opt/raising-game-demo/assets/user-uploads`, while the shared root had no corresponding recent files.
+- Read-only metadata comparison of canonical runtime paths found `total=6075 same_size=6062 missing=13 size_mismatch=0 source_bytes=7602832692 missing_bytes=18305084`. Do not delete the legacy asset tree or switch all traffic to 4175 until these files are reconciled and the post-switch delta is closed.
+- Added `--modified-since-epoch` to `ops/sync-runtime-media-root.py` and updated the cutover runbook. The safe order is now: record the snapshot epoch, run the full sync while 4174 serves, canary/cut over, stop 4174, and run only the timestamp-filtered delta. This avoids re-reading roughly 7.6G during the final gap and still verifies any upload created during cutover.
+- Verification: `node --test test/runtime-media-sync.test.js test/runtime-media-preparation.test.js test/resilience-ops.test.js` passed 86/86; `py_compile` and `git diff --check` passed. No production file, service, Nginx config, database, or traffic was changed by this code change.
+
+## 2026-11-15 Step BV: candidate soak check and disk-capacity risk
+
+- Read-only post-apply check at 2026-11-15 23:35 +07: primary `raising-game-demo.service` remained MainPID `317565`, InvocationID `c4ed0b839a75478797958124cebb2d5e`, `NRestarts=0`; candidate `raising-game-demo-b.service` remained MainPID `334836`, InvocationID `43a1d29f1bcf4be6bcabec6b64ccb563`, `NRestarts=0`; Nginx remained MainPID `3914088`, InvocationID `556af2ad28994b528c1c36272e657848`, `NRestarts=0`.
+- All three public `/api/health` URLs returned 200. Candidate `/api/livez` and `/api/readyz` still report immutable release `06624b279b2c7743e9fb735eff204ce9539060ff`, PID `334836`, `clean=true`, with schedulers, submit queue, and submit worker disabled.
+- Candidate soak sample: 12/12 `/api/readyz` probes passed over roughly 24 seconds; candidate RSS was about 124 MB, the candidate journal had no fatal/uncaught/Unauthorized/network-error entries since restart, Nginx had no recent 500/502/503/504 entries, and PostgreSQL showed 10 connections, 1 active, 0 idle-in-transaction, and 0 lock waiters.
+- Capacity risk found: root filesystem `/dev/vda3` is 41G used / 49G total (88%, 5.7G free). This is an all-users failure risk independent of application version: PostgreSQL, journald, uploads, and both Node processes share that filesystem. Do not treat more Node processes as protection from disk exhaustion.
+- Read-only space inventory: `/opt` 27G, including `/opt/raising-game-demo/assets` 15G and `/opt/raising-game-shared/assets` 7.1G; `/var/log/journal` 1.6G; `/tmp` 1.3G, including an old 514M drill tree and about 323M of tarballs; `/root/.npm` 347M; `/var/lib/apt` 207M; two immutable releases use about 515M each. No files were deleted or truncated.
+- Next gate is safe disk reclamation from known disposable caches/logs after age and owner verification, followed by sustained candidate observation. Do not move traffic, reload Nginx, restart 4174, migrate the database, enable background work on 4175, or introduce Redis in this step.
+
+## 2026-11-15 Step BU: inactive candidate 4175 verified on immutable release
+
+- Formal candidate-only apply succeeded without moving traffic. `raising-game-demo-b.service` now runs release `06624b279b2c7743e9fb735eff204ce9539060ff` at PID `334836`, with cwd set to that immutable release and `/api/livez` plus `/api/readyz` returning matching clean marker identity and PID.
+- Candidate runtime proves `BACKGROUND_SCHEDULERS_ENABLED=0`, `GENERATION_SUBMIT_QUEUE_ENABLED=0`, and `GENERATION_SUBMIT_WORKER_ENABLED=0`. Its drop-in is `/etc/systemd/system/raising-game-demo-b.service.d/89-release-root.conf`; the erroneous empty double-suffix directory was removed.
+- Primary `raising-game-demo.service` remained on MainPID `317565`, InvocationID `c4ed0b839a75478797958124cebb2d5e`, `NRestarts=0`. Nginx remained on MainPID `3914088`, InvocationID `556af2ad28994b528c1c36272e657848`, `NRestarts=0`.
+- All three public health endpoints returned 200 after the candidate restart. No Nginx reload, traffic switch, database migration, Live release push, or Live deployment occurred.
+- Remote `platform-release=06624b27`; `live-release` remains `f40e7a35`. This source branch records a state-only commit after deployment.
+
 ## 2026-11-15 Step BT: candidate unit drop-in path corrected
 
 - The 4175 apply attempt restarted only the candidate, found no loaded release identity, and automatically restored the previous candidate. Primary MainPID `317565` and Nginx MainPID `3914088` remained unchanged; all three public health endpoints stayed 200.

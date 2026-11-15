@@ -357,17 +357,17 @@ The cutover order is fixed:
 1. Start only the idle 4175 unit against the prepared shared root and verify
    health, livez, readyz, a read, and a controlled upload while 4174 still
    serves all traffic.
-2. Move all three upstream files to 4175 in one journaled transaction.
-3. Stop 4174 so it can no longer write to its release-local asset tree.
-4. Perform one final incremental synchronization from 4174's old runtime tree
-   to the shared root. Dry-run first, then apply only if the collision count is
-   zero:
+2. Capture the cutover timestamp immediately before the full sync, then
+   reconcile the complete old runtime tree into the shared root while 4174
+   continues serving. Run the full dry-run first, then apply under `nice` and
+   `ionice` only if the collision count is zero:
    ```bash
+   CUTOVER_SNAPSHOT_EPOCH="$(date +%s)"
    python3 /opt/raising-game-demo/ops/sync-runtime-media-root.py \
-     --source-assets /path/to/4174-release/assets \
+     --source-assets /opt/raising-game-demo/assets \
      --target /opt/raising-game-shared/assets
    python3 /opt/raising-game-demo/ops/sync-runtime-media-root.py \
-     --source-assets /path/to/4174-release/assets \
+     --source-assets /opt/raising-game-demo/assets \
      --target /opt/raising-game-shared/assets \
      --apply
    ```
@@ -375,10 +375,28 @@ The cutover order is fixed:
    `RUNTIME_MEDIA_SYNC_READY` afterward. The tool never deletes, never
    overwrites an existing destination, compares same-size files by SHA-256,
    and blocks with `RUNTIME_MEDIA_SYNC_BLOCKED` on any collision.
-5. Re-run the synchronization dry-run and require `missing=0 collisions=0`.
-   A collision or content mismatch requires a reviewed merge decision, not an
-   overwrite.
-6. Point 4174 at the same `RUNTIME_MEDIA_ROOT`, start it, and verify both
+3. Move all three upstream files to 4175 in one journaled transaction.
+4. Stop 4174 so it can no longer write to its release-local asset tree.
+5. Close the write window with a timestamp-filtered delta from the same old
+   runtime tree. Dry-run first, then apply:
+   ```bash
+   python3 /opt/raising-game-demo/ops/sync-runtime-media-root.py \
+     --source-assets /opt/raising-game-demo/assets \
+     --target /opt/raising-game-shared/assets \
+     --modified-since-epoch "$CUTOVER_SNAPSHOT_EPOCH"
+   python3 /opt/raising-game-demo/ops/sync-runtime-media-root.py \
+     --source-assets /opt/raising-game-demo/assets \
+     --target /opt/raising-game-shared/assets \
+     --modified-since-epoch "$CUTOVER_SNAPSHOT_EPOCH" \
+     --apply
+   ```
+   Require `RUNTIME_MEDIA_SYNC_READY`; this verifies only files created or
+   modified since the initial snapshot and reduces the post-switch window
+   without trusting files that the full sync did not compare.
+6. Re-run the delta dry-run and require `missing=0 collisions=0`. Also re-run
+   one controlled read and upload through 4175. A collision or content
+   mismatch requires a reviewed merge decision, not an overwrite.
+7. Point 4174 at the same `RUNTIME_MEDIA_ROOT`, start it, and verify both
    instances before enabling any non-HTTP background workload.
 
 Do not reuse the preparation tool to synchronize into an existing target; its
