@@ -4248,3 +4248,10 @@ CODEX_TASK_STATE.md
 - Added a regression assertion in `test/advanced-custom-ui.test.js` that rejects any success-path `clearAdvancedCreationInputs()` call and verifies submission still transitions to Result.
 - Verification: `node --check platform.create.parts/part-03.js` passes; focused regression passes; full `npm test` passes `1339 / 0 failures / 1 skip`.
 - Status at record time: source fix prepared locally; Old deployment pending. Live remains untouched.
+
+## 2026-11-15 Step BX: Preserve-create-inputs fix deployed to Old
+
+- Integrate the preserve-inputs fix onto the release clone's `old-site` branch as source commit `8ab324b3886349a60879f33b0489a0bac8bf2c24`.
+- Built with `python3 scripts/build_release_snapshot.py --source old-site`; platform release commit is `4e2ca473cbcdd6cc8a6fac8780c308ba470727b7`. Pushed only `platform-release` and deployed only Old with `scripts/deploy_local.sh --site old`.
+- Remote Old `/opt/raising-game-demo` is at `4e2ca47`; `raising-game-demo` is active/running with `NRestarts=0`; the deployed `platform.create.parts/part-03.js` contains no success-path `clearAdvancedCreationInputs()` call.
+- Post-deploy verification: `/api/health` and `/api/readyz` return 200 with ready state; homepage returns 200; public create chunk loads 102015 bytes and has zero success reset calls; `/live.html` remains 404 on Old. Remote `live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`; Live was not pushed or deployed.
