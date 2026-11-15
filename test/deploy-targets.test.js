@@ -442,6 +442,7 @@ test("Old rolling deployment migrates PostgreSQL before candidate traffic", () =
   assert.match(deployPull, /https:\/\/live\.123vipeak\.com\/api\/health/);
   assert.match(deployPull, /set -euo pipefail/);
   assert.match(deployPull, /git -c core\.hooksPath=\/dev\/null checkout --detach/);
+  assert.match(deployPull, /export PYTHONDONTWRITEBYTECODE=1/);
   assert.doesNotMatch(deployPull, /systemctl restart.*raising-game-demo\.service/);
 });
 
