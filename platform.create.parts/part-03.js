@@ -158,7 +158,6 @@ async function submitAdvancedGenerateInternal() {
         mergeAdvancedResultRecord(payload.record);
       }
       state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
-      clearAdvancedCreationInputs();
       setAdvancedSideTab("result", { syncMobile: true });
       renderAdvancedResultPanel();
     } catch (error) {
@@ -247,7 +246,6 @@ async function submitAdvancedGenerateInternal() {
         mergeAdvancedResultRecord(payload.record);
       }
       state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
-      clearAdvancedCreationInputs();
       showAdvancedSubmittedNotice();
       setAdvancedSideTab("result", { syncMobile: true });
       renderAdvancedResultPanel();
@@ -337,7 +335,6 @@ async function submitAdvancedGenerateInternal() {
         mergeAdvancedResultRecord(payload.record);
       }
       state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
-      clearAdvancedCreationInputs();
       showAdvancedSubmittedNotice();
       setAdvancedSideTab("result", { syncMobile: true });
       renderAdvancedResultPanel();
@@ -608,7 +605,6 @@ async function submitAdvancedGenerateInternal() {
         state.advancedResultTaskId = submittedRecord.taskId;
         mergeAdvancedResultRecord(submittedRecord);
       }
-      clearAdvancedCreationInputs();
       showAdvancedSubmittedNotice();
       setAdvancedSideTab("result", { syncMobile: true });
       renderAdvancedResultPanel();
@@ -1074,7 +1070,6 @@ async function submitAdvancedGenerateInternal() {
       mergeAdvancedResultRecord(submittedRecord);
     }
     showAdvancedSubmittedNotice();
-    clearAdvancedCreationInputs();
     setAdvancedSideTab("result", { syncMobile: true });
     renderAdvancedResultPanel();
   } catch (error) {
