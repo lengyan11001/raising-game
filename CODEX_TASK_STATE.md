@@ -4226,3 +4226,13 @@ CODEX_TASK_STATE.md
 - Verification: all modified JS files pass `node --check`; `git diff --check` passes; Flash-focused tests pass `9/9`; related legacy regression tests pass `180/180`; full `npm test` passes `1337` with `0` failures and `1` skip. Evidence: `/tmp/raising-full-test-2.log`.
 - Deployment status at record time: not committed/published. Intended scope is Old only: commit on the dedicated feature branch, integrate through committed `old-site`, build with `python3 scripts/build_release_snapshot.py --source old-site`, push only `platform-release`, then run `scripts/deploy_local.sh --site old`. Live must remain untouched. Existing login sessions must not be invalidated.
 - The earlier Codex gateway `422 Unprocessable Entity` conversation-log deserialization error is unrelated to this provider integration and is not being investigated in this task.
+
+## 2026-11-15 Step BV: Seedance 2.5 Flash switched to asset-library IDs only
+
+- User clarified Flash must follow the same media strategy as the existing Seedance providers: store every media input as a PostgreSQL user asset first, resolve/reuse its upstream Ark `asset://<id>`, and submit only that asset URI. Public HTTP(S) URLs must no longer be forwarded directly upstream.
+- Added `seedance25FlashReferenceAsset()`: existing image/video/audio/frame assets use their cached `assetUri` / `seedanceVideoAssetUri` / `seedanceAudioAssetUri`; URL inputs are first persisted through the existing user-asset helpers, then registered through `ensureSeedanceAssetForUserAsset()`.
+- Flash handler now registers images, reference videos, reference audios, first frame, and last frame before pricing/pre-deduction. Generation records store the resulting user asset IDs. Flash submission uses `submitArkTaskAfterAssetsReady()`.
+- Hardened the Flash payload boundary in `seedance25-flash.js`: `image_url`, `video_url`, `audio_url`, first-frame, and last-frame values must be `asset://...`; public HTTP(S) media URLs are rejected by this payload validator.
+- Preserved the earlier null-safe fix for raw image references: `imageAssets.map((asset) => asset?.id).filter(Boolean)`.
+- Verification: syntax checks and `git diff --check` pass; Flash-focused tests pass `10/10`; full `npm test` passes `1338` with `0` failures and `1` skip. Evidence: `/tmp/raising-full-test-4.log`.
+- Status at record time: uncommitted and not deployed. Old deployment/reverification pending; Live remains untouched.

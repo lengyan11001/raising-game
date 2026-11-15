@@ -378,6 +378,53 @@ async function seedance25PublicAssetUrls(db, assets = [], { preprocessReference 
   return urls;
 }
 
+function seedance25UpstreamAssetUriForUserAsset(asset, kind = "image") {
+  const field = kind === "video"
+    ? "seedanceVideoAssetUri"
+    : kind === "audio"
+    ? "seedanceAudioAssetUri"
+    : "assetUri";
+  const uri = String(asset?.[field] || "").trim();
+  if (!uri.startsWith("asset://")) {
+    const error = new Error(`Seedance 2.5 Flash ${kind} asset is missing an upstream asset id.`);
+    error.statusCode = 502;
+    error.code = "SEEDANCE25_FLASH_ASSET_URI_MISSING";
+    throw error;
+  }
+  return uri;
+}
+
+async function seedance25FlashReferenceAsset(db, user, {
+  asset = null,
+  url = "",
+  kind = "image",
+  name = "Seedance 2.5 Flash reference",
+} = {}) {
+  let resolved = asset;
+  if (!resolved && url) {
+    if (kind === "video") {
+      resolved = await createSeedanceReferenceVideoAssetFromUrl(db, user, url, 0);
+    } else if (kind === "audio") {
+      resolved = await createSeedanceReferenceAudioAssetFromUrl(db, user, url, 0);
+    } else {
+      resolved = (await createUserImageAssetsFromInputs(db, user, [url], { name }))[0] || null;
+    }
+  }
+  if (!resolved) {
+    const error = new Error(`Seedance 2.5 Flash ${kind} source could not be stored in the asset library.`);
+    error.statusCode = 400;
+    error.code = "SEEDANCE25_FLASH_ASSET_SOURCE_INVALID";
+    throw error;
+  }
+  validateWan27MediaKind(resolved, kind, name);
+  resolved = await ensureSeedanceAssetForUserAsset(db, resolved);
+  return {
+    asset: resolved,
+    assetUri: seedance25UpstreamAssetUriForUserAsset(resolved, kind),
+    publicUrl: publicHttpUrlForUserAsset(resolved) || String(url || "").trim(),
+  };
+}
+
 function seedance25PublicInputUrls(urls = [], kind = "image") {
   const normalized = urls.map((value, index) => {
     const url = publicHttpUrlForUpstream(value);
@@ -432,7 +479,7 @@ async function runSeedance25GenerationJob(job = {}, submission = null, options =
   let providerDispatchStarted = false;
   try {
     await updateGenerationRecord(taskId, { status: "submitting", awaitingUpstreamTask: true, error: "" }, updateReason("submitting"));
-    if (preprocessReference && (direct || !USE_GATEWAY_UPSTREAM)) {
+    if (preprocessReference && !flash && (direct || !USE_GATEWAY_UPSTREAM)) {
       const db = await readDb();
       const record = await getGenerationRecord(taskId);
       const userId = String(record?.userId || "");
@@ -469,7 +516,7 @@ async function runSeedance25GenerationJob(job = {}, submission = null, options =
     if (flash) {
       upstreamPayload = buildSeedance25FlashTaskPayload(upstreamInput, SEEDANCE25_FLASH_ENDPOINT);
       providerDispatchStarted = true;
-      submitted = await arkRequest("POST", "/contents/generations/tasks", upstreamPayload);
+      submitted = await submitArkTaskAfterAssetsReady(upstreamPayload);
     } else if (direct) {
       const imageAssets = [];
       for (let index = 0; index < upstreamInput.imageFiles.length; index += 1) {
@@ -661,29 +708,125 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       imageAssets.push(asset || null);
     }
 
-    const videoAssets = seedance25OwnedAssets(auth.db, auth.user.id, videoInputs.assetIds, "video");
-    const audioAssets = seedance25OwnedAssets(auth.db, auth.user.id, audioInputs.assetIds, "audio");
+    let videoAssets = seedance25OwnedAssets(auth.db, auth.user.id, videoInputs.assetIds, "video");
+    let audioAssets = seedance25OwnedAssets(auth.db, auth.user.id, audioInputs.assetIds, "audio");
     const firstFrameInput = !firstFrameAssetId ? seedanceFirstFrameInputFromBody(merged, { includeDataUrlFallback: true }) : null;
     const lastFrameInput = !lastFrameAssetId ? seedanceEndFrameInputFromBody(merged) : null;
-    const firstFrameAsset = firstFrameAssetId
+    let firstFrameAsset = firstFrameAssetId
       ? seedance25OwnedAssets(auth.db, auth.user.id, [firstFrameAssetId], "image")[0]
       : firstFrameInput && (firstFrameInput.dataUrl || preprocessReference)
       ? await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, firstFrameInput, { name: "Seedance 2.5 first frame" })
       : null;
-    const lastFrameAsset = lastFrameAssetId
+    let lastFrameAsset = lastFrameAssetId
       ? seedance25OwnedAssets(auth.db, auth.user.id, [lastFrameAssetId], "image")[0]
       : lastFrameInput && (lastFrameInput.dataUrl || preprocessReference)
       ? await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, lastFrameInput, { name: "Seedance 2.5 last frame" })
       : null;
 
     let videoUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, videoAssets), ...seedance25PublicInputUrls(videoInputs.urls, "video")])];
-    const audioUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, audioAssets), ...seedance25PublicInputUrls(audioInputs.urls, "audio")])];
-    const firstFrameUrl = firstFrameAsset
+    let audioUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, audioAssets), ...seedance25PublicInputUrls(audioInputs.urls, "audio")])];
+    let firstFrameUrl = firstFrameAsset
       ? (await seedance25PublicAssetUrls(auth.db, [firstFrameAsset]))[0]
       : publicHttpUrlForUpstream(firstPresent(firstFrameInput?.url, body.firstFrameUrl, body.imageUrl, bodyParams.firstFrameUrl, bodyParams.imageUrl, ""));
-    const lastFrameUrl = lastFrameAsset
+    let lastFrameUrl = lastFrameAsset
       ? (await seedance25PublicAssetUrls(auth.db, [lastFrameAsset]))[0]
       : publicHttpUrlForUpstream(firstPresent(lastFrameInput?.url, body.lastFrameUrl, body.endImageUrl, bodyParams.lastFrameUrl, bodyParams.endImageUrl, ""));
+
+    let imageFiles = imageUrls;
+    let videoFiles = videoUrls;
+    let audioFiles = audioUrls;
+    let firstFrameSubmitUrl = firstFrameUrl;
+    let lastFrameSubmitUrl = lastFrameUrl;
+    if (flash) {
+      imageFiles = [];
+      for (let index = 0; index < imageUrls.length; index += 1) {
+        const prepared = await seedance25FlashReferenceAsset(auth.db, auth.user, {
+          asset: imageAssets[index],
+          url: imageUrls[index],
+          kind: "image",
+          name: `Seedance 2.5 Flash image ${index + 1}`,
+        });
+        imageAssets[index] = prepared.asset;
+        imageFiles.push(prepared.assetUri);
+      }
+
+      const videoEntries = [];
+      for (const asset of videoAssets) {
+        videoEntries.push(await seedance25FlashReferenceAsset(auth.db, auth.user, {
+          asset,
+          kind: "video",
+          name: "Seedance 2.5 Flash reference video",
+        }));
+      }
+      for (const url of seedance25PublicInputUrls(videoInputs.urls, "video")) {
+        videoEntries.push(await seedance25FlashReferenceAsset(auth.db, auth.user, {
+          url,
+          kind: "video",
+          name: "Seedance 2.5 Flash reference video",
+        }));
+      }
+      const seenVideoUris = new Set();
+      videoAssets = [];
+      videoUrls = [];
+      videoFiles = [];
+      for (const entry of videoEntries) {
+        if (seenVideoUris.has(entry.assetUri)) continue;
+        seenVideoUris.add(entry.assetUri);
+        videoAssets.push(entry.asset);
+        videoUrls.push(entry.publicUrl);
+        videoFiles.push(entry.assetUri);
+      }
+
+      const audioEntries = [];
+      for (const asset of audioAssets) {
+        audioEntries.push(await seedance25FlashReferenceAsset(auth.db, auth.user, {
+          asset,
+          kind: "audio",
+          name: "Seedance 2.5 Flash reference audio",
+        }));
+      }
+      for (const url of seedance25PublicInputUrls(audioInputs.urls, "audio")) {
+        audioEntries.push(await seedance25FlashReferenceAsset(auth.db, auth.user, {
+          url,
+          kind: "audio",
+          name: "Seedance 2.5 Flash reference audio",
+        }));
+      }
+      const seenAudioUris = new Set();
+      audioAssets = [];
+      audioUrls = [];
+      audioFiles = [];
+      for (const entry of audioEntries) {
+        if (seenAudioUris.has(entry.assetUri)) continue;
+        seenAudioUris.add(entry.assetUri);
+        audioAssets.push(entry.asset);
+        audioUrls.push(entry.publicUrl);
+        audioFiles.push(entry.assetUri);
+      }
+
+      if (firstFrameAsset || firstFrameUrl) {
+        const prepared = await seedance25FlashReferenceAsset(auth.db, auth.user, {
+          asset: firstFrameAsset,
+          url: firstFrameUrl,
+          kind: "image",
+          name: "Seedance 2.5 Flash first frame",
+        });
+        firstFrameAsset = prepared.asset;
+        firstFrameUrl = prepared.publicUrl;
+        firstFrameSubmitUrl = prepared.assetUri;
+      }
+      if (lastFrameAsset || lastFrameUrl) {
+        const prepared = await seedance25FlashReferenceAsset(auth.db, auth.user, {
+          asset: lastFrameAsset,
+          url: lastFrameUrl,
+          kind: "image",
+          name: "Seedance 2.5 Flash last frame",
+        });
+        lastFrameAsset = prepared.asset;
+        lastFrameUrl = prepared.publicUrl;
+        lastFrameSubmitUrl = prepared.assetUri;
+      }
+    }
 
     let inputVideoSeconds = 0;
     if ((direct || flash) && videoUrls.length) {
@@ -708,11 +851,11 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       ratio,
       duration,
       seed,
-      imageFiles: imageUrls,
-      videoFiles: videoUrls,
-      audioFiles: audioUrls,
-      firstFrameUrl,
-      lastFrameUrl,
+      imageFiles,
+      videoFiles,
+      audioFiles,
+      firstFrameUrl: firstFrameSubmitUrl,
+      lastFrameUrl: lastFrameSubmitUrl,
       inputVideoSeconds,
       generateAudio,
     };
@@ -751,7 +894,7 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       ratio,
       ...(mode === "edit" ? { inputVideoSeconds } : { duration }),
       ...(seed === "" || seed === undefined || seed === null ? {} : { seed: Number(seed) }),
-      referenceImageAssetIds: imageAssets.map((asset) => asset.id),
+      referenceImageAssetIds: imageAssets.map((asset) => asset?.id).filter(Boolean),
       referenceVideoAssetIds: videoAssets.map((asset) => asset.id),
       referenceAudioAssetIds: audioAssets.map((asset) => asset.id),
       firstFrameAssetId: firstFrameAsset?.id || "",
@@ -825,7 +968,7 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       cost,
       provider,
       preprocessReference,
-      imageAssetIds: imageAssets.map((asset) => asset.id),
+      imageAssetIds: imageAssets.map((asset) => asset?.id).filter(Boolean),
       firstFrameAssetId: firstFrameAsset?.id || "",
       lastFrameAssetId: lastFrameAsset?.id || "",
     };
