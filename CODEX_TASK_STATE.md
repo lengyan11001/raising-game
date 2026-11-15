@@ -1,3 +1,14 @@
+## 2026-11-15 Step BO: authoritative Nginx upstream coverage gate added, not deployed
+
+- Read-only production inspection confirmed three real rolling upstreams: `raising_game_app` in `default`, `raising_game_app_chat` in `chat.5vips.com`, and `raising_game_app_live` in `live.123vipeak.com`. All three currently route primary traffic to 4174 with 4175 as backup; `raising_game_app_undress_unused` contains only 4174 and has zero `proxy_pass` references.
+- The previous Old rolling defaults covered only main and chat, so a deployment could have switched those while leaving Live on 4174. Added Live to the default Nginx file, upstream-name, and public health lists.
+- Added a hard pre-mutation coverage gate that scans every enabled Nginx site, identifies referenced upstreams containing 4174 or 4175, rejects referenced single-backend groups, and rejects any referenced rolling upstream omitted from the deployment transaction. Unreferenced groups such as `raising_game_app_undress_unused` are explicitly outside the traffic transaction.
+- Changed files: `scripts/deploy_old_rolling.py`, `test/test_deploy_old_rolling.py`, state.
+- Verification: focused Node deploy/readiness/resilience tests 39/39; Python rolling/deploy tests 30/30; `npm run check:undef` passed; full `npm test` passed 1355 with 0 failures and 1 skip; `py_compile` and `git diff --check` passed.
+- Deployment status: code changes are not committed or deployed in this entry. No production service restart, Nginx reload, database mutation, release preparation, or traffic switch occurred. Live remains untouched.
+- Current production preflight: 4174 PID 317565, 4175 PID 4112958, both active; Nginx remains 4174 primary / 4175 backup; public health for 123vips.com, chat.5vips.com, and live.123vipeak.com is HTTP 200.
+- Next gate: commit this gate, build a new platform release snapshot, run the Old rolling command in dry-run against the exact release, then only restart the inactive 4175 candidate while 4174 remains primary.
+
 ## 2026-11-15 Step BN: Old immutable rolling deploy wired, verified locally, not deployed
 
 - Goal: make a bad Old release fail on an idle immutable candidate instead of restarting or replacing the process serving every user.
