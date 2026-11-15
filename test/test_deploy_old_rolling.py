@@ -48,6 +48,57 @@ class DeployOldRollingTests(unittest.TestCase):
             with self.assertRaisesRegex(ROLLING.DeployError, "RUNTIME_MEDIA_ROOT mismatch"):
                 ROLLING.validate_runtime_media_env(env_file, shared.resolve())
 
+    def test_default_transaction_includes_live_and_all_public_health_urls(self) -> None:
+        self.assertIn(Path("/etc/nginx/sites-enabled/live.123vipeak.com"), ROLLING.DEFAULT_NGINX_FILES)
+        self.assertIn("raising_game_app_live", ROLLING.DEFAULT_UPSTREAM_NAMES)
+        self.assertIn("https://live.123vipeak.com/api/health", ROLLING.DEFAULT_HEALTH_URLS)
+
+    def test_upstream_coverage_accepts_every_referenced_dual_port_group(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            primary = root / "default"
+            chat = root / "chat"
+            live = root / "live"
+            unused = root / "unused"
+            primary.write_text(
+                "upstream app { server 127.0.0.1:4174; server 127.0.0.1:4175 backup; }\n"
+                "location / { proxy_pass http://app; }\n", encoding="utf-8")
+            chat.write_text(
+                "upstream chat { server 127.0.0.1:4174; server 127.0.0.1:4175 backup; }\n"
+                "location / { proxy_pass http://chat; }\n", encoding="utf-8")
+            live.write_text(
+                "upstream live { server 127.0.0.1:4174; server 127.0.0.1:4175 backup; }\n"
+                "location / { proxy_pass http://live; }\n", encoding="utf-8")
+            unused.write_text(
+                "upstream unused { server 127.0.0.1:4174; }\n", encoding="utf-8")
+            ROLLING.validate_upstream_coverage(
+                root,
+                [primary, chat, live],
+                ["app", "chat", "live"],
+                "4174",
+                "4175",
+            )
+
+    def test_upstream_coverage_rejects_a_referenced_group_missing_from_transaction(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            primary = root / "default"
+            live = root / "live"
+            primary.write_text(
+                "upstream app { server 127.0.0.1:4174; server 127.0.0.1:4175 backup; }\n"
+                "location / { proxy_pass http://app; }\n", encoding="utf-8")
+            live.write_text(
+                "upstream live { server 127.0.0.1:4174; server 127.0.0.1:4175 backup; }\n"
+                "location / { proxy_pass http://live; }\n", encoding="utf-8")
+            with self.assertRaisesRegex(ROLLING.DeployError, "missing from the deployment transaction: live"):
+                ROLLING.validate_upstream_coverage(
+                    root,
+                    [primary],
+                    ["app"],
+                    "4174",
+                    "4175",
+                )
+
     def test_release_marker_must_not_be_symlinked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

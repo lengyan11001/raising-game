@@ -27,16 +27,30 @@ DEFAULT_CANDIDATE_SERVICE = "raising-game-demo-b.service"
 DEFAULT_PRIMARY_PORT = "4174"
 DEFAULT_CANDIDATE_PORT = "4175"
 DEFAULT_ENV_FILE = Path("/etc/raising-game-demo.env")
+DEFAULT_NGINX_ENABLED_ROOT = Path("/etc/nginx/sites-enabled")
 DEFAULT_NGINX_FILES = (
     Path("/etc/nginx/sites-enabled/default"),
     Path("/etc/nginx/sites-enabled/chat.5vips.com"),
+    Path("/etc/nginx/sites-enabled/live.123vipeak.com"),
 )
-DEFAULT_UPSTREAM_NAMES = ("raising_game_app", "raising_game_app_chat")
+DEFAULT_UPSTREAM_NAMES = (
+    "raising_game_app",
+    "raising_game_app_chat",
+    "raising_game_app_live",
+)
 DEFAULT_HEALTH_URLS = (
     "https://123vips.com/api/health",
     "https://chat.5vips.com/api/health",
+    "https://live.123vipeak.com/api/health",
 )
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+UPSTREAM_BLOCK_RE = re.compile(
+    r"upstream\s+(?P<name>[A-Za-z0-9_.-]+)\s*\{(?P<body>.*?)\}",
+    re.S,
+)
+SERVER_MEMBER_RE = re.compile(r"(?<![A-Za-z0-9_])server\s+([^;{}]+);")
+LOCAL_MEMBER_RE = re.compile(r"^(?:127\.0\.0\.1|localhost):(?P<port>[0-9]+)(?:\s+.*)?$")
+PROXY_UPSTREAM_RE = re.compile(r"proxy_pass\s+http://(?P<name>[A-Za-z0-9_.-]+)")
 
 
 class DeployError(RuntimeError):
@@ -107,6 +121,86 @@ def release_marker(release: Path) -> str:
     if not COMMIT_RE.fullmatch(identity):
         raise DeployError(f"immutable release marker has an invalid commit: {identity!r}")
     return identity
+
+
+def validate_upstream_coverage(
+    enabled_root: Path,
+    nginx_files: list[Path],
+    upstream_names: list[str],
+    primary_port: str,
+    candidate_port: str,
+) -> None:
+    """Reject a release unless every referenced rolling upstream is in the transaction.
+
+    Nginx can route real traffic through more than the upstreams named in the
+    deployment target. Scanning only the files we intend to edit cannot detect
+    a newly added site that still points at the primary port. This guard scans
+    every enabled site and treats a referenced upstream containing either port
+    as part of the production rolling surface.
+    """
+    if enabled_root.is_symlink() or not enabled_root.is_dir():
+        raise DeployError(f"Nginx enabled root must be a regular directory: {enabled_root}")
+    configured = tuple(str(path) for path in nginx_files)
+    if len(configured) != len(set(configured)):
+        raise DeployError("Nginx files in the rolling transaction must be unique")
+    if len(upstream_names) != len(set(upstream_names)):
+        raise DeployError("Nginx upstream names in the rolling transaction must be unique")
+
+    texts: dict[Path, str] = {}
+    for path in sorted(enabled_root.iterdir(), key=lambda item: item.name):
+        if not path.is_file():
+            continue
+        try:
+            texts[path] = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as error:
+            raise DeployError(f"enabled Nginx file is not UTF-8 text: {path}") from error
+
+    for path in nginx_files:
+        if path.is_symlink() or not path.is_file():
+            raise DeployError(f"Nginx file must be a regular file: {path}")
+        if path.resolve() not in {item.resolve() for item in texts}:
+            raise DeployError(f"Nginx file is not under the enabled root: {path}")
+
+    members_by_name: dict[str, set[str]] = {}
+    referenced: set[str] = set()
+    for text in texts.values():
+        referenced.update(match.group("name") for match in PROXY_UPSTREAM_RE.finditer(text))
+        for match in UPSTREAM_BLOCK_RE.finditer(text):
+            name = match.group("name")
+            members = members_by_name.setdefault(name, set())
+            for server in SERVER_MEMBER_RE.finditer(match.group("body")):
+                member = LOCAL_MEMBER_RE.fullmatch(server.group(1).strip())
+                if member:
+                    members.add(member.group("port"))
+
+    rolling_ports = {primary_port, candidate_port}
+    referenced_rolling = {
+        name for name in referenced
+        if name in members_by_name and members_by_name[name] & rolling_ports
+    }
+    single_backend = sorted(
+        name for name in referenced_rolling
+        if not rolling_ports.issubset(members_by_name[name])
+    )
+    if single_backend:
+        raise DeployError(
+            "referenced Nginx upstreams are not dual-port rollover-capable: "
+            + ", ".join(single_backend)
+        )
+
+    configured_names = set(upstream_names)
+    missing = sorted(referenced_rolling - configured_names)
+    if missing:
+        raise DeployError(
+            "referenced rolling upstreams are missing from the deployment transaction: "
+            + ", ".join(missing)
+        )
+    not_rolling = sorted(configured_names - referenced_rolling)
+    if not_rolling:
+        raise DeployError(
+            "configured upstreams are not referenced dual-port rolling upstreams: "
+            + ", ".join(not_rolling)
+        )
 
 
 def validate_source_checkout(source_root: Path, commit: str) -> None:
@@ -263,6 +357,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--candidate-port", default=DEFAULT_CANDIDATE_PORT)
     parser.add_argument("--nginx-file", action="append", default=[])
     parser.add_argument("--upstream-name", action="append", default=[])
+    parser.add_argument("--nginx-enabled-root", default=str(DEFAULT_NGINX_ENABLED_ROOT))
     parser.add_argument("--health-url", action="append", default=[])
     parser.add_argument("--migrate-command", action="append", default=[])
     parser.add_argument("--post-cutover-command", action="append", default=[])
@@ -294,6 +389,13 @@ def deploy(args: argparse.Namespace) -> int:
     node_path = validate_node_path(Path(args.node_path))
     env_file = Path(args.env_file)
     validate_runtime_media_env(env_file, shared_assets)
+    validate_upstream_coverage(
+        Path(args.nginx_enabled_root),
+        args.nginx_file,
+        args.upstream_name,
+        args.primary_port,
+        args.candidate_port,
+    )
     validate_source_checkout(source_root, args.commit)
     validate_node_manifests(source_root, node_path)
 
