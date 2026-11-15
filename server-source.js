@@ -9,7 +9,7 @@ const partFiles = fs.readdirSync(partsDirectory)
   .sort();
 
 const sourceParts = partFiles.map((fileName) => fs.readFileSync(path.join(partsDirectory, fileName), "utf8"));
-const source = sourceParts.join("");
+const source = sourceParts.map((part) => (part.endsWith("\n") ? part : `${part}\n`)).join("");
 
 function readServerSource() {
   return source;
