@@ -4199,3 +4199,11 @@ CODEX_TASK_STATE.md
 - Files changed: `server.parts/part-27.js`, `server.parts/part-29.js`, `server.parts/part-43.js`, `test/seedream55.test.js`, `test/vega-regeneration-media.test.js`.
 - Verification: syntax checks and `git diff --check` pass; focused Seedream/regeneration/image/media tests pass 83/83; full `npm test` passes 1328 with 0 failures and 1 skip.
 - Remaining after deploy: verify the same one-reference regeneration now charges 4.20 and records one canonical `reference_image`; account for/refund the 2.40-credit overcharge from the pre-fix regression test if appropriate. Live remains untouched.
+
+## 2026-11-15 Step BT: Seedream 5.5 production verification and regression refund
+
+- Production Old remains on platform release `4ab95542efc0d9bbe3483d119111ed0e74a4e5a8`; service `raising-game-demo` is active, `/api/health` and `/api/readyz` return 200, and the public UI/config expose `Seedream 5.5` / `seedream55-image`. Live was not changed.
+- Public pricing verified from `.config.platform.advancedPricing`: 1K `3` credits, 2K `5.25` credits, each reference image `1.2` credits. The embedded model defaults expose `ep-20261115092454-jlm4p`, `1K`/`2K`, and a 10-reference limit.
+- Production success tests remained correct: `img-20261115101202-4801ce` and `img-20261115101226-ad9769` both succeeded and each settled at `4.20` credits (1K output plus one reference).
+- Refunded the pre-fix regeneration overcharge on `img-20261115100405-c37efb` by `2.40` credits using task-scoped ledger type `seedream55_regression_refund`. Balance moved from `13.714200` to `16.114200`; exactly one refund ledger entry exists, and replaying the refund is idempotent (`inserted=false`).
+- Focused Seedream/Vega/pricing tests pass `73/73`; full `npm test` passes `1328` with `0` failures and `1` skip. `git diff --check` passes.
