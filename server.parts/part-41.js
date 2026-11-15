@@ -169,7 +169,7 @@ async function handleAdminGenerationRecordReferenceMedia(req, res, taskId, refer
   const remoteUrl = adminRecordMediaAssetUrl(asset, new Map(linked ? [[String(linked.id), linked]] : []));
   const download = url?.searchParams?.get("download") === "1";
   const fileName = String(linked?.name || asset.fileName || asset.name || `reference-${index + 1}`).replace(/[^a-z0-9._-]/gi, "-") || `reference-${index + 1}`;
-  const fallbackMime = String(linked?.mime || asset.mime || "").split(";")[0].trim() || (isVideoUrl(remoteUrl) ? "video/mp4" : "image/png");
+  const fallbackMime = String(linked?.mime || asset.mime || "").split(";")[0].trim() || (isLikelyVideoUrl(remoteUrl) ? "video/mp4" : "image/png");
   const disposition = download ? attachmentDisposition(fileName) : `inline; filename="${fileName}"`;
   const headers = { "cache-control": "private, no-store", "content-disposition": disposition };
   if (localPath) {

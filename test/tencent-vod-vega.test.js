@@ -1113,12 +1113,13 @@ test("Vega regeneration restores and persists user asset ids end to end", () => 
 test("Vega UI options are appended after existing video models with exact labels", () => {
   const videoGroup = html.match(/<optgroup label="Video">([\s\S]*?)<\/optgroup>/)?.[1] || "";
   const options = [...videoGroup.matchAll(/<option value="([^"]+)"[^>]*>([^<]+)<\/option>/g)].map((match) => [match[1], match[2]]);
-  assert.deepEqual(options.slice(-3), [
+  assert.deepEqual(options.slice(-4), [
+    ["seedance20-vega", "seedance2.0（vega）"],
     ["seedance25-vega", "seedance2.5vega"],
     ["h3-vega", "wan（vega）"],
     ["vega10-lite", "h3（vega）"],
   ]);
-  assert.equal(options.some(([id]) => id === "seedance20-vega"), false);
+  assert.equal(options.some(([id]) => id === "seedance20-vega"), true);
   assert.equal(options.some(([id]) => /^seedance20-(?:fast|mini|lite)-vega$/.test(id)), false);
   assert.deepEqual(options.slice(0, 6).map(([id]) => id), ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance"]);
   assert.match(ui, /if \(VEGA_MODEL_LABELS\[normalized\]\) return VEGA_MODEL_LABELS\[normalized\]/);
@@ -1360,10 +1361,10 @@ test("Vega local uploads use the dedicated public-URL upload path", () => {
   assert.match(create, /hostname === "localhost"[\s\S]*endsWith\("\.local"\)/);
 });
 
-test("Vega model entrypoints expose 1.5 Pro, 1.5 Lite, and 1.0 Lite while retiring the 1.0 Pro front-end option", () => {
+test("Vega model entrypoints expose 1.0 Pro, 1.5 Pro, and both Lite models", () => {
   assert.deepEqual(vega.VEGA_PROVIDER_IDS, ["seedance20-vega", "seedance25-vega", "h3-vega", "vega10-lite"]);
   for (const text of [config, html, ui, server]) assert.doesNotMatch(text, /seedance20-(fast|mini|lite)-vega/);
-  assert.doesNotMatch(html, /value="seedance20-vega"/);
+  assert.match(html, /value="seedance20-vega">seedance2\.0（vega）/);
   assert.match(html, /value="seedance25-vega">seedance2\.5vega/);
   assert.match(html, /value="h3-vega">wan（vega）/);
   assert.match(html, /value="vega10-lite">h3（vega）/);

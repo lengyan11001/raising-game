@@ -149,7 +149,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
   };
 }
 
-async function buildModelDocs(req) {
+async function buildModelDocs(req, res) {
   const auth = await getAuth(req, { loadDb: false });
   if (auth.quarantined) return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   const origin = publicOriginFromRequest(req);
@@ -1059,28 +1059,28 @@ function buildStructuredApiDocsMarkdown(docs = {}) {
 async function handleModelsJson(req, res) {
   const auth = await requireApiDocsAccess(req, res);
   if (!auth) return;
-  const docs = await buildModelDocs(req);
+  const docs = await buildModelDocs(req, res);
   return sendJson(res, 200, publicModelDocsView(docs));
 }
 
 async function handleModelsMarkdown(req, res) {
   const auth = await requireApiDocsAccess(req, res);
   if (!auth) return;
-  const docs = await buildModelDocs(req);
+  const docs = await buildModelDocs(req, res);
   return sendMarkdown(res, 200, buildModelDocsMarkdown(publicModelDocsView(docs)));
 }
 
 async function handleApiDocsJson(req, res) {
   const auth = await requireApiDocsAccess(req, res);
   if (!auth) return;
-  const docs = await buildModelDocs(req);
+  const docs = await buildModelDocs(req, res);
   return sendJson(res, 200, buildStructuredApiDocs(publicModelDocsView(docs)));
 }
 
 async function handleApiDocsMarkdown(req, res) {
   const auth = await requireApiDocsAccess(req, res);
   if (!auth) return;
-  const docs = await buildModelDocs(req);
+  const docs = await buildModelDocs(req, res);
   return sendMarkdown(res, 200, buildStructuredApiDocsMarkdown(publicModelDocsView(docs)));
 }
 

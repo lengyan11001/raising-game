@@ -2074,8 +2074,8 @@ async function handleAdminPromoteRecordToPlatform(req, res, taskId) {
   };
   try {
     media = await ingestPlatformTemplateMedia({
-      videoUrl: absolutePublicUrl(sourceVideoUrl),
-      coverUrl: media.coverUrl ? absolutePublicUrl(media.coverUrl) : "",
+      videoUrl: publicUrlForAssetPath(sourceVideoUrl),
+      coverUrl: media.coverUrl ? publicUrlForAssetPath(media.coverUrl) : "",
       templateId,
     });
   } catch (error) {

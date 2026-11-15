@@ -120,6 +120,8 @@ test("Generate parameter pickers close after selection and duration uses a slide
   assert.doesNotMatch(picker, /advanced-parameter-panel-head/);
   assert.doesNotMatch(picker, /advanced-parameter-panel-close/);
   assert.doesNotMatch(picker, /advanced-parameter-option-check/);
+  assert.match(picker, /advanced-parameter-options\$\{modelList \? " is-model-list"/);
+  assert.match(picker, /advanced-parameter-model-check/);
   assert.match(createSource, /dataset\.advancedParameterPlacement = openUp \? "up" : "down"/);
 
   const setter = createSource.slice(

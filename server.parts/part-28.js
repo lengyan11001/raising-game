@@ -187,6 +187,7 @@ async function runQwen37FlashGenerationJob(job = {}, submission = null) {
     model = QWEN37_FLASH_MODEL,
   } = job;
   if (!taskId || !userId) return;
+  const providerLabel = publicProviderLabel(provider);
   let upstreamPayload = null;
   try {
     await upsertGenerationRecord({ taskId, status: "running", awaitingUpstreamTask: true, error: "" });
@@ -219,7 +220,6 @@ async function runQwen37FlashGenerationJob(job = {}, submission = null) {
       : provider === "byteplus-language"
       ? await byteplusLanguageRequest(upstreamPayload)
       : await aliyunQwen37FlashRequest(upstreamPayload);
-    const providerLabel = publicProviderLabel(provider);
     const textResult = qwen37FlashResponseText(raw);
     if (!textResult) {
       const error = new Error(`${providerLabel} returned no text.`);

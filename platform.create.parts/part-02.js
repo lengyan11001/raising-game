@@ -1288,10 +1288,13 @@ function renderAdvancedParameterPanel(kind = "") {
       </div>
     `;
   } else {
-    body = `<div class="advanced-parameter-options">
+    const modelList = kind === "model";
+    body = `<div class="advanced-parameter-options${modelList ? " is-model-list" : ""}">
       ${options.map((item) => `
         <button class="advanced-parameter-option ${item.value === current ? "is-selected" : ""}" type="button" data-advanced-parameter-option-kind="${escapeHtml(kind)}" data-advanced-parameter-option-value="${escapeHtml(item.value)}">
+          ${modelList ? `<span class="advanced-parameter-option-icon" aria-hidden="true"><i data-lucide="sparkles"></i></span>` : ""}
           <strong>${escapeHtml(item.value === "adaptive" ? "Adaptive" : item.label)}</strong>
+          ${modelList && item.value === current ? `<i class="advanced-parameter-model-check" data-lucide="check" aria-hidden="true"></i>` : ""}
         </button>
       `).join("")}
     </div>`;
