@@ -2,6 +2,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -170,6 +171,81 @@ class DeployOldRollingTests(unittest.TestCase):
         args = ROLLING.parse_args(["--commit", "a" * 40, "--candidate-only"])
         self.assertTrue(args.candidate_only)
         self.assertFalse(args.apply)
+
+    def test_candidate_only_apply_restarts_candidate_and_keeps_primary_identity(self) -> None:
+        args = ROLLING.parse_args([
+            "--commit", "a" * 40,
+            "--candidate-only",
+            "--apply",
+            "--primary-service", "primary.service",
+            "--candidate-service", "candidate.service",
+        ])
+        rolling = mock.Mock()
+        rolling.require_active.side_effect = lambda service, *_args: "222" if service == "candidate.service" else "111"
+        rolling.systemctl_show.side_effect = lambda service, *_args: {
+            "ActiveState": "active",
+            "SubState": "running",
+            "MainPID": "222" if service == "candidate.service" else "111",
+            "NRestarts": "0",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "candidate-dropin.conf"
+            destination.write_text("previous\n", encoding="utf-8")
+            with mock.patch.object(ROLLING, "run") as run_mock:
+                pid = ROLLING.activate_inactive_candidate(
+                    args,
+                    rolling,
+                    candidate_service="candidate.service",
+                    candidate_port="4175",
+                    release=root / "release",
+                    node_path=root / "node_modules",
+                    destination=destination,
+                    previous_dropin=b"previous\n",
+                )
+            self.assertEqual(pid, 222)
+            run_mock.assert_any_call(["systemctl", "daemon-reload"], timeout=60)
+            run_mock.assert_any_call(["systemctl", "restart", "candidate.service"], timeout=120)
+            self.assertNotIn("previous", destination.read_text(encoding="utf-8"))
+            rolling.wait_loaded_candidate.assert_called_once()
+            self.assertEqual(rolling.wait_http_200.call_count, 9)
+            public_urls = [call.args[0] for call in rolling.wait_http_200.call_args_list[-3:]]
+            self.assertEqual(public_urls, list(ROLLING.DEFAULT_HEALTH_URLS))
+
+    def test_candidate_only_failure_restores_old_candidate_without_touching_primary(self) -> None:
+        args = ROLLING.parse_args([
+            "--commit", "a" * 40,
+            "--candidate-only",
+            "--apply",
+            "--primary-service", "primary.service",
+            "--candidate-service", "candidate.service",
+        ])
+        rolling = mock.Mock()
+        rolling.require_active.return_value = "111"
+        rolling.wait_loaded_candidate.side_effect = ROLLING.DeployError("candidate failed")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "candidate-dropin.conf"
+            destination.write_text("previous\n", encoding="utf-8")
+            with mock.patch.object(ROLLING, "run") as run_mock:
+                with self.assertRaisesRegex(ROLLING.DeployError, "candidate failed"):
+                    ROLLING.activate_inactive_candidate(
+                        args,
+                        rolling,
+                        candidate_service="candidate.service",
+                        candidate_port="4175",
+                        release=root / "release",
+                        node_path=root / "node_modules",
+                        destination=destination,
+                        previous_dropin=b"previous\n",
+                    )
+            self.assertEqual(destination.read_text(encoding="utf-8"), "previous\n")
+            restart_calls = [call for call in run_mock.call_args_list if call.args[0][:2] == ["systemctl", "restart"]]
+            self.assertEqual(restart_calls, [
+                mock.call(["systemctl", "restart", "candidate.service"], timeout=120),
+                mock.call(["systemctl", "restart", "candidate.service"], timeout=120),
+            ])
+            self.assertFalse(any("primary.service" in call.args[0] for call in restart_calls))
 
     def test_canary_percentages_are_fixed_for_production(self) -> None:
         base = [

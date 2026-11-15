@@ -353,12 +353,30 @@ def main() -> None:
         action="store_true",
         help="Require the dual-unit transaction runner. Old uses it by default unless --no-restart is set.",
     )
+    parser.add_argument(
+        "--candidate-only",
+        action="store_true",
+        help="Prepare and validate only the inactive Old candidate; public traffic and the active service stay unchanged.",
+    )
+    parser.add_argument(
+        "--apply-candidate",
+        action="store_true",
+        help="Allow --candidate-only to restart the inactive candidate service. Without this flag the remote check is a dry-run.",
+    )
     args = parser.parse_args()
     if args.rolling and args.no_restart:
         parser.error("--rolling cannot be combined with --no-restart")
+    if args.candidate_only and args.site != "old":
+        parser.error("--candidate-only is supported only for the Old production target")
+    if args.candidate_only and args.no_restart:
+        parser.error("--candidate-only cannot be combined with --no-restart")
+    if args.apply_candidate and not args.candidate_only:
+        parser.error("--apply-candidate requires --candidate-only")
+    if args.candidate_only and not TARGETS[args.site].get("rolling"):
+        parser.error("--candidate-only requires a rolling deployment target")
 
     target = TARGETS[args.site]
-    use_rolling = bool(target.get("rolling")) and not args.no_restart
+    use_rolling = (bool(target.get("rolling")) or args.candidate_only) and not args.no_restart
     if args.rolling and not use_rolling:
         parser.error("--rolling is supported only for the Old production target")
     port = args.port or int(os.environ.get("DEPLOY_PORT") or target["port"])
@@ -373,7 +391,13 @@ def main() -> None:
     if target.get("runtime_root"):
         print(f"[deploy-site] runtime_root={target['runtime_root']}")
     print(f"[deploy-site] service={target['service']}")
-    print(f"[deploy-site] restart={'no' if args.no_restart or target.get('requires_restart') is False else 'yes'}")
+    if args.candidate_only:
+        restart_label = "inactive-candidate" if args.apply_candidate else "dry-run"
+    else:
+        restart_label = "no" if args.no_restart or target.get("requires_restart") is False else "yes"
+    print(f"[deploy-site] restart={restart_label}")
+    if args.candidate_only:
+        print(f"[deploy-site] candidate_only=yes apply_candidate={'yes' if args.apply_candidate else 'no'}")
     print(f"[deploy-site] health_url={target['health_url']}")
     for verify_url in target.get("verify_urls", ()):
         print(f"[deploy-site] verify_url={verify_url}")
@@ -490,6 +514,10 @@ def main() -> None:
             "--rolling-primary-port", target["rolling_primary_port"],
             "--rolling-candidate-port", target["rolling_candidate_port"],
         ])
+        if args.candidate_only:
+            command.append("--rolling-candidate-only")
+            if args.apply_candidate:
+                command.append("--rolling-candidate-apply")
     elif target.get("requires_restart") is False:
         # Live reuses the shared process, so it must not restart it, but its
         # static materialization hook still has to run during a release.
@@ -514,7 +542,7 @@ def main() -> None:
         command.extend(["--verify-status", verify_status])
     if target.get("verify_private_media"):
         command.append("--verify-private-media")
-    if use_rolling:
+    if use_rolling and not args.candidate_only:
         for rolling_command in target.get("rolling_migrate_commands", ()):
             command.extend(["--rolling-migrate-command", rolling_command])
         for rolling_command in target.get("rolling_post_cutover_commands", ()):

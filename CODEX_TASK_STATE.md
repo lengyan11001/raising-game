@@ -1,3 +1,13 @@
+## 2026-11-15 Step BQ: candidate-only deployment entrypoint and isolation gates completed
+
+- Wired the formal `scripts/deploy_local.sh --site old` path through `deploy_site.py` and `deploy_pull.py` to `deploy_old_rolling.py --candidate-only`. `--candidate-only` is a remote validation dry-run; only the additional `--apply-candidate` switch permits restarting inactive 4175.
+- Candidate mode removes migration, post-cutover, private-media, and public URL mutation hooks from the server command. It still validates the immutable source/release, Nginx coverage, runtime media, candidate package manifests, and exact commit before any candidate mutation.
+- Candidate apply now restarts only `raising-game-demo-b.service`, then verifies candidate PID, loaded release identity, workers-disabled state, loopback livez/health/readyz, homepage, public config, platform templates, unchanged primary 4174 MainPID, and all three public health URLs. Any failure restores the previous 4175 drop-in and restarts the old candidate; primary service and Nginx are never restarted or reloaded.
+- `deploy_pull.py` defaults now include `live.123vipeak.com`, `raising_game_app_live`, and Live health, matching the authoritative traffic gate.
+- Verified the release preparation script only unpacks Git code plus release/runtime markers; it does not copy the 7.58 GB shared media tree.
+- Verification: focused Node deploy/readiness/resilience 114/114; Python rolling/deploy 33/33; `npm run check:undef` passed; full `npm test` passed 1357/1358 with 0 failures and 1 skip; `py_compile` and `git diff --check` passed.
+- Status: source changes are not yet committed, release snapshot not rebuilt, and no production mutation has occurred. 4174 and Nginx remain untouched.
+
 ## 2026-11-15 Step BP: inactive candidate-only staging gate added
 
 - Added `scripts/deploy_old_rolling.py --candidate-only`, which is dry-run unless `--apply` is explicit. It refuses to run when 4175 is already serving production traffic.

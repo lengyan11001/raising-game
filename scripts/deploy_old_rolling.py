@@ -323,6 +323,76 @@ def verify_inactive_candidate(
     return candidate_pid
 
 
+def verify_primary_service_unchanged(rolling, *, service: str, expected_pid: int) -> None:
+    state = rolling.systemctl_show(
+        service,
+        "ActiveState,SubState,MainPID,NRestarts",
+        "systemctl",
+    )
+    if state.get("ActiveState") != "active" or state.get("SubState") != "running":
+        raise DeployError(f"primary service is not active after candidate verification: {state}")
+    if state.get("MainPID") != str(expected_pid):
+        raise DeployError(
+            "primary service PID changed during candidate-only verification: "
+            f"expected={expected_pid} observed={state.get('MainPID')}"
+        )
+    log(
+        f"OLD_PRIMARY_UNCHANGED service={service} pid={expected_pid} "
+        f"restarts={state.get('NRestarts', '0')}"
+    )
+
+
+def verify_public_health_unchanged(args: argparse.Namespace, rolling) -> None:
+    for url in args.health_url:
+        rolling.wait_http_200(url, 30, 2.0, "curl")
+    log(f"OLD_PUBLIC_HEALTH_UNCHANGED urls={len(args.health_url)}")
+
+
+def activate_inactive_candidate(
+    args: argparse.Namespace,
+    rolling,
+    *,
+    candidate_service: str,
+    candidate_port: str,
+    release: Path,
+    node_path: Path,
+    destination: Path,
+    previous_dropin: bytes | None,
+) -> int:
+    """Restart only the inactive candidate and restore it on any failed gate."""
+    primary_pid = int(rolling.require_active(args.primary_service, "systemctl"))
+    atomic_write(destination, render_dropin(release, node_path))
+    try:
+        run(["systemctl", "daemon-reload"], timeout=60)
+        run(["systemctl", "restart", candidate_service], timeout=120)
+        candidate_pid = verify_inactive_candidate(
+            args,
+            rolling,
+            candidate_service=candidate_service,
+            candidate_port=candidate_port,
+            release=release,
+        )
+        verify_primary_service_unchanged(
+            rolling,
+            service=args.primary_service,
+            expected_pid=primary_pid,
+        )
+        verify_public_health_unchanged(args, rolling)
+    except Exception:
+        if previous_dropin is None:
+            destination.unlink(missing_ok=True)
+        else:
+            atomic_write(destination, previous_dropin.decode("utf-8"))
+        try:
+            run(["systemctl", "daemon-reload"], timeout=60)
+            run(["systemctl", "restart", candidate_service], timeout=120)
+            log("OLD_CANDIDATE_ROLLBACK_OK")
+        except Exception as rollback_error:
+            log(f"OLD_CANDIDATE_ROLLBACK_FAILED {rollback_error}")
+        raise
+    return candidate_pid
+
+
 def atomic_write(path: Path, content: str, mode: int = 0o644) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     previous = path.read_bytes() if path.is_file() else None
@@ -503,28 +573,16 @@ def deploy(args: argparse.Namespace) -> int:
         if not args.apply:
             log("OLD_CANDIDATE_ONLY_PLAN_OK")
             return 0
-        atomic_write(destination, render_dropin(release, node_path))
-        try:
-            run(["systemctl", "daemon-reload"], timeout=60)
-            verify_inactive_candidate(
-                args,
-                rolling,
-                candidate_service=target_service,
-                candidate_port=target_port,
-                release=release,
-            )
-        except Exception:
-            if previous_dropin is None:
-                destination.unlink(missing_ok=True)
-            else:
-                atomic_write(destination, previous_dropin.decode("utf-8"))
-            try:
-                run(["systemctl", "daemon-reload"], timeout=60)
-                run(["systemctl", "restart", args.candidate_service], timeout=120)
-                log("OLD_CANDIDATE_ROLLBACK_OK")
-            except Exception as rollback_error:
-                log(f"OLD_CANDIDATE_ROLLBACK_FAILED {rollback_error}")
-            raise
+        activate_inactive_candidate(
+            args,
+            rolling,
+            candidate_service=target_service,
+            candidate_port=target_port,
+            release=release,
+            node_path=node_path,
+            destination=destination,
+            previous_dropin=previous_dropin,
+        )
         log("OLD_CANDIDATE_ONLY_OK")
         return 0
 
