@@ -51,7 +51,7 @@ function selectedSeedanceVideoAsset() {
 }
 
 function currentSeedanceVideoInputSeconds(duration = 5, provider = currentAdvancedProvider()) {
-  if (!["seedance", "seedance25", "seedance-nsfw"].includes(normalizeAdvancedProvider(provider))) return 0;
+  if (!["seedance", "seedance25", "seedance25-flash", "seedance-nsfw"].includes(normalizeAdvancedProvider(provider))) return 0;
   const videoUrlCount = splitUrlList(els.advancedSeedanceVideoUrls?.value || "").length;
   const hasVideoUrl = videoUrlCount > 0;
   const videoRefs = typeof advancedSeedanceVideoReferences === "function" ? advancedSeedanceVideoReferences() : [];
@@ -65,7 +65,7 @@ function currentSeedanceVideoInputSeconds(duration = 5, provider = currentAdvanc
 }
 
 function currentSeedanceEstimateReferenceVideoUrls(provider = currentAdvancedProvider()) {
-  if (!["seedance", "seedance25", "seedance-nsfw", "h3-vega", "vega10-lite", "seedance20-vega"].includes(normalizeAdvancedProvider(provider))) return [];
+  if (!["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "h3-vega", "vega10-lite", "seedance20-vega"].includes(normalizeAdvancedProvider(provider))) return [];
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
   if (seedanceModeNeedsFirstFrame(seedanceMode)) return [];
   const videoRefs = typeof advancedSeedanceVideoReferences === "function" ? advancedSeedanceVideoReferences() : [];
@@ -333,6 +333,42 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       userPricingMultiplier: multiplier,
     };
   }
+  if (normalizedProvider === "seedance25-flash") {
+    const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
+    const mode = normalizeSeedanceMediaMode(options.mode || els.advancedSeedanceMediaMode?.value || "omini");
+    const inputVideoSeconds = positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0);
+    const hasVideoInput = inputVideoSeconds > 0;
+    const byResolution = hasVideoInput
+      ? configPricing.seedanceFlashVideoCreditsPerSecondByResolution || {}
+      : configPricing.seedanceFlashCreditsPerSecondByResolution || {};
+    const fallbackPerSecond = hasVideoInput
+      ? normalizedResolution === "720p" ? ADVANCED_SEEDANCE25_FLASH_VIDEO_720P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE25_FLASH_VIDEO_480P_CREDITS_PER_SECOND
+      : normalizedResolution === "720p" ? ADVANCED_SEEDANCE25_FLASH_720P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE25_FLASH_480P_CREDITS_PER_SECOND;
+    const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
+    const outputCredits = creditsAmount(seconds * perSecond);
+    const inputVideoCredits = hasVideoInput ? creditsAmount(inputVideoSeconds * perSecond) : 0;
+    const originalCredits = creditsAmount(outputCredits + inputVideoCredits);
+    return {
+      provider: "seedance25-flash",
+      mode,
+      duration: seconds,
+      requestedDuration: seconds,
+      inputVideoSeconds,
+      hasVideoInput,
+      resolution: normalizedResolution,
+      ratio: mode === "first_last_frame" ? "adaptive" : normalizeVideoRatio(ratio || "16:9"),
+      creditsPerSecond: perSecond,
+      outputCredits,
+      inputVideoCreditsPerSecond: hasVideoInput ? perSecond : 0,
+      inputVideoCredits,
+      baseCredits: originalCredits,
+      originalCredits,
+      credits: creditsAmount(originalCredits * multiplier),
+      markup: 1,
+      userPricingMultiplier: multiplier,
+      source: "seedance25_flash_token_estimate",
+    };
+  }
   if (normalizedProvider === "seedance-nsfw") {
     const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
     const mode = normalizeSeedanceMediaMode(options.mode || els.advancedSeedanceMediaMode?.value || "omini");
@@ -499,7 +535,7 @@ function currentAdvancedResolution() {
   const provider = currentAdvancedProvider();
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "qwen-image-edit-spicy") return "";
-  const fallback = ["seedream55-image", "seedream5-image", "qwen-image3"].includes(normalizedProvider) ? "2K" : ["seedance", "seedance25", "seedance-nsfw"].includes(normalizedProvider) ? "480p" : "720p";
+  const fallback = ["seedream55-image", "seedream5-image", "qwen-image3"].includes(normalizedProvider) ? "2K" : ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw"].includes(normalizedProvider) ? "480p" : "720p";
   return normalizeAdvancedResolution(els.advancedResolution?.value || fallback, provider);
 }
 
@@ -517,7 +553,7 @@ function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
   if (isVegaProviderId(normalizeAdvancedProvider(provider))) return [...(vegaCapabilities(normalizeAdvancedProvider(provider))?.resolutions || VEGA_ALL_RESOLUTIONS)];
   if (normalizeAdvancedProvider(provider) === "qwen-image3") return ["1K", "2K"];
   if (["seedream55-image", "seedream5-image"].includes(normalizeAdvancedProvider(provider))) return ["1K", "2K"];
-  if (normalizeAdvancedProvider(provider) === "seedance25") return ["480p", "720p"];
+  if (["seedance25", "seedance25-flash"].includes(normalizeAdvancedProvider(provider))) return ["480p", "720p"];
   if (normalizeAdvancedProvider(provider) === "seedance-nsfw") return ["480p", "720p", "1080p"];
   if (normalizeAdvancedProvider(provider) === "wan30") {
     const capability = currentAdvancedVideoCapability(provider);
@@ -531,7 +567,8 @@ function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
 
 function advancedVideoDurationOptions(provider = currentAdvancedProvider()) {
   const bounds = advancedDurationBounds(provider);
-  const max = normalizeAdvancedProvider(provider) === "seedance25" && currentAdvancedResolution() === "720p" ? 29 : bounds.max;
+  const seedance25Family = ["seedance25", "seedance25-flash"].includes(normalizeAdvancedProvider(provider));
+  const max = seedance25Family && normalizeAdvancedProvider(provider) === "seedance25" && currentAdvancedResolution() === "720p" ? 29 : bounds.max;
   const base = [bounds.min, 5, 8, 10, max]
     .filter((value, index, list) => Number.isFinite(value) && value >= bounds.min && value <= max && list.indexOf(value) === index);
   const current = Number(els.advancedDuration?.value || bounds.min);

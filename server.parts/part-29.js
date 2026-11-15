@@ -234,13 +234,13 @@ async function handleAdvancedGenerate(req, res) {
       statusCode: 503,
     });
   }
-  if (provider === SEEDANCE25_DIRECT_PROVIDER && !ARK_API_KEY) {
+  if ([SEEDANCE25_DIRECT_PROVIDER, SEEDANCE25_FLASH_PROVIDER].includes(provider) && !ARK_API_KEY) {
     return sendAdvancedRequestFailure(req, res, auth, {
       body: mergedBodyBase,
       provider,
       runtime: { model: String(requestedModel || ""), providerName: provider, recordSource: "advanced-validation" },
       requestParams: { provider, model: String(requestedModel || "") },
-      error: advancedValidationError("MISSING_ARK_API_KEY", `${SEEDANCE25_DIRECT_LABEL} generation is not configured.`),
+      error: advancedValidationError("MISSING_ARK_API_KEY", `${publicProviderLabel(provider)} generation is not configured.`),
       statusCode: 503,
     });
   }
@@ -273,7 +273,7 @@ async function handleAdvancedGenerate(req, res) {
     }
   }
   if (isVideoReplacementRequest && provider !== "z-image-spicy-pro") prompt = VIDEO_REPLACE_PROMPT;
-  if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) {
+  if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER, SEEDANCE25_FLASH_PROVIDER].includes(provider)) {
     return sendAdvancedRequestFailure(req, res, auth, {
       body: mergedBody,
       provider,
@@ -339,7 +339,7 @@ async function handleAdvancedGenerate(req, res) {
       provider,
     });
   }
-  if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) {
+  if (["seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER].includes(provider)) {
     return await handleAdvancedSeedance25Generate(req, res, {
       auth,
       body,
@@ -1819,7 +1819,7 @@ function advancedRegenerateBody(record = {}) {
       if (referenceAudioUrls.length) body.referenceAudioUrls = referenceAudioUrls;
       body.generateAudio = boolFromRequest(firstPresent(params.generateAudio, params.generate_audio), true);
     }
-  } else if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) {
+  } else if (["seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER].includes(provider)) {
     // Seedance 2.5 accepts up to 30 images (and 10 videos / 10 audios). Keep
     // the original ordered media list when rebuilding a task instead of
     // applying the legacy Seedance nine-image limit.
@@ -1961,7 +1961,7 @@ async function handleRegenerateGenerationRecord(req, res, taskId) {
     return handleWan27ImageEdit(withJsonBody(req, imageEditRegenerateBody(record)), res);
   }
   const provider = normalizeAdvancedProvider(record.provider || params.provider || "");
-  if (source.includes("advanced") || ["seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+  if (source.includes("advanced") || ["seedance", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
     return handleAdvancedGenerate(withJsonBody(req, advancedRegenerateBody(record)), res);
   }
   return sendJson(res, 400, { ok: false, message: "This record cannot be regenerated yet." });

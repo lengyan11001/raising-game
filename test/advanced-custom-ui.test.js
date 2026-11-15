@@ -179,6 +179,7 @@ test("Advanced engine list contains English model families, not task modes", () 
   assert.match(engine, /value="wan30"(?: selected)?>W3\.0<\/option>/);
   assert.match(engine, /value="wan30-prime">W3\.0-Prime<\/option>/);
   assert.match(engine, /^\s*<optgroup label="Video">\s*<option value="seedance-nsfw" selected>Seedance 2\.5<\/option>/);
+  assert.match(engine, /value="seedance25-flash">Seedance 2\.5 Flash<\/option>/);
   assert.match(engine, /value="wan27">Wan 2\.7/);
   assert.doesNotMatch(engine, /value="wan-legacy"/);
   assert.doesNotMatch(engine, /value="wan-animate">Wan Animate/);
@@ -221,8 +222,8 @@ return { advancedEngineValue };`;
 });
 
 test("stale Seedance submissions include the direct NSFW provider", () => {
-  assert.match(server, /\["seedance", "seedance-nsfw", "seedance25", "aliyun-wan30"/);
-  assert.match(server, /\["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_DIRECT_PROVIDER/);
+  assert.match(server, /\["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30"/);
+  assert.match(server, /\["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30"/);
 });
 
 test("Playflux image templates resolve prompts on the server", () => {
@@ -366,7 +367,7 @@ test("Wan3.0 Prime shares controls and uses its configured rate table", () => {
 test("only explicit frame modes use dedicated upload controls", () => {
   assert.match(html, /id="advancedWanFirstFrame" type="file" accept="image\/\*"/);
   assert.match(main, /advancedWanFirstFrame\?\.addEventListener\("change"/);
-  assert.match(create, /const usesDedicatedFrameUpload = vegaProvider\s*\? vegaUsesFirstFrame \|\| vegaUsesLastFrame\s*: \["seedance", "seedance25", "seedance-nsfw", "wan30"\]\.includes\(provider\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.match(create, /const usesDedicatedFrameUpload = vegaProvider\s*\? vegaUsesFirstFrame \|\| vegaUsesLastFrame\s*: \["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"\]\.includes\(provider\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
   assert.doesNotMatch(create, /usesDedicatedAliyunUpload/);
 });
 
@@ -392,13 +393,13 @@ test("Wan3.0 exposes free multimodal and frame controls without link fields", ()
   assert.match(ui, /function advancedVideoResolutionOptions\(provider = currentAdvancedProvider\(\)\)/);
   assert.match(ui, /capability === "wan30-video-pro" \|\| capability === "wan30-video-prime-pro"\) return \["1080p", "2k", "4k"\]/);
   assert.match(create, /resolution: currentAdvancedResolution\(\)/);
-  assert.match(create, /provider === "seedance25"\s*\? \["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
-  assert.match(create, /const fallbackRatio = vegaProvider \|\| provider === "seedance25" \? "16:9"/);
+  assert.match(create, /\["seedance25", "seedance25-flash"\]\.includes\(provider\)\s*\? \["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
+  assert.match(create, /const fallbackRatio = vegaProvider \|\| \["seedance25", "seedance25-flash"\]\.includes\(provider\) \? "16:9"/);
   assert.match(create, /\(\["wan30", "seedance-nsfw"\]\.includes\(provider\) \|\| vegaProvider\)\s*&& rawRatio\.toLowerCase\(\) === "adaptive"\s*\? "adaptive"/);
   assert.match(create, /provider === "seedance25" && normalizeAdvancedResolution[\s\S]*?=== "720p"\s*\? 29/);
   assert.match(create, /smartDuration\s*\? \[-1, \.\.\.Array\.from\(\{ length: durationMax - bounds\.min \+ 1 \}/);
   assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
-  assert.match(main, /\["seedance", "seedance25", "seedance-nsfw", "wan30"\]\.includes\(provider\)/);
+  assert.match(main, /\["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"\]\.includes\(provider\)/);
   assert.match(main, /uploadAdvancedDocumentReference\(file\)/);
   assert.match(main, /Wan 3\.0 documents cannot be combined with other media inputs/);
   assert.match(config, /const ADVANCED_WAN30_DOCUMENT_MAX_BYTES = 100 \* 1024 \* 1024/);

@@ -988,6 +988,7 @@ function isImageGenerationRecord(record = {}) {
     source.includes("video") ||
     provider === "seedance" ||
     provider === "seedance25" ||
+    provider === SEEDANCE25_FLASH_PROVIDER ||
     provider === SEEDANCE25_DIRECT_PROVIDER ||
     provider === "wan27" ||
     provider === "aliyun-wan30" ||
@@ -1032,7 +1033,7 @@ function generationRecordIsVideoOutput(record = {}) {
     || record.cdnVideoUrl
     || record.videoUrl
     || kind.includes("video")
-    || ["apiz", "seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex", "seedance25-vega", "h3-vega"].includes(provider),
+    || ["apiz", "seedance", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex", "seedance25-vega", "h3-vega"].includes(provider),
   );
 }
 

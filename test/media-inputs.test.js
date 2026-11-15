@@ -248,8 +248,8 @@ test("BytePlus CreateAsset retries transient media download timeouts", () => {
 });
 
 test("Seedance 2.5 and Seedream use the gateway without copying new2 media into the old bucket", () => {
-  assert.match(server, /if \(!direct && !USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY\)/);
-  assert.match(server, /if \(direct && !ARK_API_KEY\)/);
+  assert.match(server, /if \(!direct && !flash && !USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY\)/);
+  assert.match(server, /if \(\(direct \|\| flash\) && !ARK_API_KEY\)/);
   assert.match(server, /record\.provider === "seedance25" && record\.upstreamSource !== "gateway"/);
   assert.match(server, /provider: "seedance25",[\s\S]*?referenceImages: upstreamInput\.imageFiles\.map/);
   assert.match(server, /if \(!USE_GATEWAY_UPSTREAM && !ARK_API_KEY\)/);
@@ -261,7 +261,7 @@ test("Seedance 2.5 and Seedream use the gateway without copying new2 media into 
 });
 
 test("Seedance 2.5 regeneration preserves all saved multimodal references", () => {
-  assert.match(server, /\} else if \(\["seedance25", SEEDANCE25_DIRECT_PROVIDER\]\.includes\(provider\)\) \{[\s\S]*?const savedImageIds = [\s\S]*?const referenceImages = fallbackItems\(savedImageIds, "reference_image"/);
+  assert.match(server, /\} else if \(\["seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER\]\.includes\(provider\)\) \{[\s\S]*?const savedImageIds = [\s\S]*?const referenceImages = fallbackItems\(savedImageIds, "reference_image"/);
   assert.match(server, /const referenceVideos = fallbackItems\(params\.referenceVideoAssetIds, "reference_video"/);
   assert.match(server, /const referenceAudios = fallbackItems\(params\.referenceAudioAssetIds, "reference_audio"/);
   assert.match(server, /if \(referenceImages\.length\) body\.referenceImages = referenceImages/);

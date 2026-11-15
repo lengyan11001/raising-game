@@ -471,6 +471,14 @@ function advancedRuntimeForProvider(provider, requestParams = {}) {
       quality: String(requestParams.resolution || "480p").toLowerCase(),
     };
   }
+  if (normalizeAdvancedProvider(provider) === SEEDANCE25_FLASH_PROVIDER) {
+    return {
+      providerName: SEEDANCE25_FLASH_PROVIDER,
+      recordSource: "advanced-seedance25-flash",
+      model: SEEDANCE25_FLASH_LABEL,
+      quality: String(requestParams.resolution || "480p").toLowerCase(),
+    };
+  }
   if (isAliyunVideoProvider(provider)) {
     const normalizedProvider = normalizeAdvancedProvider(provider);
     const capability = requestParams.videoCapability || aliyunVideoCapabilityForRequest(normalizedProvider, requestParams, []);

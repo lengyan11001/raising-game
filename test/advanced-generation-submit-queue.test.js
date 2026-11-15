@@ -141,6 +141,6 @@ test("Seedance 2.5 queue uses the same pre-dispatch refund and unknown outcome r
     "const recordInput = {",
     "const queueJobInput = {",
   );
-  assert.match(entry, /advancedGenerationSubmitQueueEnabled\(\) \|\| direct \? "pre_deducted" : "settled"/);
-  assert.match(entry, /billingSettledAt: cost > 0 && !advancedGenerationSubmitQueueEnabled\(\) && !direct/);
+  assert.match(entry, /advancedGenerationSubmitQueueEnabled\(\) \|\| direct \|\| flash \? "pre_deducted" : "settled"/);
+  assert.match(entry, /billingSettledAt: cost > 0 && !advancedGenerationSubmitQueueEnabled\(\) && !direct && !flash/);
 });

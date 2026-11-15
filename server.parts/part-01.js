@@ -54,6 +54,19 @@ const {
   normalizeSeedance25DirectMode,
 } = require("./seedance25-direct");
 const {
+  SEEDANCE25_FLASH_ENDPOINT_ID,
+  SEEDANCE25_FLASH_LABEL,
+  SEEDANCE25_FLASH_MODEL,
+  SEEDANCE25_FLASH_PROVIDER,
+  SEEDANCE25_FLASH_RATIOS,
+  SEEDANCE25_FLASH_RESOLUTIONS,
+  SEEDANCE25_FLASH_USD_PER_MILLION_TOKENS,
+  buildSeedance25FlashTaskPayload,
+  flashEstimatedCompletionTokens,
+  flashPurchaseUsdPerSecond,
+  normalizeSeedance25FlashMode,
+} = require("./seedance25-flash");
+const {
   QWEN_IMAGE3_MODELS,
   QWEN_IMAGE3_OFFICIAL_USD,
   QWEN_IMAGE3_OUTPUT_MAX,
@@ -971,6 +984,7 @@ const SEEDANCE25_API_BASE_URL = (process.env.SEEDANCE25_API_BASE_URL || "https:/
 const SEEDANCE25_API_KEY = String(process.env.SEEDANCE25_API_KEY || "").trim();
 const SEEDANCE25_MODEL_ID = SEEDANCE25_MODEL;
 const SEEDANCE25_DIRECT_ENDPOINT = String(process.env.SEEDANCE25_DIRECT_ENDPOINT_ID || SEEDANCE25_DIRECT_ENDPOINT_ID).trim();
+const SEEDANCE25_FLASH_ENDPOINT = String(process.env.SEEDANCE25_FLASH_ENDPOINT_ID || SEEDANCE25_FLASH_ENDPOINT_ID).trim();
 const APIZ_SEEDANCE_API_BASE_URL = "";
 const APIZ_SEEDANCE_API_KEY = "";
 const APIZ_SEEDANCE_MODEL_ID = "";
@@ -1340,6 +1354,16 @@ function seedance25SaleSiteCreditsPerSecond(resolution = "480p") {
   );
 }
 
+const SEEDANCE25_FLASH_DEFAULT_SALE_MARKUP = 1.5;
+function seedance25FlashSaleCreditsPerSecond(resolution = "480p", options = {}) {
+  return pricingNumber(
+    flashPurchaseUsdPerSecond(resolution, options) * DEFAULT_CREDITS_PER_USD * SEEDANCE25_FLASH_DEFAULT_SALE_MARKUP,
+    0,
+    0,
+    6,
+  );
+}
+
 const DEFAULT_ADVANCED_PRICING = {
   unit: "credits",
   creditsPerCny: ADVANCED_CREDITS_PER_CNY,
@@ -1474,6 +1498,14 @@ const DEFAULT_ADVANCED_PRICING = {
     "480p": defaultSeedance25DirectSaleCreditsPerSecond("480p", { hasVideoInput: true }),
     "720p": defaultSeedance25DirectSaleCreditsPerSecond("720p", { hasVideoInput: true }),
     "1080p": defaultSeedance25DirectSaleCreditsPerSecond("1080p", { hasVideoInput: true }),
+  },
+  seedanceFlashCreditsPerSecondByResolution: {
+    "480p": seedance25FlashSaleCreditsPerSecond("480p"),
+    "720p": seedance25FlashSaleCreditsPerSecond("720p"),
+  },
+  seedanceFlashVideoCreditsPerSecondByResolution: {
+    "480p": seedance25FlashSaleCreditsPerSecond("480p", { hasVideoInput: true }),
+    "720p": seedance25FlashSaleCreditsPerSecond("720p", { hasVideoInput: true }),
   },
   seedanceCreditsPerSecondByResolution: {
     "480p": Math.ceil(ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND * 0.5),

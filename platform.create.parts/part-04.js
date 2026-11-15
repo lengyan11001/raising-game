@@ -717,6 +717,7 @@ function restoreRecordImageLimit(record = {}) {
   if (provider === "seedream55-image") return ADVANCED_SEEDREAM55_REFERENCE_LIMIT;
   if (provider === "wan30") return ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;
   if (provider === "seedance25-vega") return vegaReferenceLimits(provider).images;
+  if (provider === "seedance25-flash") return ADVANCED_SEEDANCE25_FLASH_IMAGE_REFERENCE_LIMIT;
   if (["seedance25", "seedance-nsfw"].includes(provider)) return ADVANCED_SEEDANCE25_IMAGE_REFERENCE_LIMIT;
   if (["wan27", "happyhorse"].includes(provider)) return advancedAliyunReferenceImageLimit(capability);
   if (provider === "wan27-image-edit" || provider === "qwen-image-edit-spicy") return 1;
@@ -1551,7 +1552,7 @@ function applyRecordToAdvancedCreate(record = {}, button = null) {
     }
     return;
   }
-  const restoredSeedanceFirstFrame = ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && seedanceModeNeedsFirstFrame(seedanceMode) ? (references[0] || null) : null;
+  const restoredSeedanceFirstFrame = ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider) && seedanceModeNeedsFirstFrame(seedanceMode) ? (references[0] || null) : null;
   state.advancedReferenceImages = restoredSeedanceFirstFrame
     ? references.slice(1)
     : provider === "qwen-image3"
@@ -1571,7 +1572,7 @@ function applyRecordToAdvancedCreate(record = {}, button = null) {
   }
   const firstLastFrame = references.find((item) => /last|end/i.test(`${item.name || ""} ${item.fileName || ""} ${item.label || ""}`));
   const lastFrameRef = firstLastFrame || (seedanceModeNeedsLastFrame(seedanceMode) ? references[1] : null);
-  if (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && lastFrameRef) {
+  if (["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider) && lastFrameRef) {
     state.advancedSeedanceLastFrameAssetId = lastFrameRef.assetId || "";
     state.advancedSeedanceLastFrameDataUrl = lastFrameRef.dataUrl || "";
   } else if (provider === "wan27" && wanModeNeedsLastFrame(wanMode) && references[1]) {
@@ -1592,7 +1593,7 @@ function applyRecordToAdvancedCreate(record = {}, button = null) {
       durationSeconds: item.durationSeconds || item.duration || 0,
       order: advancedReferenceOrderValue(item),
     })));
-    if (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && els.advancedSeedanceVideoUrls) {
+    if (["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider) && els.advancedSeedanceVideoUrls) {
       els.advancedSeedanceVideoUrls.value = firstVideo.assetId ? "" : firstVideo.url || "";
     }
   }
@@ -2169,6 +2170,7 @@ function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   if (normalizedProvider === "seedream5-image") return images.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (normalizedProvider === "wan30") return images.slice(0, ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT);
   if (["wan27", "happyhorse"].includes(normalizedProvider)) return images.slice(0, advancedAliyunReferenceImageLimit());
+  if (normalizedProvider === "seedance25-flash") return images.slice(0, ADVANCED_SEEDANCE25_FLASH_IMAGE_REFERENCE_LIMIT);
   if (["seedance25", "seedance-nsfw"].includes(normalizedProvider)) return images.slice(0, ADVANCED_SEEDANCE25_IMAGE_REFERENCE_LIMIT);
   if (isVegaProviderId(normalizedProvider)) return images.slice(0, vegaReferenceLimits(normalizedProvider).images);
   if (normalizedProvider !== "seedance") return images.slice(0, 1);

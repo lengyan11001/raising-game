@@ -1111,6 +1111,12 @@ function normalizeAdvancedPricing(pricing = {}) {
   const seedanceNsfwVideo = source.seedanceNsfwVideoCreditsPerSecondByResolution && typeof source.seedanceNsfwVideoCreditsPerSecondByResolution === "object"
     ? source.seedanceNsfwVideoCreditsPerSecondByResolution
     : {};
+  const seedanceFlash = source.seedanceFlashCreditsPerSecondByResolution && typeof source.seedanceFlashCreditsPerSecondByResolution === "object"
+    ? source.seedanceFlashCreditsPerSecondByResolution
+    : {};
+  const seedanceFlashVideo = source.seedanceFlashVideoCreditsPerSecondByResolution && typeof source.seedanceFlashVideoCreditsPerSecondByResolution === "object"
+    ? source.seedanceFlashVideoCreditsPerSecondByResolution
+    : {};
   const seedance = source.seedanceCreditsPerSecondByResolution && typeof source.seedanceCreditsPerSecondByResolution === "object"
     ? source.seedanceCreditsPerSecondByResolution
     : {};
@@ -1493,6 +1499,14 @@ function normalizeAdvancedPricing(pricing = {}) {
       "720p": normalizeStoredCredits(seedanceNsfwVideo["720p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwVideoCreditsPerSecondByResolution["720p"], 6),
       "1080p": normalizeStoredCredits(seedanceNsfwVideo["1080p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwVideoCreditsPerSecondByResolution["1080p"], 6),
     },
+    seedanceFlashCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(seedanceFlash["480p"], DEFAULT_ADVANCED_PRICING.seedanceFlashCreditsPerSecondByResolution["480p"], 6),
+      "720p": normalizeStoredCredits(seedanceFlash["720p"], DEFAULT_ADVANCED_PRICING.seedanceFlashCreditsPerSecondByResolution["720p"], 6),
+    },
+    seedanceFlashVideoCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(seedanceFlashVideo["480p"], DEFAULT_ADVANCED_PRICING.seedanceFlashVideoCreditsPerSecondByResolution["480p"], 6),
+      "720p": normalizeStoredCredits(seedanceFlashVideo["720p"], DEFAULT_ADVANCED_PRICING.seedanceFlashVideoCreditsPerSecondByResolution["720p"], 6),
+    },
     seedanceCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedance["480p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]),
       "720p": normalizeStoredCredits(seedance["720p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"]),
@@ -1691,6 +1705,8 @@ function publicAdvancedPricingView(pricing = {}) {
     vega15ProInputVideoCreditsPerSecondByResolution: { ...normalized.vega15ProInputVideoCreditsPerSecondByResolution },
     seedanceNsfwCreditsPerSecondByResolution: { ...normalized.seedanceNsfwCreditsPerSecondByResolution },
     seedanceNsfwVideoCreditsPerSecondByResolution: { ...normalized.seedanceNsfwVideoCreditsPerSecondByResolution },
+    seedanceFlashCreditsPerSecondByResolution: { ...normalized.seedanceFlashCreditsPerSecondByResolution },
+    seedanceFlashVideoCreditsPerSecondByResolution: { ...normalized.seedanceFlashVideoCreditsPerSecondByResolution },
     seedanceCreditsPerSecondByResolution: { ...normalized.seedanceCreditsPerSecondByResolution },
     seedanceVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceVideoInputCreditsPerSecondByResolution },
     seedanceFastCreditsPerSecondByResolution: { ...normalized.seedanceFastCreditsPerSecondByResolution },

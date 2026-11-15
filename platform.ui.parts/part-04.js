@@ -746,10 +746,10 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawDuration = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
-  const inputVideoSeconds = ["seedance", "seedance25", "seedance-nsfw", "wan27", "happyhorse", "h3-vega", "vega10-lite", "seedance20-vega"].includes(normalizedProvider)
+  const inputVideoSeconds = ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan27", "happyhorse", "h3-vega", "vega10-lite", "seedance20-vega"].includes(normalizedProvider)
     ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0)
     : 0;
-  const referenceVideoSignature = ["seedance", "seedance25", "seedance-nsfw", "h3-vega", "vega10-lite", "seedance20-vega"].includes(normalizedProvider)
+  const referenceVideoSignature = ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "h3-vega", "vega10-lite", "seedance20-vega"].includes(normalizedProvider)
     ? (Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : []).map((item) => String(item || "").trim()).filter(Boolean).join(",")
     : "";
   return [
@@ -876,7 +876,7 @@ function updateAdvancedButtonCost() {
     : [];
   const vegaReferenceVideoDurations = vegaVideoItems.map((item) => positiveDurationSeconds(item?.durationSeconds || item?.duration, 0));
   const options = {
-    inputVideoSeconds: ["seedance", "seedance25", "seedance-nsfw"].includes(provider)
+    inputVideoSeconds: ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider)
       ? currentSeedanceVideoInputSeconds(duration, provider)
       : ["wan27", "happyhorse"].includes(provider)
       ? currentAdvancedAliyunSourceVideoSeconds(duration)
@@ -884,7 +884,7 @@ function updateAdvancedButtonCost() {
       ? vegaReferenceVideoDurations.reduce((sum, seconds) => sum + seconds, 0)
       : 0,
     referenceVideoDurations: isVegaEstimate ? vegaReferenceVideoDurations : [],
-    referenceVideoUrls: ["seedance", "seedance25", "seedance-nsfw", "h3-vega", "vega10-lite", "seedance20-vega"].includes(provider) ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
+    referenceVideoUrls: ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "h3-vega", "vega10-lite", "seedance20-vega"].includes(provider) ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
     seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
     qwenTier: provider === "qwen-image3" ? currentQwenImage3Tier() : undefined,
     outputImageCount: provider === "qwen-image3" ? Number(els.advancedQwenOutputCount?.value || 1) : 1,
@@ -899,7 +899,7 @@ function updateAdvancedButtonCost() {
       : 0,
     videoCapability,
     model: videoCapability === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "") : undefined,
-    mode: ["seedance25", "seedance-nsfw"].includes(provider)
+    mode: ["seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider)
       ? normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "omini")
       : ["wan-animate-move", "wan-animate-mix"].includes(videoCapability)
       ? String(els.advancedWanAnimateMode?.value || "wan-std")

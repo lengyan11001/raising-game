@@ -220,11 +220,11 @@ els.advancedImage?.addEventListener("change", async () => {
     }
     return;
   }
-  if (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider)) {
+  if (["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider)) {
     const localCharacterUpload = provider === "seedance" && state.advancedLocalUploadSlot === "character" && state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference();
     const imageLimit = provider === "wan30"
       ? ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT
-      : ["seedance25", "seedance-nsfw"].includes(provider)
+      : ["seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider)
       ? ADVANCED_SEEDANCE25_IMAGE_REFERENCE_LIMIT
       : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
     const allowedTypes = new Set(advancedAssetTargetItems().map((target) => target.type));
@@ -1156,10 +1156,10 @@ els.advancedProvider?.addEventListener("change", () => {
     if (els.advancedVegaModerationMode) els.advancedVegaModerationMode.value = "Moderation_L1";
     state.advancedAssetTarget = "referenceImages";
   }
-  if (["seedance25", "seedance-nsfw"].includes(currentAdvancedProvider())) {
+  if (["seedance25", "seedance25-flash", "seedance-nsfw"].includes(currentAdvancedProvider())) {
     syncAdvancedSeedanceModeOptions(currentAdvancedProvider());
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "omini";
-    if (els.advancedRatio) els.advancedRatio.value = currentAdvancedProvider() === "seedance25" ? "16:9" : "1:1";
+    if (els.advancedRatio) els.advancedRatio.value = ["seedance25", "seedance25-flash"].includes(currentAdvancedProvider()) ? "16:9" : "1:1";
     if (els.advancedResolution) els.advancedResolution.value = "480p";
     if (els.advancedDuration) els.advancedDuration.value = "4";
     state.advancedAssetTarget = "referenceImages";
@@ -1288,7 +1288,7 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
       : mode === "reference_video"
       ? "referenceImages"
       : "primary";
-  } else if (["seedance25", "seedance-nsfw"].includes(provider)) {
+  } else if (["seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider)) {
     if (seedanceModeNeedsFirstFrame(mode)) {
       state.advancedReferenceImages = [];
       setAdvancedSeedanceVideoReferences([]);
@@ -1308,7 +1308,7 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
       state.advancedSeedanceLastFrameDataUrl = "";
     }
     if (els.advancedRatio) {
-      els.advancedRatio.value = provider === "seedance25"
+      els.advancedRatio.value = ["seedance25", "seedance25-flash"].includes(provider)
         ? "16:9"
         : mode === "omini" ? "1:1" : "adaptive";
     }
@@ -1402,7 +1402,7 @@ els.advancedUploadBox?.addEventListener("click", () => {
     ? "referenceImages"
     : provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)
     ? "video"
-    : ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !seedanceModeNeedsFirstFrame(seedanceMode)
+    : ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider) && !seedanceModeNeedsFirstFrame(seedanceMode)
     ? "referenceImages"
     : aliyunSharedTarget || (advancedCreateUploadIsVideo() ? "video" : "primary"));
 });
