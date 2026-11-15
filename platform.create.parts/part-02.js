@@ -1,3 +1,5 @@
+const ADVANCED_PROVIDER_PREFERENCE_KEY = "raisingGameAdvancedProviderPreferencesV1";
+
 function ensureAdvancedReferenceOrders(images = state.advancedReferenceImages) {
   const list = Array.isArray(images) ? images : [];
   let maxOrder = Math.max(0, Number(state.advancedReferenceOrderCounter || 0));
@@ -772,6 +774,65 @@ function syncAdvancedProviderModelPresentation() {
   });
 }
 
+function advancedProviderPreferenceMediaKind() {
+  const kind = state.advancedCreateKind === "custom" ? state.advancedCustomMediaKind : state.advancedCreateKind;
+  return ["video", "image", "conversation"].includes(kind) ? kind : "video";
+}
+
+function readAdvancedProviderPreferences() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ADVANCED_PROVIDER_PREFERENCE_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+function writeAdvancedProviderPreferences(preferences = {}) {
+  try {
+    localStorage.setItem(ADVANCED_PROVIDER_PREFERENCE_KEY, JSON.stringify(preferences));
+  } catch (_error) {
+    // A privacy-restricted browser may reject localStorage; the native select
+    // remains fully usable without persistence.
+  }
+}
+
+function advancedProviderPreferenceForKind(kind = advancedProviderPreferenceMediaKind()) {
+  const value = readAdvancedProviderPreferences()[kind];
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function rememberAdvancedProviderPreference(value = "") {
+  const kind = advancedProviderPreferenceMediaKind();
+  const provider = String(value || "").trim().toLowerCase();
+  if (!provider) return;
+  const preferences = readAdvancedProviderPreferences();
+  preferences[kind] = provider;
+  writeAdvancedProviderPreferences(preferences);
+}
+
+function restoreAdvancedProviderPreference() {
+  if (!els.advancedProvider) return false;
+  const mediaKind = advancedProviderPreferenceMediaKind();
+  if (String(state.advancedProviderPreferenceKind || "") === mediaKind) return false;
+  const options = Array.from(els.advancedProvider.options || []);
+  if (!options.length) return false;
+  state.advancedProviderPreferenceKind = mediaKind;
+  const preferred = advancedProviderPreferenceForKind(mediaKind);
+  if (!preferred) return false;
+  const option = options.find((item) => {
+    const value = String(item.value || "").trim().toLowerCase();
+    return value === preferred
+      && !item.hidden
+      && !item.disabled
+      && !item.closest?.("optgroup")?.hidden
+      && advancedProviderMatchesCustomKind(value, mediaKind);
+  });
+  if (!option) return false;
+  els.advancedProvider.value = option.value;
+  return true;
+}
+
 function syncAdvancedProviderExposure() {
   if (!els.advancedProvider) return;
   syncAdvancedProviderModelPresentation();
@@ -830,6 +891,7 @@ function syncAdvancedProviderExposure() {
 function updateAdvancedModelControls() {
   applyAdvancedCreateMode({ syncForm: false });
   syncAdvancedProviderExposure();
+  restoreAdvancedProviderPreference();
   const provider = currentAdvancedProvider();
   if (els.advancedPromptOptimizeBtn) {
     els.advancedPromptOptimizeBtn.hidden = !window.isPromptOptimizerProvider?.(provider);
@@ -1326,7 +1388,10 @@ function setAdvancedParameterValue(kind = "", value = "") {
   closeAdvancedParameterPanel();
   // Re-selecting the current model should behave like the native select: close
   // the menu without replaying model initialization or resetting visible fields.
-  if (changed) select.dispatchEvent(new Event("change", { bubbles: true }));
+  if (changed) {
+    if (kind === "model") rememberAdvancedProviderPreference(nextValue);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
   syncAdvancedParameterChips();
 }
 

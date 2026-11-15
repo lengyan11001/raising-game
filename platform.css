@@ -11350,6 +11350,13 @@ select:focus,
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
+  max-height: min(344px, calc(100vh - 200px));
+  max-height: min(344px, calc(100dvh - 200px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 .advanced-parameter-options.is-model-list .advanced-parameter-option {
   justify-content: flex-start;
@@ -11453,6 +11460,10 @@ select:focus,
   }
   .advanced-parameter-options {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .advanced-parameter-options.is-model-list {
+    max-height: min(58vh, 344px);
+    max-height: min(58dvh, 344px);
   }
 }
 
