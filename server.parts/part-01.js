@@ -483,7 +483,9 @@ const {
   vegaTaskFailureMessage,
 } = require("./tencent-vod-vega");
 const {
+  isSeedream55ImageProvider,
   isSeedream5ImageProvider,
+  isSeedance25FlashProvider,
   isQwenImage3Provider,
   isQwen37FlashProvider,
   isByteplusLanguageProvider,

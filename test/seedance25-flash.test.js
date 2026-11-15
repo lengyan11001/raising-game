@@ -215,6 +215,17 @@ test("publishes and saves the four Flash pricing rows", async () => {
   assert.match(saveSource, /key === "seedance-flash-video-input-720p"[\s\S]*?seedanceFlashVideoCreditsPerSecondByResolution\["720p"\] = credits/);
 });
 
+test("server imports every provider helper used by runtime validation", () => {
+  const importBlock = server.match(/const \{([\s\S]*?)\} = require\("\.\/lib-providers"\);/)?.[1] || "";
+  const providerModule = require("../lib-providers");
+  const providerHelpers = Object.keys(providerModule)
+    .filter((name) => /^is[A-Za-z0-9]+Provider$/.test(name))
+    .filter((name) => server.includes(name));
+  for (const helper of providerHelpers) {
+    assert.match(importBlock, new RegExp(`\\b${helper}\\b`), `${helper} must be imported before runtime use`);
+  }
+});
+
 test("routes Flash through the Ark task endpoint only with uploaded asset URIs", () => {
   assert.ok(server.includes("const SEEDANCE25_FLASH_ENDPOINT = String(process.env.SEEDANCE25_FLASH_ENDPOINT_ID || SEEDANCE25_FLASH_ENDPOINT_ID).trim()"));
   assert.ok(server.includes('["seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER].includes(provider)'));
