@@ -305,6 +305,17 @@ async function handleAdvancedGenerate(req, res) {
       prompt,
     });
   }
+  if (provider === "seedream55-image") {
+    return await handleAdvancedSeedream55ImageGenerate(req, res, {
+      auth,
+      body,
+      bodyParams,
+      caseParams,
+      selectedCase,
+      config,
+      prompt,
+    });
+  }
   if (provider === "seedream5-image") {
     return await handleAdvancedSeedream5ImageGenerate(req, res, {
       auth,
@@ -1356,26 +1367,28 @@ function advancedRegenerateBody(record = {}) {
     resolution: record.resolution || params.resolution || "720p",
     duration: record.duration || params.duration || 5,
   };
-  if (["seedream5-image", "qwen-image3"].includes(provider)) {
+  if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
     const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
-    const imageItems = mediaAssets
-      .filter((asset) => !["video", "audio", "first_clip", "driving_audio"].some((type) => String(asset?.type || "").includes(type)))
-      .map((asset) => {
-        const assetId = String(firstPresent(asset?.userAssetId, asset?.assetId, asset?.id, "") || "").trim();
-        if (assetId) return { assetId };
-        const url = String(firstPresent(asset?.imageUrl, asset?.url, asset?.publicUrl, asset?.localUrl, "") || "").trim();
-        return url ? { url } : null;
-      })
-      .filter(Boolean);
     const recordedImageItems = (items) => (Array.isArray(items) ? items : []).map((item) => {
-      if (typeof item === "string") return item ? { url: item } : null;
+      if (typeof item === "string") return item.trim() ? item.trim() : null;
       const assetId = String(firstPresent(item?.userAssetId, item?.assetId, item?.id, "") || "").trim();
-      if (assetId) return { assetId };
+      if (assetId) return item;
       const url = String(firstPresent(item?.imageUrl, item?.url, item?.publicUrl, item?.sourceImageUrl, "") || "").trim();
-      return url ? { url } : null;
+      return url ? item : null;
     }).filter(Boolean);
+    const mediaImageItems = mediaAssets
+      .filter((asset) => !["video", "audio", "first_clip", "driving_audio"].some((type) => String(asset?.type || "").includes(type)));
     const upstreamItems = upstreamPayloadInputImageItems(record);
-    const referenceImages = [...imageItems, ...recordedImageItems(params.referenceImages), ...recordedImageItems(upstreamItems)];
+    const recordedReferences = recordedImageItems(params.referenceImages);
+    const upstreamImageItems = recordedImageItems(upstreamItems);
+    // Prefer the canonical persisted media when available. Older rows only
+    // have params/upstream aliases, so use the most specific source first and
+    // fill genuinely missing entries from the legacy fields below.
+    const primaryItems = mediaImageItems.length
+      ? mediaImageItems
+      : recordedReferences.length
+        ? recordedReferences
+        : upstreamImageItems;
     const fallbackIds = [...new Set([
       ...(Array.isArray(params.referenceImageAssetIds) ? params.referenceImageAssetIds : []),
       ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
@@ -1389,14 +1402,70 @@ function advancedRegenerateBody(record = {}) {
       record.imageUrl || "",
       record.sourceImageUrl || "",
     ].map((url) => String(url || "").trim()).filter(Boolean))];
-    const seen = new Set();
-    body.referenceImages = [...referenceImages, ...fallbackIds.map((assetId) => ({ assetId })), ...referenceImageUrls.map((url) => ({ url }))]
-      .filter((item) => {
-        const key = item.assetId ? `asset:${item.assetId}` : `url:${item.url}`;
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
+    const referenceUrls = (item) => {
+      if (typeof item === "string") return [item.trim()].filter(Boolean);
+      if (!item || typeof item !== "object") return [];
+      return [...new Set([
+        item.imageUrl,
+        item.url,
+        item.publicUrl,
+        item.sourceImageUrl,
+        item.image_url?.url,
+        item.imageUrl?.url,
+      ].map((url) => String(url || "").trim()).filter(Boolean))];
+    };
+    const referenceIdentityKeys = (item) => {
+      const keys = new Set();
+      const assetId = typeof item === "object"
+        ? String(firstPresent(item?.userAssetId, item?.assetId, item?.id, "") || "").trim()
+        : "";
+      if (assetId) keys.add(`asset:${assetId}`);
+      referenceUrls(item).forEach((url) => {
+        const uriId = url.startsWith("asset://") ? url.slice("asset://".length).split(/[/?#]/, 1)[0] : "";
+        const embeddedId = (url.match(/(asset-\d+-[a-z0-9]+)(?:\.[a-z0-9]+)?(?:[?#]|$)/i) || [])[1] || "";
+        const cleanUrl = url.split(/[?#]/, 1)[0];
+        if (uriId) keys.add(`asset:${uriId}`);
+        if (embeddedId) keys.add(`asset:${embeddedId}`);
+        if (cleanUrl) keys.add(`url:${cleanUrl}`);
       });
+      return keys;
+    };
+    const assetIdByReferenceKey = new Map();
+    const rememberReferenceAssetId = (item, forcedAssetId = "") => {
+      const assetId = String(firstPresent(
+        forcedAssetId,
+        typeof item === "object" ? item?.userAssetId : "",
+        typeof item === "object" ? item?.assetId : "",
+        typeof item === "object" ? item?.id : "",
+        "",
+      ) || "").trim();
+      if (!assetId) return;
+      referenceIdentityKeys(item).forEach((key) => {
+        if (!assetIdByReferenceKey.has(key)) assetIdByReferenceKey.set(key, assetId);
+      });
+    };
+    fallbackIds.forEach((assetId) => rememberReferenceAssetId(assetId, assetId));
+    primaryItems.forEach((item) => rememberReferenceAssetId(item));
+    const seen = new Set();
+    const addReference = (item, allowDuplicateIdentities = false) => {
+      const identities = referenceIdentityKeys(item);
+      const directAssetId = typeof item === "object"
+        ? String(firstPresent(item?.userAssetId, item?.assetId, item?.id, "") || "").trim()
+        : "";
+      const resolvedAssetId = directAssetId || [...identities].map((key) => assetIdByReferenceKey.get(key)).find(Boolean) || "";
+      const url = referenceUrls(item)[0] || "";
+      const output = resolvedAssetId ? { assetId: resolvedAssetId } : url ? { url } : null;
+      if (!output) return;
+      if (!allowDuplicateIdentities && [...identities].some((key) => seen.has(key))) return;
+      body.referenceImages.push(output);
+      identities.forEach((key) => seen.add(key));
+    };
+    body.referenceImages = [];
+    // Canonical/recorded entries are the ordered source of truth, including
+    // intentional repeated references. Legacy aliases only fill gaps.
+    primaryItems.forEach((item) => addReference(item, true));
+    fallbackIds.map((assetId) => ({ assetId })).forEach((item) => addReference(item));
+    referenceImageUrls.map((url) => ({ url })).forEach((item) => addReference(item));
     body.preservePublicMediaUrls = true;
     if (provider === "seedream5-image") body.seedreamTier = firstPresent(params.seedreamTier, params.seedream5Tier, params.seedanceTier);
     if (provider === "qwen-image3") {
@@ -1892,7 +1961,7 @@ async function handleRegenerateGenerationRecord(req, res, taskId) {
     return handleWan27ImageEdit(withJsonBody(req, imageEditRegenerateBody(record)), res);
   }
   const provider = normalizeAdvancedProvider(record.provider || params.provider || "");
-  if (source.includes("advanced") || ["seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image", "qwen-image3"].includes(provider)) {
+  if (source.includes("advanced") || ["seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
     return handleAdvancedGenerate(withJsonBody(req, advancedRegenerateBody(record)), res);
   }
   return sendJson(res, 400, { ok: false, message: "This record cannot be regenerated yet." });

@@ -601,8 +601,14 @@ async function handleAdvancedQwenImage3Generate(req, res, context = {}) {
     tier = normalizeQwenImage3Tier(firstPresent(body.qwenTier, body.qwenImageTier, bodyParams.qwenTier, merged.qwenTier, caseParams.qwenTier), firstPresent(body.model, bodyParams.model, merged.model, caseParams.model));
     model = qwenImage3ModelForTier(tier, firstPresent(body.model, bodyParams.model, merged.model, caseParams.model));
     resolution = normalizeQwenImage3Resolution(firstPresent(body.resolution, bodyParams.resolution, merged.resolution, config.platform?.advancedPricing?.qwenImage3?.defaultResolution, "2K"));
-    ratio = normalizeVideoRatio(firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, merged.ratio, "1:1"));
-    size = qwenImage3Size({ size: firstPresent(body.size, bodyParams.size, merged.size, ""), resolution, ratio });
+    const requestedRatio = firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, merged.ratio, "");
+    ratio = normalizeVideoRatio(requestedRatio || "1:1");
+    size = qwenImage3SizeForSelection({
+      size: firstPresent(body.size, bodyParams.size, merged.size, ""),
+      resolution,
+      ratio,
+      ratioSpecified: String(requestedRatio || "").trim() !== "",
+    });
     resolution = qwenImage3ResolutionForSize(size, resolution);
     outputImageCount = qwenImage3OfficialPricing({ tier, resolution, referenceImageCount: referenceInputs.length, outputImageCount: firstPresent(body.n, body.outputImageCount, bodyParams.n, merged.n, 1) }).outputImageCount;
     seed = firstPresent(body.seed, bodyParams.seed, merged.seed, null);

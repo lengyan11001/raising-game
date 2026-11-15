@@ -175,8 +175,9 @@ async function submitAdvancedGenerateInternal() {
     }
     return;
   }
-  if (["seedream5-image", "qwen-image3"].includes(provider)) {
+  if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
     const qwenImage = provider === "qwen-image3";
+    const seedream55Image = provider === "seedream55-image";
     const qwenTier = qwenImage ? currentQwenImage3Tier() : "";
     const outputImageCount = qwenImage ? Math.max(1, Math.min(6, Number(els.advancedQwenOutputCount?.value || 1))) : 1;
     const references = selectedAdvancedReferenceImages(provider);
@@ -192,7 +193,7 @@ async function submitAdvancedGenerateInternal() {
       status: "submitting",
       model: advancedProviderLabel(provider),
       provider,
-      source: qwenImage ? "advanced-qwen-image3" : "advanced-seedream5-image",
+      source: qwenImage ? "advanced-qwen-image3" : seedream55Image ? "advanced-seedream55-image" : "advanced-seedream5-image",
       kind: "advanced-image",
       prompt,
       presets: advancedPresetSelection,
@@ -227,7 +228,7 @@ async function submitAdvancedGenerateInternal() {
                 watermark: els.advancedQwenWatermark?.value === "true",
                 seed: normalizeAdvancedSeed(els.advancedWanSeed?.value, { min: 0 }),
               }
-            : { seedreamTier }),
+            : seedream55Image ? {} : { seedreamTier }),
           prompt,
           referenceImages: references.map(seedanceImageRefPayload),
           resolution: currentAdvancedResolution(),
@@ -1610,6 +1611,7 @@ function advancedPromptPasteImageRule() {
   let limit = 1;
   if (provider === "z-image-spicy-pro") limit = 0;
   else if (provider === "qwen-image3") limit = ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT;
+  else if (provider === "seedream55-image") limit = ADVANCED_SEEDREAM55_REFERENCE_LIMIT;
   else if (provider === "seedream5-image") limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT;
   else if (isAdvancedImageProvider(provider)) limit = advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
   else if (provider === "wan30") limit = ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;

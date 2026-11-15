@@ -325,6 +325,66 @@ test("Vega regeneration restores first and last frames that only have asset URIs
   assert.doesNotMatch(JSON.stringify(restored), /generated-frame/);
 });
 
+test("Seedream 5.5 regeneration collapses asset, local URL, and upstream URL aliases", () => {
+  const { advancedRegenerateBody } = serverRuntime();
+  const assetId = "asset-1794708168754-709a6fa5";
+  const localUrl = `/assets/user-uploads/user-1/${assetId}.png`;
+  const upstreamUrl = `https://assets-cdn.123vips.com${localUrl}?Expires=1&Signature=abc`;
+  const body = advancedRegenerateBody({
+    provider: "seedream55-image",
+    prompt: "reference test",
+    ratio: "1:1",
+    resolution: "1K",
+    mediaAssets: [],
+    userAssetId: assetId,
+    userAssetIds: [assetId],
+    imageUrl: localUrl,
+    imageUrls: [localUrl],
+    sourceImageUrl: localUrl,
+    sourceImageUrls: [localUrl],
+    params: { referenceImageCount: 1 },
+    upstreamPayload: { image: [upstreamUrl] },
+  });
+  assert.deepEqual(body.referenceImages, [{ assetId }]);
+});
+
+test("Seedream 5.5 regeneration preserves ordered intentional duplicate references", () => {
+  const { advancedRegenerateBody } = serverRuntime();
+  const assetId = "asset-1794708168754-709a6fa5";
+  const body = advancedRegenerateBody({
+    provider: "seedream55-image",
+    prompt: "duplicate reference test",
+    ratio: "1:1",
+    resolution: "1K",
+    mediaAssets: [
+      { type: "reference_image", userAssetId: assetId },
+      { type: "reference_image", userAssetId: assetId },
+    ],
+    params: { referenceImageCount: 2 },
+  });
+  assert.deepEqual(body.referenceImages, [{ assetId }, { assetId }]);
+});
+
+test("Seedream 5.5 regeneration keeps distinct canonical references in order", () => {
+  const { advancedRegenerateBody } = serverRuntime();
+  const first = "asset-1794708168754-709a6fa5";
+  const second = "asset-1794708168755-8c2b7d1e";
+  const body = advancedRegenerateBody({
+    provider: "seedream55-image",
+    prompt: "multiple reference test",
+    ratio: "1:1",
+    resolution: "1K",
+    mediaAssets: [
+      { type: "reference_image", userAssetId: first },
+      { type: "reference_image", userAssetId: second },
+    ],
+    userAssetIds: [first, second],
+    imageUrls: [`/assets/user-uploads/user-1/${first}.png`, `/assets/user-uploads/user-1/${second}.png`],
+    params: { referenceImageCount: 2 },
+  });
+  assert.deepEqual(body.referenceImages, [{ assetId: first }, { assetId: second }]);
+});
+
 test("Vega hydration prefers legacy URL and asset-URI arrays over an empty canonical list", async () => {
   const { hydrateVegaRecordMediaAssetIds } = serverRuntime({
     getVegaMediaLibrarySourceUrlsByAssetUrisFromDb: async () => ({

@@ -29,6 +29,10 @@ const ADVANCED_SEEDREAM5_LITE_USD_PER_IMAGE = 0.035;
 const ADVANCED_SEEDREAM5_PRO_1K_USD_PER_IMAGE = 0.045;
 const ADVANCED_SEEDREAM5_PRO_2K_USD_PER_IMAGE = 0.09;
 const ADVANCED_SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST = 0.003;
+const ADVANCED_SEEDREAM55_REFERENCE_LIMIT = 10;
+const ADVANCED_SEEDREAM55_1K_USD_PER_IMAGE = 0.030;
+const ADVANCED_SEEDREAM55_2K_USD_PER_IMAGE = 0.0525;
+const ADVANCED_SEEDREAM55_REFERENCE_USD_PER_IMAGE = 0.012;
 const ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT = 3;
 const ADVANCED_QWEN_IMAGE3_REFERENCE_MAX_BYTES = 10 * 1024 * 1024;
 const ADVANCED_QWEN_IMAGE3_PRO_1K_USD_PER_IMAGE = 0.03438;
@@ -134,6 +138,7 @@ const WORKFLOW_DEFAULT_NODES = [];
 const WORKFLOW_DEFAULT_EDGES = [];
 const WORKFLOW_IMAGE_MODEL_LIBRARY = Object.freeze([
   Object.freeze({ id: "qwen-image3", label: "Qwen Image 3.0", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], tiers: ["pro", "standard"], defaultTier: "pro", outputCounts: [1, 2, 3, 4, 5, 6], promptExtend: true, watermark: false, referenceLimit: 3 }),
+  Object.freeze({ id: "seedream55-image", label: "Seedream 5.5", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], referenceLimit: 10 }),
   Object.freeze({ id: "seedream5-image", label: "Seedream 5.0 Image", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], tiers: ["pro"], defaultTier: "pro", referenceLimit: 9 }),
   Object.freeze({ id: "z-image-spicy-pro", label: "Z-Image Spicy Pro", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], referenceLimit: 0 }),
   Object.freeze({ id: "qwen-image-edit-spicy", label: "Qwen Image Edit Spicy", resolution: "", ratio: "", resolutions: [], ratios: [], supportsSizeSelection: false, referenceLimit: 3 }),
@@ -664,7 +669,7 @@ function currentAdvancedSeedanceUploadMode() {
 
 function advancedCreateUploadIsVideo(mode = state.advancedCreateMode) {
   const provider = currentAdvancedProvider();
-  if (provider === "seedream5-image" || provider === "z-image-spicy-pro" || provider === "qwen-image-edit-spicy") return false;
+  if (["seedream55-image", "seedream5-image", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider)) return false;
   if (provider === "seedance" || provider === "wan30") return false;
   return advancedCreateModeAcceptsVideoUpload(mode) && !advancedCreateModeAcceptsImageUpload(mode);
 }
@@ -690,7 +695,7 @@ function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
 }
 
 function advancedCreateUploadAcceptValue(mode = state.advancedCreateMode) {
-  if (["seedream5-image", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(currentAdvancedProvider())) return "image/*";
+  if (["seedream55-image", "seedream5-image", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(currentAdvancedProvider())) return "image/*";
   if (["seedance", "wan27", "wan30"].includes(currentAdvancedProvider())) {
     return `${currentAdvancedProvider() === "wan30" ? "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" : "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*"}`;
   }
