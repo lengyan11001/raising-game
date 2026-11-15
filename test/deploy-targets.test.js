@@ -93,10 +93,16 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deployPull, /class PinnedHostKeyPolicy/);
   assert.match(deployPull, /--host-key-sha256/);
   assert.match(deploySite, /SHA256:FjIDikg5kkvITUdxOc2142HRn\+WP5A7Bj6Z5fReu8lI/);
+  assert.match(deploySite, /"rolling": True/);
+  assert.match(deploySite, /"rolling_source_root": "\/opt\/raising-game-release-src"/);
+  assert.match(deploySite, /"rolling_candidate_service": "raising-game-demo-b.service"/);
+  assert.match(deploySite, /"rolling_candidate_port": "4175"/);
   assert.match(deploySite, /--rolling cannot be combined with --no-restart/);
-  assert.match(deploySite, /--rolling is not implemented in deploy_site\.py/);
+  assert.match(deploySite, /--rolling is supported only for the Old production target/);
+  assert.match(deploySite, /use_rolling = bool\(target\.get\("rolling"\)\) and not args\.no_restart/);
   assert.match(deployPull, /--rolling cannot be combined with --no-restart or --no-mutations/);
-  assert.match(deployPull, /--rolling is not implemented here/);
+  assert.match(deployPull, /--rolling is Old-only and requires --branch platform-release/);
+  assert.match(deployPull, /--rolling requires --commit with the exact platform-release commit/);
 });
 
 function printedDeployCommand(extraArgs = [], env = {}) {
@@ -148,6 +154,27 @@ test("environment no-restart channel is as strict as the command-line flag", () 
   assert.doesNotMatch(command, /PRE_MUST_NOT_RUN|POST_MUST_NOT_RUN/);
   assert.doesNotMatch(command, /systemctl restart|systemctl daemon-reload/);
   assert.doesNotMatch(command, /90-generation-submit-drain\.conf/);
+});
+
+test("environment no-restart cannot silently enter rolling mutation mode", () => {
+  const result = spawnSync("python3", [
+    path.join(root, "scripts", "deploy_pull.py"),
+    "--branch", "platform-release",
+    "--commit", "a".repeat(40),
+    "--rolling",
+    "--host-key-sha256", "SHA256:test",
+    "--print-command",
+  ], {
+    cwd: root,
+    env: {
+      ...process.env,
+      DEPLOY_NO_RESTART: "1",
+      DEPLOY_SSH_PASSWORD: "not-used-for-print-command",
+    },
+    encoding: "utf8",
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--rolling cannot be combined with --no-restart or --no-mutations/);
 });
 
 test("normal restart deploy still runs all required hooks and guards", () => {
@@ -391,9 +418,17 @@ test("deployment key auth is preferred and never falls back to password", () => 
   assert.match(deploySite, /key_env.*DEPLOY_SSH_KEY/);
 });
 
-test("Old deployment migrates PostgreSQL before service restart", () => {
+test("Old rolling deployment migrates PostgreSQL before candidate traffic", () => {
   assert.match(deploySite, /node ops\/run-db-migrations\.js --dry-run && node ops\/run-db-migrations\.js --apply && node ops\/run-db-migrations\.js --dry-run/);
   assert.match(deploySite, /\. \/etc\/raising-game-demo\.env/);
+  assert.match(deploySite, /"rolling_migrate_commands"/);
+  assert.match(deploySite, /"rolling_post_cutover_commands"/);
+  assert.match(deploySite, /--rolling-migrate-command/);
+  assert.match(deploySite, /--rolling-post-cutover-command/);
+  assert.match(deployPull, /"scripts\/deploy_old_rolling\.py"/);
+  assert.match(deployPull, /set -euo pipefail/);
+  assert.match(deployPull, /git -c core\.hooksPath=\/dev\/null checkout --detach/);
+  assert.doesNotMatch(deployPull, /systemctl restart.*raising-game-demo\.service/);
 });
 
 test("release snapshot builder excludes foreign paths from both trees and ancestry", () => {
@@ -406,7 +441,7 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
 
   const files = [
     "DEPLOY.md", "scripts/build_release_snapshot.py", "scripts/check-server-undef.js", "scripts/ensure_media_signing_secret.py",
-    "scripts/deploy_pull.py", "scripts/deploy_site.py", "scripts/materialize_static_release.py",
+    "scripts/deploy_pull.py", "scripts/deploy_old_rolling.py", "scripts/deploy_site.py", "scripts/materialize_static_release.py",
     "ops/apply-production-tuning.sh",
     "live.html", "live.css", "live.js", "chat-live.js", "qrcode.js",
     "site-landing.html", "site-landing.css", "site-landing.js",

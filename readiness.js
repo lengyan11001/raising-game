@@ -1,6 +1,7 @@
 "use strict";
 
 const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 
 const PHASES = Object.freeze({
@@ -31,6 +32,22 @@ function resolveReleaseIdentity({
   timeoutMs = 3000,
 } = {}) {
   const repoRoot = path.resolve(root);
+  let marker = null;
+  const markerPath = path.join(repoRoot, "RELEASE_COMMIT");
+  try {
+    const markerStat = fs.lstatSync(markerPath);
+    const rootStat = fs.lstatSync(repoRoot);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || !markerStat.isFile() || markerStat.isSymbolicLink()) {
+      return { id: "", clean: false, source: "marker-invalid" };
+    }
+    const markerId = fs.readFileSync(markerPath, "utf8").trim().toLowerCase();
+    if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(markerId)) {
+      return { id: "", clean: false, source: "marker-invalid" };
+    }
+    marker = { id: markerId, clean: true, source: "marker" };
+  } catch (error) {
+    if (error?.code !== "ENOENT") return { id: "", clean: false, source: "marker-invalid" };
+  }
   try {
     const id = String(execFileSync(gitBin, [
       "-C",
@@ -47,6 +64,9 @@ function resolveReleaseIdentity({
     if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(id)) {
       return { id: "", clean: false, source: "git-invalid" };
     }
+    if (marker && marker.id !== id) {
+      return { id: "", clean: false, source: "release-mismatch" };
+    }
     const status = String(execFileSync(gitBin, [
       "-C",
       repoRoot,
@@ -62,6 +82,7 @@ function resolveReleaseIdentity({
     }));
     return { id, clean: status.trim() === "", source: "git" };
   } catch {
+    if (marker) return marker;
     return { id: "", clean: false, source: "unavailable" };
   }
 }

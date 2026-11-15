@@ -34,8 +34,9 @@ def candidate_payload(
     schedulers: bool = False,
     submit_queue: bool = False,
     submit_worker: bool = False,
+    source: str = "git",
 ) -> tuple[dict, dict]:
-    release_info = {"id": release, "clean": clean, "source": "git"}
+    release_info = {"id": release, "clean": clean, "source": source}
     process = {"pid": pid}
     runtime = {
         "backgroundSchedulers": schedulers,
@@ -68,6 +69,9 @@ class LoadedCandidateGateTests(unittest.TestCase):
     def test_accepts_exact_loaded_release_pid_and_disabled_workers(self) -> None:
         self.validate(*candidate_payload())
 
+    def test_accepts_immutable_release_marker_identity(self) -> None:
+        self.validate(*candidate_payload(source="marker"))
+
     def test_rejects_stale_already_active_process_without_release_identity(self) -> None:
         livez, readyz = candidate_payload()
         livez.pop("release")
@@ -82,7 +86,7 @@ class LoadedCandidateGateTests(unittest.TestCase):
 
     def test_rejects_dirty_checkout(self) -> None:
         livez, readyz = candidate_payload(clean=False)
-        with self.assertRaisesRegex(ROLLING.TransactionError, "not a clean Git checkout"):
+        with self.assertRaisesRegex(ROLLING.TransactionError, "not a clean Git checkout or immutable marker"):
             self.validate(livez, readyz)
 
     def test_rejects_pid_mismatch(self) -> None:
@@ -217,6 +221,35 @@ class CanaryObservationTests(unittest.TestCase):
 
 
 class ReleaseCheckoutTests(unittest.TestCase):
+    def test_immutable_marker_without_git_metadata_reports_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            expected = "c" * 40
+            (root / "RELEASE_COMMIT").write_text(f"{expected}\n", encoding="utf-8")
+            self.assertEqual(ROLLING.release_identity(root), expected)
+
+    def test_immutable_marker_rejects_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            marker_target = root / "marker-target"
+            marker_target.write_text(f"{'d' * 40}\n", encoding="utf-8")
+            (root / "RELEASE_COMMIT").symlink_to(marker_target)
+            with self.assertRaisesRegex(ROLLING.TransactionError, "release marker is not a regular file"):
+                ROLLING.release_identity(root)
+
+    def test_immutable_marker_must_match_git_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.name", "Release Test"], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.email", "release@example.invalid"], check=True)
+            (root / "release.txt").write_text("release\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "release.txt"], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "release"], check=True)
+            (root / "RELEASE_COMMIT").write_text(f"{'e' * 40}\n", encoding="utf-8")
+            with self.assertRaisesRegex(ROLLING.TransactionError, "does not match Git checkout"):
+                ROLLING.release_identity(root)
+
     def test_clean_git_checkout_reports_head(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

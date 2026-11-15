@@ -221,12 +221,31 @@ def candidate_health_url(base: str, endpoint: str) -> str:
 
 
 def release_identity(release: Path) -> str:
+    marker_path = release / "RELEASE_COMMIT"
+    marker_identity = ""
+    if marker_path.exists() or marker_path.is_symlink():
+        if release.is_symlink() or marker_path.is_symlink() or not marker_path.is_file():
+            raise TransactionError(f"release marker is not a regular file: {marker_path}")
+        try:
+            marker_identity = marker_path.read_text(encoding="utf-8").strip().lower()
+        except OSError as error:
+            raise TransactionError(f"cannot read release marker: {marker_path}: {error}") from error
+        if not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", marker_identity):
+            raise TransactionError(f"release marker returned an invalid commit: {marker_identity!r}")
+    if not (release / ".git").exists():
+        if marker_identity:
+            return marker_identity
+        raise TransactionError(f"release checkout has neither Git metadata nor a release marker: {release}")
     identity = run(
         ["git", "-C", str(release), "rev-parse", "--verify", "HEAD"],
         timeout=15,
     ).lower()
     if not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", identity):
         raise TransactionError(f"release checkout returned an invalid commit: {identity!r}")
+    if marker_identity and marker_identity != identity:
+        raise TransactionError(
+            f"release marker {marker_identity} does not match Git checkout {identity}"
+        )
     dirty = run(
         [
             "git", "-C", str(release), "status", "--porcelain=v1",
@@ -287,8 +306,8 @@ def validate_loaded_candidate(
             raise TransactionError(
                 f"candidate {label} has no loaded release identity; it is stale or predates the release gate"
             )
-        if release.get("clean") is not True or release.get("source") != "git":
-            raise TransactionError(f"candidate {label} release is not a clean Git checkout: {release}")
+        if release.get("clean") is not True or release.get("source") not in {"git", "marker"}:
+            raise TransactionError(f"candidate {label} release is not a clean Git checkout or immutable marker: {release}")
         if release.get("id") != expected_release:
             raise TransactionError(
                 f"candidate {label} release={release.get('id')} expected={expected_release}"
@@ -621,6 +640,8 @@ def rollout(args: argparse.Namespace) -> int:
             log("PLAN phase=canary_restore weights=100:0")
         log("PLAN phase=cutover")
         log(f"PLAN upstream_switch={original_port}->{preview_target} files={len(files)}")
+        log("PLAN phase=post_cutover_hooks")
+        run_commands(args.post_cutover_command, apply=False, env=combined_env)
         log("PLAN phase=verify")
         if nginx_snapshot(files) != before_hashes:
             raise TransactionError("dry-run changed an Nginx file")
@@ -755,6 +776,8 @@ def rollout(args: argparse.Namespace) -> int:
             raise TransactionError(f"cutover observed={observed} expected={target}")
         for url in args.health_url:
             wait_http_200(url, args.wait_attempts, args.wait_delay, args.curl_bin)
+        log("PHASE post_cutover_hooks")
+        run_commands(args.post_cutover_command, apply=True, env=combined_env)
         log("ROLLING_DEPLOY_OK")
         return 0
     except Exception as error:
@@ -853,6 +876,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--switch-script", default=str(Path(__file__).with_name("nginx-upstream-switch.py")))
     parser.add_argument("--health-url", action="append", default=[])
     parser.add_argument("--migrate-command", action="append", default=[])
+    parser.add_argument(
+        "--post-cutover-command",
+        action="append",
+        default=[],
+        help="Run after the new upstream is healthy; any failure rolls traffic back.",
+    )
     parser.add_argument(
         "--canary-percent",
         type=int,

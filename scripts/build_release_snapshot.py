@@ -138,6 +138,7 @@ RELEASE_TOOLS = (
     "scripts/check-server-undef.js",
     "scripts/ensure_media_signing_secret.py",
     "scripts/deploy_pull.py",
+    "scripts/deploy_old_rolling.py",
     "scripts/deploy_site.py",
     "scripts/materialize_static_release.py",
 )

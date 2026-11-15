@@ -2,6 +2,8 @@
 
 const assert = require("node:assert/strict");
 const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
@@ -49,6 +51,37 @@ test("release identity resolves from the code checkout at process startup", () =
   assert.equal(identity.id, expected);
   assert.equal(identity.source, "git");
   assert.equal(typeof identity.clean, "boolean");
+});
+
+test("release identity accepts a verified immutable release marker", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "raising-release-marker-"));
+  try {
+    const commit = "b".repeat(40);
+    fs.writeFileSync(path.join(root, "RELEASE_COMMIT"), `${commit}\n`);
+    assert.deepEqual(resolveReleaseIdentity({ root }), {
+      id: commit,
+      clean: true,
+      source: "marker",
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("release identity rejects a symlinked release marker", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "raising-release-marker-"));
+  const markerTarget = path.join(root, "marker-target");
+  try {
+    fs.writeFileSync(markerTarget, `${"c".repeat(40)}\n`);
+    fs.symlinkSync(markerTarget, path.join(root, "RELEASE_COMMIT"));
+    assert.deepEqual(resolveReleaseIdentity({ root }), {
+      id: "",
+      clean: false,
+      source: "marker-invalid",
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("readiness starts before accepting traffic", () => {

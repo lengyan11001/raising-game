@@ -1,3 +1,18 @@
+## 2026-11-15 Step BN: Old immutable rolling deploy wired, verified locally, not deployed
+
+- Goal: make a bad Old release fail on an idle immutable candidate instead of restarting or replacing the process serving every user.
+- Entrypoint: `scripts/deploy_local.sh --site old` now selects the rolling path by default; `--no-restart` remains code-pull-only. Live/new2 explicitly reject rolling mode.
+- Release isolation: rolling uses `/opt/raising-game-release-src` as a clean exact-commit checkout and prepares `/opt/raising-game-releases/<commit>` through `ops/prepare-independent-release.sh`. The active checkout is never restarted by the Old deployment path.
+- Candidate isolation: the inactive unit receives an exact `WorkingDirectory`, a validated regular `NODE_PATH`, and explicit `BACKGROUND_SCHEDULERS_ENABLED=0`, `GENERATION_SUBMIT_QUEUE_ENABLED=0`, and `GENERATION_SUBMIT_WORKER_ENABLED=0` overrides before restart.
+- Dependency gate: `package.json` and `package-lock.json` in the candidate must byte-match the dependency root behind `--node-path`; dependency drift fails before any systemd, Nginx, database, or traffic mutation. A future dependency change must provide a new dependency root built for that release.
+- Traffic gate remains: candidate process/release/PID/worker/health checks, then fixed 1% and 5% canary observations, then one atomic multi-upstream cutover. Canary, cutover, or post-cutover hook failures restore the original topology; recovery failure is reported as manual intervention.
+- Mode gate: `DEPLOY_NO_RESTART=1`/`DEPLOY_NO_MUTATIONS=1` are normalized before rolling validation, so environment-driven code-only mode can never silently enter the mutating rolling transaction.
+- Post-cutover verification includes public page/config/template checks and private-media denial through the shared runtime asset root. Nginx private-media hardening is a transaction hook, so failure participates in traffic rollback.
+- Changed files: `scripts/deploy_old_rolling.py`, `scripts/deploy_pull.py`, `scripts/deploy_site.py`, `scripts/build_release_snapshot.py`, `ops/rolling-deploy-transaction.py`, private-media hardening scripts/helpers, `readiness.js`, and targeted tests/state.
+- Verification: Python rolling/deploy tests 27/27; private-media tests 6/6; deploy-target tests 17/17; resilience/rolling ops 73/73; `npm run check:undef` passed; full `npm test` passed 1355 with 0 failures and 1 skip; `py_compile` and `git diff --check` passed.
+- Deployment status: not committed at the time this entry was written and not pushed. No release snapshot, SSH deployment, production service restart, Nginx reload, traffic switch, database mutation, or server configuration change occurred. Live remains untouched.
+- Next gate: commit the verified source, build/publish a uniquely named candidate release, then on the Old host run read-only preflight for the shared asset root, `/etc/raising-game-demo.env` `RUNTIME_MEDIA_ROOT`, dependency directory, candidate env, and available candidate port. Start only the idle candidate first; do not move traffic until that non-destructive staging gate is observed during an approved window.
+
 ## 2026-11-15 Step BM: Old weighted canary deployment gate prepared, not deployed
 
 - Goal: prevent one bad Old release from affecting every user. The permanent rolling transaction now defaults to a read-only 1% canary, then 5%, with automatic traffic restoration before any final atomic cutover.
