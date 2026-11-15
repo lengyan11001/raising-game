@@ -1,3 +1,9 @@
+## 2026-11-15 Step BT: candidate unit drop-in path corrected
+
+- The 4175 apply attempt restarted only the candidate, found no loaded release identity, and automatically restored the previous candidate. Primary MainPID `317565` and Nginx MainPID `3914088` remained unchanged; all three public health endpoints stayed 200.
+- Root cause: `dropin_path("raising-game-demo-b.service")` produced `raising-game-demo-b.service.service.d`, so systemd never loaded the release root, dependency path, or workers-disabled settings. The candidate correctly failed the identity gate against the old runtime.
+- The helper now preserves a single `.service` suffix and adds a regression test for both suffixed and unsuffixed unit inputs. Verification and release rebuild are pending; no traffic moved.
+
 ## 2026-11-15 Step BS: rolling source checkout kept clean during candidate validation
 
 - The first candidate apply attempt stopped before any service restart because the remote release checkout contained generated `ops/__pycache__/`, and the independent-release builder correctly refuses dirty sources. Primary 4174, candidate 4175, and Nginx PIDs remained `317565`, `4112958`, and `3914088`.
