@@ -6630,6 +6630,8 @@ const PRICING_MODEL_DEFAULT_LABELS = {
   "wan30-prime": "W3.0-Prime",
   "wan30-pro": "W3.0-Pro",
   "wan30-prime-pro": "W3.0-VSR-Prime",
+  "byteplus-language": "BytePlus Language",
+  "papaya": "Papaya 1.0",
 };
 
 function pricingModelFilterKey(row = {}) {
@@ -6672,16 +6674,51 @@ function pricingModelFilterLabel(row = {}, pricing = {}) {
   return label || key;
 }
 
-function pricingModelSubtitle(row = {}, pricing = {}) {
+const PRICING_MODEL_GROUPS = [
+  { id: "video", label: "Video" },
+  { id: "image", label: "Image" },
+  { id: "language", label: "Language" },
+];
+
+function pricingModelGroup(row = {}) {
+  const explicit = String(row.modelGroup || "").trim().toLowerCase();
+  if (PRICING_MODEL_GROUPS.some((group) => group.id === explicit)) return explicit;
+  const provider = String(row.provider || "").trim().toLowerCase();
   const key = pricingModelFilterKey(row);
-  const setting = pricingModelSetting(pricing, key);
-  return String(setting.subtitle || row.modelSubtitle || row.model || row.providerLabel || key).trim();
+  if (["byteplus-language", "papaya", "qwen37-flash"].includes(key) || key.startsWith("qwen37") || key.includes("language")) return "language";
+  if (
+    ["z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image", "wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
+    || ["z-image-spicy-pro", "qwen-image-edit-spicy", "seedream55-image", "seedream5-image"].includes(key)
+    || key.startsWith("qwen-image3")
+  ) {
+    return "image";
+  }
+  return "video";
+}
+
+function validPricingOrder(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const order = Number(value);
+  return Number.isFinite(order) && order >= 0 ? Math.floor(order) : null;
+}
+
+function pricingModelOrder(row = {}, pricing = {}) {
+  const explicit = validPricingOrder(row.modelOrder);
+  if (explicit !== null) return explicit;
+  return validPricingOrder(pricingModelSetting(pricing, pricingModelFilterKey(row)).order);
 }
 
 function pricingModelDiscount(row = {}, pricing = {}) {
   const setting = pricingModelSetting(pricing, pricingModelFilterKey(row));
   const value = Number(setting.discount);
   return Number.isFinite(value) && value >= 0.01 && value <= 10 ? value : 1;
+}
+
+function pricingModelIcon(row = {}) {
+  const group = pricingModelGroup(row);
+  if (group === "image") return "image";
+  if (group === "language") return "languages";
+  return "clapperboard";
 }
 
 function pricingConfiguredSaleUsd(row = {}) {
@@ -6691,18 +6728,20 @@ function pricingConfiguredSaleUsd(row = {}) {
   return Number.isFinite(sale) ? sale : 0;
 }
 
-function pricingModelCard(row, pricing, count) {
+function pricingModelCard(row, pricing, count, index, total) {
   const key = pricingModelFilterKey(row);
   const discount = pricingModelDiscount(row, pricing);
+  const label = pricingModelFilterLabel(row, pricing);
   return `
-    <div class="adm-pricing-model-card" role="button" tabindex="0" data-pricing-model="${escapeHtml(key)}" aria-label="查看 ${escapeHtml(pricingModelFilterLabel(row, pricing))} 的价格详情">
-      <span class="adm-pricing-model-icon"><i data-lucide="${isImagePricingRow(row) ? "image" : "clapperboard"}"></i></span>
+    <div class="adm-pricing-model-card" role="button" tabindex="0" data-pricing-model="${escapeHtml(key)}" aria-label="查看 ${escapeHtml(label)} 的价格详情">
+      <span class="adm-pricing-model-icon"><i data-lucide="${pricingModelIcon(row)}"></i></span>
       <span class="adm-pricing-model-copy">
-        <strong>${escapeHtml(pricingModelFilterLabel(row, pricing))}</strong>
-        <small>${escapeHtml(pricingModelSubtitle(row, pricing))}</small>
-        <em>${count} 个计费项 · 折扣 ${escapeHtml(fmtPrice(discount, 4))}x</em>
+        <strong>${escapeHtml(label)}</strong>
+        <em>${count} 个计费项 · 折扣 ${escapeHtml(fmtPrice(discount, 4))}x · 顺序 ${index + 1}</em>
       </span>
       <span class="adm-pricing-model-actions">
+        <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-pricing-move="-1" ${index === 0 ? "disabled" : ""} title="上移" aria-label="上移 ${escapeHtml(label)}"><i data-lucide="arrow-up"></i></button>
+        <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-pricing-move="1" ${index === total - 1 ? "disabled" : ""} title="下移" aria-label="下移 ${escapeHtml(label)}"><i data-lucide="arrow-down"></i></button>
         <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-pricing-detail="${escapeHtml(key)}">详情</button>
         <button class="adm-btn adm-btn-ghost adm-btn-sm" type="button" data-pricing-config="${escapeHtml(key)}"><i data-lucide="settings-2"></i>配置</button>
       </span>
@@ -6775,19 +6814,41 @@ async function renderPricing() {
       configuredSaleUsdPerSecond,
       saleUsdPerSecond: configuredSaleUsdPerSecond * pricingModelDiscount(row, pricing),
       _pricingKey: String(row.key || `${row.provider || "row"}-${index}`),
+      _pricingOriginalIndex: index,
     };
   });
+  const editablePricingRows = pricingRows.filter((row) => row.pricingDisplayOnly !== true);
   const visiblePricingRows = pricingRows.filter((row) => row.pricingVisible !== false);
   const modelGroups = new Map();
   for (const row of visiblePricingRows) {
     const key = pricingModelFilterKey(row);
-    const current = modelGroups.get(key) || { key, row, count: 0 };
-    current.count += 1;
+    const current = modelGroups.get(key) || {
+      key,
+      row,
+      count: 0,
+      group: pricingModelGroup(row),
+      originalIndex: modelGroups.size,
+    };
+    if (row.pricingDisplayOnly !== true) current.count += 1;
     modelGroups.set(key, current);
   }
-  const models = Array.from(modelGroups.values());
-  if (!state.pricingModelKey || !modelGroups.has(state.pricingModelKey)) {
-    state.pricingModelKey = models[0]?.key || "";
+  const models = Array.from(modelGroups.values()).map((item) => ({
+    ...item,
+    order: pricingModelOrder(item.row, pricing),
+  }));
+  if (!PRICING_MODEL_GROUPS.some((group) => group.id === state.pricingTab)) {
+    state.pricingTab = PRICING_MODEL_GROUPS[0].id;
+  }
+  const modelsInTab = () => models
+    .filter((item) => item.group === state.pricingTab)
+    .sort((left, right) => {
+      const leftOrder = left.order ?? left.originalIndex;
+      const rightOrder = right.order ?? right.originalIndex;
+      return leftOrder - rightOrder || left.originalIndex - right.originalIndex;
+    });
+  const initialModels = modelsInTab();
+  if (!state.pricingModelKey || !initialModels.some((model) => model.key === state.pricingModelKey)) {
+    state.pricingModelKey = initialModels[0]?.key || "";
   }
 
   els.adminContent.innerHTML = `
@@ -6795,7 +6856,7 @@ async function renderPricing() {
       <div class="adm-page-head">
         <div>
           <h2>价格配置</h2>
-          <p class="adm-muted">先选择模型，再查看该模型的采购价、基础售价、模型折扣和折后实际售价。模型折扣只影响对外售价。</p>
+          <p class="adm-muted">按前端 Video、Image、Language 分组管理模型。上下移动模型会同步更新前端模型选择列表的顺序；模型折扣只影响对外售价。</p>
         </div>
         <div class="adm-page-actions">
           <button class="adm-btn adm-btn-ghost" id="reloadPricingBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
@@ -6807,20 +6868,23 @@ async function renderPricing() {
           <div class="adm-card-head">
             <div>
               <h3>模型</h3>
-              <p class="adm-muted">共 ${models.length} 个上线模型，${visiblePricingRows.length} 个计费项</p>
+              <p class="adm-muted" id="pricingModelCount"></p>
             </div>
+          </div>
+          <div class="adm-tabs adm-pricing-tabs" role="tablist" aria-label="模型分组">
+            ${PRICING_MODEL_GROUPS.map((group) => `
+              <button type="button" role="tab" data-pricing-tab="${group.id}" class="${state.pricingTab === group.id ? "is-active" : ""}" aria-selected="${state.pricingTab === group.id ? "true" : "false"}">${group.label} <span>${models.filter((model) => model.group === group.id).length}</span></button>
+            `).join("")}
           </div>
           <label class="adm-pricing-filter adm-pricing-model-search">
             <span>查找模型</span>
-            <input id="pricingModelSearch" type="search" placeholder="名称、副标题或模型 ID" autocomplete="off" />
+            <input id="pricingModelSearch" type="search" placeholder="名称或模型 ID" autocomplete="off" />
           </label>
-          <div class="adm-pricing-model-list" id="pricingModelList">
-            ${models.map((item) => pricingModelCard(item.row, pricing, item.count)).join("")}
-          </div>
+          <div class="adm-pricing-model-list" id="pricingModelList"></div>
         </aside>
         <section class="adm-card adm-pricing-detail-panel" id="pricingModelDetail"></section>
       </div>
-      <div class="adm-pricing-formula">实际售价 = 折扣前售价 × 模型折扣。采购价保持不变；模型折扣可在“配置”中调整。</div>
+      <div class="adm-pricing-formula">实际售价 = 折扣前售价 × 模型折扣。采购价保持不变；模型顺序以当前 Tab 内的上下移动结果为准。</div>
     </section>
   `;
   refreshIcons();
@@ -6830,13 +6894,13 @@ async function renderPricing() {
     const group = modelGroups.get(modelKey);
     if (!group || !detail) return;
     state.pricingModelKey = modelKey;
-    const rows = visiblePricingRows.filter((row) => pricingModelFilterKey(row) === modelKey);
+    const rows = visiblePricingRows.filter((row) => row.pricingDisplayOnly !== true && pricingModelFilterKey(row) === modelKey);
     const discount = pricingModelDiscount(group.row, pricing);
     detail.innerHTML = `
       <div class="adm-card-head adm-pricing-detail-head">
         <div>
           <h3>${escapeHtml(pricingModelFilterLabel(group.row, pricing))}</h3>
-          <p class="adm-muted">${escapeHtml(pricingModelSubtitle(group.row, pricing))} · 模型折扣 ${escapeHtml(fmtPrice(discount, 4))}x</p>
+          <p class="adm-muted">${rows.length} 个计费项 · 模型折扣 ${escapeHtml(fmtPrice(discount, 4))}x</p>
         </div>
         <button class="adm-btn adm-btn-ghost" type="button" data-pricing-config="${escapeHtml(modelKey)}"><i data-lucide="settings-2"></i>配置模型</button>
       </div>
@@ -6867,13 +6931,30 @@ async function renderPricing() {
       saleInput?.addEventListener("input", refreshRow);
       purchaseInput?.addEventListener("input", refreshRow);
     });
-    byId("pricingModelList")?.querySelectorAll(":scope > [data-pricing-model]").forEach((card) => {
-      card.classList.toggle("is-active", card.dataset.pricingModel === modelKey);
+  };
+
+  const renderModelList = () => {
+    const tabModels = modelsInTab();
+    if (!state.pricingModelKey || !tabModels.some((model) => model.key === state.pricingModelKey)) {
+      state.pricingModelKey = tabModels[0]?.key || "";
+    }
+    const list = byId("pricingModelList");
+    if (list) {
+      list.innerHTML = tabModels.map((model, index) => pricingModelCard(model.row, pricing, model.count, index, tabModels.length)).join("");
+    }
+    const count = byId("pricingModelCount");
+    if (count) count.textContent = `当前分组共 ${tabModels.length} 个模型，${tabModels.reduce((total, model) => total + model.count, 0)} 个计费项`;
+    els.adminContent.querySelectorAll("[data-pricing-tab]").forEach((button) => {
+      const active = button.dataset.pricingTab === state.pricingTab;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
     });
+    if (state.pricingModelKey) renderDetail(state.pricingModelKey);
+    refreshIcons();
   };
 
   const savePricing = async (nextSettings = pricing.modelSettings || {}) => {
-    const nextRows = pricingRows.map((row) => {
+    const nextRows = editablePricingRows.map((row) => {
       const purchaseInput = row.purchaseEditable
         ? detail?.querySelector(`tr[data-row-key="${CSS.escape(row._pricingKey)}"] [data-f="purchaseUsdPerSecond"]`)
         : null;
@@ -6897,15 +6978,36 @@ async function renderPricing() {
     await renderPricing();
   };
 
+  const movePricingModel = async (modelKey, direction) => {
+    const tabModels = modelsInTab();
+    const index = tabModels.findIndex((model) => model.key === modelKey);
+    const targetIndex = index + direction;
+    if (index < 0 || targetIndex < 0 || targetIndex >= tabModels.length) return;
+    [tabModels[index], tabModels[targetIndex]] = [tabModels[targetIndex], tabModels[index]];
+    const nextSettings = { ...(pricing.modelSettings || {}) };
+    tabModels.forEach((model, order) => {
+      nextSettings[model.key] = {
+        ...pricingModelSetting(pricing, model.key),
+        order,
+      };
+    });
+    try {
+      await savePricing(nextSettings);
+    } catch (err) {
+      toast(err.message || "保存模型顺序失败。", "error");
+    }
+  };
+
   byId("pricingModelSearch")?.addEventListener("input", (event) => {
     const query = String(event.target.value || "").trim().toLowerCase();
     byId("pricingModelList")?.querySelectorAll(":scope > [data-pricing-model]").forEach((card) => {
       const model = modelGroups.get(card.dataset.pricingModel);
       const text = [
         pricingModelFilterLabel(model.row, pricing),
-        pricingModelSubtitle(model.row, pricing),
         model.key,
-      ].join(" ").toLowerCase();
+        model.row.model,
+        model.row.provider,
+      ].filter(Boolean).join(" ").toLowerCase();
       card.hidden = Boolean(query) && !text.includes(query);
     });
   });
@@ -6915,17 +7017,16 @@ async function renderPricing() {
     const group = modelGroups.get(modelKey);
     if (!group) return;
     const current = { ...pricingModelSetting(pricing, modelKey) };
+    const currentOrder = pricingModelOrder(group.row, pricing);
     const result = await openDialog({
       title: "配置模型展示与折扣",
       confirmText: "保存配置",
       body: `
-        <div class="adm-form-row"><label><span>显示名称</span><input id="pricingModelDisplayName" maxlength="80" value="${escapeHtml(current.displayName || pricingModelFilterLabel(group.row, pricing))}" placeholder="${escapeHtml(PRICING_MODEL_DEFAULT_LABELS[modelKey] || group.row.providerLabel || modelKey)}" /></label></div>
-        <div class="adm-form-row"><label><span>副标题</span><input id="pricingModelSubtitle" maxlength="160" value="${escapeHtml(current.subtitle || group.row.modelSubtitle || "")}" placeholder="例如：高质量视频生成" /></label></div>
+        <div class="adm-form-row"><label><span>主标题 / 显示名称</span><input id="pricingModelDisplayName" maxlength="80" value="${escapeHtml(current.displayName || pricingModelFilterLabel(group.row, pricing))}" placeholder="${escapeHtml(PRICING_MODEL_DEFAULT_LABELS[modelKey] || group.row.providerLabel || modelKey)}" /></label></div>
         <div class="adm-form-row"><label><span>模型折扣（对外售价倍率）</span><input id="pricingModelDiscount" type="number" min="0.01" max="10" step="0.0001" value="${escapeHtml(fmtPrice(current.discount ?? 1, 4))}" /></label><small class="adm-muted">例如 0.9 表示 9 折，1 表示原价。只乘对外售价，不影响采购价。</small></div>
       `,
       onConfirm: async () => {
         const displayName = String(byId("pricingModelDisplayName")?.value || "").trim();
-        const subtitle = String(byId("pricingModelSubtitle")?.value || "").trim();
         const discount = Number(byId("pricingModelDiscount")?.value || 0);
         if (!(discount >= 0.01 && discount <= 10)) {
           toast("模型折扣必须在 0.01 到 10 之间。", "error");
@@ -6933,7 +7034,12 @@ async function renderPricing() {
         }
         const nextSettings = {
           ...(pricing.modelSettings || {}),
-          [modelKey]: { displayName, subtitle, discount },
+          [modelKey]: {
+            ...current,
+            displayName,
+            discount,
+            ...(currentOrder === null ? {} : { order: currentOrder }),
+          },
         };
         try {
           await savePricing(nextSettings);
@@ -6947,6 +7053,17 @@ async function renderPricing() {
   };
 
   pricingLayout?.addEventListener("click", async (event) => {
+    const tabButton = event.target.closest("[data-pricing-tab]");
+    if (tabButton) {
+      event.preventDefault();
+      state.pricingTab = tabButton.dataset.pricingTab;
+      const tabModels = modelsInTab();
+      if (!tabModels.some((model) => model.key === state.pricingModelKey)) {
+        state.pricingModelKey = tabModels[0]?.key || "";
+      }
+      renderModelList();
+      return;
+    }
     const configButton = event.target.closest("[data-pricing-config]");
     if (configButton) {
       event.preventDefault();
@@ -6954,24 +7071,32 @@ async function renderPricing() {
       await openModelConfig(configButton.dataset.pricingConfig);
       return;
     }
+    const moveButton = event.target.closest("[data-pricing-move]");
+    if (moveButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const card = moveButton.closest("[data-pricing-model]");
+      if (card) await movePricingModel(card.dataset.pricingModel, Number(moveButton.dataset.pricingMove || 0));
+      return;
+    }
     const detailButton = event.target.closest("[data-pricing-detail]");
     if (detailButton) {
       event.preventDefault();
       event.stopPropagation();
       renderDetail(detailButton.dataset.pricingDetail);
+      byId("pricingModelList")?.querySelectorAll(":scope > [data-pricing-model]").forEach((card) => {
+        card.classList.toggle("is-active", card.dataset.pricingModel === detailButton.dataset.pricingDetail);
+      });
       return;
     }
     const card = event.target.closest("#pricingModelList > [data-pricing-model]");
-    if (card) renderDetail(card.dataset.pricingModel);
+    if (card) {
+      renderDetail(card.dataset.pricingModel);
+      byId("pricingModelList")?.querySelectorAll(":scope > [data-pricing-model]").forEach((item) => {
+        item.classList.toggle("is-active", item.dataset.pricingModel === card.dataset.pricingModel);
+      });
+    }
   });
-  pricingLayout?.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    const card = event.target.closest("#pricingModelList > [data-pricing-model]");
-    if (!card || event.target.closest("[data-pricing-config], [data-pricing-detail]")) return;
-    event.preventDefault();
-    renderDetail(card.dataset.pricingModel);
-  });
-
   byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
   byId("savePricingBtn")?.addEventListener("click", async () => {
     try {
@@ -6980,7 +7105,7 @@ async function renderPricing() {
       toast(err.message || "保存失败。", "error");
     }
   });
-  renderDetail(state.pricingModelKey);
+  renderModelList();
 }
 
 /* ============ PLATFORM ============ */

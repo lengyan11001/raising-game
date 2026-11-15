@@ -4236,3 +4236,32 @@ CODEX_TASK_STATE.md
 - Preserved the earlier null-safe fix for raw image references: `imageAssets.map((asset) => asset?.id).filter(Boolean)`.
 - Verification: syntax checks and `git diff --check` pass; Flash-focused tests pass `10/10`; full `npm test` passes `1338` with `0` failures and `1` skip. Evidence: `/tmp/raising-full-test-4.log`.
 - Status at record time: uncommitted and not deployed. Old deployment/reverification pending; Live remains untouched.
+- Deployment completed: source/integration commit `65172aaf9d5bb35ca1c392897845b8dead0b6423`; platform release `af71b8999779564654afda9c763e0f478473127d` built from that commit and pushed only to `platform-release`; Old deployed with `scripts/deploy_local.sh --site old`. Remote server HEAD is `af71b899`; service `raising-game-demo` is active/running with `NRestarts=0`; `/api/health` and `/api/readyz` return 200. Remote `live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0` and was not pushed or deployed.
+- Production asset-library verification: a public URL reference created PostgreSQL user asset `asset-1794750293744-7bef4e43` with upstream `assetUri=asset://asset-20261115214453-2br9w`; Flash task `cgt-20261115214454-d84b35` submitted upstream `cgt-20261115214455-49z81`, contained only the asset URI in its stored upstream media payload, succeeded, and settled at `40.3515` credits.
+- Production existing-asset verification: task `cgt-20261115214831-b97c1e` reused that library asset ID without creating a new user asset, submitted only `asset://asset-20261115214453-2br9w` upstream, succeeded, and settled at `40.3515` credits. A first retry `cgt-20261115214650-048fea` hit the upstream audio copyright error, was refunded to `0`, and the unchanged request was retried successfully per the user's stated policy; no copyright filtering or policy handling was added.
+
+## 2026-11-15 Step BW: Create inputs preserved after generation submit
+
+- User reported that clicking Generate cleared the selected media from the asset box, despite the earlier preserve-inputs behavior.
+- Root cause: all five success paths in `platform.create.parts/part-03.js` still called `clearAdvancedCreationInputs()` after the generation request returned. The helper resets the prompt, image references, document reference, Seedance video/audio references, first/last frames, Wan references, and uploaded audio.
+- Fix: removed `clearAdvancedCreationInputs()` from every success path while keeping Result navigation and submission notices. Prompt and selected media now remain available for the next task; failed requests also leave the form unchanged.
+- Added a regression assertion in `test/advanced-custom-ui.test.js` that rejects any success-path `clearAdvancedCreationInputs()` call and verifies submission still transitions to Result.
+- Verification: `node --check platform.create.parts/part-03.js` passes; focused regression passes; full `npm test` passes `1339 / 0 failures / 1 skip`.
+- Status at record time: source fix prepared locally; Old deployment pending. Live remains untouched.
+
+## 2026-11-15 Step BX: Preserve-create-inputs fix deployed to Old
+
+- Integrate the preserve-inputs fix onto the release clone's `old-site` branch as source commit `8ab324b3886349a60879f33b0489a0bac8bf2c24`.
+- Built with `python3 scripts/build_release_snapshot.py --source old-site`; platform release commit is `4e2ca473cbcdd6cc8a6fac8780c308ba470727b7`. Pushed only `platform-release` and deployed only Old with `scripts/deploy_local.sh --site old`.
+- Remote Old `/opt/raising-game-demo` is at `4e2ca47`; `raising-game-demo` is active/running with `NRestarts=0`; the deployed `platform.create.parts/part-03.js` contains no success-path `clearAdvancedCreationInputs()` call.
+- Post-deploy verification: `/api/health` and `/api/readyz` return 200 with ready state; homepage returns 200; public create chunk loads 102015 bytes and has zero success reset calls; `/live.html` remains 404 on Old. Remote `live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`; Live was not pushed or deployed.
+
+## 2026-11-15 Step BY: Pricing model groups, ordering, and single-title presentation prepared
+
+- Removed the visible Seedance 2.5 APiz route plus reverse Vega routes `seedance20-vega` and `seedance25-vega` from admin/public model pricing and the generation model selector while preserving their internal runtime definitions for compatibility. Official `seedance-nsfw` remains visible; independent `seedance25-flash` remains available.
+- Removed model subtitle persistence and rendering. Admin model settings now keep only display name, discount, and integer `order`; public pricing and model-selection labels no longer use subtitle data.
+- Admin pricing is split into Video, Image, and Language tabs. Each tab supports per-model up/down ordering, persists contiguous `order` values in `modelSettings[key].order`, and uses that same order in the frontend model selector. Language adds display-only BytePlus Language and Papaya 1.0 entries without treating them as billable pricing rows.
+- Frontend model options render one model per line as the configured display name plus the native model title (`display name · title`) when they differ.
+- Files changed: `admin.css`, `admin.js`, `platform.create.parts/part-02.js`, `platform.css`, `platform.ui.parts/part-04.js`, `server.parts/part-02.js`, `server.parts/part-39.js`, `test/advanced-pricing.test.js`.
+- Verification: modified JS files pass `node --check`; `git diff --check` passes; focused pricing test passes `32/32`; full `npm test` passes `1341 / 0 failures / 1 skip`. Static review also caught and restored an accidentally removed `pricingModelDiscount()` definition with a regression assertion.
+- Status at record time: source prepared locally; Old deployment pending. Live must remain untouched.

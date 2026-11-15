@@ -450,13 +450,18 @@ function renderConfiguredPricingRows(pricing = {}, packages = []) {
     const current = modelGroups.get(modelKey) || {
       key: modelKey,
       label: String(row.modelDisplayName || publicGenerationDisplayLabel(row.provider) || row.providerLabel || row.provider || row.model || "Model").trim(),
-      subtitle: String(row.modelSubtitle || "").trim(),
+      order: Number.isFinite(Number(row.modelOrder)) ? Number(row.modelOrder) : null,
+      originalIndex: modelGroups.size,
       rows: [],
     };
     current.rows.push(row);
     modelGroups.set(modelKey, current);
   }
-  const models = [...modelGroups.values()];
+  const models = [...modelGroups.values()].sort((left, right) => {
+    const leftOrder = left.order ?? left.originalIndex;
+    const rightOrder = right.order ?? right.originalIndex;
+    return leftOrder - rightOrder || left.originalIndex - right.originalIndex;
+  });
   const selectedKey = models.some((model) => model.key === state.pricingModelKey)
     ? state.pricingModelKey
     : models[0]?.key || "";
@@ -492,7 +497,6 @@ function renderConfiguredPricingRows(pricing = {}, packages = []) {
         <select id="publicPricingModelSelect">
           ${models.map((model) => `<option value="${escapeHtml(model.key)}"${model.key === selectedKey ? " selected" : ""}>${escapeHtml(model.label)}</option>`).join("")}
         </select>
-        ${selected.subtitle ? `<p>${escapeHtml(selected.subtitle)}</p>` : ""}
       </div>
       <div class="pricing-shot-table-wrap">
         <table class="pricing-shot-table">

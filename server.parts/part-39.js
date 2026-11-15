@@ -14,9 +14,48 @@ function publicPricingModelVisible(row = {}) {
   const provider = normalizeAdvancedProvider(row.provider);
   // These routes stay available internally but are not model choices on the
   // public generation page. Keep their pricing configs for admin/runtime use.
-  if (provider === "seedance25" || provider === "seedance20-vega") return false;
+  if (["seedance25", "seedance20-vega", "seedance25-vega"].includes(provider)) return false;
   return publicAdvancedPricingRowVisible({ ...row, provider });
 }
+
+function advancedPricingModelGroup(row = {}) {
+  const provider = String(row.provider || "").trim().toLowerCase();
+  const modelKey = String(row.modelKey || advancedPricingModelKey(provider, row) || provider || row.key || "").trim().toLowerCase();
+  if (["byteplus-language", "papaya", "qwen37-flash"].includes(modelKey) || modelKey.startsWith("qwen37") || modelKey.includes("language")) {
+    return "language";
+  }
+  if (
+    ["z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image", "wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
+    || ["z-image-spicy-pro", "qwen-image-edit-spicy", "seedream55-image", "seedream5-image"].includes(modelKey)
+    || modelKey.startsWith("qwen-image3")
+  ) {
+    return "image";
+  }
+  return "video";
+}
+
+const ADVANCED_PRICING_DISPLAY_ONLY_MODELS = [
+  {
+    key: "byteplus-language",
+    provider: "byteplus-language",
+    providerLabel: "BytePlus Language",
+    model: "byteplus-language",
+    modelKey: "byteplus-language",
+    resolution: "text",
+    unit: "language",
+    pricingDisplayOnly: true,
+  },
+  {
+    key: "papaya",
+    provider: "papaya",
+    providerLabel: "Papaya 1.0",
+    model: "papaya",
+    modelKey: "papaya",
+    resolution: "text",
+    unit: "language",
+    pricingDisplayOnly: true,
+  },
+];
 
 function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
   const normalized = normalizeAdvancedPricing(pricing);
@@ -55,7 +94,6 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
         model: row.model || "",
         modelKey,
         modelDisplayName: modelSetting.displayName,
-        modelSubtitle: modelSetting.subtitle,
         modelDiscount: modelSetting.discount,
         configuredSaleCreditsPerUnit,
         resolution: row.resolution,
@@ -78,7 +116,6 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
         model: normalized.wan27ImagePro.model,
         modelKey,
         modelDisplayName: modelSetting.displayName,
-        modelSubtitle: modelSetting.subtitle,
         modelDiscount: modelSetting.discount,
         configuredSaleCreditsPerUnit,
         resolution: "1K / 2K",
@@ -107,7 +144,6 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
         model: imagePricing.model || modelKey,
         modelKey,
         modelDisplayName: modelSetting.displayName,
-        modelSubtitle: modelSetting.subtitle,
         modelDiscount: modelSetting.discount,
         configuredSaleCreditsPerUnit,
         resolution: "1K / 2K",
@@ -133,7 +169,6 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
         model: SEEDREAM55_ENDPOINT_ID,
         modelKey,
         modelDisplayName: modelSetting.displayName,
-        modelSubtitle: modelSetting.subtitle,
         modelDiscount: modelSetting.discount,
         configuredSaleCreditsPerUnit,
         resolution,
@@ -159,7 +194,6 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
         model: SEEDREAM55_ENDPOINT_ID,
         modelKey,
         modelDisplayName: modelSetting.displayName,
-        modelSubtitle: modelSetting.subtitle,
         modelDiscount: modelSetting.discount,
         configuredSaleCreditsPerUnit,
         resolution: "reference",
@@ -185,7 +219,6 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
         model: "seedream-5.0-pro",
         modelKey,
         modelDisplayName: modelSetting.displayName,
-        modelSubtitle: modelSetting.subtitle,
         modelDiscount: modelSetting.discount,
         configuredSaleCreditsPerUnit,
         resolution,
@@ -211,7 +244,6 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
         model: "seedream-5.0-pro",
         modelKey,
         modelDisplayName: modelSetting.displayName,
-        modelSubtitle: modelSetting.subtitle,
         modelDiscount: modelSetting.discount,
         configuredSaleCreditsPerUnit,
         resolution: "reference",
@@ -236,8 +268,7 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
             model: QWEN_IMAGE3_MODELS[tier],
             modelKey,
             modelDisplayName: modelSetting.displayName,
-            modelSubtitle: modelSetting.subtitle,
-            modelDiscount: modelSetting.discount,
+                modelDiscount: modelSetting.discount,
             configuredSaleCreditsPerUnit,
             resolution,
             rateKind: "output",
@@ -255,8 +286,7 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
             model: QWEN_IMAGE3_MODELS[tier],
             modelKey,
             modelDisplayName: modelSetting.displayName,
-            modelSubtitle: modelSetting.subtitle,
-            modelDiscount: modelSetting.discount,
+                modelDiscount: modelSetting.discount,
             configuredSaleCreditsPerUnit,
             resolution: "reference",
             rateKind: "input",
@@ -269,7 +299,14 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
     }),
   ].filter(publicPricingModelVisible);
 
-  return [...rows, ...imageRows];
+  return [...rows, ...imageRows].map((row) => {
+    const modelKey = String(row.modelKey || advancedPricingModelKey(row.provider, row) || row.provider || row.key || "").trim().toLowerCase();
+    return {
+      ...row,
+      modelGroup: advancedPricingModelGroup(row),
+      modelOrder: advancedModelSetting(normalized, modelKey).order,
+    };
+  });
 }
 
 function pricingPayloadError(message, code = "INVALID_PRICING_ROWS") {
@@ -936,7 +973,6 @@ async function adminAdvancedPricingView(config = {}) {
       pricingVisible: publicPricingModelVisible(row),
       modelKey,
       modelDisplayName: modelSetting.displayName,
-      modelSubtitle: modelSetting.subtitle,
       modelDiscount: modelSetting.discount,
       configuredSaleCreditsPerSecond,
       configuredSaleUsdPerSecond: pricingNumber(configuredSaleCreditsPerSecond / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
@@ -971,7 +1007,6 @@ async function adminAdvancedPricingView(config = {}) {
       pricingVisible: publicPricingModelVisible({ provider: rowKey }),
       modelKey,
       modelDisplayName: modelSetting.displayName,
-      modelSubtitle: modelSetting.subtitle,
       modelDiscount: modelSetting.discount,
       configuredSaleCreditsPerSecond: configuredSaleCredits,
       configuredSaleUsdPerSecond: pricingNumber(configuredSaleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
@@ -999,7 +1034,6 @@ async function adminAdvancedPricingView(config = {}) {
       pricingVisible: publicPricingModelVisible({ provider: "seedream55-image" }),
       modelKey: "seedream55-image",
       modelDisplayName: advancedModelSetting(pricing, "seedream55-image").displayName,
-      modelSubtitle: advancedModelSetting(pricing, "seedream55-image").subtitle,
       modelDiscount: advancedModelSetting(pricing, "seedream55-image").discount,
       configuredSaleCreditsPerSecond: pricingNumber(advancedSaleSeedream55Credits({ ...pricing, modelSettings: {} }, resolution), 0, 0, 6),
       configuredSaleUsdPerSecond: pricingNumber(advancedSaleSeedream55Credits({ ...pricing, modelSettings: {} }, resolution) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
@@ -1025,7 +1059,6 @@ async function adminAdvancedPricingView(config = {}) {
       pricingVisible: publicPricingModelVisible({ provider: "seedream55-image" }),
       modelKey: "seedream55-image",
       modelDisplayName: advancedModelSetting(pricing, "seedream55-image").displayName,
-      modelSubtitle: advancedModelSetting(pricing, "seedream55-image").subtitle,
       modelDiscount: advancedModelSetting(pricing, "seedream55-image").discount,
       configuredSaleCreditsPerSecond: pricingNumber(advancedSaleSeedream55ReferenceCredits({ ...pricing, modelSettings: {} }), 0, 0, 6),
       configuredSaleUsdPerSecond: pricingNumber(advancedSaleSeedream55ReferenceCredits({ ...pricing, modelSettings: {} }) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
@@ -1055,7 +1088,6 @@ async function adminAdvancedPricingView(config = {}) {
       pricingVisible: publicPricingModelVisible({ provider: "seedream5-image" }),
       modelKey: "seedream5-image",
       modelDisplayName: advancedModelSetting(pricing, "seedream5-image").displayName,
-      modelSubtitle: advancedModelSetting(pricing, "seedream5-image").subtitle,
       modelDiscount: advancedModelSetting(pricing, "seedream5-image").discount,
       configuredSaleCreditsPerSecond: pricingNumber(advancedSaleSeedream5Credits({ ...pricing, modelSettings: {} }, resolution), 0, 0, 6),
       configuredSaleUsdPerSecond: pricingNumber(advancedSaleSeedream5Credits({ ...pricing, modelSettings: {} }, resolution) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
@@ -1085,7 +1117,6 @@ async function adminAdvancedPricingView(config = {}) {
       pricingVisible: publicPricingModelVisible({ provider: "seedream5-image" }),
       modelKey: "seedream5-image",
       modelDisplayName: advancedModelSetting(pricing, "seedream5-image").displayName,
-      modelSubtitle: advancedModelSetting(pricing, "seedream5-image").subtitle,
       modelDiscount: advancedModelSetting(pricing, "seedream5-image").discount,
       configuredSaleCreditsPerSecond: pricingNumber(advancedSaleSeedream5ReferenceCredits({ ...pricing, modelSettings: {} }), 0, 0, 6),
       configuredSaleUsdPerSecond: pricingNumber(advancedSaleSeedream5ReferenceCredits({ ...pricing, modelSettings: {} }) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
@@ -1120,7 +1151,6 @@ async function adminAdvancedPricingView(config = {}) {
         pricingVisible: publicPricingModelVisible({ provider: "qwen-image3", modelKey }),
         modelKey,
         modelDisplayName: modelSetting.displayName,
-        modelSubtitle: modelSetting.subtitle,
         modelDiscount: modelSetting.discount,
         configuredSaleCreditsPerSecond: configuredSaleCredits,
         configuredSaleUsdPerSecond: pricingNumber(configuredSaleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
@@ -1153,7 +1183,6 @@ async function adminAdvancedPricingView(config = {}) {
         pricingVisible: publicPricingModelVisible({ provider: "qwen-image3", modelKey }),
         modelKey,
         modelDisplayName: modelSetting.displayName,
-        modelSubtitle: modelSetting.subtitle,
         modelDiscount: modelSetting.discount,
         configuredSaleCreditsPerSecond: configuredSaleCredits,
         configuredSaleUsdPerSecond: pricingNumber(configuredSaleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
@@ -1162,6 +1191,30 @@ async function adminAdvancedPricingView(config = {}) {
         model: QWEN_IMAGE3_MODELS[tier],
       });
     }
+  }
+  for (const displayOnly of ADVANCED_PRICING_DISPLAY_ONLY_MODELS) {
+    if (rows.some((row) => String(row.modelKey || row.provider || "").toLowerCase() === displayOnly.modelKey)) continue;
+    const modelSetting = advancedModelSetting(pricing, displayOnly.modelKey);
+    rows.push({
+      ...displayOnly,
+      purchaseCreditsPerSecond: null,
+      purchaseUsdPerSecond: null,
+      purchaseSource: "",
+      purchaseMessage: "",
+      purchaseEditable: false,
+      pricingVisible: true,
+      modelDisplayName: modelSetting.displayName,
+      modelDiscount: modelSetting.discount,
+      configuredSaleCreditsPerSecond: null,
+      configuredSaleUsdPerSecond: null,
+      saleCreditsPerSecond: null,
+      saleUsdPerSecond: null,
+    });
+  }
+  for (const row of rows) {
+    const modelKey = String(row.modelKey || advancedPricingModelKey(row.provider, row) || row.provider || row.key || "").trim().toLowerCase();
+    row.modelGroup = advancedPricingModelGroup(row);
+    row.modelOrder = advancedModelSetting(pricing, modelKey).order;
   }
   return {
     unit: "credits",
