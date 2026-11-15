@@ -14,7 +14,7 @@ test("custom generation exposes video, image, conversation in requested order", 
 
 test("custom model selector filters models by the selected generation kind", () => {
   const create = read("platform.create.js");
-  assert.match(create, /if \(kind === "image"\) return \["wan27-image-edit", "seedream5-image", "qwen-image3", "z-image-spicy-pro", "qwen-image-edit-spicy"\]\.includes\(provider\)/);
+  assert.match(create, /if \(kind === "image"\) return \["wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3", "z-image-spicy-pro", "qwen-image-edit-spicy"\]\.includes\(provider\)/);
   assert.match(create, /if \(kind === "conversation"\) return \["byteplus-language", "papaya", "qwen37-flash"\]\.includes\(provider\)/);
   assert.match(create, /otherMediaKindHidden \|\| permanentlyHidden/);
   assert.match(create, /group\.hidden = !Array\.from\(group\.querySelectorAll\("option"\)\)\.some/);

@@ -672,6 +672,7 @@ function bindAdvancedPromptResizeHandle() {
 function restoreRecordProvider(record = {}) {
   const params = recordParams(record);
   const imageProviders = new Set([
+    "seedream55-image",
     "seedream5-image",
     "qwen-image3",
     "z-image-spicy-pro",
@@ -713,6 +714,7 @@ function restoreRecordImageLimit(record = {}) {
   const params = recordParams(record);
   const capability = String(params.videoCapability || record.mediaMode || "").trim();
   if (provider === "qwen-image3") return ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT;
+  if (provider === "seedream55-image") return ADVANCED_SEEDREAM55_REFERENCE_LIMIT;
   if (provider === "wan30") return ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;
   if (provider === "seedance25-vega") return vegaReferenceLimits(provider).images;
   if (["seedance25", "seedance-nsfw"].includes(provider)) return ADVANCED_SEEDANCE25_IMAGE_REFERENCE_LIMIT;
@@ -2163,6 +2165,7 @@ function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "wan27-image-edit" || isAdvancedImageProvider(normalizedProvider)) return images.slice(0, (normalizedProvider === "qwen-image-edit-spicy" || normalizedProvider === "wan27-image-edit") && advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (normalizedProvider === "qwen-image3") return images.slice(0, ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT);
+  if (normalizedProvider === "seedream55-image") return images.slice(0, ADVANCED_SEEDREAM55_REFERENCE_LIMIT);
   if (normalizedProvider === "seedream5-image") return images.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (normalizedProvider === "wan30") return images.slice(0, ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT);
   if (["wan27", "happyhorse"].includes(normalizedProvider)) return images.slice(0, advancedAliyunReferenceImageLimit());

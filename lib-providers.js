@@ -14,6 +14,18 @@ const {
   vegaProviderDefinition,
 } = require("./tencent-vod-vega");
 
+function isSeedream55ImageProvider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return [
+    "seedream55",
+    "seedream55image",
+    "seedream5.5",
+    "seedream5.5image",
+    "dolaseedream55261028",
+    "ep20261115092454jlm4p",
+  ].includes(normalized) || normalized.includes("seedream55") || normalized.includes("seedream5.5");
+}
+
 function isSeedream5ImageProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   return [
@@ -60,6 +72,7 @@ function normalizeAdvancedProvider(value = "") {
   if (isByteplusLanguageProvider(value)) return "byteplus-language";
   if (isQwen37FlashProvider(value)) return "qwen37-flash";
   if (isQwenImage3Provider(value)) return "qwen-image3";
+  if (isSeedream55ImageProvider(value)) return "seedream55-image";
   if (isSeedream5ImageProvider(value)) return "seedream5-image";
   if (["zimagespicypro", "zimagespicy", "zimagepro", "zimage", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return "z-image-spicy-pro";
   if (["qwenimageeditspicy", "qwenimageeditspic", "qwenimageedit", "qwenimageeditspicpro"].includes(normalized) || normalized.includes("qwenimageedit")) return "qwen-image-edit-spicy";
@@ -86,6 +99,7 @@ function publicProviderId(value = "") {
   if (isByteplusLanguageProvider(raw)) return "byteplus-language";
   if (isQwen37FlashProvider(raw)) return "qwen37-flash";
   if (isQwenImage3Provider(raw)) return "qwen-image3";
+  if (isSeedream55ImageProvider(raw)) return "seedream55-image";
   if (isSeedream5ImageProvider(raw)) return "seedream5-image";
   if (["zimagespicypro", "zimagespicy", "zimagepro", "zimage", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return "z-image-spicy-pro";
   if (["qwenimageeditspicy", "qwenimageeditspic", "qwenimageedit", "qwenimageeditspicpro"].includes(normalized) || normalized.includes("qwenimageedit")) return "qwen-image-edit-spicy";
@@ -106,6 +120,7 @@ function publicProviderLabel(value = "") {
   if (id === "byteplus-language") return "BytePlus Language";
   if (id === "qwen37-flash") return "Qwen3.7 Flash";
   if (id === "qwen-image3") return "Qwen Image 3.0";
+  if (id === "seedream55-image") return "Seedream 5.5";
   if (id === "seedream5-image") return "Seedream 5.0 Image";
   if (id === "z-image-spicy-pro") return "Z-Image Spicy Pro";
   if (id === "qwen-image-edit-spicy") return "Qwen Image Edit Spicy";
@@ -243,6 +258,7 @@ function normalizeSeedanceTier(value = "") {
 }
 
 module.exports = {
+  isSeedream55ImageProvider,
   isSeedream5ImageProvider,
   isQwenImage3Provider,
   isQwen37FlashProvider,

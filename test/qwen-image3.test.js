@@ -149,7 +149,7 @@ test("Advanced exposes Qwen Image 3.0 with multi-reference input and complete pa
   assert.match(platformHtml, /<option value="qwen-image3">Qwen Image 3\.0<\/option>/);
   assert.match(platformHtml, /id="advancedQwenTier"/);
   assert.match(platformHtml, /id="advancedQwenOutputCount"/);
-  assert.match(platformCreateSource, /provider === "qwen-image3" \? ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT/);
+  assert.match(platformCreateSource, /if \(provider === "qwen-image3"\) return ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT/);
   assert.match(platformCreateSource, /prompt_extend: els\.advancedQwenPromptExtend/);
   assert.match(platformCreateSource, /watermark: els\.advancedQwenWatermark/);
 });

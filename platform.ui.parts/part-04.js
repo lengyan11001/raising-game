@@ -333,6 +333,13 @@ function advancedCostLabel(duration, provider = "seedance", resolution = "720p",
     const tier = String(pricing.qwenTier || options.qwenTier || "pro") === "standard" ? "Standard" : "Pro";
     return `${t("cost.credits", { credits: formatCredits(pricing.credits) })} - ${tier} ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)}`;
   }
+  if (normalizeAdvancedProvider(provider) === "seedream55-image") {
+    const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
+    const pricing = state.advancedEstimate && state.advancedEstimateKey === key
+      ? state.advancedEstimate
+      : advancedPricing(duration, provider, resolution, ratio, options);
+    return `${t("cost.credits", { credits: formatCredits(pricing.credits) })} - ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)}`;
+  }
   if (normalizeAdvancedProvider(provider) === "seedream5-image") {
     const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
     const pricing = state.advancedEstimate && state.advancedEstimateKey === key
@@ -564,6 +571,11 @@ function renderPricing() {
       note: "仅上传参考视频时叠加",
     };
   };
+  const seedream55Price = (resolution) => publicPricingCredits(advancedPricing(1, "seedream55-image", resolution, "1:1", { referenceImageCount: 0 }));
+  const seedream55ReferenceExtra = creditsAmount(
+    Number(state.config?.platform?.advancedPricing?.seedream55Image?.saleUsdPerReferenceImage ?? ADVANCED_SEEDREAM55_REFERENCE_USD_PER_IMAGE)
+    * creditsPerUsd
+  );
   const seedreamPrice = (resolution) => publicPricingCredits(advancedPricing(1, "seedream5-image", resolution, "1:1", { referenceImageCount: 0 }));
   const seedreamReferenceExtra = creditsAmount(
     Number(state.config?.platform?.advancedPricing?.seedream5Image?.pro?.referenceUsdPerImageAfterFirst ?? ADVANCED_SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST)
@@ -588,6 +600,22 @@ function renderPricing() {
       spec: "1K / 2K",
       unit: `${publicCredits(assetImageModifyCostCredits())}/张`,
       common: `单张 ${publicCredits(assetImageModifyCostCredits())}`,
+    },
+    {
+      category: "图片生成",
+      model: "Seedream 5.5",
+      spec: "1K",
+      unit: `${publicCredits(seedream55Price("1K"))}/张`,
+      common: `单张 ${publicCredits(seedream55Price("1K"))}`,
+      note: `每张参考图 +${publicCredits(seedream55ReferenceExtra)}/张`,
+    },
+    {
+      category: "图片生成",
+      model: "Seedream 5.5",
+      spec: "2K",
+      unit: `${publicCredits(seedream55Price("2K"))}/张`,
+      common: `单张 ${publicCredits(seedream55Price("2K"))}`,
+      note: `每张参考图 +${publicCredits(seedream55ReferenceExtra)}/张`,
     },
     {
       category: "图片生成",
@@ -659,7 +687,7 @@ function advancedButtonCostLabel(duration, provider = "seedance", resolution = "
   }
   const fullLabel = advancedCostLabel(duration, provider, resolution, ratio, options);
   if (state.advancedCreateKind === "custom") return fullLabel;
-  if (["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"].includes(normalizedProvider)) return fullLabel;
+  if (["seedream55-image", "seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"].includes(normalizedProvider)) return fullLabel;
   if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(normalizedProvider)) return assetImageModifyCostLabel();
   const pricing = state.advancedEstimate && state.advancedEstimateKey === advancedEstimateKey(duration, provider, resolution, ratio, options)
     ? state.advancedEstimate
@@ -687,6 +715,14 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
       normalizeVideoRatio(ratio),
       Math.max(0, Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("qwen-image3").length) || 0),
       Math.max(1, Number(options.outputImageCount ?? els.advancedQwenOutputCount?.value ?? 1) || 1),
+      Number(state.user?.pricingMultiplier || 1),
+    ].join("|");
+  }
+  if (normalizedProvider === "seedream55-image") {
+    return [
+      normalizedProvider,
+      normalizeAdvancedResolution(resolution, normalizedProvider),
+      Math.max(0, Math.min(ADVANCED_SEEDREAM55_REFERENCE_LIMIT, Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("seedream55-image").length) || 0)),
       Number(state.user?.pricingMultiplier || 1),
     ].join("|");
   }
@@ -858,7 +894,7 @@ function updateAdvancedButtonCost() {
     temperature: ["qwen37-flash", "byteplus-language", "papaya"].includes(provider) ? Number(els.advancedQwen37Temperature?.value || 0.7) : undefined,
     referenceImageCount: ["vega10-lite", "seedance20-vega"].includes(provider)
       ? selectedAdvancedReferenceImages(provider).length
-      : ["seedream5-image", "qwen-image3"].includes(provider)
+      : ["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
       ? selectedAdvancedReferenceImages(provider).length
       : 0,
     videoCapability,

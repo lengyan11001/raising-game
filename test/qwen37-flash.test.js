@@ -42,7 +42,7 @@ test("Qwen3.7 Flash bills from actual token usage and exposes text results", () 
   assert.match(create, /function bindAdvancedResultCardEvents\(card\)[\s\S]*?querySelectorAll\("\[data-advanced-result-copy\]"\)/);
   assert.match(create, /function reconcileAdvancedResultCards\(records = \[\]\)[\s\S]*?bindAdvancedResultCardEvents\(card\)/);
   assert.match(create, /function renderAdvancedResultPanel\(\)[\s\S]*?reconcileAdvancedResultCards\(records\)/);
-  assert.match(ui, /\["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"\]\.includes\(normalizedProvider\)/);
+  assert.match(ui, /\["seedream55-image", "seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language"\]\.includes\(normalizedProvider\)/);
 });
 
 test("Qwen3.7 Flash estimate uses the estimate request parameters", () => {
