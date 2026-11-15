@@ -1,3 +1,11 @@
+## 2026-11-15 Step BU: inactive candidate 4175 verified on immutable release
+
+- Formal candidate-only apply succeeded without moving traffic. `raising-game-demo-b.service` now runs release `06624b279b2c7743e9fb735eff204ce9539060ff` at PID `334836`, with cwd set to that immutable release and `/api/livez` plus `/api/readyz` returning matching clean marker identity and PID.
+- Candidate runtime proves `BACKGROUND_SCHEDULERS_ENABLED=0`, `GENERATION_SUBMIT_QUEUE_ENABLED=0`, and `GENERATION_SUBMIT_WORKER_ENABLED=0`. Its drop-in is `/etc/systemd/system/raising-game-demo-b.service.d/89-release-root.conf`; the erroneous empty double-suffix directory was removed.
+- Primary `raising-game-demo.service` remained on MainPID `317565`, InvocationID `c4ed0b839a75478797958124cebb2d5e`, `NRestarts=0`. Nginx remained on MainPID `3914088`, InvocationID `556af2ad28994b528c1c36272e657848`, `NRestarts=0`.
+- All three public health endpoints returned 200 after the candidate restart. No Nginx reload, traffic switch, database migration, Live release push, or Live deployment occurred.
+- Remote `platform-release=06624b27`; `live-release` remains `f40e7a35`. This source branch records a state-only commit after deployment.
+
 ## 2026-11-15 Step BT: candidate unit drop-in path corrected
 
 - The 4175 apply attempt restarted only the candidate, found no loaded release identity, and automatically restored the previous candidate. Primary MainPID `317565` and Nginx MainPID `3914088` remained unchanged; all three public health endpoints stayed 200.
