@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, "..");
 const application = require("../server");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const platformUi = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
+const platformCreateUi = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
 const adminUi = fs.readFileSync(path.join(root, "admin.js"), "utf8");
 
 test("admin pricing rows use their server definition when saving", () => {
@@ -33,13 +34,55 @@ test("admin pricing uses a model list and detail view without dropping hidden ro
   assert.match(pricingSource, /closest\("#pricingModelList > \[data-pricing-model\]"\)/);
   assert.match(pricingSource, /data-pricing-detail/);
   assert.match(pricingSource, /const visiblePricingRows = pricingRows\.filter\(\(row\) => row\.pricingVisible !== false\)/);
-  assert.match(pricingSource, /const nextRows = pricingRows\.map/);
+  assert.match(pricingSource, /const nextRows = editablePricingRows\.map/);
   assert.match(pricingSource, /detail\?\.querySelector\(`tr\[data-row-key=/);
   assert.match(pricingSource, /body: \{ rows: nextRows, modelSettings: nextSettings \}/);
   assert.match(pricingSource, /data-pricing-config/);
   assert.match(pricingSource, /pricingModelDiscount/);
+  assert.match(adminUi, /function pricingModelDiscount\(/);
+  assert.match(pricingSource, /PRICING_MODEL_GROUPS/);
+  assert.match(pricingSource, /data-pricing-tab/);
+  assert.match(pricingSource, /data-pricing-move/);
+  assert.match(pricingSource, /order,/);
+  assert.doesNotMatch(pricingSource, /pricingModelSubtitle|副标题/);
   assert.doesNotMatch(pricingSource, /id="pricingModelFilter"/);
   assert.doesNotMatch(legacySource, /pricingModelFilter|data-pricing-model/);
+});
+
+test("admin pricing exposes Video, Image, and Language groups while hiding reverse Seedance 2.5 routes", async () => {
+  const admin = await application.adminAdvancedPricingView({});
+  const languageRows = admin.rows.filter((row) => row.pricingDisplayOnly === true);
+  assert.deepEqual(languageRows.map((row) => row.modelKey), ["byteplus-language", "papaya"]);
+  assert.ok(languageRows.every((row) => row.modelGroup === "language" && row.pricingVisible === true));
+  assert.ok(admin.rows.some((row) => row.modelKey === "seedance-nsfw" && row.pricingVisible === true));
+  assert.ok(admin.rows.filter((row) => row.modelKey === "seedance25").every((row) => row.pricingVisible === false));
+  assert.ok(admin.rows.filter((row) => row.modelKey === "seedance25-vega").every((row) => row.pricingVisible === false));
+  assert.ok(admin.rows.filter((row) => row.modelKey === "seedance20-vega").every((row) => row.pricingVisible === false));
+  assert.ok(admin.rows.every((row) => !Object.prototype.hasOwnProperty.call(row, "modelSubtitle")));
+
+  const seeded = await application.adminAdvancedPricingView({
+    platform: {
+      advancedPricing: {
+        modelSettings: {
+          "byteplus-language": { displayName: "BytePlus Custom", order: 2 },
+          "seedance-nsfw": { displayName: "Nascent Official", order: 0 },
+        },
+      },
+    },
+  });
+  assert.equal(seeded.rows.find((row) => row.modelKey === "byteplus-language")?.modelDisplayName, "BytePlus Custom");
+  assert.equal(seeded.rows.find((row) => row.modelKey === "byteplus-language")?.modelGroup, "language");
+  assert.equal(seeded.rows.find((row) => row.modelKey === "byteplus-language")?.modelOrder, 2);
+  assert.equal(seeded.rows.find((row) => row.modelKey === "seedance-nsfw")?.modelOrder, 0);
+});
+
+test("frontend model selector shows configured name plus title and follows admin order", () => {
+  assert.match(platformCreateUi, /function syncAdvancedProviderModelPresentation\(\)/);
+  assert.match(platformCreateUi, /displayName && displayName !== title \? `\$\{displayName\} · \$\{title\}` : displayName \|\| title/);
+  assert.match(platformCreateUi, /advancedProviderModelOrder\(left\.value\)/);
+  assert.match(platformCreateUi, /options\.forEach\(\(option\) => group\.appendChild\(option\)\)/);
+  assert.match(platformCreateUi, /\["happyhorse", "seedance20-vega", "seedance25-vega"\]\.includes\(raw\)/);
+  assert.doesNotMatch(platformUi, /selected\.subtitle|modelSubtitle/);
 });
 
 test("public pricing uses the same configured model rows as the admin", () => {
@@ -68,7 +111,7 @@ test("public and admin pricing list only models visible on the generation page",
   const admin = await application.adminAdvancedPricingView({});
   assert.equal(admin.rows.some((row) => row.key === "vega10-pro-1080p" && row.pricingVisible === false), true);
   assert.equal(admin.rows.some((row) => row.key === "seedance25-480p" && row.pricingVisible === false), true);
-  assert.equal(admin.rows.some((row) => row.key === "vega15-pro-1080p" && row.pricingVisible === true), true);
+  assert.equal(admin.rows.some((row) => row.key === "vega15-pro-1080p" && row.pricingVisible === false), true);
   assert.equal(admin.rows.some((row) => row.key === "seedance-fast-720p" && row.pricingVisible === true), true);
   assert.equal(admin.rows.some((row) => row.key === "z-image-spicy-pro" && row.pricingVisible === true), true);
   assert.equal(admin.rows.some((row) => row.key === "qwen-image-edit-spicy" && row.pricingVisible === true), true);
@@ -145,8 +188,9 @@ test("model discount applies consistently to admin, public, and runtime sale pri
     modelSettings: {
       "seedance20-vega": {
         displayName: "seedance2.0（vega）",
-        subtitle: "测试副标题",
+        subtitle: "旧版副标题应被丢弃",
         discount: 0.9,
+        order: 7,
       },
     },
   };
@@ -154,8 +198,10 @@ test("model discount applies consistently to admin, public, and runtime sale pri
   const adminRow = admin.rows.find((row) => row.key === "vega10-pro-1080p");
   assert.ok(adminRow);
   assert.equal(adminRow.modelDisplayName, "seedance2.0（vega）");
-  assert.equal(adminRow.modelSubtitle, "测试副标题");
+  assert.equal(Object.prototype.hasOwnProperty.call(adminRow, "modelSubtitle"), false);
+  assert.equal(adminRow.modelOrder, 7);
   assert.equal(adminRow.modelDiscount, 0.9);
+  assert.equal(Object.prototype.hasOwnProperty.call(admin.modelSettings["seedance20-vega"], "subtitle"), false);
   assert.equal(adminRow.configuredSaleCreditsPerSecond, 39.93);
   assert.equal(adminRow.saleCreditsPerSecond, 35.937);
   assert.equal(adminRow.purchaseCreditsPerSecond, 26.62);
@@ -456,7 +502,8 @@ test("Vega 1.5 Pro pricing rows cover every resolution with separate reference-v
   const byKey = Object.fromEntries(publicRows.map((row) => [row.key, row]));
   assert.equal(byKey["vega15-pro-768p"], undefined);
   assert.equal(byKey["vega15-pro-video-768p"], undefined);
-  assert.equal(byKey["vega15-pro-video-1080p"].saleCreditsPerUnit, 36.465);
+  assert.equal(byKey["vega15-pro-1080p"], undefined);
+  assert.equal(byKey["vega15-pro-video-1080p"], undefined);
 });
 
 test("Vega 1.5 Pro bills no-reference, reference input, and reference output rates correctly", () => {

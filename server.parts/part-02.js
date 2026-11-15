@@ -1024,11 +1024,13 @@ function normalizeAdvancedModelSettings(value = {}) {
     if (!key) continue;
     const setting = rawSetting && typeof rawSetting === "object" && !Array.isArray(rawSetting) ? rawSetting : {};
     const discount = Number(setting.discount);
-    next[key] = {
+    const order = Number(setting.order);
+    const normalized = {
       displayName: String(setting.displayName || "").trim().slice(0, 80),
-      subtitle: String(setting.subtitle || "").trim().slice(0, 160),
       discount: Number.isFinite(discount) && discount >= 0.01 && discount <= 10 ? Math.round(discount * 10000) / 10000 : 1,
     };
+    if (Number.isFinite(order) && order >= 0) normalized.order = Math.floor(Math.min(999999, order));
+    next[key] = normalized;
   }
   return next;
 }
@@ -1038,10 +1040,11 @@ function advancedModelSetting(pricing = {}, modelKey = "") {
   const settings = pricing?.modelSettings && typeof pricing.modelSettings === "object" ? pricing.modelSettings : {};
   const setting = settings[key] && typeof settings[key] === "object" ? settings[key] : {};
   const discount = Number(setting.discount);
+  const order = Number(setting.order);
   return {
     displayName: String(setting.displayName || "").trim(),
-    subtitle: String(setting.subtitle || "").trim(),
     discount: Number.isFinite(discount) && discount >= 0.01 && discount <= 10 ? discount : 1,
+    order: Number.isFinite(order) && order >= 0 ? Math.floor(order) : null,
   };
 }
 

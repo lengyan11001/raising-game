@@ -731,8 +731,50 @@ function advancedProviderMatchesCustomKind(value = "", kind = state.advancedCust
   return ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance", "seedance-fast", "seedance25", "seedance25-flash"].includes(provider) || isVegaProviderId(provider);
 }
 
+function advancedProviderModelSettingKey(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "seedance") return "seedance-standard";
+  if (raw === "qwen-image3") return "qwen-image3-pro";
+  return raw;
+}
+
+function advancedProviderModelSetting(value = "") {
+  const key = advancedProviderModelSettingKey(value);
+  const settings = state.config?.platform?.advancedPricing?.modelSettings;
+  const setting = settings && typeof settings === "object" ? settings[key] : null;
+  return setting && typeof setting === "object" ? setting : {};
+}
+
+function advancedProviderModelOrder(value = "") {
+  const raw = advancedProviderModelSetting(value).order;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const order = Number(raw);
+  return Number.isFinite(order) && order >= 0 ? Math.floor(order) : null;
+}
+
+function syncAdvancedProviderModelPresentation() {
+  if (!els.advancedProvider) return;
+  els.advancedProvider.querySelectorAll("option").forEach((option) => {
+    if (!option.dataset.defaultTitle) option.dataset.defaultTitle = String(option.textContent || "").trim();
+    if (option.dataset.defaultIndex === undefined) option.dataset.defaultIndex = String(Array.from(option.parentElement?.querySelectorAll(":scope > option") || []).indexOf(option));
+    const title = String(option.dataset.defaultTitle || "").trim();
+    const displayName = String(advancedProviderModelSetting(option.value).displayName || "").trim();
+    option.textContent = displayName && displayName !== title ? `${displayName} · ${title}` : displayName || title;
+  });
+  els.advancedProvider.querySelectorAll("optgroup").forEach((group) => {
+    const options = Array.from(group.querySelectorAll(":scope > option"));
+    options.sort((left, right) => {
+      const leftValue = advancedProviderModelOrder(left.value) ?? Number(left.dataset.defaultIndex || 0);
+      const rightValue = advancedProviderModelOrder(right.value) ?? Number(right.dataset.defaultIndex || 0);
+      return leftValue - rightValue || Number(left.dataset.defaultIndex || 0) - Number(right.dataset.defaultIndex || 0);
+    });
+    options.forEach((option) => group.appendChild(option));
+  });
+}
+
 function syncAdvancedProviderExposure() {
   if (!els.advancedProvider) return;
+  syncAdvancedProviderModelPresentation();
   const hiddenProviders = new Set(["wan30", "wan27", "wan-animate", "happyhorse", "wan27-image-edit", "qwen-image3"]); // z-image-spicy-pro / qwen-image-edit-spicy stay visible
   const enabled = publicAliyunModelsEnabled();
   const wan30Enabled = publicWan30ModelsEnabled();
@@ -746,7 +788,7 @@ function syncAdvancedProviderExposure() {
     const raw = String(option.value || "").trim().toLowerCase();
     // Keep HappyHorse hidden on the old site, but expose Wan 3.0 Prime along
     // with Wan 3.0 when that tenant feature is enabled.
-    const permanentlyHidden = raw === "happyhorse";
+    const permanentlyHidden = ["happyhorse", "seedance20-vega", "seedance25-vega"].includes(raw);
     const primeHidden = raw === "wan30-prime" && !wan30Enabled;
     // Only show models belonging to the selected video/image/conversation tab.
     const otherMediaKindHidden = !advancedProviderMatchesCustomKind(raw, selectedMediaKind);
@@ -762,7 +804,7 @@ function syncAdvancedProviderExposure() {
   });
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
   const modeProvider = state.advancedCreateKind === "custom" ? "" : String(advancedCreateModeConfig()?.provider || "").trim().toLowerCase();
-  const permanentlyHiddenCurrent = current === "happyhorse" || (current === "wan30-prime" && !wan30Enabled);
+  const permanentlyHiddenCurrent = ["happyhorse", "seedance20-vega", "seedance25-vega"].includes(current) || (current === "wan30-prime" && !wan30Enabled);
   const tenantHiddenCurrent = !enabled && hiddenProviders.has(current) && !(
     (wan30Enabled && isPublicWan30ProviderOption(current))
     || (wan27Enabled && isPublicWan27ProviderOption(current))

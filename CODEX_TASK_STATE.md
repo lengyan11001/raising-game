@@ -4255,3 +4255,13 @@ CODEX_TASK_STATE.md
 - Built with `python3 scripts/build_release_snapshot.py --source old-site`; platform release commit is `4e2ca473cbcdd6cc8a6fac8780c308ba470727b7`. Pushed only `platform-release` and deployed only Old with `scripts/deploy_local.sh --site old`.
 - Remote Old `/opt/raising-game-demo` is at `4e2ca47`; `raising-game-demo` is active/running with `NRestarts=0`; the deployed `platform.create.parts/part-03.js` contains no success-path `clearAdvancedCreationInputs()` call.
 - Post-deploy verification: `/api/health` and `/api/readyz` return 200 with ready state; homepage returns 200; public create chunk loads 102015 bytes and has zero success reset calls; `/live.html` remains 404 on Old. Remote `live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`; Live was not pushed or deployed.
+
+## 2026-11-15 Step BY: Pricing model groups, ordering, and single-title presentation prepared
+
+- Removed the visible Seedance 2.5 APiz route plus reverse Vega routes `seedance20-vega` and `seedance25-vega` from admin/public model pricing and the generation model selector while preserving their internal runtime definitions for compatibility. Official `seedance-nsfw` remains visible; independent `seedance25-flash` remains available.
+- Removed model subtitle persistence and rendering. Admin model settings now keep only display name, discount, and integer `order`; public pricing and model-selection labels no longer use subtitle data.
+- Admin pricing is split into Video, Image, and Language tabs. Each tab supports per-model up/down ordering, persists contiguous `order` values in `modelSettings[key].order`, and uses that same order in the frontend model selector. Language adds display-only BytePlus Language and Papaya 1.0 entries without treating them as billable pricing rows.
+- Frontend model options render one model per line as the configured display name plus the native model title (`display name · title`) when they differ.
+- Files changed: `admin.css`, `admin.js`, `platform.create.parts/part-02.js`, `platform.css`, `platform.ui.parts/part-04.js`, `server.parts/part-02.js`, `server.parts/part-39.js`, `test/advanced-pricing.test.js`.
+- Verification: modified JS files pass `node --check`; `git diff --check` passes; focused pricing test passes `32/32`; full `npm test` passes `1341 / 0 failures / 1 skip`. Static review also caught and restored an accidentally removed `pricingModelDiscount()` definition with a regression assertion.
+- Status at record time: source prepared locally; Old deployment pending. Live must remain untouched.
