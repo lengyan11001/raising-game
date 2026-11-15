@@ -305,17 +305,6 @@ async function handleAdvancedGenerate(req, res) {
       prompt,
     });
   }
-  if (provider === "seedream55-image") {
-    return await handleAdvancedSeedream55ImageGenerate(req, res, {
-      auth,
-      body,
-      bodyParams,
-      caseParams,
-      selectedCase,
-      config,
-      prompt,
-    });
-  }
   if (provider === "seedream5-image") {
     return await handleAdvancedSeedream5ImageGenerate(req, res, {
       auth,
@@ -1367,7 +1356,7 @@ function advancedRegenerateBody(record = {}) {
     resolution: record.resolution || params.resolution || "720p",
     duration: record.duration || params.duration || 5,
   };
-  if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+  if (["seedream5-image", "qwen-image3"].includes(provider)) {
     const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
     const imageItems = mediaAssets
       .filter((asset) => !["video", "audio", "first_clip", "driving_audio"].some((type) => String(asset?.type || "").includes(type)))
@@ -1903,7 +1892,7 @@ async function handleRegenerateGenerationRecord(req, res, taskId) {
     return handleWan27ImageEdit(withJsonBody(req, imageEditRegenerateBody(record)), res);
   }
   const provider = normalizeAdvancedProvider(record.provider || params.provider || "");
-  if (source.includes("advanced") || ["seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+  if (source.includes("advanced") || ["seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image", "qwen-image3"].includes(provider)) {
     return handleAdvancedGenerate(withJsonBody(req, advancedRegenerateBody(record)), res);
   }
   return sendJson(res, 400, { ok: false, message: "This record cannot be regenerated yet." });

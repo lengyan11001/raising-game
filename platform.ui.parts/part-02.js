@@ -1428,7 +1428,6 @@ function normalizeAdvancedProvider(value = "") {
   if (["bytepluslanguage", "arklanguage", "ep202608271225548fsgw"].includes(normalized)) return "byteplus-language";
   if (["qwen37flash", "qwen3.7flash", "qwen3.7flash20260715"].includes(normalized) || normalized.includes("qwen37flash") || normalized.includes("qwen3.7flash")) return "qwen37-flash";
   if (["qwenimage3", "qwenimage30", "qwenimage3pro", "qwenimage30pro"].includes(normalized) || normalized.includes("qwenimage3.0")) return "qwen-image3";
-  if (["seedream55", "seedream55image", "seedream5.5", "seedream5.5image", "dolaseedream55261028", "ep20261115092454jlm4p"].includes(normalized) || normalized.includes("seedream55") || normalized.includes("seedream5.5")) return "seedream55-image";
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return "seedance-nsfw";
   if (["seedancefast", "seedance20fast", "seedance2.0fast", "vipeak2fast", "vp2fast", "ep20260429142538fkm9d"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("fast")) || (normalized.includes("vipeak2") && normalized.includes("fast"))) return "seedance";
@@ -1456,7 +1455,6 @@ function advancedProviderLabel(provider = currentAdvancedProvider()) {
   if (normalized === "byteplus-language") return "BytePlus Language";
   if (normalized === "qwen37-flash") return "Qwen3.7 Flash";
   if (normalized === "qwen-image3") return "Qwen Image 3.0";
-  if (normalized === "seedream55-image") return "Seedream 5.5";
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
   if (normalized === "z-image-spicy-pro") return "Z-Image Spicy Pro";
   if (normalized === "qwen-image-edit-spicy") return "Qwen Image Edit Spicy";
@@ -1556,7 +1554,7 @@ function advancedEngineValueResolved(provider = els.advancedProvider?.value || "
   if (normalizedCapability.startsWith("wan30-")) return "wan30";
   if (normalizedCapability.startsWith("wan27-")) return "wan27";
   const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
-  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance-fast", "seedance25", "seedance-nsfw", "wan30", "wan30-prime", "wan27", "wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(raw)) return raw;
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance-fast", "seedance25", "seedance-nsfw", "wan30", "wan30-prime", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(raw)) return raw;
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
   return normalizeAdvancedProvider(provider);
 }
@@ -1698,7 +1696,6 @@ function normalizeAdvancedResolution(value = "", provider = "seedance") {
     return vegaCapabilities(normalizeAdvancedProvider(provider))?.resolutions.includes(normalized) ? normalized : "1080P";
   }
   if (normalizeAdvancedProvider(provider) === "qwen-image3") return raw === "1k" ? "1K" : "2K";
-  if (normalizeAdvancedProvider(provider) === "seedream55-image") return raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return raw === "1k" ? "1K" : "2K";
   if (["wan27-image-edit", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(normalizeAdvancedProvider(provider))) return raw === "4k" ? "4K" : raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan30") {
@@ -1716,7 +1713,7 @@ function advancedDurationBounds(provider = "seedance", capability = "") {
   const normalized = normalizeAdvancedProvider(provider);
   if (["qwen37-flash", "byteplus-language", "papaya"].includes(normalized)) return { min: 1, max: 1, fallback: 1 };
   if (normalized === "qwen-image3") return { min: 1, max: 1, fallback: 1 };
-  if (["seedream55-image", "seedream5-image"].includes(normalized)) return { min: 1, max: 1, fallback: 1 };
+  if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan27-image-edit" || normalized === "z-image-spicy-pro" || normalized === "qwen-image-edit-spicy") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan30") return { min: -1, max: 30, fallback: 5 };
   if (isVegaProviderId(normalized)) return { ...(VEGA_DURATION_BOUNDS[normalized] || VEGA_DURATION_BOUNDS["seedance25-vega"]) };

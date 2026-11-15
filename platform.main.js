@@ -167,13 +167,9 @@ els.advancedImage?.addEventListener("change", async () => {
     }
     return;
   }
-  if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+  if (["seedream5-image", "qwen-image3"].includes(provider)) {
     try {
-      const imageLimit = provider === "qwen-image3"
-        ? ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT
-        : provider === "seedream55-image"
-        ? ADVANCED_SEEDREAM55_REFERENCE_LIMIT
-        : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+      const imageLimit = provider === "qwen-image3" ? ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
       let skippedWrongType = false;
       let skippedTooLarge = false;
       let skippedTooMany = false;
@@ -1131,11 +1127,6 @@ document.addEventListener("keydown", handleAdvancedParameterKeydown);
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
   const provider = currentAdvancedProvider();
-  const nextImageMode = advancedImageModeForProvider(provider);
-  if (nextImageMode && state.advancedCreateMode !== nextImageMode) {
-    state.advancedCreateMode = nextImageMode;
-    syncAdvancedCreateModeTabState();
-  }
   if (isVegaProviderId(provider)) {
     syncAdvancedSeedanceModeOptions(provider);
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
@@ -1173,12 +1164,10 @@ els.advancedProvider?.addEventListener("change", () => {
     if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = false;
     if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = false;
   }
-  if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(currentAdvancedProvider())) {
-    if (currentAdvancedProvider() === "qwen-image3") {
-      if (els.advancedRatio) els.advancedRatio.value = "1:1";
-      if (els.advancedResolution) els.advancedResolution.value = "2K";
-      if (els.advancedDuration) els.advancedDuration.value = "1";
-    }
+  if (currentAdvancedProvider() === "qwen-image3") {
+    if (els.advancedRatio) els.advancedRatio.value = "1:1";
+    if (els.advancedResolution) els.advancedResolution.value = "2K";
+    if (els.advancedDuration) els.advancedDuration.value = "1";
     state.advancedAssetTarget = "referenceImages";
   }
   if (currentAdvancedProvider() === "qwen-image-edit-spicy") {
@@ -1398,7 +1387,7 @@ els.advancedUploadBox?.addEventListener("click", () => {
     ? (vegaTargets.some((target) => target.id === state.advancedAssetTarget) ? state.advancedAssetTarget : (vegaTargets[0]?.id || "referenceImages"))
     : provider === "wan27-image-edit"
     ? "sourceImages"
-    : ["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
+    : ["seedream5-image", "qwen-image3"].includes(provider)
     ? "referenceImages"
     : provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)
     ? "video"

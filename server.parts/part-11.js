@@ -254,7 +254,7 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, a Vega provider id, seedream5-image, seedream55-image, qwen-image3, qwen37-flash, byteplus-language, or papaya.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, a Vega provider id, seedream5-image, qwen-image3, qwen37-flash, byteplus-language, or papaya.", { provider: value });
   }
 }
 
@@ -305,7 +305,7 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
     }
     return;
   }
-  if (["seedream5-image", "seedream55-image"].includes(normalizeAdvancedProvider(provider)) || normalizeAdvancedProvider(provider) === "z-image-spicy-pro") {
+  if (normalizeAdvancedProvider(provider) === "seedream5-image" || normalizeAdvancedProvider(provider) === "z-image-spicy-pro") {
     if (!["1k", "2k"].includes(raw)) {
       throw advancedValidationError("INVALID_RESOLUTION", `${publicProviderLabel(provider)} resolution must be one of: 1K, 2K.`, { resolution: value, allowed: ["1K", "2K"] });
     }
@@ -517,34 +517,6 @@ function normalizeSeedream5Resolution(value = "") {
   return "2K";
 }
 
-function normalizeSeedream5ImageRatio(value = "") {
-  const ratio = normalizeVideoRatio(value);
-  return new Set(["1:1", "3:4", "4:3", "9:16", "16:9"]).has(ratio) ? ratio : "";
-}
-
-function seedream5ImageSize(resolution = "2K", ratio = "") {
-  const normalizedResolution = normalizeSeedream5Resolution(resolution);
-  const normalizedRatio = normalizeSeedream5ImageRatio(ratio);
-  if (!normalizedRatio) return normalizedResolution;
-  const sizes = {
-    "1K": {
-      "1:1": "1024x1024",
-      "3:4": "864x1152",
-      "4:3": "1152x864",
-      "9:16": "800x1424",
-      "16:9": "1424x800",
-    },
-    "2K": {
-      "1:1": "2048x2048",
-      "3:4": "1776x2368",
-      "4:3": "2368x1776",
-      "9:16": "1584x2816",
-      "16:9": "2816x1584",
-    },
-  };
-  return sizes[normalizedResolution][normalizedRatio];
-}
-
 function seedream5ModelForTier(model = "", tier = "pro") {
   const raw = String(model || "").trim();
   if (raw === SEEDREAM5_LITE_ENDPOINT_ID) return SEEDREAM5_PRO_ENDPOINT_ID;
@@ -719,7 +691,7 @@ function seedanceTokenPricing(options = {}) {
 function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (isVegaProvider(normalizedProvider)) { const bounds = vegaDurationBounds(normalizedProvider); return { fallback: bounds.fallback, min: bounds.min, max: bounds.max }; }
-  if (["seedream5-image", "seedream55-image", "qwen-image3", "qwen37-flash", "byteplus-language", "papaya", "z-image-spicy-pro"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
+  if (["seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language", "papaya", "z-image-spicy-pro"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
   if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizedProvider)) return { fallback: 4, min: 4, max: 30 };
   if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
@@ -944,9 +916,6 @@ function advancedModelPricingRaw(provider = "seedance", options = {}) {
   const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, bounds.min, bounds.max);
   if (normalizedProvider === "qwen-image3") {
     return qwenImage3PricingEstimate(advancedPricing, options);
-  }
-  if (normalizedProvider === "seedream55-image") {
-    return seedream55ImagePricingEstimate(advancedPricing, options);
   }
   if (normalizedProvider === "seedream5-image") {
     return seedream5ImagePricingEstimate(advancedPricing, options);
@@ -1282,56 +1251,6 @@ function seedream5ImagePricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICIN
     credits,
     markup: 1,
     source: "byteplus_seedream5_official_image_pricing",
-  };
-}
-
-function seedream55ImagePricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, options = {}) {
-  const pricing = normalizeAdvancedPricing(advancedPricing);
-  const seedreamPricing = pricing.seedream55Image || DEFAULT_ADVANCED_PRICING.seedream55Image;
-  const resolution = normalizeSeedream5Resolution(options.resolution || options.size || seedreamPricing.defaultResolution || "2K");
-  const referenceImageCount = Math.max(0, Math.floor(Number(firstPresent(
-    options.referenceImageCount,
-    options.imageCount,
-    arrayFromBody(options.referenceImages).length || undefined,
-    arrayFromBody(options.images).length || undefined,
-  ) || 0)));
-  const outputImageCount = Math.max(1, Math.floor(Number(firstPresent(options.n, options.count, options.outputImageCount, 1)) || 1));
-  const outputUsdPerImage = pricingNumber(
-    seedreamPricing.saleUsdPerImageByResolution?.[resolution],
-    DEFAULT_ADVANCED_PRICING.seedream55Image.saleUsdPerImageByResolution[resolution] || SEEDREAM55_2K_USD_PER_IMAGE,
-    0,
-    6,
-  );
-  const referenceUsdPerImage = pricingNumber(
-    seedreamPricing.saleUsdPerReferenceImage,
-    SEEDREAM55_REFERENCE_USD_PER_IMAGE,
-    0,
-    6,
-  );
-  const outputUsd = pricingNumber(outputUsdPerImage * outputImageCount, 0, 0, 6);
-  const referenceUsd = pricingNumber(referenceUsdPerImage * referenceImageCount, 0, 0, 6);
-  const totalUsd = pricingNumber(outputUsd + referenceUsd, 0, 0, 6);
-  const credits = creditsAmount(totalUsd * DEFAULT_CREDITS_PER_USD);
-  return {
-    provider: "seedream55-image",
-    providerLabel: "Seedream 5.5",
-    model: SEEDREAM55_ENDPOINT_ID,
-    resolution,
-    size: resolution,
-    duration: 1,
-    outputImageCount,
-    referenceImageCount,
-    billableReferenceImages: referenceImageCount,
-    outputUsdPerImage,
-    referenceUsdPerImage,
-    outputUsd,
-    referenceUsd,
-    totalUsd,
-    creditsPerUsd: DEFAULT_CREDITS_PER_USD,
-    baseCredits: credits,
-    credits,
-    markup: 1,
-    source: "byteplus_seedream55_official_image_pricing",
   };
 }
 

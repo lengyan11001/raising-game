@@ -513,13 +513,9 @@ async function addAssetToAdvancedTarget(assetId = "") {
         syncSeedanceReferenceMode();
       }
       if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
-    } else if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+    } else if (["seedream5-image", "qwen-image3"].includes(provider)) {
       const ref = stampAdvancedReferenceOrder({ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true });
-      const imageLimit = provider === "qwen-image3"
-        ? ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT
-        : provider === "seedream55-image"
-        ? ADVANCED_SEEDREAM55_REFERENCE_LIMIT
-        : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+      const imageLimit = provider === "qwen-image3" ? ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
       state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, imageLimit);
       state.advancedFirstFrameAssetId = "";
       state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || url;
@@ -726,7 +722,7 @@ function isPublicQwenImage3ProviderOption(value = "") {
 
 function advancedProviderMatchesCustomKind(value = "", kind = state.advancedCustomMediaKind) {
   const provider = String(value || "").trim().toLowerCase();
-  if (kind === "image") return ["wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider);
+  if (kind === "image") return ["wan27-image-edit", "seedream5-image", "qwen-image3", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider);
   if (kind === "conversation") return ["byteplus-language", "papaya", "qwen37-flash"].includes(provider);
   return ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance", "seedance-fast", "seedance25"].includes(provider) || isVegaProviderId(provider);
 }
@@ -811,7 +807,7 @@ function updateAdvancedModelControls() {
   const isImageEdit = isAdvancedImageProvider(provider);
   const isZImageText = provider === "z-image-spicy-pro";
   const isQwenEditImage = provider === "qwen-image-edit-spicy";
-  const isSeedreamImage = ["seedream55-image", "seedream5-image"].includes(provider);
+  const isSeedreamImage = provider === "seedream5-image";
   const isQwenImage = provider === "qwen-image3";
   const isQwenText = ["qwen37-flash", "byteplus-language", "papaya"].includes(provider);
   const isStandaloneImage = isSeedreamImage || isQwenImage;
@@ -914,14 +910,14 @@ function updateAdvancedModelControls() {
       : provider === "wan30" || provider === "seedance-nsfw"
       ? ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"]
       : ["9:16", "16:9", "1:1"];
-    const options = isImageEdit || isSeedreamImage || isQwenImage ? imageRatios : videoRatios;
+    const options = isImageEdit || isQwenImage ? imageRatios : videoRatios;
     if (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) els.advancedRatio.value = "adaptive";
     const fallbackRatio = vegaProvider || provider === "seedance25" ? "16:9" : ["wan30", "seedance-nsfw"].includes(provider) ? "adaptive" : "9:16";
     const rawRatio = String(els.advancedRatio.value || fallbackRatio).trim();
     const current = (["wan30", "seedance-nsfw"].includes(provider) || vegaProvider) && rawRatio.toLowerCase() === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
     els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedRatio.value = fallbackRatio;
-    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isQwenEditImage || isQwenText || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) || vegaDraftFollowup);
+    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isQwenEditImage || isSeedreamImage || isQwenText || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) || vegaDraftFollowup);
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !capabilityNeedsMedia;
@@ -1362,7 +1358,7 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = 
       : provider === "seedance-nsfw" && ["edit", "extend"].includes(mode)
       ? "video"
       : "referenceImages";
-  } else if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+  } else if (["seedream5-image", "qwen-image3"].includes(provider)) {
     state.advancedAssetTarget = "referenceImages";
   } else if (isAdvancedImageProvider(provider)) {
     state.advancedAssetTarget = "sourceImages";
@@ -1380,7 +1376,7 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = 
       ].filter(Boolean).join(",") || advancedCreateUploadAcceptValue()
     : "image/*";
   els.advancedImage.multiple = !characterPresetUpload && (
-    ["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
+    ["seedream5-image", "qwen-image3"].includes(provider)
     || (sharedUpload
       ? (!["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || ""))
       : !advancedCreateModeUsesSingleUpload())

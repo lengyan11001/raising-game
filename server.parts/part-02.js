@@ -1165,9 +1165,6 @@ function normalizeAdvancedPricing(pricing = {}) {
   const rawSeedream5ImageSource = source.seedream5Image && typeof source.seedream5Image === "object" && !Array.isArray(source.seedream5Image)
     ? source.seedream5Image
     : {};
-  const rawSeedream55ImageSource = source.seedream55Image && typeof source.seedream55Image === "object" && !Array.isArray(source.seedream55Image)
-    ? source.seedream55Image
-    : {};
   const rawQwenImage3Source = source.qwenImage3 && typeof source.qwenImage3 === "object" && !Array.isArray(source.qwenImage3)
     ? source.qwenImage3
     : {};
@@ -1263,12 +1260,6 @@ function normalizeAdvancedPricing(pricing = {}) {
     "2K": pricingNumber(migrateSeedreamSaleUsd(firstPresent(sourceMap["2K"], sourceMap["2k"]), SEEDREAM5_PRO_2K_USD_PER_IMAGE), fallbackMap["2K"] ?? SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6),
   });
   const normalizedSeedreamResolutions = ["1K", "2K"];
-  const seedream55Default = DEFAULT_ADVANCED_PRICING.seedream55Image || {};
-  const seedream55Source = { ...rawSeedream55ImageSource };
-  const normalizeSeedream55UsdMap = (sourceMap = {}, fallbackMap = {}, purchaseMap = {}) => ({
-    "1K": pricingNumber(firstPresent(sourceMap["1K"], sourceMap["1k"]), fallbackMap["1K"] ?? SEEDREAM55_1K_USD_PER_IMAGE, 0, 6),
-    "2K": pricingNumber(firstPresent(sourceMap["2K"], sourceMap["2k"]), fallbackMap["2K"] ?? SEEDREAM55_2K_USD_PER_IMAGE, 0, 6),
-  });
   const qwenImage3Default = DEFAULT_ADVANCED_PRICING.qwenImage3 || {};
   const normalizeQwenImage3TierPricing = (tier) => {
     const sourceTier = rawQwenImage3Source[tier] && typeof rawQwenImage3Source[tier] === "object"
@@ -1593,34 +1584,6 @@ function normalizeAdvancedPricing(pricing = {}) {
       defaultResolution: normalizeSeedream5Resolution(seedreamSource.defaultResolution || seedreamDefault.defaultResolution || "2K"),
       defaultTier: "pro",
     },
-    seedream55Image: {
-      ...seedream55Default,
-      ...seedream55Source,
-      model: SEEDREAM55_ENDPOINT_ID,
-      purchaseUsdPerImageByResolution: normalizeSeedream55UsdMap(
-        seedream55Source.purchaseUsdPerImageByResolution,
-        seedream55Default.purchaseUsdPerImageByResolution || {},
-      ),
-      saleUsdPerImageByResolution: normalizeSeedream55UsdMap(
-        seedream55Source.saleUsdPerImageByResolution,
-        seedream55Default.saleUsdPerImageByResolution || {},
-      ),
-      purchaseUsdPerReferenceImage: pricingNumber(
-        seedream55Source.purchaseUsdPerReferenceImage,
-        seedream55Default.purchaseUsdPerReferenceImage ?? SEEDREAM55_REFERENCE_USD_PER_IMAGE,
-        0,
-        6,
-      ),
-      saleUsdPerReferenceImage: pricingNumber(
-        seedream55Source.saleUsdPerReferenceImage,
-        seedream55Default.saleUsdPerReferenceImage ?? SEEDREAM55_REFERENCE_USD_PER_IMAGE,
-        0,
-        6,
-      ),
-      referenceLimit: SEEDREAM55_REFERENCE_LIMIT,
-      resolutions: ["1K", "2K"],
-      defaultResolution: normalizeSeedream5Resolution(seedream55Source.defaultResolution || seedream55Default.defaultResolution || "2K"),
-    },
     qwenImage3: {
       pro: normalizeQwenImage3TierPricing("pro"),
       standard: normalizeQwenImage3TierPricing("standard"),
@@ -1665,7 +1628,6 @@ function publicAdvancedPricingView(pricing = {}) {
   const normalized = normalizeAdvancedPricing(pricing);
   const imagePricing = normalized.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro || {};
   const seedreamPricing = normalized.seedream5Image || DEFAULT_ADVANCED_PRICING.seedream5Image || {};
-  const seedream55Pricing = normalized.seedream55Image || DEFAULT_ADVANCED_PRICING.seedream55Image || {};
   const qwenPricing = normalized.qwenImage3 || DEFAULT_ADVANCED_PRICING.qwenImage3 || {};
   const qwen37Pricing = normalized.qwen37Flash || DEFAULT_ADVANCED_PRICING.qwen37Flash || {};
   const imageCostCredits = pricingNumber(
@@ -1724,14 +1686,6 @@ function publicAdvancedPricingView(pricing = {}) {
         },
         referenceUsdPerImageAfterFirst: seedreamPricing.pro?.referenceUsdPerImageAfterFirst ?? SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST,
       },
-    },
-    seedream55Image: {
-      model: SEEDREAM55_ENDPOINT_ID,
-      resolutions: ["1K", "2K"],
-      defaultResolution: seedream55Pricing.defaultResolution || "2K",
-      referenceLimit: SEEDREAM55_REFERENCE_LIMIT,
-      saleUsdPerImageByResolution: { ...seedream55Pricing.saleUsdPerImageByResolution },
-      saleUsdPerReferenceImage: seedream55Pricing.saleUsdPerReferenceImage,
     },
     qwenImage3: {
       resolutions: ["1K", "2K"],

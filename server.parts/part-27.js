@@ -326,15 +326,13 @@ function byteplusV3ImageGenerationToAdvancedBody(body = {}) {
   const prompt = String(source.prompt || "").trim();
   if (!prompt) throw byteplusHttpError(400, "prompt is required.", "prompt");
   const resolution = normalizeSeedream5Resolution(firstPresent(source.size, source.resolution, "2K"));
-  const ratio = normalizeSeedream5ImageRatio(firstPresent(source.ratio, source.aspect_ratio, "1:1")) || "1:1";
   const advancedBody = {
     provider: "seedream5-image",
     model: resolvedModel,
     seedreamTier: "pro",
     prompt,
-    ratio,
     resolution,
-    size: seedream5ImageSize(resolution, ratio),
+    size: resolution,
     watermark: boolFromRequest(source.watermark, false),
   };
   [
@@ -937,7 +935,6 @@ async function createSeedream5ImageDirect({
   prompt = "",
   imageUrls = [],
   resolution = "2K",
-  ratio = "",
   model = "",
   tier = "pro",
   watermark = false,
@@ -963,7 +960,7 @@ async function createSeedream5ImageDirect({
     model: resolvedModel,
     prompt: finalPrompt,
     response_format: "url",
-    size: seedream5ImageSize(resolution, ratio),
+    size: normalizeSeedream5Resolution(resolution),
     stream: false,
     watermark: Boolean(watermark),
     Moderation: { Strategy: "Skip" },
@@ -1001,8 +998,6 @@ async function runSeedream5ImageGenerationJob(job = {}, submission = null) {
     prompt = "",
     tier = "pro",
     resolution = "2K",
-    ratio = "",
-    size = "",
     outputFormat = "",
     optimizePromptOptions = null,
     pricing = {},
@@ -1046,7 +1041,7 @@ async function runSeedream5ImageGenerationJob(job = {}, submission = null) {
       model,
       prompt,
       response_format: "url",
-      size: seedream5ImageSize(resolution, ratio),
+      size: resolution,
       stream: false,
       watermark: boolFromRequest(firstPresent(body.watermark, bodyParams.watermark, mergedProviderParameters.watermark), false),
       Moderation: { Strategy: "Skip" },
@@ -1072,9 +1067,8 @@ async function runSeedream5ImageGenerationJob(job = {}, submission = null) {
         provider: "seedream5-image",
         model,
         prompt,
-        ratio,
         resolution,
-        size: seedream5ImageSize(resolution, ratio),
+        size: resolution,
         seedreamTier: tier,
         referenceImages: referencePayloadUrls.map((url) => ({ url })),
         preservePublicMediaUrls: true,
@@ -1176,486 +1170,6 @@ async function runSeedream5ImageGenerationJob(job = {}, submission = null) {
   }
 }
 
-
-function seedream55ReferenceInputsFromBody(body = {}) {
-  const contentSummary = safeSeedanceContentMediaSummary(body.content);
-  const directInputs = [
-    ...arrayFromBody(body.referenceImages),
-    ...arrayFromBody(body.reference_images),
-    ...arrayFromBody(body.referenceImageUrls),
-    ...arrayFromBody(body.reference_image_urls),
-    ...arrayFromBody(body.imageUrls),
-    ...arrayFromBody(body.image_urls),
-    ...arrayFromBody(body.images),
-    ...arrayFromBody(body.image),
-    ...arrayFromBody(contentSummary.referenceImages),
-  ];
-  const assetIds = [
-    body.userAssetId,
-    body.assetId,
-    body.imageAssetId,
-    body.referenceImageAssetId,
-    ...arrayFromBody(body.userAssetIds),
-    ...arrayFromBody(body.assetIds),
-    ...arrayFromBody(body.imageAssetIds),
-    ...arrayFromBody(body.referenceImageAssetIds),
-  ].map((item) => String(item || "").trim()).filter(Boolean);
-  const inputs = [...assetIds.map((assetId) => ({ assetId })), ...directInputs]
-    .filter((item) => {
-      if (!item) return false;
-      if (typeof item === "string") return Boolean(item.trim());
-      return item.assetId || item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || item.dataUrl || item.url || item.imageUrl;
-    })
-    .map((item) => {
-      if (typeof item !== "string") return item;
-      const text = item.trim();
-      return text.startsWith("asset://") ? { assetId: byteplusAssetIdFromUri(text) } : text;
-    });
-  if (inputs.length > SEEDREAM55_REFERENCE_LIMIT) {
-    throw advancedValidationError(
-      "TOO_MANY_SEEDREAM55_IMAGES",
-      `Seedream 5.5 supports at most ${SEEDREAM55_REFERENCE_LIMIT} reference images.`,
-      { count: inputs.length, max: SEEDREAM55_REFERENCE_LIMIT },
-    );
-  }
-  return inputs;
-}
-
-async function prepareSeedream55ReferenceImages(db, user, body = {}) {
-  const inputs = seedream55ReferenceInputsFromBody(body);
-  const assets = await createUserImageAssetsFromInputs(db, user, inputs, { name: "Seedream 5.5 reference image" });
-  const preparedAssets = [];
-  const publicImageUrls = [];
-  for (const asset of assets) {
-    validateWan27MediaKind(asset, "image", "Seedream 5.5 reference image");
-    const prepared = await ensurePublicUrlForUserMediaAsset(db, asset);
-    const publicUrl = publicUrlForLocalAsset(prepared);
-    if (!isPublicHttpUrl(publicUrl)) {
-      throw advancedValidationError("SEEDREAM55_REFERENCE_NOT_PUBLIC", "Failed to prepare a public URL for Seedream 5.5 reference image.", { assetId: asset.id || "" });
-    }
-    preparedAssets.push(prepared);
-    publicImageUrls.push(publicUrl);
-  }
-  return {
-    inputs,
-    assets: preparedAssets,
-    publicImageUrls,
-  };
-}
-
-async function submitSeedream55ImageGeneration(payload = {}, label = "image") {
-  console.log(`[seedream55-image-submit-${label || "image"}]`, JSON.stringify(payload, null, 2));
-  let raw;
-  let lastSubmitError = "";
-  for (let attempt = 1; attempt <= 18; attempt += 1) {
-    try {
-      raw = await arkRequest("POST", "/images/generations", payload);
-      break;
-    } catch (error) {
-      lastSubmitError = error.message || String(error);
-      const retry = seedream5SubmitRetryPolicy(error);
-      if (!retry || attempt >= retry.attempts) {
-        error.upstreamPayload = payload;
-        throw error;
-      }
-      console.warn(`[seedream55-image-submit-retry] reason=${retry.reason} attempt=${attempt}/${retry.attempts} waitMs=${retry.waitMs}`);
-      await delay(retry.waitMs);
-    }
-  }
-  if (!raw) {
-    const error = new Error(lastSubmitError || "Seedream 5.5 submit failed.");
-    error.statusCode = 502;
-    error.upstreamPayload = payload;
-    throw error;
-  }
-  return raw;
-}
-
-function seedream55ImageRequestPayload({
-  prompt = "",
-  resolution = "2K",
-  ratio = "1:1",
-  outputFormat = "png",
-  watermark = false,
-  background = "",
-  referenceImageUrls = [],
-} = {}) {
-  const payload = {
-    model: SEEDREAM55_ENDPOINT_ID,
-    prompt: String(prompt || ""),
-    response_format: "url",
-    size: seedream5ImageSize(resolution, ratio),
-    output_format: normalizeSeedream5OutputFormat(outputFormat) || "png",
-    watermark: boolFromRequest(watermark, false),
-  };
-  const normalizedBackground = String(background || "").trim().toLowerCase();
-  if (["transparent", "opaque", "auto"].includes(normalizedBackground)) payload.background = normalizedBackground;
-  const publicImageUrls = arrayFromBody(referenceImageUrls).filter((url) => isPublicHttpUrl(url));
-  if (publicImageUrls.length) payload.image = publicImageUrls;
-  return payload;
-}
-
-async function runSeedream55ImageGenerationJob(job = {}, submission = null) {
-  const {
-    taskId = "",
-    userId = "",
-    body = {},
-    bodyParams = {},
-    mergedProviderParameters = {},
-    initialParams = {},
-    prompt = "",
-    resolution = "2K",
-    ratio = "",
-    outputFormat = "png",
-    pricing = {},
-    cost = 0,
-  } = job;
-  if (!taskId || !userId) return;
-
-  let upstreamPayload = null;
-  try {
-    const db = await readGenerationJobDb(userId);
-    const user = (db.users || []).find((entry) => entry.id === userId);
-    if (!user) {
-      const error = new Error("User not found for Seedream 5.5 job.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const prepared = await prepareSeedream55ReferenceImages(db, user, { ...bodyParams, ...body });
-    const referencePreviewUrls = prepared.assets.map((asset) => asset.localUrl || asset.publicUrl || "").filter(Boolean);
-    await upsertGenerationRecord({
-      taskId,
-      userAssetIds: prepared.assets.map((asset) => asset.id),
-      userAssetId: prepared.assets[0]?.id || "",
-      imageUrl: referencePreviewUrls[0] || "",
-      imageUrls: referencePreviewUrls,
-      sourceImageUrl: referencePreviewUrls[0] || "",
-      sourceImageUrls: referencePreviewUrls,
-      status: "running",
-      params: {
-        ...initialParams,
-        referenceImageCount: prepared.publicImageUrls.length,
-      },
-    });
-
-    const payload = seedream55ImageRequestPayload({
-      prompt,
-      resolution,
-      ratio,
-      outputFormat,
-      watermark: firstPresent(body.watermark, bodyParams.watermark, mergedProviderParameters.watermark),
-      background: firstPresent(body.background, bodyParams.background, mergedProviderParameters.background),
-      referenceImageUrls: prepared.publicImageUrls,
-    });
-    upstreamPayload = payload;
-    await upsertGenerationRecord({ taskId, upstreamPayload });
-
-    if (USE_GATEWAY_UPSTREAM) {
-      const gatewayBody = {
-        provider: "seedream55-image",
-        model: SEEDREAM55_ENDPOINT_ID,
-        prompt,
-        ratio,
-        resolution,
-        size: seedream5ImageSize(resolution, ratio),
-        output_format: outputFormat || "png",
-        watermark: payload.watermark,
-        ...(payload.background ? { background: payload.background } : {}),
-        referenceImages: prepared.publicImageUrls.map((url) => ({ url })),
-        preservePublicMediaUrls: true,
-      };
-      const submitted = await gatewaySubmitAdvancedTask(gatewayBody);
-      if (!submitted.taskId) {
-        const error = new Error("Seedream 5.5 gateway did not return a task id.");
-        error.statusCode = 502;
-        error.payload = submitted.raw || submitted;
-        throw error;
-      }
-      await upsertGenerationRecord({
-        taskId,
-        upstreamTaskId: submitted.taskId,
-        upstreamSource: "gateway",
-        awaitingUpstreamTask: true,
-        status: submitted.status || "submitted",
-        upstreamPayload: gatewayBody,
-        createResponse: submitted.raw || submitted,
-        error: "",
-      });
-      return;
-    }
-
-    const raw = await submitSeedream55ImageGeneration(payload, taskId);
-    const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
-    await upsertGenerationRecord({
-      taskId,
-      upstreamTaskId: String(raw.id || raw.task_id || raw.taskId || ""),
-      awaitingUpstreamTask: false,
-      status: imageUrl ? "succeeded" : "failed",
-      upstreamPayload: payload,
-      createResponse: raw,
-      remoteImageUrl: imageUrl,
-      error: imageUrl ? "" : "Seedream 5.5 returned no image.",
-    });
-    if (!imageUrl) {
-      const error = new Error("Seedream 5.5 returned no image.");
-      error.statusCode = 502;
-      error.payload = raw;
-      throw error;
-    }
-
-    const savedImage = await saveRemoteGeneratedImage(taskId, imageUrl);
-    await upsertGenerationRecord({
-      taskId,
-      status: "succeeded",
-      awaitingUpstreamTask: false,
-      imageResultUrl: savedImage.cdnImageUrl || imageUrl,
-      localImageUrl: "",
-      localImagePath: "",
-      cdnImageUrl: savedImage.cdnImageUrl,
-      storageProvider: savedImage.storageProvider || "",
-      storageKey: savedImage.storageKey || "",
-      cdnError: savedImage.cdnError,
-      remoteImageUrl: imageUrl,
-      finalCredits: cost,
-      originalFinalCredits: pricing.originalCredits ?? cost,
-      billingStatus: cost > 0 ? "settled" : "free",
-      billingSettledAt: new Date().toISOString(),
-      error: "",
-    });
-  } catch (error) {
-    const errorInfo = normalizeErrorPayload(error);
-    console.warn("[seedream55-image-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
-    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
-    let refunded = cost <= 0;
-    let refundError = null;
-    if (cost > 0) {
-      const result = await refundCreditsWithSubtoken(currentRecord || { taskId, userId }, userId, cost, "advanced_seedream55_image_refund", {
-        taskId,
-        error: error.message || "Seedream 5.5 failed.",
-      }, { logTag: "seedream55-image" });
-      refunded = result.refunded;
-      refundError = result.error;
-    }
-    await upsertGenerationRecord({
-      taskId,
-      status: "failed",
-      awaitingUpstreamTask: false,
-      error: errorInfo.message || "Seedream 5.5 failed.",
-      code: errorInfo.code || "",
-      errorPayload: errorInfo.payload || null,
-      createResponse: errorInfo.payload || null,
-      upstreamPayload,
-      finalCredits: 0,
-      originalFinalCredits: 0,
-      billingStatus: cost <= 0 ? "free" : refunded ? "refunded" : "pre_deducted",
-      billingError: refundError ? `Refund failed: ${refundError.message || refundError}` : "",
-      billingSettledAt: refunded ? new Date().toISOString() : "",
-      failedAt: new Date().toISOString(),
-    });
-  } finally {
-    finishGenerationSubmission(submission);
-  }
-}
-
-function startSeedream55ImageGenerationJob(job = {}) {
-  return startTrackedGenerationJob("seedream55-image-generation", job.taskId, (submission) => runSeedream55ImageGenerationJob(job, submission), (error) => {
-    console.error("[seedream55-image-job-unhandled]", job.taskId || "", error.message || error);
-  });
-}
-
-async function handleAdvancedSeedream55ImageGenerate(req, res, context = {}) {
-  const auth = context.auth || await requireUser(req, res);
-  if (!auth) return;
-  if (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Seedream 5.5 generation is not configured." });
-  }
-  const body = context.body || await readJson(req);
-  const bodyParams = context.bodyParams || requestParamsFromBody(body);
-  const caseParams = context.caseParams || {};
-  const selectedCase = context.selectedCase || null;
-  const config = context.config || await readAppConfig();
-  const mergedProviderParameters = {
-    ...plainObject(caseParams.parameters),
-    ...plainObject(bodyParams.parameters),
-    ...plainObject(body.parameters),
-  };
-  const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
-  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
-
-  const resolution = normalizeSeedream5Resolution(firstPresent(
-    body.resolution,
-    body.size,
-    bodyParams.resolution,
-    bodyParams.size,
-    mergedProviderParameters.resolution,
-    mergedProviderParameters.size,
-    caseParams.resolution,
-    caseParams.size,
-    config.platform?.advancedPricing?.seedream55Image?.defaultResolution,
-    "2K",
-  ));
-  const ratio = normalizeSeedream5ImageRatio(firstPresent(
-    body.ratio,
-    body.aspect_ratio,
-    body.aspectRatio,
-    bodyParams.ratio,
-    bodyParams.aspect_ratio,
-    bodyParams.aspectRatio,
-    mergedProviderParameters.ratio,
-    mergedProviderParameters.aspect_ratio,
-    mergedProviderParameters.aspectRatio,
-    caseParams.ratio,
-    caseParams.aspect_ratio,
-    caseParams.aspectRatio,
-    "1:1",
-  )) || "1:1";
-  const size = seedream5ImageSize(resolution, ratio);
-  const outputFormat = normalizeSeedream5OutputFormat(firstPresent(
-    body.output_format,
-    body.outputFormat,
-    bodyParams.output_format,
-    bodyParams.outputFormat,
-    mergedProviderParameters.output_format,
-    mergedProviderParameters.outputFormat,
-    caseParams.output_format,
-    caseParams.outputFormat,
-  )) || "png";
-  let referenceInputs = [];
-  try {
-    referenceInputs = seedream55ReferenceInputsFromBody({ ...bodyParams, ...body });
-  } catch (error) {
-    return sendAdvancedValidationError(res, error, "Seedream 5.5 reference input is invalid.");
-  }
-  const rawPricing = advancedModelPricing("seedream55-image", {
-    advancedPricing: config.platform?.advancedPricing,
-    resolution,
-    referenceImageCount: referenceInputs.length,
-    outputImageCount: 1,
-  });
-  const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
-  const cost = pricing.credits;
-  if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
-  try {
-    assertSubtokenCanSpend(auth, cost);
-  } catch (error) {
-    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
-  }
-
-  const taskId = localGenerationTaskId("img");
-  const initialRecord = {
-    taskId,
-    status: "submitting",
-    model: SEEDREAM55_ENDPOINT_ID,
-    source: "advanced-seedream55-image",
-    kind: "advanced-image",
-    provider: "seedream55-image",
-    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
-    userId: auth.user.id,
-    userAssetIds: [],
-    userAssetId: "",
-    imageUrl: "",
-    imageUrls: [],
-    sourceImageUrl: "",
-    sourceImageUrls: [],
-    prompt,
-    finalPrompt: prompt,
-    params: {
-      ...plainObject(bodyParams),
-      ...plainObject(body.params),
-      provider: "seedream55-image",
-      ratio,
-      resolution,
-      size,
-      output_format: outputFormat,
-      referenceImageCount: referenceInputs.length,
-      action: referenceInputs.length ? "image_reference" : "text_to_image",
-    },
-    resolution,
-    ratio,
-    size,
-    preDeductedCredits: cost,
-    originalPreDeductedCredits: pricing.originalCredits ?? cost,
-    finalCredits: null,
-    originalFinalCredits: null,
-    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
-    billingStatus: cost > 0 ? "pre_deducted" : "free",
-    billingSettledAt: "",
-    pricingEstimate: pricing,
-    awaitingUpstreamTask: true,
-    upstreamPayload: null,
-    createResponse: null,
-    queryResponse: null,
-    remoteImageUrl: "",
-    localImageUrl: "",
-    error: "",
-    apiTokenId: auth.tokenRecord?.id || "",
-    apiTokenName: auth.tokenRecord?.name || "",
-    apiTokenType: auth.tokenRecord?.quotaType || "",
-    apiTokenSource: auth.tokenSource || "",
-    ...requestTraceForGeneration(req),
-  };
-  await upsertGenerationRecord(initialRecord);
-  if (cost > 0) {
-    await chargeUserWithSubtoken(auth, {
-      cost,
-      type: "advanced_seedream55_image",
-      taskId,
-      meta: {
-        taskId,
-        provider: "seedream55-image",
-        model: SEEDREAM55_ENDPOINT_ID,
-        ratio,
-        resolution,
-        referenceImageCount: referenceInputs.length,
-        outputUsd: pricing.outputUsd,
-        referenceUsd: pricing.referenceUsd,
-        totalUsd: pricing.totalUsd,
-        baseCredits: pricing.baseCredits,
-        originalCost: pricing.originalCredits,
-        pricingMultiplier: pricing.userPricingMultiplier,
-        pricingSource: pricing.source,
-      },
-    });
-    if (!dbEnabled()) await writeDb(auth.db);
-  }
-
-  startSeedream55ImageGenerationJob({
-    taskId,
-    userId: auth.user.id,
-    body,
-    bodyParams,
-    mergedProviderParameters,
-    initialParams: initialRecord.params,
-    prompt,
-    resolution,
-    ratio,
-    outputFormat,
-    pricing,
-    cost,
-  });
-  const latestUser = await getUserByIdInDb(auth.user.id) || auth.user;
-  const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || initialRecord, generationRecordResponseOptionsForAuth(auth));
-  return sendJson(res, 200, {
-    ok: true,
-    async: true,
-    taskId,
-    upstreamTaskId: "",
-    imageUrl: "",
-    user: userView(latestUser),
-    pricing,
-    cost,
-    record: publicRecord,
-    params: {
-      provider: "seedream55-image",
-      ratio,
-      resolution,
-      size,
-      referenceImageCount: referenceInputs.length,
-    },
-  });
-}
-
 function startSeedream5ImageGenerationJob(job = {}) {
   return startTrackedGenerationJob("seedream5-image-generation", job.taskId, (submission) => runSeedream5ImageGenerationJob(job, submission), (error) => {
     console.error("[seedream5-image-job-unhandled]", job.taskId || "", error.message || error);
@@ -1703,22 +1217,6 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     config.platform?.advancedPricing?.seedream5Image?.defaultResolution,
     "2K",
   ));
-  const ratio = normalizeSeedream5ImageRatio(firstPresent(
-    body.ratio,
-    body.aspect_ratio,
-    body.aspectRatio,
-    bodyParams.ratio,
-    bodyParams.aspect_ratio,
-    bodyParams.aspectRatio,
-    mergedProviderParameters.ratio,
-    mergedProviderParameters.aspect_ratio,
-    mergedProviderParameters.aspectRatio,
-    caseParams.ratio,
-    caseParams.aspect_ratio,
-    caseParams.aspectRatio,
-    "1:1",
-  )) || "1:1";
-  const size = seedream5ImageSize(resolution, ratio);
   const model = seedream5ModelForTier(firstPresent(body.model, bodyParams.model, mergedProviderParameters.model, caseParams.model), tier);
   const outputFormat = normalizeSeedream5OutputFormat(firstPresent(
     body.output_format,
@@ -1750,9 +1248,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     userId: auth.user.id,
     model,
     prompt,
-    ratio,
     resolution,
-    size,
     tier,
     outputFormat,
     optimizePromptOptions,
@@ -1818,9 +1314,8 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
       ...plainObject(body.params),
       provider: "seedream5-image",
       seedreamTier: tier,
-      ratio,
       resolution,
-      size,
+      size: resolution,
       ...(outputFormat ? { output_format: outputFormat } : {}),
       ...(optimizePromptOptions ? { optimize_prompt_options: optimizePromptOptions } : {}),
       referenceImageCount: referenceInputs.length,
@@ -1829,8 +1324,6 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     },
     requestFingerprint,
     resolution,
-    ratio,
-    size,
     preDeductedCredits: cost,
     originalPreDeductedCredits: pricing.originalCredits ?? cost,
     finalCredits: null,
@@ -1863,7 +1356,6 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
         provider: "seedream5-image",
         model,
         seedreamTier: tier,
-        ratio,
         resolution,
         referenceImageCount: referenceInputs.length,
         outputUsd: pricing.outputUsd,
@@ -1889,8 +1381,6 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     prompt,
     tier,
     resolution,
-    ratio,
-    size,
     outputFormat,
     optimizePromptOptions,
     pricing,
@@ -1911,9 +1401,8 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     params: {
       provider: "seedream5-image",
       seedreamTier: tier,
-      ratio,
       resolution,
-      size,
+      size: resolution,
       referenceImageCount: referenceInputs.length,
     },
   });

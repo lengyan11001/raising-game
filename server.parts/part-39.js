@@ -118,58 +118,6 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
       };
     }),
     ...["1K", "2K"].map((resolution) => {
-      const modelKey = "seedream55-image";
-      const modelSetting = advancedModelSetting(normalized, modelKey);
-      const configuredSaleCreditsPerUnit = pricingNumber(
-        normalized.seedream55Image.saleUsdPerImageByResolution[resolution] * DEFAULT_CREDITS_PER_USD,
-        0,
-        0,
-        6,
-      );
-      return {
-        key: `seedream55-${resolution.toLowerCase()}`,
-        provider: "seedream55-image",
-        providerLabel: "Seedream 5.5",
-        model: SEEDREAM55_ENDPOINT_ID,
-        modelKey,
-        modelDisplayName: modelSetting.displayName,
-        modelSubtitle: modelSetting.subtitle,
-        modelDiscount: modelSetting.discount,
-        configuredSaleCreditsPerUnit,
-        resolution,
-        rateKind: "output",
-        unit: "image",
-        usageLabel: "Generated image",
-        saleCreditsPerUnit: applyAdvancedModelDiscount(configuredSaleCreditsPerUnit, normalized, modelKey),
-      };
-    }),
-    (() => {
-      const modelKey = "seedream55-image";
-      const modelSetting = advancedModelSetting(normalized, modelKey);
-      const configuredSaleCreditsPerUnit = pricingNumber(
-        normalized.seedream55Image.saleUsdPerReferenceImage * DEFAULT_CREDITS_PER_USD,
-        0,
-        0,
-        6,
-      );
-      return {
-        key: "seedream55-reference",
-        provider: "seedream55-image",
-        providerLabel: "Seedream 5.5 Reference",
-        model: SEEDREAM55_ENDPOINT_ID,
-        modelKey,
-        modelDisplayName: modelSetting.displayName,
-        modelSubtitle: modelSetting.subtitle,
-        modelDiscount: modelSetting.discount,
-        configuredSaleCreditsPerUnit,
-        resolution: "reference",
-        rateKind: "input",
-        unit: "reference_image",
-        usageLabel: "Each reference image",
-        saleCreditsPerUnit: applyAdvancedModelDiscount(configuredSaleCreditsPerUnit, normalized, modelKey),
-      };
-    })(),
-    ...["1K", "2K"].map((resolution) => {
       const modelKey = "seedream5-image";
       const modelSetting = advancedModelSetting(normalized, modelKey);
       const configuredSaleCreditsPerUnit = pricingNumber(
@@ -289,10 +237,6 @@ function advancedPricingRowKey(row = {}) {
     const tier = String(row.qwenTier || row.tier || row.model || "").toLowerCase().includes("standard") || String(row.model || "").trim() === QWEN_IMAGE3_MODELS.standard ? "standard" : "pro";
     if (unitRaw === "reference_image" || resolutionRaw === "reference") return `qwen-image3-${tier}-reference`;
     return `qwen-image3-${tier}-${normalizeQwenImage3Resolution(row.resolution).toLowerCase()}`;
-  }
-  if (isSeedream55ImageProvider(providerRaw)) {
-    if (unitRaw === "reference_image" || resolutionRaw === "reference" || resolutionRaw === "reference_image") return "seedream55-reference";
-    return `seedream55-${normalizeSeedream5Resolution(row.resolution).toLowerCase()}`;
   }
   if (isSeedream5ImageProvider(providerRaw)) {
     if (unitRaw === "reference_image" || resolutionRaw === "reference" || resolutionRaw === "reference_image") return "seedream5-pro-reference";
@@ -444,31 +388,6 @@ function advancedSaleSeedream5Credits(pricing = DEFAULT_ADVANCED_PRICING, resolu
     6,
   );
   return applyAdvancedModelDiscount(pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6), normalized, "seedream5-image");
-}
-
-function advancedSaleSeedream55Credits(pricing = DEFAULT_ADVANCED_PRICING, resolution = "2K") {
-  const normalized = normalizeAdvancedPricing(pricing);
-  const publicResolution = normalizeSeedream5Resolution(resolution);
-  const configured = normalized.seedream55Image || DEFAULT_ADVANCED_PRICING.seedream55Image;
-  const saleUsd = pricingNumber(
-    configured.saleUsdPerImageByResolution?.[publicResolution],
-    DEFAULT_ADVANCED_PRICING.seedream55Image.saleUsdPerImageByResolution[publicResolution],
-    0,
-    6,
-  );
-  return applyAdvancedModelDiscount(pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6), normalized, "seedream55-image");
-}
-
-function advancedSaleSeedream55ReferenceCredits(pricing = DEFAULT_ADVANCED_PRICING) {
-  const normalized = normalizeAdvancedPricing(pricing);
-  const configured = normalized.seedream55Image || DEFAULT_ADVANCED_PRICING.seedream55Image;
-  const saleUsd = pricingNumber(
-    configured.saleUsdPerReferenceImage,
-    DEFAULT_ADVANCED_PRICING.seedream55Image.saleUsdPerReferenceImage,
-    0,
-    6,
-  );
-  return applyAdvancedModelDiscount(pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6), normalized, "seedream55-image");
 }
 
 function advancedSaleSeedream5ReferenceCredits(pricing = DEFAULT_ADVANCED_PRICING) {
@@ -958,60 +877,6 @@ async function adminAdvancedPricingView(config = {}) {
     });
   }
   for (const resolution of ["1K", "2K"]) {
-    const purchaseUsd = normalizeSeedream5Resolution(resolution) === "1K"
-      ? SEEDREAM55_1K_USD_PER_IMAGE
-      : SEEDREAM55_2K_USD_PER_IMAGE;
-    const purchaseCredits = pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
-    const saleCredits = advancedSaleSeedream55Credits(pricing, resolution);
-    rows.push({
-      key: `seedream55-${resolution.toLowerCase()}`,
-      provider: "seedream55-image",
-      providerLabel: "Seedream 5.5",
-      resolution,
-      unit: "image",
-      purchaseCreditsPerSecond: purchaseCredits,
-      purchaseUsdPerSecond: purchaseUsd,
-      purchaseSource: "byteplus_official_image_pricing",
-      purchaseMessage: "Official Seedream 5.5 image price per generated image.",
-      pricingVisible: publicPricingModelVisible({ provider: "seedream55-image" }),
-      modelKey: "seedream55-image",
-      modelDisplayName: advancedModelSetting(pricing, "seedream55-image").displayName,
-      modelSubtitle: advancedModelSetting(pricing, "seedream55-image").subtitle,
-      modelDiscount: advancedModelSetting(pricing, "seedream55-image").discount,
-      configuredSaleCreditsPerSecond: pricingNumber(advancedSaleSeedream55Credits({ ...pricing, modelSettings: {} }, resolution), 0, 0, 6),
-      configuredSaleUsdPerSecond: pricingNumber(advancedSaleSeedream55Credits({ ...pricing, modelSettings: {} }, resolution) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
-      saleCreditsPerSecond: saleCredits,
-      saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
-      model: SEEDREAM55_ENDPOINT_ID,
-    });
-  }
-  {
-    const purchaseUsd = SEEDREAM55_REFERENCE_USD_PER_IMAGE;
-    const purchaseCredits = pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
-    const saleCredits = advancedSaleSeedream55ReferenceCredits(pricing);
-    rows.push({
-      key: "seedream55-reference",
-      provider: "seedream55-image",
-      providerLabel: "Seedream 5.5 Reference",
-      resolution: "reference",
-      unit: "reference_image",
-      purchaseCreditsPerSecond: purchaseCredits,
-      purchaseUsdPerSecond: purchaseUsd,
-      purchaseSource: "byteplus_official_image_pricing",
-      purchaseMessage: "Official price for every Seedream 5.5 reference image.",
-      pricingVisible: publicPricingModelVisible({ provider: "seedream55-image" }),
-      modelKey: "seedream55-image",
-      modelDisplayName: advancedModelSetting(pricing, "seedream55-image").displayName,
-      modelSubtitle: advancedModelSetting(pricing, "seedream55-image").subtitle,
-      modelDiscount: advancedModelSetting(pricing, "seedream55-image").discount,
-      configuredSaleCreditsPerSecond: pricingNumber(advancedSaleSeedream55ReferenceCredits({ ...pricing, modelSettings: {} }), 0, 0, 6),
-      configuredSaleUsdPerSecond: pricingNumber(advancedSaleSeedream55ReferenceCredits({ ...pricing, modelSettings: {} }) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
-      saleCreditsPerSecond: saleCredits,
-      saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
-      model: SEEDREAM55_ENDPOINT_ID,
-    });
-  }
-  for (const resolution of ["1K", "2K"]) {
     const purchaseUsd = seedream5ProOfficialUsdPerImage(resolution);
     const gatewayPurchase = await gatewayPurchaseSeedream5ImageCredits(resolution);
     const hasGatewayPurchase = gatewayPurchase !== null;
@@ -1204,24 +1069,6 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
       const target = next[targetKey] || (next[targetKey] = { ...DEFAULT_ADVANCED_PRICING[targetKey] });
       target.saleCnyPerImage = pricingNumber(rawSale, target.saleCnyPerImage, 0, 6);
       target.userConfigured = true;
-      continue;
-    }
-    if (key === "seedream55-1k" || key === "seedream55-2k" || key === "seedream55-reference") {
-      const rawSaleUsd = row.saleUsdPerSecond !== undefined
-        ? Number(row.saleUsdPerSecond)
-        : row.saleCreditsPerSecond !== undefined
-        ? Number(row.saleCreditsPerSecond) / DEFAULT_CREDITS_PER_USD
-        : NaN;
-      if (!Number.isFinite(rawSaleUsd) || rawSaleUsd < 0) {
-        throw pricingPayloadError(`Invalid sale price for ${key}`);
-      }
-      next.seedream55Image.userConfigured = true;
-      if (key === "seedream55-reference") {
-        next.seedream55Image.saleUsdPerReferenceImage = pricingNumber(rawSaleUsd, next.seedream55Image.saleUsdPerReferenceImage, 0, 6);
-      } else {
-        const resolution = key.endsWith("-1k") ? "1K" : "2K";
-        next.seedream55Image.saleUsdPerImageByResolution[resolution] = pricingNumber(rawSaleUsd, next.seedream55Image.saleUsdPerImageByResolution[resolution], 0, 6);
-      }
       continue;
     }
     if (key === "seedream5-pro-1k" || key === "seedream5-pro-2k" || key === "seedream5-pro-reference") {

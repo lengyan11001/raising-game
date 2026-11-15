@@ -221,40 +221,6 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       userPricingMultiplier: multiplier,
     };
   }
-  if (normalizedProvider === "seedream55-image") {
-    const configPricing = state.config?.platform?.advancedPricing || {};
-    const seedreamPricing = configPricing.seedream55Image || {};
-    const creditsPerUsd = Number(configPricing.creditsPerUsd || state.wallet?.creditsPerUsd || 100) || 100;
-    const normalizedResolution = normalizeAdvancedResolution(resolution || seedreamPricing.defaultResolution || "2K", normalizedProvider);
-    const referenceImageCount = Math.max(0, Math.min(
-      ADVANCED_SEEDREAM55_REFERENCE_LIMIT,
-      Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("seedream55-image").length) || 0,
-    ));
-    const resolutionUsd = seedreamPricing.saleUsdPerImageByResolution || {};
-    const outputUsdPerImage = Number(resolutionUsd[normalizedResolution] ?? (normalizedResolution === "1K" ? ADVANCED_SEEDREAM55_1K_USD_PER_IMAGE : ADVANCED_SEEDREAM55_2K_USD_PER_IMAGE));
-    const referenceUsdPerImage = Number(seedreamPricing.saleUsdPerReferenceImage ?? ADVANCED_SEEDREAM55_REFERENCE_USD_PER_IMAGE);
-    const outputUsd = Math.max(0, outputUsdPerImage);
-    const referenceUsd = Math.max(0, referenceUsdPerImage * referenceImageCount);
-    const totalUsd = outputUsd + referenceUsd;
-    const originalCredits = creditsAmount(totalUsd * creditsPerUsd);
-    const multiplier = userPricingMultiplier();
-    return {
-      provider: "seedream55-image",
-      duration: 1,
-      resolution: normalizedResolution,
-      size: normalizedResolution,
-      referenceImageCount,
-      billableReferenceImages: referenceImageCount,
-      outputUsdPerImage,
-      referenceUsdPerImage,
-      totalUsd,
-      baseCredits: originalCredits,
-      originalCredits,
-      credits: creditsAmount(originalCredits * multiplier),
-      markup: 1,
-      userPricingMultiplier: multiplier,
-    };
-  }
   if (normalizedProvider === "seedream5-image") {
     const configPricing = state.config?.platform?.advancedPricing || {};
     const seedreamPricing = configPricing.seedream5Image || {};
@@ -499,7 +465,7 @@ function currentAdvancedResolution() {
   const provider = currentAdvancedProvider();
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "qwen-image-edit-spicy") return "";
-  const fallback = ["seedream55-image", "seedream5-image", "qwen-image3"].includes(normalizedProvider) ? "2K" : ["seedance", "seedance25", "seedance-nsfw"].includes(normalizedProvider) ? "480p" : "720p";
+  const fallback = ["seedream5-image", "qwen-image3"].includes(normalizedProvider) ? "2K" : ["seedance", "seedance25", "seedance-nsfw"].includes(normalizedProvider) ? "480p" : "720p";
   return normalizeAdvancedResolution(els.advancedResolution?.value || fallback, provider);
 }
 
@@ -516,7 +482,7 @@ function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
   if (String(els.advancedProvider?.value || "").trim().toLowerCase() === "seedance-fast" || (normalizeAdvancedProvider(provider) === "seedance" && currentSeedanceTier() === "fast")) return ["480p", "720p"];
   if (isVegaProviderId(normalizeAdvancedProvider(provider))) return [...(vegaCapabilities(normalizeAdvancedProvider(provider))?.resolutions || VEGA_ALL_RESOLUTIONS)];
   if (normalizeAdvancedProvider(provider) === "qwen-image3") return ["1K", "2K"];
-  if (["seedream55-image", "seedream5-image"].includes(normalizeAdvancedProvider(provider))) return ["1K", "2K"];
+  if (normalizeAdvancedProvider(provider) === "seedream5-image") return ["1K", "2K"];
   if (normalizeAdvancedProvider(provider) === "seedance25") return ["480p", "720p"];
   if (normalizeAdvancedProvider(provider) === "seedance-nsfw") return ["480p", "720p", "1080p"];
   if (normalizeAdvancedProvider(provider) === "wan30") {
