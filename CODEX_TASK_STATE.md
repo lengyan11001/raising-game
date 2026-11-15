@@ -1,3 +1,12 @@
+## 2026-11-15 Step BV: candidate soak check and disk-capacity risk
+
+- Read-only post-apply check at 2026-11-15 23:35 +07: primary `raising-game-demo.service` remained MainPID `317565`, InvocationID `c4ed0b839a75478797958124cebb2d5e`, `NRestarts=0`; candidate `raising-game-demo-b.service` remained MainPID `334836`, InvocationID `43a1d29f1bcf4be6bcabec6b64ccb563`, `NRestarts=0`; Nginx remained MainPID `3914088`, InvocationID `556af2ad28994b528c1c36272e657848`, `NRestarts=0`.
+- All three public `/api/health` URLs returned 200. Candidate `/api/livez` and `/api/readyz` still report immutable release `06624b279b2c7743e9fb735eff204ce9539060ff`, PID `334836`, `clean=true`, with schedulers, submit queue, and submit worker disabled.
+- Candidate soak sample: 12/12 `/api/readyz` probes passed over roughly 24 seconds; candidate RSS was about 124 MB, the candidate journal had no fatal/uncaught/Unauthorized/network-error entries since restart, Nginx had no recent 500/502/503/504 entries, and PostgreSQL showed 10 connections, 1 active, 0 idle-in-transaction, and 0 lock waiters.
+- Capacity risk found: root filesystem `/dev/vda3` is 41G used / 49G total (88%, 5.7G free). This is an all-users failure risk independent of application version: PostgreSQL, journald, uploads, and both Node processes share that filesystem. Do not treat more Node processes as protection from disk exhaustion.
+- Read-only space inventory: `/opt` 27G, including `/opt/raising-game-demo/assets` 15G and `/opt/raising-game-shared/assets` 7.1G; `/var/log/journal` 1.6G; `/tmp` 1.3G, including an old 514M drill tree and about 323M of tarballs; `/root/.npm` 347M; `/var/lib/apt` 207M; two immutable releases use about 515M each. No files were deleted or truncated.
+- Next gate is safe disk reclamation from known disposable caches/logs after age and owner verification, followed by sustained candidate observation. Do not move traffic, reload Nginx, restart 4174, migrate the database, enable background work on 4175, or introduce Redis in this step.
+
 ## 2026-11-15 Step BU: inactive candidate 4175 verified on immutable release
 
 - Formal candidate-only apply succeeded without moving traffic. `raising-game-demo-b.service` now runs release `06624b279b2c7743e9fb735eff204ce9539060ff` at PID `334836`, with cwd set to that immutable release and `/api/livez` plus `/api/readyz` returning matching clean marker identity and PID.
