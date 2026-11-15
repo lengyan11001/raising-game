@@ -933,6 +933,10 @@ const SEEDREAM5_PRO_ENDPOINT_ID =
   process.env.SEEDREAM5_PRO_ENDPOINT_ID ||
   process.env.ARK_SEEDREAM5_PRO_MODEL ||
   "ep-20260721175949-xw978";
+const SEEDREAM55_ENDPOINT_ID =
+  process.env.SEEDREAM55_ENDPOINT_ID ||
+  process.env.ARK_SEEDREAM55_MODEL ||
+  "ep-20261115092454-jlm4p";
 const IGNEX_API_BASE_URL = (process.env.IGNEX_API_BASE_URL || "https://api.ignex.ai").replace(/\/+$/, "");
 const IGNEX_API_KEY = String(process.env.IGNEX_API_KEY || "").trim();
 const IGNEX_PROJECT_NAME = String(process.env.IGNEX_PROJECT_NAME || "default").trim() || "default";
@@ -1262,6 +1266,10 @@ const SEEDREAM5_LITE_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_LITE_US
 const SEEDREAM5_PRO_1K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_1K_USD_PER_IMAGE, 0.045, 0, 6);
 const SEEDREAM5_PRO_2K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0.09, 0, 6);
 const SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST = pricingNumber(process.env.SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0.003, 0, 6);
+const SEEDREAM55_1K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM55_1K_USD_PER_IMAGE, 0.020, 0, 6);
+const SEEDREAM55_2K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM55_2K_USD_PER_IMAGE, 0.035, 0, 6);
+const SEEDREAM55_REFERENCE_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM55_REFERENCE_USD_PER_IMAGE, 0.008, 0, 6);
+const SEEDREAM55_REFERENCE_LIMIT = 10;
 const SEEDREAM_QWEN_IMAGE_SALE_MARKUP = 1.5;
 
 function defaultAliyunSaleCredits(capability, options = {}, fallback = ADVANCED_WAN27_720P_CREDITS_PER_SECOND) {
@@ -1593,6 +1601,22 @@ const DEFAULT_ADVANCED_PRICING = {
     resolutions: ["1K", "2K"],
     defaultResolution: "2K",
     defaultTier: "pro",
+  },
+  seedream55Image: {
+    model: SEEDREAM55_ENDPOINT_ID,
+    purchaseUsdPerImageByResolution: {
+      "1K": SEEDREAM55_1K_USD_PER_IMAGE,
+      "2K": SEEDREAM55_2K_USD_PER_IMAGE,
+    },
+    saleUsdPerImageByResolution: {
+      "1K": pricingNumber(SEEDREAM55_1K_USD_PER_IMAGE * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, SEEDREAM55_1K_USD_PER_IMAGE, 0, 6),
+      "2K": pricingNumber(SEEDREAM55_2K_USD_PER_IMAGE * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, SEEDREAM55_2K_USD_PER_IMAGE, 0, 6),
+    },
+    purchaseUsdPerReferenceImage: SEEDREAM55_REFERENCE_USD_PER_IMAGE,
+    saleUsdPerReferenceImage: pricingNumber(SEEDREAM55_REFERENCE_USD_PER_IMAGE * SEEDREAM_QWEN_IMAGE_SALE_MARKUP, SEEDREAM55_REFERENCE_USD_PER_IMAGE, 0, 6),
+    referenceLimit: SEEDREAM55_REFERENCE_LIMIT,
+    resolutions: ["1K", "2K"],
+    defaultResolution: "2K",
   },
   qwenImage3: {
     pro: {

@@ -4171,3 +4171,21 @@ CODEX_TASK_STATE.md
 - Verification: focused tests `26/26`; full suite `1315 pass / 0 fail / 1 skip`; `node --check` and `git diff --check` pass. Evidence: `/tmp/raising-size-full-3.log`.
 - Source commit `65bbe346 Harden image size selection across models`. Historical images are not regenerated or rewritten; the fix affects new tasks.
 - Deployment status at record time: not yet published. Intended scope is Old only via committed `old-site` integration and `platform-release`; Live must remain untouched. Existing login sessions must not be invalidated.
+
+## 2026-11-15 Step BR: Seedream 5.5 integrated for Old image generation, upstream verified, deployment pending
+
+- Added Old/main-site image provider `seedream55-image` with public label `Seedream 5.5`, upstream endpoint `ep-20261115092454-jlm4p`, and upstream model `dola-seedream-5-5-261028`.
+- Exposed only `1K` and `2K`, five existing image ratios, up to 10 reference images, and image-only generation. The 11th reference is rejected server-side with `TOO_MANY_SEEDREAM55_IMAGES`.
+- Purchase and 1.5x sale pricing:
+  - 1K: purchase `$0.020/image`, sale `$0.030/image` (`3` credits).
+  - 2K: purchase `$0.035/image`, sale `$0.0525/image` (`5.25` credits).
+  - Every reference image: purchase `$0.008/image`, sale `$0.012/image` (`1.2` credits).
+- Implemented a dedicated Ark `/images/generations` path that prepares public HTTP(S) reference URLs, sends exact documented size mappings, saves the returned image, persists success, and refunds failed jobs with `advanced_seedream55_image_refund`.
+- Added create-page/workflow selection, reference upload limit, regeneration restoration, public pricing rows, admin pricing rows/save parsing, and model normalization that cannot fall through to Seedream 5.0.
+- Files changed: `lib-providers.js`, `platform.config.js`, `platform.html`, `platform.main.js`, `platform.create.parts/part-01.js` through `part-04.js`, `platform.ui.parts/part-02.js` through `part-04.js`, `server.parts/part-01.js`, `part-02.js`, `part-11.js`, `part-27.js`, `part-29.js`, `part-39.js`, `part-43.js`, relevant image-model tests, and new `test/seedream55.test.js`.
+- Verification: all modified JS files pass `node --check`; `git diff --check` passes; focused regression passes `172/172`; full `npm test` passes `1324 pass / 0 fail / 1 skip`.
+- Real upstream verification against the production Ark environment:
+  - 1K request returned HTTP 200 and an image URL, with `usage.generated_images=1`.
+  - 2K request returned HTTP 200 and an image URL, with `usage.output_tokens=16384`.
+  - A 1K request with 10 reference images returned HTTP 200 and `usage.input_images=10`.
+- Deployment status at record time: implementation committed on the dedicated Seedream 5.5 branch; not yet merged, released, deployed, or published. Target is Old `123vips.com` only; Live must remain untouched.

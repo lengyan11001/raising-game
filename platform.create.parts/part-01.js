@@ -336,7 +336,7 @@ function advancedAssetTargetItems() {
     if (provider !== "z-image-spicy-pro") {
       targets.push({ id: "sourceImages", label: t("advanced.assetTargetSourceImages"), type: "image" });
     }
-  } else if (["seedream5-image", "qwen-image3"].includes(provider)) {
+  } else if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
     targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
   } else if (provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)) {
     targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
