@@ -102,6 +102,51 @@ test("runtime media sync detects same-size content collisions by SHA-256", () =>
   });
 });
 
+
+test("runtime media sync delta mode skips files older than the cutover snapshot", () => {
+  withTemp((dir) => {
+    const source = path.join(dir, "old-assets");
+    const target = path.join(dir, "shared");
+    const oldFile = path.join(source, "user-uploads", "before.jpg");
+    const newFile = path.join(source, "user-uploads", "after.jpg");
+    write(oldFile, "old");
+    write(newFile, "new");
+    fs.mkdirSync(target, { recursive: true });
+    const snapshot = 1_800_000_000;
+    fs.utimesSync(oldFile, snapshot - 30, snapshot - 30);
+    fs.utimesSync(newFile, snapshot + 1, snapshot + 1);
+    const result = invoke([
+      "--source-assets", source,
+      "--target", target,
+      "--modified-since-epoch", String(snapshot),
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /PLAN files=1 same=0 missing=1 collisions=0 skipped=1 delta_since=1800000000/);
+    assert.match(result.stdout, /PLAN copy=user-uploads\/after\.jpg bytes=3/);
+    assert.doesNotMatch(result.stdout, /before\.jpg/);
+  });
+});
+
+test("runtime media sync delta mode still blocks collisions created after the snapshot", () => {
+  withTemp((dir) => {
+    const source = path.join(dir, "old-assets");
+    const target = path.join(dir, "shared");
+    const sourceFile = path.join(source, "user-uploads", "collision.jpg");
+    write(sourceFile, "old");
+    write(path.join(target, "user-uploads", "collision.jpg"), "new");
+    const snapshot = 1_800_000_000;
+    fs.utimesSync(sourceFile, snapshot + 1, snapshot + 1);
+    const result = invoke([
+      "--source-assets", source,
+      "--target", target,
+      "--modified-since-epoch", String(snapshot),
+    ]);
+    assert.equal(result.status, 3);
+    assert.match(result.stdout, /content differs/);
+    assert.match(result.stderr, /RUNTIME_MEDIA_SYNC_BLOCKED/);
+  });
+});
+
 test("runtime media sync rejects symlinked source and destination directories", () => {
   withTemp((dir) => {
     const source = path.join(dir, "old-assets");

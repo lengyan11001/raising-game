@@ -1,3 +1,12 @@
+## 2026-11-15 Step BW: disk cleanup, media write-root discovery, and cutover delta sync
+
+- Reclaimed 1.2G of archived journal with `journalctl --vacuum-size=500M` and cleared APT package cache. Root disk improved from 88% (5.7G free) to 85% (7.1G free). Primary 4174, candidate 4175, and Nginx PIDs remained unchanged; all three public health URLs stayed 200.
+- Disk growth is media-dominated. `/opt/raising-game-demo/assets` is 15G and `/opt/raising-game-shared/assets` is 7.1G. The shared tree contains about 7.6G of runtime media but was not receiving current uploads.
+- Critical cutover finding: the running primary process PID `317565` has no `RUNTIME_MEDIA_ROOT` in `/proc/317565/environ`; the environment file now contains the shared root, but that process predates the change. New uploads at 2026-11-16 00:06 through 00:29 continued landing in `/opt/raising-game-demo/assets/user-uploads`, while the shared root had no corresponding recent files.
+- Read-only metadata comparison of canonical runtime paths found `total=6075 same_size=6062 missing=13 size_mismatch=0 source_bytes=7602832692 missing_bytes=18305084`. Do not delete the legacy asset tree or switch all traffic to 4175 until these files are reconciled and the post-switch delta is closed.
+- Added `--modified-since-epoch` to `ops/sync-runtime-media-root.py` and updated the cutover runbook. The safe order is now: record the snapshot epoch, run the full sync while 4174 serves, canary/cut over, stop 4174, and run only the timestamp-filtered delta. This avoids re-reading roughly 7.6G during the final gap and still verifies any upload created during cutover.
+- Verification: `node --test test/runtime-media-sync.test.js test/runtime-media-preparation.test.js test/resilience-ops.test.js` passed 86/86; `py_compile` and `git diff --check` passed. No production file, service, Nginx config, database, or traffic was changed by this code change.
+
 ## 2026-11-15 Step BV: candidate soak check and disk-capacity risk
 
 - Read-only post-apply check at 2026-11-15 23:35 +07: primary `raising-game-demo.service` remained MainPID `317565`, InvocationID `c4ed0b839a75478797958124cebb2d5e`, `NRestarts=0`; candidate `raising-game-demo-b.service` remained MainPID `334836`, InvocationID `43a1d29f1bcf4be6bcabec6b64ccb563`, `NRestarts=0`; Nginx remained MainPID `3914088`, InvocationID `556af2ad28994b528c1c36272e657848`, `NRestarts=0`.
