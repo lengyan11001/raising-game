@@ -1,11 +1,42 @@
 "use strict";
 
+const fs = require("node:fs");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 const { Linter } = require("eslint");
-const { partFiles, readServerSource } = require("../server-source");
 
 const root = path.resolve(__dirname, "..");
-const source = readServerSource();
+const sourceArg = process.argv.indexOf("--source");
+if (sourceArg >= 0 && !process.argv[sourceArg + 1]) {
+  console.error("Missing value for --source.");
+  process.exit(2);
+}
+const sourceRef = sourceArg >= 0 ? process.argv[sourceArg + 1] : null;
+
+let partFiles;
+let sourceParts;
+if (sourceRef) {
+  const paths = execFileSync("git", ["ls-tree", "-r", "--name-only", sourceRef, "--", "server.parts"], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+  })
+    .split("\n")
+    .filter((fileName) => /^server\.parts\/part-\d+\.js$/.test(fileName))
+    .sort();
+  partFiles = paths.map((fileName) => path.basename(fileName));
+  sourceParts = paths.map((fileName) => execFileSync("git", ["show", `${sourceRef}:${fileName}`], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  }));
+} else {
+  partFiles = fs.readdirSync(path.join(root, "server.parts"))
+    .filter((fileName) => /^part-\d+\.js$/.test(fileName))
+    .sort();
+  sourceParts = partFiles.map((fileName) => fs.readFileSync(path.join(root, "server.parts", fileName), "utf8"));
+}
+const source = sourceParts.join("");
 const globals = new Set([
   "require",
   "module",
@@ -30,10 +61,9 @@ if (messages.length === 0) process.exit(0);
 
 const ranges = [];
 let firstLine = 1;
-for (const fileName of partFiles) {
-  const lineCount = require("node:fs")
-    .readFileSync(path.join(root, "server.parts", fileName), "utf8")
-    .split("\n").length;
+for (let index = 0; index < partFiles.length; index += 1) {
+  const fileName = partFiles[index];
+  const lineCount = sourceParts[index].split("\n").length;
   ranges.push({ fileName, firstLine, lastLine: firstLine + lineCount - 1 });
   firstLine += lineCount;
 }

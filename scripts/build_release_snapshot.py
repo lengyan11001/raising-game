@@ -135,20 +135,28 @@ LIVE_RELEASE_PATHS = (*LIVE_ONLY_PATHS, *LIVE_SHARED_PATHS)
 RELEASE_TOOLS = (
     "DEPLOY.md",
     "scripts/build_release_snapshot.py",
+    "scripts/check-server-undef.js",
     "scripts/ensure_media_signing_secret.py",
     "scripts/deploy_pull.py",
     "scripts/deploy_site.py",
     "scripts/materialize_static_release.py",
 )
 def run(args: list[str], cwd: Path, *, input_text: str | None = None) -> str:
-    result = subprocess.run(
-        args,
-        cwd=cwd,
-        check=True,
-        input=input_text,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            args,
+            cwd=cwd,
+            check=True,
+            input=input_text,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as error:
+        if error.stdout:
+            print(error.stdout.rstrip(), file=sys.stderr)
+        if error.stderr:
+            print(error.stderr.rstrip(), file=sys.stderr)
+        raise
     return result.stdout.strip()
 
 
@@ -229,6 +237,8 @@ def main() -> None:
 
     root = Path(args.repo_root).resolve() if args.repo_root else Path(__file__).resolve().parent.parent
     source_ref = run(["git", "rev-parse", args.source], root)
+    print(f"platform: checking assembled server undefined references source={source_ref}")
+    run(["node", "scripts/check-server-undef.js", "--source", source_ref], root)
     base_refs = ((args.platform_base, "platform"), (args.live_base, "live"))
     for base_branch, profile in base_refs:
         tracked = set(path for _mode, _object_id, path in source_entries(root, source_ref))
