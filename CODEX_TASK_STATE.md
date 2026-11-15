@@ -1,3 +1,12 @@
+## 2026-11-15 Step BR: candidate dry-run blockers fixed, release rebuild pending
+
+- Kept production traffic on 4174 throughout. Read-only preflight at 2026-11-15T16:17:30Z confirmed primary `raising-game-demo.service` MainPID `317565`, candidate `raising-game-demo-b.service` MainPID `4112958`, Nginx MainPID `3914088`, all `NRestarts=0`, and public `/api/health` 200 on all three sites.
+- Fixed four blockers found by the formal candidate-only dry-run: candidate mode no longer forwards migration/cutover/legacy restart hooks; runtime media validation now checks the actual Nginx media root `/opt/raising-game-demo/assets/ourdream/characters`; missing media paths produce explicit failure under `pipefail`; and rolling execution uses server `/usr/bin/python3` instead of the macOS interpreter path.
+- Changed the remote bootstrap clone URL to HTTPS because the server cannot authenticate its own GitHub SSH key but has verified read-only HTTPS access. This affects release preparation only, not application traffic.
+- Verification after the final edits: focused deploy/readiness/resilience Node tests 114/114; Python rolling/deploy tests 33/33; `npm run check:undef` passed; full `npm test` passed 1357/1358 with 0 failures and 1 skip; `py_compile` and `git diff --check` passed.
+- The prior `platform-release` `9b021832` is stale. No release was applied in this step, no migration ran, no Nginx configuration changed, and no traffic moved. Next gates are a new release snapshot, an independent release-tree test, a fresh candidate-only dry-run, and only then a 4175-only apply.
+- Changed files: `scripts/deploy_site.py`, `scripts/deploy_pull.py`, `test/deploy-targets.test.js`, and this state file.
+
 ## 2026-11-15 Step BQ: candidate-only deployment entrypoint and isolation gates completed
 
 - Wired the formal `scripts/deploy_local.sh --site old` path through `deploy_site.py` and `deploy_pull.py` to `deploy_old_rolling.py --candidate-only`. `--candidate-only` is a remote validation dry-run; only the additional `--apply-candidate` switch permits restarting inactive 4175.
