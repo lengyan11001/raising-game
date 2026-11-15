@@ -244,6 +244,7 @@ function isExplicitAdvancedProvider(value = "") {
   if (["qwenimageeditspicy", "qwenimageeditspic", "qwenimageedit", "qwenimageeditspicpro"].includes(normalized) || normalized.includes("qwenimageedit")) return true;
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return true;
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return true;
+  if (isSeedance25FlashProvider(value)) return true;
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return true;
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return true;
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized)) return true;
@@ -254,7 +255,7 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, a Vega provider id, seedream5-image, seedream55-image, qwen-image3, qwen37-flash, byteplus-language, or papaya.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance25-flash, seedance-nsfw, a Vega provider id, seedream5-image, seedream55-image, qwen-image3, qwen37-flash, byteplus-language, or papaya.", { provider: value });
   }
 }
 
@@ -284,6 +285,12 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
   }
   const raw = String(value || "").trim().toLowerCase();
   const capability = normalizeAliyunVideoCapability(videoCapability, { provider });
+  if (normalizeAdvancedProvider(provider) === SEEDANCE25_FLASH_PROVIDER) {
+    if (!SEEDANCE25_FLASH_RESOLUTIONS.includes(raw)) {
+      throw advancedValidationError("INVALID_RESOLUTION", "Seedance 2.5 Flash resolution must be 480p or 720p.", { resolution: value, allowed: SEEDANCE25_FLASH_RESOLUTIONS });
+    }
+    return;
+  }
   if (normalizeAdvancedProvider(provider) === "seedance25") {
     if (!["480p", "720p"].includes(raw)) {
       throw advancedValidationError("INVALID_RESOLUTION", "Seedance 2.5 resolution must be 480p or 720p.", { resolution: value, allowed: ["480p", "720p"] });
@@ -330,7 +337,7 @@ function assertAdvancedRatioInput(value, provider = "seedance") {
     normalizeVegaRatio(value);
     return;
   }
-  if (["wan30", "seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizeAdvancedProvider(provider)) && String(value || "").trim().toLowerCase() === "adaptive") return;
+  if (["wan30", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER].includes(normalizeAdvancedProvider(provider)) && String(value || "").trim().toLowerCase() === "adaptive") return;
   const normalized = String(value || "").trim().replace(/[锛歺X]/g, ":");
   if (!/^\d+\s*:\s*\d+$/.test(normalized)) {
     throw advancedValidationError("INVALID_RATIO", "ratio must use width:height format, for example 9:16, 16:9, or 1:1.", { ratio: value });
@@ -721,7 +728,7 @@ function advancedDurationBounds(provider = "seedance") {
   if (isVegaProvider(normalizedProvider)) { const bounds = vegaDurationBounds(normalizedProvider); return { fallback: bounds.fallback, min: bounds.min, max: bounds.max }; }
   if (["seedream5-image", "seedream55-image", "qwen-image3", "qwen37-flash", "byteplus-language", "papaya", "z-image-spicy-pro"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
-  if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizedProvider)) return { fallback: 4, min: 4, max: 30 };
+  if (["seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER].includes(normalizedProvider)) return { fallback: 4, min: 4, max: 30 };
   if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
   return normalizedProvider === "wan27"
     ? { fallback: 5, min: 2, max: 15 }
@@ -885,6 +892,67 @@ function advancedModelPricingRaw(provider = "seedance", options = {}) {
   }
   if (isVegaProvider(normalizedProvider)) throw vegaPricingUnavailableError(normalizedProvider);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
+  if (normalizedProvider === SEEDANCE25_FLASH_PROVIDER) {
+    const mode = normalizeSeedance25FlashMode(options.mode || options.functionMode || options.seedanceMode);
+    const resolution = String(options.resolution || "480p").trim().toLowerCase();
+    const duration = clampNumber(options.duration ?? options.durationSeconds, 4, 4, 30);
+    if (!SEEDANCE25_FLASH_RESOLUTIONS.includes(resolution)) {
+      throw advancedValidationError("INVALID_RESOLUTION", "Seedance 2.5 Flash resolution must be 480p or 720p.", { resolution, allowed: SEEDANCE25_FLASH_RESOLUTIONS });
+    }
+    const inputVideoSeconds = durationSecondsFromValue(firstPresent(
+      options.videoInputSeconds,
+      options.inputVideoSeconds,
+      options.referenceVideoDurationSeconds,
+      options.referenceVideoSeconds,
+    ));
+    const hasVideoInput = inputVideoSeconds > 0 || Boolean(options.hasVideoInput || options.rateKind === "video_input");
+    const configuredRates = hasVideoInput
+      ? advancedPricing.seedanceFlashVideoCreditsPerSecondByResolution || {}
+      : advancedPricing.seedanceFlashCreditsPerSecondByResolution || {};
+    const fallbackRates = hasVideoInput
+      ? DEFAULT_ADVANCED_PRICING.seedanceFlashVideoCreditsPerSecondByResolution
+      : DEFAULT_ADVANCED_PRICING.seedanceFlashCreditsPerSecondByResolution;
+    const creditsPerSecond = pricingNumber(configuredRates[resolution], fallbackRates[resolution], 0, 6);
+    if (!(creditsPerSecond > 0)) {
+      const error = advancedValidationError(
+        "MODEL_PRICING_UNAVAILABLE",
+        `Seedance 2.5 Flash ${resolution} pricing is not configured. Generation was not started.`,
+        { resolution, hasVideoInput },
+      );
+      error.statusCode = 422;
+      throw error;
+    }
+    const billingSeconds = duration + (hasVideoInput ? inputVideoSeconds : 0);
+    const credits = creditsAmount(billingSeconds * creditsPerSecond);
+    const usdPerMillionTokens = hasVideoInput
+      ? SEEDANCE25_FLASH_USD_PER_MILLION_TOKENS.withVideo
+      : SEEDANCE25_FLASH_USD_PER_MILLION_TOKENS.withoutVideo;
+    const purchaseCreditsPerSecond = flashPurchaseUsdPerSecond(resolution, { hasVideoInput }) * DEFAULT_CREDITS_PER_USD;
+    return {
+      provider: SEEDANCE25_FLASH_PROVIDER,
+      providerLabel: SEEDANCE25_FLASH_LABEL,
+      model: SEEDANCE25_FLASH_MODEL,
+      endpoint: SEEDANCE25_FLASH_ENDPOINT,
+      mode,
+      duration,
+      requestedDuration: duration,
+      inputVideoSeconds,
+      hasVideoInput,
+      billingSeconds,
+      resolution,
+      ratio: String(options.ratio || "adaptive"),
+      creditsPerSecond,
+      outputCredits: creditsAmount(duration * creditsPerSecond),
+      inputVideoCreditsPerSecond: hasVideoInput ? creditsPerSecond : 0,
+      inputVideoCredits: hasVideoInput ? creditsAmount(inputVideoSeconds * creditsPerSecond) : 0,
+      baseCredits: credits,
+      credits,
+      estimatedCompletionTokens: flashEstimatedCompletionTokens({ resolution, outputSeconds: duration, inputVideoSeconds }),
+      usdPerMillionTokens,
+      markup: purchaseCreditsPerSecond > 0 ? pricingNumber(creditsPerSecond / purchaseCreditsPerSecond, 1.5, 0, 8) : 1.5,
+      source: "seedance25_flash_token_estimate",
+    };
+  }
   if (normalizedProvider === "papaya") return papayaPricingEstimate(advancedPricing, options);
   if (["qwen37-flash", "byteplus-language"].includes(normalizedProvider)) {
     const estimate = qwen37FlashPricingEstimate(advancedPricing, options);

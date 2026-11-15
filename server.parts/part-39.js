@@ -299,6 +299,12 @@ function advancedPricingRowKey(row = {}) {
     return `seedream5-pro-${normalizeSeedream5Resolution(row.resolution).toLowerCase()}`;
   }
   if (providerRaw === "wan27-image" || unitRaw === "image" || resolutionRaw === "image") return "wan27-image";
+  if (isSeedance25FlashProvider(providerRaw)) {
+    const resolution = normalizeAdvancedResolution(row.resolution);
+    const rateKindRaw = String(row.rateKind || row.unit || "").toLowerCase();
+    const isVideoInput = rateKindRaw === "video_input" || rateKindRaw === "input_second" || String(row.key || "").includes("video-input");
+    return `seedance-flash-${isVideoInput ? "video-input-" : ""}${resolution}`;
+  }
   const provider = normalizeAdvancedProvider(row.provider);
   const resolution = normalizeAdvancedResolution(row.resolution);
   const rateKindRaw = String(row.rateKind || row.unit || "").toLowerCase();
@@ -366,6 +372,10 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     const isFast = normalizedProvider === "seedance" && normalizeSeedanceTier(seedanceTier) === "fast";
     const table = normalizedProvider === "seedance25"
     ? normalized.seedance25CreditsPerSecondByResolution
+    : normalizedProvider === SEEDANCE25_FLASH_PROVIDER && rateKind === "video_input"
+    ? normalized.seedanceFlashVideoCreditsPerSecondByResolution
+    : normalizedProvider === SEEDANCE25_FLASH_PROVIDER
+    ? normalized.seedanceFlashCreditsPerSecondByResolution
     : normalizedProvider === "h3-vega" && rateKind === "video_input"
     ? normalized.h3VegaInputVideoCreditsPerSecondByResolution
     : normalizedProvider === "h3-vega"
@@ -410,7 +420,7 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     const rateKey = ["vega10-lite", "seedance20-vega"].includes(normalizedProvider)
       ? String(resolution || "").trim().toLowerCase().replace(/^2160p$/, "4k")
       : normalizeAdvancedResolution(resolution);
-    saleCredits = pricingNumber(table[rateKey], 0, 0, isFast ? 6 : 4);
+    saleCredits = pricingNumber(table[rateKey], 0, 0, isFast || normalizedProvider === SEEDANCE25_FLASH_PROVIDER ? 6 : 4);
   }
   if (options.applyDiscount === false) return saleCredits;
   return applyAdvancedModelDiscount(saleCredits, normalized, advancedPricingModelKey(provider, {
@@ -747,6 +757,19 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
       usdPerSecond,
       source: "seedance25_direct_endpoint_token_pricing",
       message: `Seedance 2.5 direct-endpoint contract price: $${usdPerMillionTokens}/million tokens (${hasVideoInput ? "with input video" : "without input video"}); the displayed per-second purchase price uses ${publicResolution} 16:9 at 24fps. Actual upstream billing uses completion_tokens.`,
+    };
+  }
+  if (normalizedProvider === SEEDANCE25_FLASH_PROVIDER) {
+    const hasVideoInput = rateKind === "video_input";
+    const usdPerSecond = flashPurchaseUsdPerSecond(publicResolution, { hasVideoInput });
+    const usdPerMillionTokens = hasVideoInput
+      ? SEEDANCE25_FLASH_USD_PER_MILLION_TOKENS.withVideo
+      : SEEDANCE25_FLASH_USD_PER_MILLION_TOKENS.withoutVideo;
+    return {
+      creditsPerSecond: pricingNumber(usdPerSecond * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      usdPerSecond,
+      source: "seedance25_flash_token_estimate",
+      message: `Seedance 2.5 Flash price: $${usdPerMillionTokens}/million tokens (${hasVideoInput ? "with input video" : "without input video"}); the displayed per-second purchase price uses ${publicResolution} 16:9 at 24fps.`,
     };
   }
   if (normalizedProvider === "seedance25") {
@@ -1282,7 +1305,7 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     if (!Number.isFinite(rawCredits) || rawCredits < 0 || (definedRow?.provider === "wan30" && rawCredits <= 0)) {
       throw pricingPayloadError(`Invalid sale price for ${key}`);
     }
-    const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") || key.startsWith("seedance-nsfw-") || key.startsWith("seedance-fast-") || key.startsWith("h3-vega-") || key.startsWith("vega10-lite-") || key.startsWith("vega15-pro-") ? 6 : 4);
+    const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") || key.startsWith("seedance-flash-") || key.startsWith("seedance-nsfw-") || key.startsWith("seedance-fast-") || key.startsWith("h3-vega-") || key.startsWith("vega10-lite-") || key.startsWith("vega15-pro-") ? 6 : 4);
     if (key === "wan27-720p") next.wan27CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "wan27-1080p") next.wan27CreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "wan30-480p") next.wan30CreditsPerSecondByResolution["480p"] = credits;
@@ -1328,6 +1351,10 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     else if (key === "vega10-lite-video-input-2k") next.vega10LiteInputVideoCreditsPerSecondByResolution["2k"] = credits;
     else if (key === "vega10-lite-video-input-4k") next.vega10LiteInputVideoCreditsPerSecondByResolution["4k"] = credits;
     else if (key === "vega10-lite-reference-image") next.vega10LiteReferenceImageCreditsEach = credits;
+    else if (key === "seedance-flash-480p") next.seedanceFlashCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "seedance-flash-720p") next.seedanceFlashCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "seedance-flash-video-input-480p") next.seedanceFlashVideoCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "seedance-flash-video-input-720p") next.seedanceFlashVideoCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance25-480p") next.seedance25CreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance25-720p") next.seedance25CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "h3-vega-480p") next.h3VegaCreditsPerSecondByResolution["480p"] = credits;

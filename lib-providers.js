@@ -10,6 +10,12 @@ const {
   SEEDANCE25_DIRECT_PROVIDER,
 } = require("./seedance25-direct");
 const {
+  SEEDANCE25_FLASH_ENDPOINT_ID,
+  SEEDANCE25_FLASH_LABEL,
+  SEEDANCE25_FLASH_MODEL,
+  SEEDANCE25_FLASH_PROVIDER,
+} = require("./seedance25-flash");
+const {
   isVegaProvider,
   vegaProviderDefinition,
 } = require("./tencent-vod-vega");
@@ -64,6 +70,18 @@ function isPapayaProvider(value = "") {
   return ["papaya", "papaya10", "papaya1.0", "carrothubpapaya10", "carrothubpapaya1.0"].includes(normalized) || normalized.includes("carrothubpapaya");
 }
 
+function isSeedance25FlashProvider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return [
+    "seedance25flash",
+    "seedance2.5flash",
+    "seedanceflash",
+    SEEDANCE25_FLASH_ENDPOINT_ID,
+    SEEDANCE25_FLASH_MODEL,
+  ].map((item) => String(item || "").toLowerCase().replace(/[\s_-]+/g, "")).includes(normalized)
+    || (normalized.includes("seedance") && normalized.includes("flash"));
+}
+
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
@@ -76,6 +94,7 @@ function normalizeAdvancedProvider(value = "") {
   if (isSeedream5ImageProvider(value)) return "seedream5-image";
   if (["zimagespicypro", "zimagespicy", "zimagepro", "zimage", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return "z-image-spicy-pro";
   if (["qwenimageeditspicy", "qwenimageeditspic", "qwenimageedit", "qwenimageeditspicpro"].includes(normalized) || normalized.includes("qwenimageedit")) return "qwen-image-edit-spicy";
+  if (isSeedance25FlashProvider(value)) return SEEDANCE25_FLASH_PROVIDER;
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return SEEDANCE25_DIRECT_PROVIDER;
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
@@ -103,6 +122,7 @@ function publicProviderId(value = "") {
   if (isSeedream5ImageProvider(raw)) return "seedream5-image";
   if (["zimagespicypro", "zimagespicy", "zimagepro", "zimage", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return "z-image-spicy-pro";
   if (["qwenimageeditspicy", "qwenimageeditspic", "qwenimageedit", "qwenimageeditspicpro"].includes(normalized) || normalized.includes("qwenimageedit")) return "qwen-image-edit-spicy";
+  if (isSeedance25FlashProvider(raw)) return SEEDANCE25_FLASH_PROVIDER;
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return SEEDANCE25_DIRECT_PROVIDER;
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
@@ -124,6 +144,7 @@ function publicProviderLabel(value = "") {
   if (id === "seedream5-image") return "Seedream 5.0 Image";
   if (id === "z-image-spicy-pro") return "Z-Image Spicy Pro";
   if (id === "qwen-image-edit-spicy") return "Qwen Image Edit Spicy";
+  if (id === SEEDANCE25_FLASH_PROVIDER) return SEEDANCE25_FLASH_LABEL;
   if (id === SEEDANCE25_DIRECT_PROVIDER) return SEEDANCE25_DIRECT_LABEL;
   if (id === "seedance25") return "Seedance 2.5";
   if (id === "wan30") return "Wan 3.0";
@@ -262,6 +283,7 @@ module.exports = {
   isSeedream5ImageProvider,
   isQwenImage3Provider,
   isQwen37FlashProvider,
+  isSeedance25FlashProvider,
   isByteplusLanguageProvider,
   isPapayaProvider,
   isWan27ImageProvider,

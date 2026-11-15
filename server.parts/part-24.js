@@ -1270,7 +1270,7 @@ function needsApizFailureRefund(record = {}) {
 
 function needsSeedanceFailureRefund(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider) && !isVegaProvider(provider)) return false;
+  if (!["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider) && !isVegaProvider(provider)) return false;
   if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
   const billingStatus = String(record.billingStatus || "").toLowerCase();
   if (billingStatus === "refunded") return false;
@@ -1283,11 +1283,11 @@ function needsSeedanceFailureRefund(record = {}) {
 
 function seedanceUsesTokenPricing(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) return false;
+  if (!["seedance", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER].includes(provider)) return false;
   if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   const pricing = record.pricingEstimate && typeof record.pricingEstimate === "object" ? record.pricingEstimate : {};
   if (String(pricing.source || "") === "public_duration_rate") return false;
-  if (["seedance_token_estimate", "seedance25_direct_token_estimate"].includes(String(pricing.source || ""))) return true;
+  if (["seedance_token_estimate", "seedance25_direct_token_estimate", "seedance25_flash_token_estimate"].includes(String(pricing.source || ""))) return true;
   return String(record.source || "").includes("advanced") && record.billingSettledAt === "";
 }
 
@@ -1295,7 +1295,7 @@ function seedanceUsesTokenPricing(record = {}) {
 // token usage is retained for cost auditing, but must not change the customer
 // charge after the configured sale price was pre-deducted.
 function seedanceUsesConfiguredSalePrice(record = {}) {
-  if (String(record.provider || "").toLowerCase() !== SEEDANCE25_DIRECT_PROVIDER) return false;
+  if (![SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER].includes(String(record.provider || "").toLowerCase())) return false;
   return creditsAmount(record.preDeductedCredits || 0) > 0;
 }
 
@@ -1342,8 +1342,8 @@ function seedanceFinalCreditsFromUsage(record = {}) {
   const completionTokens = extractUsageCompletionTokens(record.queryResponse) ?? extractUsageCompletionTokens(record.createResponse);
   if (!completionTokens) return null;
   const pricing = record.pricingEstimate && typeof record.pricingEstimate === "object" ? record.pricingEstimate : {};
-  const directSeedance25 = String(record.provider || "").toLowerCase() === SEEDANCE25_DIRECT_PROVIDER
-    || String(pricing.source || "") === "seedance25_direct_token_estimate";
+  const directSeedance25 = [SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER].includes(String(record.provider || "").toLowerCase())
+    || ["seedance25_direct_token_estimate", "seedance25_flash_token_estimate"].includes(String(pricing.source || ""));
   const resolution = normalizeAdvancedResolution(record.resolution || pricing.resolution || record.params?.resolution);
   const usdPerMillionTokens = Number(pricing.usdPerMillionTokens || seedanceUsdPerMillionTokens(resolution, {
     model: record.model || pricing.model,

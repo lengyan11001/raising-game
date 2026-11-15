@@ -423,13 +423,15 @@ async function runSeedance25GenerationJob(job = {}, submission = null, options =
   let upstreamInput = initialUpstreamInput;
   let mediaAssets = initialMediaAssets;
   const direct = normalizeAdvancedProvider(provider) === SEEDANCE25_DIRECT_PROVIDER;
-  const providerLabel = direct ? SEEDANCE25_DIRECT_LABEL : "Seedance 2.5";
-  const recordSource = direct ? "advanced-seedance-nsfw" : "advanced-seedance25";
-  const upstreamSource = direct ? "byteplus-direct-seedance25" : (USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25");
+  const flash = normalizeAdvancedProvider(provider) === SEEDANCE25_FLASH_PROVIDER;
+  const providerLabel = flash ? SEEDANCE25_FLASH_LABEL : direct ? SEEDANCE25_DIRECT_LABEL : "Seedance 2.5";
+  const recordSource = flash ? "advanced-seedance25-flash" : direct ? "advanced-seedance-nsfw" : "advanced-seedance25";
+  const upstreamSource = flash ? "byteplus-direct-seedance25-flash" : direct ? "byteplus-direct-seedance25" : (USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25");
+  const updateReason = (stage) => flash ? `seedance-flash-${stage}` : direct ? `seedance-nsfw-${stage}` : `seedance25-${stage}`;
   let upstreamPayload = null;
   let providerDispatchStarted = false;
   try {
-    await updateGenerationRecord(taskId, { status: "submitting", awaitingUpstreamTask: true, error: "" }, direct ? "seedance-nsfw-submitting" : "seedance25-submitting");
+    await updateGenerationRecord(taskId, { status: "submitting", awaitingUpstreamTask: true, error: "" }, updateReason("submitting"));
     if (preprocessReference && (direct || !USE_GATEWAY_UPSTREAM)) {
       const db = await readDb();
       const record = await getGenerationRecord(taskId);
@@ -461,10 +463,14 @@ async function runSeedance25GenerationJob(job = {}, submission = null, options =
         imageUrl: firstFrameUrl || imageFiles[0] || record?.imageUrl || "",
         syntheticReferenceLocalUrl: primaryPreparedAsset?.syntheticReferenceLocalUrl || "",
         syntheticReferenceUrl: primaryPreparedAsset?.syntheticReferenceUrl || "",
-      }, direct ? "seedance-nsfw-reference-preprocessed" : "seedance25-reference-preprocessed");
+      }, updateReason("reference-preprocessed"));
     }
     let submitted;
-    if (direct) {
+    if (flash) {
+      upstreamPayload = buildSeedance25FlashTaskPayload(upstreamInput, SEEDANCE25_FLASH_ENDPOINT);
+      providerDispatchStarted = true;
+      submitted = await arkRequest("POST", "/contents/generations/tasks", upstreamPayload);
+    } else if (direct) {
       const imageAssets = [];
       for (let index = 0; index < upstreamInput.imageFiles.length; index += 1) {
         imageAssets.push(await ensureSeedanceAssetUriForPublicUrl(upstreamInput.imageFiles[index], "Image", `seedance-nsfw-image-${index + 1}`));
@@ -518,23 +524,23 @@ async function runSeedance25GenerationJob(job = {}, submission = null, options =
         : await seedance25Request("/api/v3/tasks/create", upstreamPayload);
       if (USE_GATEWAY_UPSTREAM) upstreamPayload = gatewayBody;
     }
-    const raw = !direct && USE_GATEWAY_UPSTREAM ? submitted.raw || submitted : submitted;
-    const directTask = direct ? normalizeTask(raw) : null;
-    const upstreamTaskId = direct ? directTask.taskId : USE_GATEWAY_UPSTREAM ? submitted.taskId : apizTaskId(raw);
+    const raw = !direct && !flash && USE_GATEWAY_UPSTREAM ? submitted.raw || submitted : submitted;
+    const arkTask = direct || flash ? normalizeTask(raw) : null;
+    const upstreamTaskId = direct || flash ? arkTask.taskId : USE_GATEWAY_UPSTREAM ? submitted.taskId : apizTaskId(raw);
     if (!upstreamTaskId) {
       const error = new Error(`${providerLabel} service did not return a task id.`);
       error.statusCode = 502;
-      error.code = direct ? "SEEDANCE25_DIRECT_TASK_ID_MISSING" : "SEEDANCE25_TASK_ID_MISSING";
+      error.code = flash ? "SEEDANCE25_FLASH_TASK_ID_MISSING" : direct ? "SEEDANCE25_DIRECT_TASK_ID_MISSING" : "SEEDANCE25_TASK_ID_MISSING";
       error.payload = raw;
       throw error;
     }
     await updateGenerationRecord(taskId, {
-      status: direct ? directTask.status || "submitted" : apizStatus(raw) || "submitted",
+      status: direct || flash ? arkTask.status || "submitted" : apizStatus(raw) || "submitted",
       upstreamTaskId,
       awaitingUpstreamTask: false,
-      provider: direct ? SEEDANCE25_DIRECT_PROVIDER : "seedance25",
+      provider: flash ? SEEDANCE25_FLASH_PROVIDER : direct ? SEEDANCE25_DIRECT_PROVIDER : "seedance25",
       upstreamSource,
-      upstreamModel: direct ? SEEDANCE25_DIRECT_ENDPOINT : SEEDANCE25_MODEL_ID,
+      upstreamModel: flash ? SEEDANCE25_FLASH_ENDPOINT : direct ? SEEDANCE25_DIRECT_ENDPOINT : SEEDANCE25_MODEL_ID,
       source: recordSource,
       model: providerLabel,
       mediaMode: upstreamInput.mode,
@@ -548,9 +554,9 @@ async function runSeedance25GenerationJob(job = {}, submission = null, options =
       originalFinalCredits: pricing?.originalCredits ?? cost,
       billingStatus: cost > 0 ? "settled" : "free",
       billingSettledAt: cost > 0 ? new Date().toISOString() : "",
-    }, direct ? "seedance-nsfw-submit" : "seedance25-submit");
+    }, updateReason("submit"));
   } catch (error) {
-    console.warn(direct ? "[seedance-nsfw-generation-job-error]" : "[seedance25-generation-job-error]", taskId, error.message || error);
+    console.warn(flash ? "[seedance-flash-generation-job-error]" : direct ? "[seedance-nsfw-generation-job-error]" : "[seedance25-generation-job-error]", taskId, error.message || error);
     error.providerDispatchStarted = Boolean(providerDispatchStarted);
     if (error.payload && !error.upstreamPayload) error.upstreamPayload = error.payload;
     options.onError?.(error);
@@ -558,11 +564,11 @@ async function runSeedance25GenerationJob(job = {}, submission = null, options =
     await settleAdvancedGenerationJobFailure({
       taskId,
       userId: String(currentRecord?.userId || ""),
-      provider: direct ? SEEDANCE25_DIRECT_PROVIDER : "seedance25",
+      provider: flash ? SEEDANCE25_FLASH_PROVIDER : direct ? SEEDANCE25_DIRECT_PROVIDER : "seedance25",
       requestParams: { mode: upstreamInput?.mode || "" },
       pricing,
       cost,
-    }, error, direct ? "seedance-nsfw-failed" : "seedance25-failed", {
+    }, error, updateReason("failed"), {
       refundBeforeDispatch: !providerDispatchStarted,
     });
     if (options.throwOnError) throw error;
@@ -581,15 +587,20 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
   const { auth, body, bodyParams, caseParams, selectedCase, config, prompt } = context;
   const provider = normalizeAdvancedProvider(context.provider || body.provider || bodyParams.provider || "seedance25");
   const direct = provider === SEEDANCE25_DIRECT_PROVIDER;
-  const providerLabel = direct ? SEEDANCE25_DIRECT_LABEL : "Seedance 2.5";
-  if (direct && !ARK_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "SEEDANCE25_DIRECT_NOT_CONFIGURED", message: `${providerLabel} generation is not configured.` });
+  const flash = provider === SEEDANCE25_FLASH_PROVIDER;
+  const providerLabel = flash ? SEEDANCE25_FLASH_LABEL : direct ? SEEDANCE25_DIRECT_LABEL : "Seedance 2.5";
+  if ((direct || flash) && !ARK_API_KEY) {
+    return sendJson(res, 503, {
+      ok: false,
+      code: flash ? "SEEDANCE25_FLASH_NOT_CONFIGURED" : "SEEDANCE25_DIRECT_NOT_CONFIGURED",
+      message: `${providerLabel} generation is not configured.`,
+    });
   }
-  if (!direct && !USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY) {
+  if (!direct && !flash && !USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "SEEDANCE25_NOT_CONFIGURED", message: "Seedance 2.5 generation is not configured." });
   }
   const merged = mergedRequestForMedia(body, caseParams);
-  const modeNormalizer = direct ? normalizeSeedance25DirectMode : normalizeSeedance25Mode;
+  const modeNormalizer = flash ? normalizeSeedance25FlashMode : direct ? normalizeSeedance25DirectMode : normalizeSeedance25Mode;
   const mode = modeNormalizer(firstPresent(
     body.functionMode,
     body.seedanceMode,
@@ -603,7 +614,7 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
   const requestedRatio = String(firstPresent(body.ratio, bodyParams.ratio, caseParams.ratio, direct && mode !== "omini" ? "adaptive" : "16:9")).trim().toLowerCase();
   const ratio = direct && mode !== "omini" ? "adaptive" : requestedRatio;
   const duration = Number(firstPresent(body.duration, bodyParams.duration, caseParams.duration, 4));
-  const seed = direct
+  const seed = direct || flash
     ? normalizeOptionalSeed(firstPresent(body.seed, bodyParams.seed, caseParams.seed), { max: SEEDANCE25_DIRECT_SEED_MAX })
     : "";
   const generateAudio = boolFromRequest(firstPresent(body.generateAudio, body.generate_audio, bodyParams.generateAudio, bodyParams.generate_audio), true);
@@ -675,7 +686,7 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       : publicHttpUrlForUpstream(firstPresent(lastFrameInput?.url, body.lastFrameUrl, body.endImageUrl, bodyParams.lastFrameUrl, bodyParams.endImageUrl, ""));
 
     let inputVideoSeconds = 0;
-    if (direct && videoUrls.length) {
+    if ((direct || flash) && videoUrls.length) {
       inputVideoSeconds = durationSecondsFromValue(firstPresent(
         body.inputVideoSeconds,
         body.referenceVideoDurationSeconds,
@@ -705,7 +716,8 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       inputVideoSeconds,
       generateAudio,
     };
-    if (direct) buildSeedance25DirectTaskPayload(upstreamInput, SEEDANCE25_DIRECT_ENDPOINT);
+    if (flash) buildSeedance25FlashTaskPayload(upstreamInput, SEEDANCE25_FLASH_ENDPOINT);
+    else if (direct) buildSeedance25DirectTaskPayload(upstreamInput, SEEDANCE25_DIRECT_ENDPOINT);
     else buildSeedance25TaskPayload(upstreamInput, SEEDANCE25_MODEL_ID);
 
     const rawPricing = advancedModelPricing(provider, {
@@ -771,8 +783,8 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       awaitingUpstreamTask: true,
       model: providerLabel,
       provider,
-      upstreamSource: direct ? "byteplus-direct-seedance25" : (USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25"),
-      source: direct ? "advanced-seedance-nsfw" : "advanced-seedance25",
+      upstreamSource: flash ? "byteplus-direct-seedance25-flash" : direct ? "byteplus-direct-seedance25" : (USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25"),
+      source: flash ? "advanced-seedance25-flash" : direct ? "advanced-seedance-nsfw" : "advanced-seedance25",
       kind: "advanced-video",
       templateId: selectedCase?.id || "",
       templateTitle: selectedCase?.title || "Advanced generation",
@@ -796,8 +808,8 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       finalCredits: cost,
       originalFinalCredits: pricing.originalCredits,
       userPricingMultiplier: pricing.userPricingMultiplier,
-      billingStatus: cost > 0 ? (advancedGenerationSubmitQueueEnabled() || direct ? "pre_deducted" : "settled") : "free",
-      billingSettledAt: cost > 0 && !advancedGenerationSubmitQueueEnabled() && !direct ? new Date().toISOString() : "",
+      billingStatus: cost > 0 ? (advancedGenerationSubmitQueueEnabled() || direct || flash ? "pre_deducted" : "settled") : "free",
+      billingSettledAt: cost > 0 && !advancedGenerationSubmitQueueEnabled() && !direct && !flash ? new Date().toISOString() : "",
       pricingEstimate: pricing,
       apiTokenId: auth.tokenRecord?.id || "",
       apiTokenName: auth.tokenRecord?.name || "",

@@ -106,7 +106,7 @@ function advancedAliyunUsesSharedReferenceUpload(capability = currentAdvancedVid
 
 function advancedUsesSharedReferenceUpload(provider = currentAdvancedProvider(), capability = currentAdvancedVideoCapability()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  return ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(normalizedProvider) || isVegaProviderId(normalizedProvider) || advancedAliyunUsesSharedReferenceUpload(capability);
+  return ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(normalizedProvider) || isVegaProviderId(normalizedProvider) || advancedAliyunUsesSharedReferenceUpload(capability);
 }
 
 function advancedVideoReferenceLimit(provider = currentAdvancedProvider()) {
@@ -132,7 +132,7 @@ function advancedVideoReferenceLimit(provider = currentAdvancedProvider()) {
 
 function advancedAudioReferenceLimit(provider = currentAdvancedProvider()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedance25", "seedance-nsfw"].includes(normalizedProvider)) {
+  if (["seedance25", "seedance25-flash", "seedance-nsfw"].includes(normalizedProvider)) {
     return seedanceModeNeedsReferenceImages(els.advancedSeedanceMediaMode?.value || "omini")
       ? ADVANCED_SEEDANCE25_AUDIO_REFERENCE_LIMIT
       : 0;

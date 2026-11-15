@@ -4207,3 +4207,22 @@ CODEX_TASK_STATE.md
 - Production success tests remained correct: `img-20261115101202-4801ce` and `img-20261115101226-ad9769` both succeeded and each settled at `4.20` credits (1K output plus one reference).
 - Refunded the pre-fix regeneration overcharge on `img-20261115100405-c37efb` by `2.40` credits using task-scoped ledger type `seedream55_regression_refund`. Balance moved from `13.714200` to `16.114200`; exactly one refund ledger entry exists, and replaying the refund is idempotent (`inserted=false`).
 - Focused Seedream/Vega/pricing tests pass `73/73`; full `npm test` passes `1328` with `0` failures and `1` skip. `git diff --check` passes.
+
+## 2026-11-15 Step BU: Seedance 2.5 Flash integrated for Old video generation, deployment pending
+
+- Added video provider `seedance25-flash`, public label `Seedance 2.5 Flash`, upstream endpoint `ep-20261115193626-r5s4f`, and model `dreamina-seedance-2-5-flash-261115`.
+- Supports `480p`/`720p`, integer output duration `4..30`, ratios `16:9`, `21:9`, `9:16`, `4:3`, `3:4`, `1:1`, and `adaptive`, optional seed, `omini` multimodal references, and `first_last_frame` first/last-frame mode.
+- Reference limits are 10 images, 5 videos, 5 audios, and 20 total. Only public HTTP(S) media URLs are accepted; `asset://` references are rejected at this boundary. First/last-frame submissions include both frames and omit `ratio`.
+- Requests default `generate_audio: true`, `watermark: false`, and `output_format: mp4`; no moderation field is sent. Audio copyright/sensitive-content policy filtering is deliberately not implemented: an upstream audio policy rejection is treated as a random generation miss, and the user can rerun the generation.
+- Purchase/sale credits per second:
+  - No input video, 480p: `6.72525` / `10.087875`
+  - No input video, 720p: `15.12` / `22.68`
+  - With input video, 480p: `4.131225` / `6.1968375`
+  - With input video, 720p: `9.288` / `13.932`
+  Video-input billing counts input-video seconds plus output seconds. Public pricing uses six decimal places, so the 480p video-input sale row displays `6.196838`.
+- Public pricing keys: `seedance-flash-480p`, `seedance-flash-720p`, `seedance-flash-video-input-480p`, `seedance-flash-video-input-720p`.
+- Integrated provider normalization, validation, pre-deduction, submit queue, Ark submission, polling, refunds, settlement, task reconstruction, create/workflow UI, public/admin pricing, and admin save parsing. The model selector places `Seedance 2.5 Flash` after Seedance 2.0 Fast.
+- Files changed: `lib-providers.js`, new `seedance25-flash.js`, `platform.config.js`, `platform.html`, `platform.main.js`, `platform.create.parts/part-01..04.js`, `platform.ui.parts/part-02..04.js`, `server.parts/part-01`, `part-02`, `part-11`, `part-20`, `part-21`, `part-24`, `part-26`, `part-29`, `part-38`, `part-39`, `part-43`, `part-48`, relevant advanced UI/queue/pricing/media tests, and new `test/seedance25-flash.test.js`.
+- Verification: all modified JS files pass `node --check`; `git diff --check` passes; Flash-focused tests pass `9/9`; related legacy regression tests pass `180/180`; full `npm test` passes `1337` with `0` failures and `1` skip. Evidence: `/tmp/raising-full-test-2.log`.
+- Deployment status at record time: not committed/published. Intended scope is Old only: commit on the dedicated feature branch, integrate through committed `old-site`, build with `python3 scripts/build_release_snapshot.py --source old-site`, push only `platform-release`, then run `scripts/deploy_local.sh --site old`. Live must remain untouched. Existing login sessions must not be invalidated.
+- The earlier Codex gateway `422 Unprocessable Entity` conversation-log deserialization error is unrelated to this provider integration and is not being investigated in this task.

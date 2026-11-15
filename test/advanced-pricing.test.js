@@ -686,7 +686,7 @@ test("Seedance 2.5 UI exposes 1080p and keeps the internal gateway at 720p maxim
     platformUi.indexOf("function advancedVideoResolutionOptions("),
     platformUi.indexOf("function advancedVideoResolutionOptions(") + 2500,
   );
-  assert.ok(resolutionOptionsSource.includes('normalizeAdvancedProvider(provider) === "seedance25") return ["480p", "720p"]'));
+  assert.ok(resolutionOptionsSource.includes('if (["seedance25", "seedance25-flash"].includes(normalizeAdvancedProvider(provider))) return ["480p", "720p"]'));
   assert.ok(resolutionOptionsSource.includes('normalizeAdvancedProvider(provider) === "seedance-nsfw") return ["480p", "720p", "1080p"]'));
   assert.doesNotMatch(resolutionOptionsSource, /seedance-nsfw"\) return \[[^\]]*"4k"/);
   assert.match(server, /normalizeAdvancedProvider\(provider\) === "seedance25"\) \{\s*if \(!\["480p", "720p"\]\.includes\(raw\)\)/);

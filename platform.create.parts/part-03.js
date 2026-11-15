@@ -641,7 +641,7 @@ async function submitAdvancedGenerateInternal() {
   const wanAnimateMode = ["wan-animate-move", "wan-animate-mix"].includes(videoCapability)
     ? String(els.advancedWanAnimateMode?.value || "wan-std")
     : "";
-  const preprocessReference = ["seedance", "seedance25", "seedance-nsfw"].includes(provider)
+  const preprocessReference = ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider)
     && Boolean(els.advancedPreprocessReference?.checked);
   const rawWanMediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
   const rawSeedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
@@ -656,7 +656,7 @@ async function submitAdvancedGenerateInternal() {
     && presetReferenceImages.length > 0;
   const seedanceMode = presetReferenceMode ? "reference_video" : rawSeedanceMode;
   if (presetReferenceMode && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
-  const sharedReferenceProvider = ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider);
+  const sharedReferenceProvider = ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider);
   const seedanceFrameMode = sharedReferenceProvider && seedanceModeNeedsFirstFrame(seedanceMode);
   const seedance25VideoOnlyMode = provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode);
   const referenceImages = seedanceFrameMode || seedance25VideoOnlyMode
@@ -730,12 +730,12 @@ async function submitAdvancedGenerateInternal() {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceLastRequired");
     return;
   }
-  if (["seedance25", "seedance-nsfw"].includes(provider) && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameData && !seedanceFirstFrameAssetId) {
+  if (["seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider) && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameData && !seedanceFirstFrameAssetId) {
     els.advancedSubmitBtn.disabled = false;
     if (els.advancedNote) els.advancedNote.textContent = "First frame image is required.";
     return;
   }
-  if (["seedance25", "seedance-nsfw"].includes(provider) && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameDataUrl && !state.advancedSeedanceLastFrameAssetId) {
+  if (["seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider) && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameDataUrl && !state.advancedSeedanceLastFrameAssetId) {
     els.advancedSubmitBtn.disabled = false;
     if (els.advancedNote) els.advancedNote.textContent = "Last frame image is required.";
     return;
@@ -774,7 +774,7 @@ async function submitAdvancedGenerateInternal() {
       return;
     }
   }
-  if (["seedance25", "seedance-nsfw"].includes(provider)) {
+  if (["seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider)) {
     const totalReferences = referenceImages.length + seedanceVideoRefs.length + seedanceAudioRefs.length;
     if (provider === "seedance25" && resolution === "720p" && duration > 29) {
       els.advancedSubmitBtn.disabled = false;
@@ -791,10 +791,26 @@ async function submitAdvancedGenerateInternal() {
       if (els.advancedNote) els.advancedNote.textContent = "Audio must be combined with an image or video reference.";
       return;
     }
-    if (seedanceMode === "omini" && totalReferences > ADVANCED_SEEDANCE25_TOTAL_REFERENCE_LIMIT) {
+    const totalReferenceLimit = provider === "seedance25-flash"
+      ? ADVANCED_SEEDANCE25_FLASH_TOTAL_REFERENCE_LIMIT
+      : ADVANCED_SEEDANCE25_TOTAL_REFERENCE_LIMIT;
+    if (seedanceMode === "omini" && totalReferences > totalReferenceLimit) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = `Seedance 2.5 supports at most ${ADVANCED_SEEDANCE25_TOTAL_REFERENCE_LIMIT} references.`;
+      if (els.advancedNote) els.advancedNote.textContent = `${advancedProviderLabel(provider)} supports at most ${totalReferenceLimit} references.`;
       return;
+    }
+    if (provider === "seedance25-flash" && seedanceMode === "omini") {
+      const flashLimits = [
+        [referenceImages.length, ADVANCED_SEEDANCE25_FLASH_IMAGE_REFERENCE_LIMIT, "images"],
+        [seedanceVideoRefs.length, ADVANCED_SEEDANCE25_FLASH_VIDEO_REFERENCE_LIMIT, "videos"],
+        [seedanceAudioRefs.length, ADVANCED_SEEDANCE25_FLASH_AUDIO_REFERENCE_LIMIT, "audio references"],
+      ];
+      const exceeded = flashLimits.find(([count, limit]) => count > limit);
+      if (exceeded) {
+        els.advancedSubmitBtn.disabled = false;
+        if (els.advancedNote) els.advancedNote.textContent = `${advancedProviderLabel(provider)} supports at most ${exceeded[1]} ${exceeded[2]}.`;
+        return;
+      }
     }
     if (provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode) && seedanceVideoRefs.length !== 1) {
       els.advancedSubmitBtn.disabled = false;
@@ -897,7 +913,7 @@ async function submitAdvancedGenerateInternal() {
     status: "submitting",
     model: advancedProviderLabel(provider),
     provider,
-    source: provider === "seedance-nsfw" ? "advanced-seedance-nsfw" : provider === "seedance25" ? "advanced-seedance25" : provider === "seedance" ? "advanced-seedance" : provider === "wan30" ? "advanced-wan30" : provider === "happyhorse" ? "advanced-happyhorse" : `advanced-${videoCapability || "wan27"}`,
+    source: provider === "seedance25-flash" ? "advanced-seedance25-flash" : provider === "seedance-nsfw" ? "advanced-seedance-nsfw" : provider === "seedance25" ? "advanced-seedance25" : provider === "seedance" ? "advanced-seedance" : provider === "wan30" ? "advanced-wan30" : provider === "happyhorse" ? "advanced-happyhorse" : `advanced-${videoCapability || "wan27"}`,
     kind: "advanced-video",
     prompt,
     presets: advancedPresetSelection,
@@ -910,7 +926,7 @@ async function submitAdvancedGenerateInternal() {
       animateMode: wanAnimateMode || undefined,
       ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
       ...(provider === "wan30" ? { wan_prompt_optimize: wanPromptOptimize } : {}),
-      ...(["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
+      ...(["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
     },
     ratio: els.advancedRatio?.value || (provider === "wan30" ? "adaptive" : "9:16"),
     resolution,
@@ -961,16 +977,16 @@ async function submitAdvancedGenerateInternal() {
         prompt,
         prompt_extend: provider === "wan30" ? promptExtend : undefined,
         wan_prompt_optimize: provider === "wan30" ? wanPromptOptimize : undefined,
-        generateAudio: ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
-        generate_audio: ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
+        generateAudio: ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
+        generate_audio: ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
         dataUrl: usesAliyunPrimaryImage && !wanFirstFrameAssetId ? firstFrameDataUrl : undefined,
-        seedanceMode: ["seedance", "seedance25", "seedance-nsfw"].includes(provider) ? seedanceMode : undefined,
-        functionMode: ["seedance25", "seedance-nsfw"].includes(provider) ? seedanceMode : undefined,
+        seedanceMode: ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider) ? seedanceMode : undefined,
+        functionMode: ["seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider) ? seedanceMode : undefined,
         imageAssetId: sharedReferenceProvider && seedanceModeNeedsFirstFrame(seedanceMode) ? seedanceFirstFrameAssetId : undefined,
         firstFrameAssetId: usesAliyunPrimaryImage ? wanFirstFrameAssetId : sharedReferenceProvider && seedanceModeNeedsFirstFrame(seedanceMode) ? seedanceFirstFrameAssetId : undefined,
         firstFrameDataUrl: (usesAliyunPrimaryImage && !wanFirstFrameAssetId) || (sharedReferenceProvider && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId) ? firstFrameDataUrl : undefined,
         firstFrameUrl: (usesAliyunPrimaryImage && !wanFirstFrameAssetId) || (sharedReferenceProvider && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId) ? firstFrameUrl : undefined,
-        imageUrl: ["seedance", "seedance25", "seedance-nsfw"].includes(provider) && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId ? firstFrameUrl : undefined,
+        imageUrl: ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider) && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId ? firstFrameUrl : undefined,
         endImageAssetId: sharedReferenceProvider && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : undefined,
         lastFrameAssetId: provider === "wan27" ? wanLastFrameAssetId : sharedReferenceProvider && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : "",
         endImageDataUrl: sharedReferenceProvider && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameDataUrl : undefined,
@@ -1002,7 +1018,7 @@ async function submitAdvancedGenerateInternal() {
         mediaMode,
         fileName: referenceImages[0]?.fileName || els.advancedImage?.files?.[0]?.name || "",
         lastFrameFileName: wanLastFrameReference?.fileName || els.advancedWanLastFrame?.files?.[0]?.name || "",
-        ratio: provider === "seedance-nsfw" && seedanceMode !== "omini" ? "adaptive" : els.advancedRatio?.value || (provider === "seedance25" ? "16:9" : provider === "wan30" ? "adaptive" : "9:16"),
+        ratio: provider === "seedance-nsfw" && seedanceMode !== "omini" ? "adaptive" : els.advancedRatio?.value || (["seedance25", "seedance25-flash"].includes(provider) ? "16:9" : provider === "wan30" ? "adaptive" : "9:16"),
         resolution: currentAdvancedResolution(),
         duration,
         preprocessReference,
@@ -1021,7 +1037,7 @@ async function submitAdvancedGenerateInternal() {
           },
           ...(provider === "wan30" ? { prompt_extend: promptExtend } : {}),
           ...(provider === "wan30" ? { wan_prompt_optimize: wanPromptOptimize } : {}),
-          ...(["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
+          ...(["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
         },
       },
     });
@@ -1031,7 +1047,7 @@ async function submitAdvancedGenerateInternal() {
       taskId,
       status: payload.task?.status || "submitted",
       provider,
-      source: provider === "seedance-nsfw" ? "advanced-seedance-nsfw" : provider === "seedance25" ? "advanced-seedance25" : provider === "seedance" ? "advanced-seedance" : provider === "wan30" ? "advanced-wan30" : provider === "happyhorse" ? "advanced-happyhorse" : `advanced-${videoCapability || "wan27"}`,
+      source: provider === "seedance25-flash" ? "advanced-seedance25-flash" : provider === "seedance-nsfw" ? "advanced-seedance-nsfw" : provider === "seedance25" ? "advanced-seedance25" : provider === "seedance" ? "advanced-seedance" : provider === "wan30" ? "advanced-wan30" : provider === "happyhorse" ? "advanced-happyhorse" : `advanced-${videoCapability || "wan27"}`,
       kind: "advanced-video",
       prompt,
       presets: advancedPresetSelection,
@@ -1603,7 +1619,7 @@ function advancedPromptPasteImageRule() {
   }
 
   const seedanceMode = normalizeSeedanceMediaMode(rawMediaMode);
-  const sharedFrameProvider = ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider);
+  const sharedFrameProvider = ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider);
   if (sharedFrameProvider && seedanceModeNeedsFirstFrame(seedanceMode)) {
     return { allowed: true, limit: 2, target: "frames", replaceExisting: false };
   }
@@ -1615,6 +1631,7 @@ function advancedPromptPasteImageRule() {
   else if (provider === "seedream5-image") limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT;
   else if (isAdvancedImageProvider(provider)) limit = advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
   else if (provider === "wan30") limit = ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;
+  else if (provider === "seedance25-flash") limit = ADVANCED_SEEDANCE25_FLASH_IMAGE_REFERENCE_LIMIT;
   else if (["seedance25", "seedance-nsfw"].includes(provider)) limit = ADVANCED_SEEDANCE25_IMAGE_REFERENCE_LIMIT;
   else if (provider === "seedance") limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT;
   else if (["wan27", "happyhorse"].includes(provider)) limit = advancedAliyunReferenceImageLimit(capability);

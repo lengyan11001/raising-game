@@ -1431,6 +1431,9 @@ function normalizeAdvancedProvider(value = "") {
   if (["seedream55", "seedream55image", "seedream5.5", "seedream5.5image", "dolaseedream55261028", "ep20261115092454jlm4p"].includes(normalized) || normalized.includes("seedream55") || normalized.includes("seedream5.5")) return "seedream55-image";
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return "seedance-nsfw";
+  if (["seedance25flash", "seedance2.5flash", "dreaminaseedance25flash261115", "ep20261115193626r5s4f"].includes(normalized)
+    || (normalized.includes("seedance25") && normalized.includes("flash"))
+    || (normalized.includes("seedance2.5") && normalized.includes("flash"))) return "seedance25-flash";
   if (["seedancefast", "seedance20fast", "seedance2.0fast", "vipeak2fast", "vp2fast", "ep20260429142538fkm9d"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("fast")) || (normalized.includes("vipeak2") && normalized.includes("fast"))) return "seedance";
   if (["seedance20vega", "seedance2.0vega", "vega10pro", "vega1.0pro", "vega10", "vega1.0"].includes(normalized) || (normalized.includes("seedance20") && normalized.includes("vega")) || (normalized.includes("seedance2.0") && normalized.includes("vega"))) return "seedance20-vega";
   if (["seedance25vega", "seedance2.5vega"].includes(normalized) || (normalized.includes("seedance25") && normalized.includes("vega")) || (normalized.includes("seedance2.5") && normalized.includes("vega"))) return "seedance25-vega";
@@ -1470,6 +1473,7 @@ function advancedProviderLabel(provider = currentAdvancedProvider()) {
     };
     return labels[capability] || "W3.0";
   }
+  if (normalized === "seedance25-flash") return "Seedance 2.5 Flash";
   if (normalized === "seedance-nsfw") return "Seedance 2.5";
   if (VEGA_MODEL_LABELS[normalized]) return VEGA_MODEL_LABELS[normalized];
   if (normalized === "seedance25") return "Seedance 2.5";
@@ -1556,7 +1560,7 @@ function advancedEngineValueResolved(provider = els.advancedProvider?.value || "
   if (normalizedCapability.startsWith("wan30-")) return "wan30";
   if (normalizedCapability.startsWith("wan27-")) return "wan27";
   const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
-  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance-fast", "seedance25", "seedance-nsfw", "wan30", "wan30-prime", "wan27", "wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(raw)) return raw;
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance-fast", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30", "wan30-prime", "wan27", "wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3", "qwen37-flash", "byteplus-language", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(raw)) return raw;
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
   return normalizeAdvancedProvider(provider);
 }
@@ -1585,6 +1589,10 @@ const ADVANCED_SEEDANCE_MODE_OPTIONS = Object.freeze({
     Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
   ]),
   seedance25: Object.freeze([
+    Object.freeze({ value: "omini", label: "Multimodal References" }),
+    Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
+  ]),
+  "seedance25-flash": Object.freeze([
     Object.freeze({ value: "omini", label: "Multimodal References" }),
     Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
   ]),
@@ -1645,7 +1653,7 @@ function advancedVideoEditUsesSourceDuration(capability = currentAdvancedVideoCa
 
 function advancedVideoInputDurationRule(provider = currentAdvancedProvider(), capability = currentAdvancedVideoCapability()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedance25", "seedance-nsfw"].includes(normalizedProvider)) return null;
+  if (["seedance25", "seedance25-flash", "seedance-nsfw"].includes(normalizedProvider)) return null;
   if (normalizedProvider === "seedance") {
     return { min: 1.8, max: 15.2, displayMin: 2, displayMax: 15 };
   }
@@ -1720,7 +1728,7 @@ function advancedDurationBounds(provider = "seedance", capability = "") {
   if (normalized === "wan27-image-edit" || normalized === "z-image-spicy-pro" || normalized === "qwen-image-edit-spicy") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan30") return { min: -1, max: 30, fallback: 5 };
   if (isVegaProviderId(normalized)) return { ...(VEGA_DURATION_BOUNDS[normalized] || VEGA_DURATION_BOUNDS["seedance25-vega"]) };
-  if (["seedance25", "seedance-nsfw"].includes(normalized)) return { min: 4, max: 30, fallback: 4 };
+  if (["seedance25", "seedance25-flash", "seedance-nsfw"].includes(normalized)) return { min: 4, max: 30, fallback: 4 };
   const resolvedCapability = capability || (
     typeof currentAdvancedVideoCapability === "function"
     && typeof currentAdvancedProvider === "function"

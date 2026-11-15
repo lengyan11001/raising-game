@@ -50,8 +50,16 @@ const ADVANCED_SEEDANCE25_IMAGE_REFERENCE_LIMIT = 30;
 const ADVANCED_SEEDANCE25_VIDEO_REFERENCE_LIMIT = 10;
 const ADVANCED_SEEDANCE25_AUDIO_REFERENCE_LIMIT = 10;
 const ADVANCED_SEEDANCE25_TOTAL_REFERENCE_LIMIT = 50;
+const ADVANCED_SEEDANCE25_FLASH_IMAGE_REFERENCE_LIMIT = 10;
+const ADVANCED_SEEDANCE25_FLASH_VIDEO_REFERENCE_LIMIT = 5;
+const ADVANCED_SEEDANCE25_FLASH_AUDIO_REFERENCE_LIMIT = 5;
+const ADVANCED_SEEDANCE25_FLASH_TOTAL_REFERENCE_LIMIT = 20;
 const ADVANCED_SEEDANCE25_480P_CREDITS_PER_SECOND = 8.995502;
 const ADVANCED_SEEDANCE25_720P_CREDITS_PER_SECOND = 14.992504;
+const ADVANCED_SEEDANCE25_FLASH_480P_CREDITS_PER_SECOND = 10.087875;
+const ADVANCED_SEEDANCE25_FLASH_720P_CREDITS_PER_SECOND = 22.68;
+const ADVANCED_SEEDANCE25_FLASH_VIDEO_480P_CREDITS_PER_SECOND = 6.1968375;
+const ADVANCED_SEEDANCE25_FLASH_VIDEO_720P_CREDITS_PER_SECOND = 13.932;
 const ADVANCED_SEEDANCE_NSFW_480P_CREDITS_PER_SECOND = 15.420038;
 const ADVANCED_SEEDANCE_NSFW_720P_CREDITS_PER_SECOND = 34.668;
 const ADVANCED_SEEDANCE_NSFW_1080P_CREDITS_PER_SECOND = 78.003;
@@ -145,6 +153,7 @@ const WORKFLOW_IMAGE_MODEL_LIBRARY = Object.freeze([
 ]);
 const WORKFLOW_VIDEO_MODEL_LIBRARY = Object.freeze([
   Object.freeze({ id: "seedance", label: "Seedance 2.0", resolution: "720p", ratio: "16:9", duration: 5, resolutions: ["480p", "720p", "1080p", "4k"], ratios: ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 30], modes: [{ value: "reference_video", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "reference_video" }),
+  Object.freeze({ id: "seedance25-flash", label: "Seedance 2.5 Flash", resolution: "480p", ratio: "16:9", duration: 4, resolutions: ["480p", "720p"], ratios: ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1", "adaptive"], durations: [4, 5, 8, 10, 15, 20, 30], modes: [{ value: "omini", label: "多模态参考" }, { value: "first_last_frame", label: "首尾帧" }] }),
   Object.freeze({ id: "seedance-nsfw", label: "Seedance 2.5", resolution: "480p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"], durations: [4, 5, 8, 10, 15, 20, 29, 30], modes: [{ value: "omini", label: "多模态参考" }, { value: "edit", label: "视频编辑" }, { value: "extend", label: "视频延长" }, { value: "first_last_frame", label: "首尾帧" }] }),
   Object.freeze({ id: "wan30", label: "Wan 3.0 Video", resolution: "1080p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"], durations: [-1, 2, 5, 8, 10, 15, 20, 30], modes: [{ value: "multimodal", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "multimodal" }),
   Object.freeze({ id: "wan30-prime", label: "Wan 3.0 Video Prime", resolution: "1080p", ratio: "adaptive", duration: 5, resolutions: ["480p", "720p", "1080p"], ratios: ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"], durations: [-1, 2, 5, 8, 10, 15, 20, 30], modes: [{ value: "multimodal", label: "Multimodal References" }, { value: "first_last_frame", label: "First + Last Frame" }], mode: "multimodal" }),
@@ -696,7 +705,7 @@ function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
 
 function advancedCreateUploadAcceptValue(mode = state.advancedCreateMode) {
   if (["seedream55-image", "seedream5-image", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(currentAdvancedProvider())) return "image/*";
-  if (["seedance", "wan27", "wan30"].includes(currentAdvancedProvider())) {
+  if (["seedance", "seedance25", "seedance25-flash", "wan27", "wan30"].includes(currentAdvancedProvider())) {
     return `${currentAdvancedProvider() === "wan30" ? "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md" : "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*"}`;
   }
   if (advancedCreateUploadIsVideo(mode)) return "video/mp4,video/webm,video/quicktime,video/*";
