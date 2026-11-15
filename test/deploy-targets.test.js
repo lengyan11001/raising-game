@@ -405,7 +405,7 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
   run("git", ["config", "user.name", "Test"], { cwd: source });
 
   const files = [
-    "DEPLOY.md", "scripts/build_release_snapshot.py", "scripts/ensure_media_signing_secret.py",
+    "DEPLOY.md", "scripts/build_release_snapshot.py", "scripts/check-server-undef.js", "scripts/ensure_media_signing_secret.py",
     "scripts/deploy_pull.py", "scripts/deploy_site.py", "scripts/materialize_static_release.py",
     "ops/apply-production-tuning.sh",
     "live.html", "live.css", "live.js", "chat-live.js", "qrcode.js",
@@ -417,10 +417,15 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
     "platform.html", "platform.js", "admin.html", "admin.js", "chat.html",
     "chat.js", "server.js", "db.js", "readiness.js", "package.json", "lib-live-surface.js",
     "assets/ourdream/characters/one.webp", "assets/admin/one.webp",
+    "server.parts/part-01.js",
   ];
   for (const file of files) writeFile(path.join(source, file), file);
+  writeFile(path.join(source, "scripts", "check-server-undef.js"), fs.readFileSync(path.join(root, "scripts", "check-server-undef.js")));
+  writeFile(path.join(source, "package.json"), '{"private":true}\n');
+  writeFile(path.join(source, "server.parts", "part-01.js"), "const fixtureServer = true;\n");
   run("git", ["add", "."], { cwd: source });
   run("git", ["commit", "-qm", "fixture"], { cwd: source });
+  fs.symlinkSync(path.join(root, "node_modules"), path.join(source, "node_modules"), "dir");
   run("python3", [snapshotBuilder, "--repo-root", source, "--source", "HEAD"], { cwd: source });
 
   const platformTree = run("git", ["ls-tree", "-r", "--name-only", "platform-release"], { cwd: source }).split("\n").filter(Boolean);
@@ -448,4 +453,14 @@ test("release snapshot builder excludes foreign paths from both trees and ancest
   const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", "origin/platform-release", "platform-release"], { cwd: source });
   assert.equal(ancestor.status, 0, ancestor.stderr);
   assert.equal(run("git", ["rev-list", "--count", "release-base/live..live-release"], { cwd: source }).trim(), "1");
+
+  writeFile(path.join(source, "server.parts", "part-01.js"), "const fixtureServer = missingFixtureSymbol;\n");
+  run("git", ["add", "server.parts/part-01.js"], { cwd: source });
+  run("git", ["commit", "-qm", "undefined fixture"], { cwd: source });
+  const undefinedResult = spawnSync("python3", [snapshotBuilder, "--repo-root", source, "--source", "HEAD"], {
+    cwd: source,
+    encoding: "utf8",
+  });
+  assert.notEqual(undefinedResult.status, 0, "release snapshot must fail on an undefined server symbol");
+  assert.match(`${undefinedResult.stdout}${undefinedResult.stderr}`, /server\.parts\/part-01\.js:1:\d+ 'missingFixtureSymbol' is not defined/);
 });
