@@ -28,9 +28,10 @@ const platformHtml = fs.readFileSync(path.join(root, "platform.html"), "utf8");
 const platformUi = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 const platformCreate = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
 
-const image = (name = "image.png") => `https://cdn.example.com/${name}`;
-const video = (name = "video.mp4") => `https://cdn.example.com/${name}`;
-const audio = (name = "audio.mp3") => `https://cdn.example.com/${name}`;
+const image = (name = "image.png") => `asset://image-${name}`;
+const video = (name = "video.mp4") => `asset://video-${name}`;
+const audio = (name = "audio.mp3") => `asset://audio-${name}`;
+const publicImage = (name = "image.png") => `https://cdn.example.com/${name}`;
 
 function inputError(fn, code) {
   assert.throws(fn, (error) => {
@@ -105,13 +106,13 @@ test("First + Last Frame uses frame roles and omits ratio", () => {
   ]);
 });
 
-test("validates modes, resolution, integer duration, ratios, and public URLs", () => {
+test("validates modes, resolution, integer duration, ratios, and uploaded asset URIs", () => {
   inputError(() => validateSeedance25FlashInput({ prompt: "x", mode: "edit", duration: 4 }), "SEEDANCE25_FLASH_INVALID_MODE");
   inputError(() => validateSeedance25FlashInput({ prompt: "x", resolution: "1080p", duration: 4 }), "SEEDANCE25_FLASH_INVALID_RESOLUTION");
   inputError(() => validateSeedance25FlashInput({ prompt: "x", ratio: "2:1", duration: 4 }), "SEEDANCE25_FLASH_INVALID_RATIO");
   inputError(() => validateSeedance25FlashInput({ prompt: "x", duration: 3.5 }), "SEEDANCE25_FLASH_INVALID_DURATION");
   inputError(() => validateSeedance25FlashInput({ prompt: "x", duration: 31 }), "SEEDANCE25_FLASH_INVALID_DURATION");
-  inputError(() => validateSeedance25FlashInput({ prompt: "x", duration: 4, imageAssets: ["asset://uploaded.png"] }), "SEEDANCE25_FLASH_INVALID_MEDIA_URL");
+  inputError(() => validateSeedance25FlashInput({ prompt: "x", duration: 4, imageAssets: [publicImage("uploaded.png")] }), "SEEDANCE25_FLASH_INVALID_MEDIA_URL");
   inputError(() => validateSeedance25FlashInput({ prompt: "x", duration: 4, videoAssets: ["/local/video.mp4"] }), "SEEDANCE25_FLASH_INVALID_MEDIA_URL");
 });
 
@@ -214,20 +215,33 @@ test("publishes and saves the four Flash pricing rows", async () => {
   assert.match(saveSource, /key === "seedance-flash-video-input-720p"[\s\S]*?seedanceFlashVideoCreditsPerSecondByResolution\["720p"\] = credits/);
 });
 
-test("routes Flash through the direct Ark task endpoint with public URLs", () => {
+test("routes Flash through the Ark task endpoint only with uploaded asset URIs", () => {
   assert.ok(server.includes("const SEEDANCE25_FLASH_ENDPOINT = String(process.env.SEEDANCE25_FLASH_ENDPOINT_ID || SEEDANCE25_FLASH_ENDPOINT_ID).trim()"));
   assert.ok(server.includes('["seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER].includes(provider)'));
   assert.ok(server.includes('return await handleAdvancedSeedance25Generate(req, res, {'));
   assert.ok(server.includes('if (flash) buildSeedance25FlashTaskPayload(upstreamInput, SEEDANCE25_FLASH_ENDPOINT)'));
-  assert.ok(server.includes('submitted = await arkRequest("POST", "/contents/generations/tasks", upstreamPayload)'));
+  assert.ok(server.includes('submitted = await submitArkTaskAfterAssetsReady(upstreamPayload)'));
   const flashSubmit = server.slice(
     server.indexOf("if (flash) {\n      upstreamPayload"),
     server.indexOf("} else if (direct) {", server.indexOf("if (flash) {\n      upstreamPayload")),
   );
   assert.ok(flashSubmit.includes("buildSeedance25FlashTaskPayload"));
-  assert.ok(flashSubmit.includes('arkRequest("POST", "/contents/generations/tasks"'));
-  assert.doesNotMatch(flashSubmit, /ensureSeedanceAssetUriForPublicUrl/);
+  assert.ok(flashSubmit.includes("submitArkTaskAfterAssetsReady"));
+  assert.doesNotMatch(flashSubmit, /arkRequest\("POST", "\/contents\/generations\/tasks"/);
+  assert.match(server, /async function seedance25FlashReferenceAsset\(/);
+  assert.match(server, /resolved = await ensureSeedanceAssetForUserAsset\(db, resolved\)/);
+  assert.match(server, /imageFiles\.push\(prepared\.assetUri\)/);
+  assert.match(server, /videoFiles\.push\(entry\.assetUri\)/);
+  assert.match(server, /audioFiles\.push\(entry\.assetUri\)/);
+  assert.match(server, /firstFrameSubmitUrl = prepared\.assetUri/);
+  assert.match(server, /lastFrameSubmitUrl = prepared\.assetUri/);
   assert.doesNotMatch(server.slice(server.indexOf("function buildSeedance25FlashTaskPayload("), server.indexOf("function flashEstimatedCompletionTokens(")), /moderation/);
+});
+
+test("raw public image references do not dereference missing owned assets", () => {
+  const guarded = "imageAssets.map((asset) => asset?.id).filter(Boolean)";
+  assert.ok(server.includes(`referenceImageAssetIds: ${guarded}`));
+  assert.ok(server.includes(`imageAssetIds: ${guarded}`));
 });
 
 test("Advanced UI exposes only Flash resolutions, modes, limits, and audio defaults", () => {

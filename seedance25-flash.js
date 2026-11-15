@@ -40,12 +40,12 @@ function uniqueUris(values = []) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
-function publicFlashUrl(value, kind, index) {
-  const url = String(value || "").trim();
-  if (!/^https?:\/\//i.test(url) || /^asset:\/\//i.test(url)) {
-    throw flashInputError("SEEDANCE25_FLASH_INVALID_MEDIA_URL", `Seedance 2.5 Flash ${kind} ${index + 1} must be a public HTTP(S) URL.`);
+function flashAssetUri(value, kind, index) {
+  const uri = String(value || "").trim();
+  if (!/^asset:\/\/[^/]+$/i.test(uri)) {
+    throw flashInputError("SEEDANCE25_FLASH_INVALID_MEDIA_URL", `Seedance 2.5 Flash ${kind} ${index + 1} must reference an uploaded asset.`);
   }
-  return url;
+  return uri;
 }
 
 function validateSeedance25FlashInput(input = {}) {
@@ -79,11 +79,11 @@ function validateSeedance25FlashInput(input = {}) {
     throw flashInputError("SEEDANCE25_FLASH_INVALID_DURATION", "Seedance 2.5 Flash duration must be an integer from 4 to 30 seconds.", { min: 4, max: 30 });
   }
 
-  const validatedImages = images.map((url, index) => publicFlashUrl(url, "image", index));
-  const validatedVideos = videos.map((url, index) => publicFlashUrl(url, "video", index));
-  const validatedAudios = audios.map((url, index) => publicFlashUrl(url, "audio", index));
-  let validatedFirstFrame = firstFrameAsset ? publicFlashUrl(firstFrameAsset, "first frame", 0) : "";
-  let validatedLastFrame = lastFrameAsset ? publicFlashUrl(lastFrameAsset, "last frame", 0) : "";
+  const validatedImages = images.map((uri, index) => flashAssetUri(uri, "image", index));
+  const validatedVideos = videos.map((uri, index) => flashAssetUri(uri, "video", index));
+  const validatedAudios = audios.map((uri, index) => flashAssetUri(uri, "audio", index));
+  let validatedFirstFrame = firstFrameAsset ? flashAssetUri(firstFrameAsset, "first frame", 0) : "";
+  let validatedLastFrame = lastFrameAsset ? flashAssetUri(lastFrameAsset, "last frame", 0) : "";
 
   if (mode === "first_last_frame") {
     if (!validatedFirstFrame || !validatedLastFrame) {
