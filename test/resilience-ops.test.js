@@ -932,6 +932,70 @@ upstream raising_game_app_chat { server 127.0.0.1:4174 max_fails=1 fail_timeout=
   });
 });
 
+test("Nginx canary weights preserve health options and restore the original topology exactly", async () => {
+  await withTempDir((dir) => {
+    const file = path.join(dir, "site.conf");
+    const original = writeUpstreamConfig(file, `upstream raising_game_app {
+    server 127.0.0.1:4174 max_fails=3 fail_timeout=10s;
+    server 127.0.0.1:4175 backup max_fails=2 fail_timeout=5s;
+    keepalive 64;
+}
+`);
+    const common = [
+      "--file", file,
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--nginx-bin", "/usr/bin/true",
+      "--nginx-test-command", "/usr/bin/true",
+      "--reload-command", "/usr/bin/true",
+    ];
+    const curl = path.join(dir, "curl");
+    writeExecutable(curl, "#!/usr/bin/env bash\nprintf '200'\n");
+    const env = { PATH: `${dir}:${process.env.PATH}` };
+
+    let result = invokeUpstreamSwitch([
+      ...common,
+      "--canary", "raising_game_app=4174:4175:99:1",
+      "--apply",
+    ], env);
+    assert.equal(result.status, 0, result.stderr);
+    const canary = fs.readFileSync(file, "utf8");
+    assert.match(canary, /server 127\.0\.0\.1:4174 max_fails=3 fail_timeout=10s weight=99;/);
+    assert.match(canary, /server 127\.0\.0\.1:4175 max_fails=2 fail_timeout=5s weight=1;/);
+    assert.doesNotMatch(canary, /backup/);
+
+    result = invokeUpstreamSwitch([
+      ...common,
+      "--canary", "raising_game_app=4174:4175:100:0",
+      "--apply",
+    ], env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
+  });
+});
+
+test("Nginx canary rejects invalid percentages before writing any file", async () => {
+  await withTempDir((dir) => {
+    const file = path.join(dir, "site.conf");
+    const original = writeUpstreamConfig(file, `upstream raising_game_app {
+    server 127.0.0.1:4174;
+    server 127.0.0.1:4175 backup;
+}
+`);
+    const result = invokeUpstreamSwitch([
+      "--file", file,
+      "--canary", "raising_game_app=4174:4175:90:5",
+      "--health-url", "http://127.0.0.1:48080/api/health",
+      "--nginx-bin", "/usr/bin/true",
+      "--nginx-test-command", "/usr/bin/true",
+      "--reload-command", "/usr/bin/true",
+      "--apply",
+    ]);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /canary weights must total 100/);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
+  });
+});
+
 test("Nginx upstream switch rolls back an existing primary and backup on health failure", async () => {
   await withTempDir(async (dir) => {
     const file = path.join(dir, "site.conf");
@@ -1564,6 +1628,15 @@ test("cutover runbook uses one atomic switch for every real upstream", () => {
   assert.match(cutoverRunbook, /Redis remains disabled/);
 });
 
+test("cutover runbook requires the default 1 to 5 percent canary gates", () => {
+  assert.match(cutoverRunbook, /1% of requests/);
+  assert.match(cutoverRunbook, /5% for another 120 seconds/);
+  assert.match(cutoverRunbook, /CANARY_ROLLBACK_OK/);
+  assert.match(cutoverRunbook, /CANARY_ROLLBACK_FAILED/);
+  assert.match(cutoverRunbook, /read-only: it does not replay user request/);
+  assert.match(cutoverRunbook, /--canary-percent 0.*isolated recovery drills/);
+});
+
 test("cutover verifier accepts an explicit secondary env and fails closed on unsafe env files", async () => {
   await withTempDir(async (dir) => {
     const bin = path.join(dir, "bin");
@@ -2039,6 +2112,7 @@ function invokeRolling(args, dir, fixture, extraEnv = {}) {
     "--wait-delay", "0",
     "--health-url", "https://example.invalid/api/health",
     ...fixture.files.flatMap((file, index) => ["--nginx-file", file, "--upstream-name", fixture.names[index]]),
+    ...(args.includes("--canary-percent") ? [] : ["--canary-percent", "0"]),
     ...args,
   ], {
     cwd: root,
@@ -2209,6 +2283,64 @@ test("rolling transaction rejects symlinked and invalid shared media roots befor
     assert.notEqual(missing.status, 0);
     assert.match(`${missing.stdout}${missing.stderr}`, /RUNTIME_MEDIA_ROOT must be an existing directory/);
     assert.equal(fs.existsSync(fixture.reloadLog), false);
+  });
+});
+
+test("rolling transaction canaries 1 and 5 percent before atomic cutover", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    const result = invokeRolling([
+      "--apply",
+      "--canary-percent", "1",
+      "--canary-second-percent", "5",
+      "--canary-observe-seconds", "0.01",
+      "--canary-poll-seconds", "0.01",
+    ], dir, fixture);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const canaryOne = result.stdout.indexOf("PHASE canary percent=1");
+    const observeOne = result.stdout.indexOf("CANARY_OBSERVE_OK percent=1");
+    const canaryFive = result.stdout.indexOf("PHASE canary percent=5");
+    const observeFive = result.stdout.indexOf("CANARY_OBSERVE_OK percent=5");
+    const restore = result.stdout.indexOf("PHASE canary_restore weights=100:0");
+    const cutover = result.stdout.indexOf("PHASE cutover=4174->4175");
+    assert.ok(canaryOne >= 0 && canaryOne < observeOne);
+    assert.ok(observeOne < canaryFive && canaryFive < observeFive);
+    assert.ok(observeFive < restore && restore < cutover);
+    assert.match(result.stdout, /DONE canary_weights=99:1/);
+    assert.match(result.stdout, /DONE canary_weights=95:5/);
+    assert.match(result.stdout, /ROLLING_DEPLOY_OK/);
+    assert.equal(fs.readFileSync(fixture.reloadLog, "utf8").trim().split("\n").length, 4);
+    for (const file of fixture.files) {
+      assert.match(fs.readFileSync(file, "utf8"), /server 127\.0\.0\.1:4175; server 127\.0\.0\.1:4174 backup;/);
+    }
+  });
+});
+
+test("rolling transaction restores 100 percent primary traffic when a canary smoke fails", async () => {
+  await withTempDir((dir) => {
+    const fixture = rollingFixture(dir);
+    const original = fixture.files.map((file) => fs.readFileSync(file, "utf8"));
+    writeExecutable(fixture.curl, `#!/usr/bin/env bash
+if [[ "$*" == *"http://candidate.invalid/failing"* ]]; then
+  printf '500'
+  exit 0
+fi
+exec ${JSON.stringify(fixture.curlBase)} "$@"
+`);
+    const result = invokeRolling([
+      "--apply",
+      "--canary-percent", "1",
+      "--canary-second-percent", "5",
+      "--canary-observe-seconds", "0.01",
+      "--canary-poll-seconds", "0.01",
+      "--candidate-smoke-path", "/failing",
+    ], dir, fixture);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /candidate smoke failed during 1% canary/);
+    assert.match(result.stdout, /CANARY_ROLLBACK_OK upstream=4174/);
+    assert.doesNotMatch(result.stdout, /PHASE cutover=4174->4175/);
+    assert.deepEqual(fixture.files.map((file) => fs.readFileSync(file, "utf8")), original);
+    assert.equal(fs.readFileSync(fixture.reloadLog, "utf8").trim().split("\n").length, 2);
   });
 });
 

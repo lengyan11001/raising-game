@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -102,6 +103,117 @@ class LoadedCandidateGateTests(unittest.TestCase):
         readyz["ready"] = False
         with self.assertRaisesRegex(ROLLING.TransactionError, "not ready"):
             self.validate(livez, readyz)
+
+
+class DeployArgumentTests(unittest.TestCase):
+    def test_canary_is_enabled_by_default(self) -> None:
+        args = ROLLING.parse_args([])
+        self.assertEqual(args.canary_percent, 1)
+        self.assertEqual(args.canary_second_percent, 5)
+
+
+class CanaryObservationTests(unittest.TestCase):
+    def args(self, **overrides: object) -> SimpleNamespace:
+        values = {
+            "candidate_service": "raising-game-demo-b.service",
+            "systemctl": "systemctl-test",
+            "candidate_health_base": "http://candidate.invalid",
+            "curl_bin": "curl-test",
+            "health_url": ["https://example.invalid/api/health"],
+            "candidate_smoke_path": ["/api/config/public"],
+            "canary_observe_seconds": 0.001,
+            "canary_poll_seconds": 0.001,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def test_observes_stable_candidate_and_public_paths(self) -> None:
+        livez, readyz = candidate_payload()
+        with mock.patch.object(
+            ROLLING,
+            "systemctl_show",
+            return_value={
+                "ActiveState": "active",
+                "SubState": "running",
+                "MainPID": "1234",
+                "NRestarts": "0",
+            },
+        ), mock.patch.object(
+            ROLLING,
+            "fetch_json",
+            side_effect=lambda url, *_args: livez if url.endswith("/livez") else readyz,
+        ), mock.patch.object(ROLLING, "http_ok", return_value=True) as http_ok:
+            ROLLING.observe_canary(
+                self.args(),
+                expected_release="a" * 40,
+                candidate_pid=1234,
+                initial_restarts="0",
+                percent=1,
+            )
+        self.assertGreaterEqual(http_ok.call_count, 2)
+
+    def test_rejects_candidate_pid_change(self) -> None:
+        with mock.patch.object(
+            ROLLING,
+            "systemctl_show",
+            return_value={
+                "ActiveState": "active",
+                "SubState": "running",
+                "MainPID": "9999",
+                "NRestarts": "0",
+            },
+        ), self.assertRaisesRegex(ROLLING.TransactionError, "PID changed during 1% canary"):
+            ROLLING.observe_canary(
+                self.args(),
+                expected_release="a" * 40,
+                candidate_pid=1234,
+                initial_restarts="0",
+                percent=1,
+            )
+
+    def test_rejects_candidate_that_restarts_during_canary(self) -> None:
+        with mock.patch.object(
+            ROLLING,
+            "systemctl_show",
+            return_value={
+                "ActiveState": "active",
+                "SubState": "running",
+                "MainPID": "1234",
+                "NRestarts": "1",
+            },
+        ), self.assertRaisesRegex(ROLLING.TransactionError, "restarted during 1% canary"):
+            ROLLING.observe_canary(
+                self.args(),
+                expected_release="a" * 40,
+                candidate_pid=1234,
+                initial_restarts="0",
+                percent=1,
+            )
+
+    def test_rejects_ready_check_failure_during_canary(self) -> None:
+        livez, readyz = candidate_payload()
+        readyz["ready"] = False
+        with mock.patch.object(
+            ROLLING,
+            "systemctl_show",
+            return_value={
+                "ActiveState": "active",
+                "SubState": "running",
+                "MainPID": "1234",
+                "NRestarts": "0",
+            },
+        ), mock.patch.object(
+            ROLLING,
+            "fetch_json",
+            side_effect=lambda url, *_args: livez if url.endswith("/livez") else readyz,
+        ), self.assertRaisesRegex(ROLLING.TransactionError, "candidate is not ready"):
+            ROLLING.observe_canary(
+                self.args(),
+                expected_release="a" * 40,
+                candidate_pid=1234,
+                initial_restarts="0",
+                percent=1,
+            )
 
 
 class ReleaseCheckoutTests(unittest.TestCase):

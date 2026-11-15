@@ -421,6 +421,125 @@ def execute_switch(
     log(f"DONE upstream_switch={target}")
 
 
+def canary_command(
+    *,
+    python: str,
+    switch_script: Path,
+    files: list[Path],
+    names: tuple[str, ...],
+    primary: str,
+    candidate: str,
+    primary_weight: int,
+    candidate_weight: int,
+    health_urls: list[str],
+    nginx_bin: str,
+    reload_command: str,
+) -> list[str]:
+    command = [python, str(switch_script)]
+    for path, name in zip(files, names):
+        command.extend([
+            "--file-canary",
+            f"{path}={name}={primary}:{candidate}:{primary_weight}:{candidate_weight}",
+        ])
+    for url in health_urls:
+        command.extend(["--health-url", url])
+    command.extend(["--nginx-bin", nginx_bin, "--reload-command", reload_command])
+    return command
+
+
+def execute_canary(
+    *,
+    apply: bool,
+    python: str,
+    switch_script: Path,
+    files: list[Path],
+    names: tuple[str, ...],
+    primary: str,
+    candidate: str,
+    primary_weight: int,
+    candidate_weight: int,
+    health_urls: list[str],
+    nginx_bin: str,
+    reload_command: str,
+    env: dict[str, str],
+) -> None:
+    command = canary_command(
+        python=python,
+        switch_script=switch_script,
+        files=files,
+        names=names,
+        primary=primary,
+        candidate=candidate,
+        primary_weight=primary_weight,
+        candidate_weight=candidate_weight,
+        health_urls=health_urls,
+        nginx_bin=nginx_bin,
+        reload_command=reload_command,
+    )
+    if not apply:
+        log(
+            f"PLAN canary_weights={primary_weight}:{candidate_weight} "
+            f"primary={primary} candidate={candidate} files={len(files)}"
+        )
+        run(command, env=env, timeout=60)
+        return
+    run([*command, "--apply"], env=env, timeout=90)
+    log(f"DONE canary_weights={primary_weight}:{candidate_weight}")
+
+
+def observe_canary(
+    args: argparse.Namespace,
+    *,
+    expected_release: str,
+    candidate_pid: int,
+    initial_restarts: str,
+    percent: int,
+) -> None:
+    deadline = time.monotonic() + args.canary_observe_seconds
+    polls = 0
+    while True:
+        service = systemctl_show(
+            args.candidate_service,
+            "ActiveState,SubState,MainPID,NRestarts",
+            args.systemctl,
+        )
+        if service.get("ActiveState") != "active" or service.get("SubState") != "running":
+            raise TransactionError(f"candidate service stopped during {percent}% canary: {service}")
+        if service.get("MainPID") != str(candidate_pid):
+            raise TransactionError(
+                f"candidate PID changed during {percent}% canary: "
+                f"expected={candidate_pid} observed={service.get('MainPID')}"
+            )
+        observed_restarts = service.get("NRestarts", "0")
+        if observed_restarts != initial_restarts:
+            raise TransactionError(
+                f"candidate restarted during {percent}% canary: "
+                f"expected={initial_restarts} observed={observed_restarts}"
+            )
+        livez = fetch_json(candidate_health_url(args.candidate_health_base, "livez"), args.curl_bin)
+        readyz = fetch_json(candidate_health_url(args.candidate_health_base, "readyz"), args.curl_bin)
+        validate_loaded_candidate(
+            livez,
+            readyz,
+            expected_release=expected_release,
+            expected_pid=candidate_pid,
+            require_workers_disabled=True,
+        )
+        for url in args.health_url:
+            if not http_ok(url, args.curl_bin):
+                raise TransactionError(f"public health failed during {percent}% canary: {url}")
+        for path in args.candidate_smoke_path:
+            url = f"{args.candidate_health_base.rstrip('/')}/{path.lstrip('/')}"
+            if not http_ok(url, args.curl_bin):
+                raise TransactionError(f"candidate smoke failed during {percent}% canary: {url}")
+        polls += 1
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(max(0.05, args.canary_poll_seconds), remaining))
+    log(f"CANARY_OBSERVE_OK percent={percent} polls={polls}")
+
+
 def run_commands(commands: list[str], *, apply: bool, env: dict[str, str], timeout: int = 300) -> None:
     for index, command in enumerate(commands, 1):
         if not apply:
@@ -474,6 +593,32 @@ def rollout(args: argparse.Namespace) -> int:
         log("PLAN phase=restart_candidate")
         service_action(args.systemctl, "restart", args.candidate_service, apply=False)
         log(f"PLAN phase=verify_loaded_release id={expected_release} workers_disabled=true")
+        if args.canary_percent:
+            canary_percents = list(dict.fromkeys([
+                args.canary_percent,
+                args.canary_second_percent,
+            ]))
+            for percent in canary_percents:
+                command = canary_command(
+                    python=args.python,
+                    switch_script=switch_script,
+                    files=files,
+                    names=names,
+                    primary=original_port,
+                    candidate=preview_target,
+                    primary_weight=100 - percent,
+                    candidate_weight=percent,
+                    health_urls=args.health_url,
+                    nginx_bin=args.nginx_bin,
+                    reload_command=args.reload_command,
+                )
+                run(command, env=combined_env, timeout=60)
+                log(
+                    f"PLAN phase=canary percent={percent} "
+                    f"observe_seconds={args.canary_observe_seconds:g} "
+                    f"poll_seconds={args.canary_poll_seconds:g}"
+                )
+            log("PLAN phase=canary_restore weights=100:0")
         log("PLAN phase=cutover")
         log(f"PLAN upstream_switch={original_port}->{preview_target} files={len(files)}")
         log("PLAN phase=verify")
@@ -483,6 +628,7 @@ def rollout(args: argparse.Namespace) -> int:
 
     candidate_started = False
     cutover = False
+    canary_active = False
     current = original_port
     target = args.candidate_port if original_port == args.primary_port else args.primary_port
     try:
@@ -527,6 +673,65 @@ def rollout(args: argparse.Namespace) -> int:
         )
         log("PHASE candidate_ready")
 
+        if args.canary_percent:
+            candidate_state = systemctl_show(
+                args.candidate_service,
+                "NRestarts",
+                args.systemctl,
+            )
+            initial_restarts = candidate_state.get("NRestarts", "0")
+            canary_percents = list(dict.fromkeys([
+                args.canary_percent,
+                args.canary_second_percent,
+            ]))
+            for percent in canary_percents:
+                log(f"PHASE canary percent={percent}")
+                execute_canary(
+                    apply=True,
+                    python=args.python,
+                    switch_script=switch_script,
+                    files=files,
+                    names=names,
+                    primary=current,
+                    candidate=target,
+                    primary_weight=100 - percent,
+                    candidate_weight=percent,
+                    health_urls=args.health_url,
+                    nginx_bin=args.nginx_bin,
+                    reload_command=args.reload_command,
+                    env=combined_env,
+                )
+                canary_active = True
+                observe_canary(
+                    args,
+                    expected_release=expected_release,
+                    candidate_pid=candidate_pid,
+                    initial_restarts=initial_restarts,
+                    percent=percent,
+                )
+            log("PHASE canary_restore weights=100:0")
+            execute_canary(
+                apply=True,
+                python=args.python,
+                switch_script=switch_script,
+                files=files,
+                names=names,
+                primary=current,
+                candidate=target,
+                primary_weight=100,
+                candidate_weight=0,
+                health_urls=args.health_url,
+                nginx_bin=args.nginx_bin,
+                reload_command=args.reload_command,
+                env=combined_env,
+            )
+            canary_active = False
+            observed = discover_active_port(files, names, args.primary_port, args.candidate_port)
+            if observed != current:
+                raise TransactionError(
+                    f"canary restore observed={observed} expected={current}"
+                )
+
         log(f"PHASE cutover={current}->{target}")
         execute_switch(
             apply=True,
@@ -554,6 +759,36 @@ def rollout(args: argparse.Namespace) -> int:
         return 0
     except Exception as error:
         log(f"ROLLING_DEPLOY_FAILED phase={error}")
+        if canary_active:
+            try:
+                execute_canary(
+                    apply=True,
+                    python=args.python,
+                    switch_script=switch_script,
+                    files=files,
+                    names=names,
+                    primary=current,
+                    candidate=target,
+                    primary_weight=100,
+                    candidate_weight=0,
+                    health_urls=args.health_url,
+                    nginx_bin=args.nginx_bin,
+                    reload_command=args.reload_command,
+                    env=combined_env,
+                )
+                observed = discover_active_port(files, names, args.primary_port, args.candidate_port)
+                if observed != current:
+                    raise TransactionError(
+                        f"canary rollback observed={observed} expected={current}"
+                    )
+                canary_active = False
+                log(f"CANARY_ROLLBACK_OK upstream={current}")
+            except Exception as rollback_error:
+                log(f"CANARY_ROLLBACK_FAILED upstream={current} error={rollback_error}")
+                raise TransactionError(
+                    f"canary deploy failed and weighted traffic rollback failed: {error}; "
+                    f"manual intervention required, original={current}"
+                ) from error
         if cutover:
             try:
                 execute_switch(
@@ -618,6 +853,26 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--switch-script", default=str(Path(__file__).with_name("nginx-upstream-switch.py")))
     parser.add_argument("--health-url", action="append", default=[])
     parser.add_argument("--migrate-command", action="append", default=[])
+    parser.add_argument(
+        "--canary-percent",
+        type=int,
+        default=1,
+        help="first weighted canary percentage; defaults to 1, 0 preserves the old immediate cutover",
+    )
+    parser.add_argument(
+        "--canary-second-percent",
+        type=int,
+        default=5,
+        help="second weighted canary percentage after the first gate passes",
+    )
+    parser.add_argument("--canary-observe-seconds", type=float, default=120.0)
+    parser.add_argument("--canary-poll-seconds", type=float, default=5.0)
+    parser.add_argument(
+        "--candidate-smoke-path",
+        action="append",
+        default=[],
+        help="read-only path queried directly on the candidate during every canary poll",
+    )
     parser.add_argument("--wait-attempts", type=int, default=30)
     parser.add_argument("--wait-delay", type=float, default=2.0)
     parser.add_argument("--nginx-bin", default="nginx")
@@ -634,6 +889,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "https://chat.5vips.com/api/health",
             "https://live.123vipeak.com/api/health",
         ]
+    if not args.candidate_smoke_path:
+        args.candidate_smoke_path = [
+            "/",
+            "/api/config/public",
+            "/api/platform/playflux-templates",
+        ]
+    if not 0 <= args.canary_percent <= 50:
+        parser.error("--canary-percent must be between 0 and 50")
+    if not args.canary_percent <= args.canary_second_percent <= 50:
+        parser.error("--canary-second-percent must be between --canary-percent and 50")
+    if args.canary_observe_seconds <= 0:
+        parser.error("--canary-observe-seconds must be positive")
+    if args.canary_poll_seconds <= 0:
+        parser.error("--canary-poll-seconds must be positive")
     return args
 
 

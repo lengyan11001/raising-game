@@ -302,13 +302,30 @@ python3 /opt/raising-game-demo/ops/rolling-deploy-transaction.py \
   --apply
 ```
 
+The apply path enables a weighted canary by default. After the candidate passes
+its loaded-release/PID and disabled-worker gates, Nginx sends 1% of requests to
+it for 120 seconds, then 5% for another 120 seconds. Every poll verifies the
+candidate unit is still active with the same PID and `NRestarts`, checks the
+candidate's `/api/livez`, `/api/readyz`, `/`, public config, and public template
+endpoint (plus configured public-health URLs), and immediately returns all
+traffic to the original primary if any gate fails. Only after both canary gates
+pass and `100:0` is restored does the transaction perform the final atomic
+upstream cutover. The canary is read-only: it does not replay user request
+methods or bodies, and the candidate keeps schedulers, queues, and workers
+disabled.
+
 The command succeeds only after Nginx validation, reload, complete upstream
 topology verification, exact loaded-release/PID checks, disabled candidate
 worker flags, and all three public health URLs return HTTP 200. It prints
-`ROLLING_DEPLOY_OK`. If a failure occurs after cutover, it restores the
-complete original topology and prints `ROLLBACK_OK`. If recovery cannot be
-validated, it prints `ROLLBACK_FAILED ... manual intervention required`, keeps
-the journal, and exits non-zero; do not report that run as recovered.
+`ROLLING_DEPLOY_OK`. If canary observation fails, it restores `100:0` and prints
+`CANARY_ROLLBACK_OK`; the final cutover is not attempted. If a failure occurs
+after cutover, it restores the complete original topology and prints
+`ROLLBACK_OK`. If either recovery cannot be validated, it prints
+`CANARY_ROLLBACK_FAILED` or `ROLLBACK_FAILED ... manual intervention required`,
+keeps the journal, and exits non-zero; do not report that run as recovered.
+
+`--canary-percent 0` exists only for isolated recovery drills and deliberately
+removes this protection. Production use must keep the default `1% -> 5%` gate.
 
 An already-active candidate is a safe no-op only when its loaded commit and PID
 match the expected release and public health checks pass. A healthy but stale

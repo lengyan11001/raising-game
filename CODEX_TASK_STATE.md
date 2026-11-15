@@ -1,3 +1,15 @@
+## 2026-11-15 Step BM: Old weighted canary deployment gate prepared, not deployed
+
+- Goal: prevent one bad Old release from affecting every user. The permanent rolling transaction now defaults to a read-only 1% canary, then 5%, with automatic traffic restoration before any final atomic cutover.
+- Canary mechanics: both Nginx upstream members become active with weights 99:1 then 95:5; managed `max_fails`/`fail_timeout` options are preserved. Restoring 100:0 returns the primary/backup topology. Invalid weights must total 100 and are rejected before any file mutation.
+- Observation gates: candidate systemd active/running, stable `MainPID`, unchanged `NRestarts`; candidate `/api/livez`, `/api/readyz`, `/`, `/api/config/public`, and `/api/platform/playflux-templates`; all configured public-health URLs. Candidate schedulers, queues, and workers must remain disabled.
+- Safety behavior: any canary failure restores 100:0, logs `CANARY_ROLLBACK_OK`, stops the candidate, and never attempts the final cutover. A failed canary rollback is surfaced as `CANARY_ROLLBACK_FAILED`/manual intervention, never reported as recovered.
+- Defaults: `--canary-percent=1`, `--canary-second-percent=5`, each observed for 120 seconds with 5-second polls. `--canary-percent 0` remains only as an explicit recovery-drill override.
+- Files changed: `ops/nginx-upstream-switch.py`, `ops/rolling-deploy-transaction.py`, `ops/production-cutover-runbook.md`, `test/resilience-ops.test.js`, `test/test_rolling_deploy_transaction.py`.
+- Verification: `npm run check:undef` passes; readiness 20/20; deploy-targets 16/16; resilience/rolling ops 72/72; Python rolling transaction 16/16; full `npm test` 1352 pass / 0 fail / 1 skip; `git diff --check` passes.
+- Deployment status: no release branch push, deployment, production restart, Nginx reload, database mutation, or SSH/UFW/fail2ban change occurred. Old production was not touched. Live was not touched.
+- Next gate: commit this source, build a uniquely named local candidate release, run the transaction first against isolated/idle 4175 only, and only later wire the repository deployment entrypoint after staged server verification.
+
 ## 2026-11-13 Step BK: Telegram auth-failure circuit breaker prepared, not deployed
 
 ## 2026-11-13 Step BL: Seedance 2.5 1080p exposure and pricing deployed

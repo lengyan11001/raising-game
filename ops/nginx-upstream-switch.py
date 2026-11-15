@@ -202,6 +202,111 @@ def switch_upstreams_text(
     return rendered
 
 
+def set_canary_weights_text(
+    text: str,
+    canaries: list[tuple[str, str, str, str, str]],
+) -> str:
+    """Set a weighted traffic split while preserving both managed members.
+
+    ``candidate_weight == 0`` restores the primary/backup topology without
+    weights. Positive weights make both members active and therefore route a
+    deterministic weighted share to the candidate. Managed health options are
+    preserved, and every edit is validated before the transaction writes it.
+    """
+    if not canaries:
+        raise ValueError("at least one canary split is required")
+    names = [name for name, *_rest in canaries]
+    if len(names) != len(set(names)):
+        raise ValueError("upstream names must be unique")
+
+    masked = _masked(text)
+    headers = list(UPSTREAM_HEADER_RE.finditer(masked))
+    edits: list[tuple[int, int, str]] = []
+    for name, primary, candidate, primary_weight, candidate_weight in canaries:
+        if primary == candidate:
+            raise ValueError(f"canary ports must differ for {name!r}")
+        if not re.fullmatch(r"[1-9][0-9]*", primary_weight):
+            raise ValueError(f"invalid primary canary weight for {name!r}: {primary_weight}")
+        if not re.fullmatch(r"[0-9]+", candidate_weight):
+            raise ValueError(f"invalid candidate canary weight for {name!r}: {candidate_weight}")
+        primary_value = int(primary_weight)
+        candidate_value = int(candidate_weight)
+        if primary_value > 1000 or candidate_value > 1000:
+            raise ValueError(f"canary weights must be between 0 and 1000 for {name!r}")
+        if primary_value + candidate_value != 100:
+            raise ValueError(
+                f"canary weights must total 100 for {name!r}: "
+                f"{primary_weight}:{candidate_weight}"
+            )
+
+        matching = [header for header in headers if header.group("name") == name]
+        if len(matching) != 1:
+            raise ValueError(
+                f"expected exactly one upstream {name!r}; found {len(matching)}"
+            )
+        header = matching[0]
+        opening = header.end() - 1
+        closing = _matching_brace(masked, opening)
+        body_start = opening + 1
+        body_end = closing
+        servers = list(SERVER_RE.finditer(masked, body_start, body_end))
+        by_address: dict[str, list[tuple[re.Match[str], list[str]]]] = {
+            f"127.0.0.1:{primary}": [],
+            f"127.0.0.1:{candidate}": [],
+        }
+        for server in servers:
+            try:
+                arguments = shlex.split(server.group("args"))
+            except ValueError as error:
+                raise ValueError(
+                    f"upstream {name!r} has an unparseable server directive"
+                ) from error
+            if arguments and arguments[0] in by_address:
+                by_address[arguments[0]].append((server, arguments))
+        found = [arguments for server in servers for arguments in [shlex.split(server.group("args"))]]
+        if any(len(items) != 1 for items in by_address.values()):
+            raise ValueError(
+                f"upstream {name!r} must contain exactly one {primary} and one {candidate} member; "
+                f"found {found!r}"
+            )
+
+        rendered_members: list[tuple[re.Match[str], str]] = []
+        for address, weight, force_backup in (
+            (f"127.0.0.1:{primary}", primary_value, False),
+            (f"127.0.0.1:{candidate}", candidate_value, candidate_value == 0),
+        ):
+            server, arguments = by_address[address][0]
+            options = arguments[1:]
+            cleaned: list[str] = []
+            for option in options:
+                if option == "backup" or option.startswith("weight="):
+                    continue
+                if re.fullmatch(r"max_fails=[1-9][0-9]*", option):
+                    cleaned.append(option)
+                    continue
+                if re.fullmatch(r"fail_timeout=[1-9][0-9]*(?:ms|s|m|h|d)?", option):
+                    cleaned.append(option)
+                    continue
+                raise ValueError(
+                    f"upstream {name!r} has unsupported canary member option {option!r}"
+                )
+            if force_backup:
+                next_options = ["backup", *cleaned]
+            elif candidate_value == 0:
+                next_options = cleaned
+            else:
+                next_options = [*cleaned, f"weight={weight}"]
+            rendered_members.append((server, " ".join([address, *next_options])))
+
+        for server, arguments in rendered_members:
+            edits.append((server.start(), server.end(), f"server {arguments};"))
+
+    rendered = text
+    for start, end, replacement in sorted(edits, reverse=True):
+        rendered = rendered[:start] + replacement + rendered[end:]
+    return rendered
+
+
 def tune_upstreams_text(
     text: str,
     tunes: list[tuple[str, str, str]],
@@ -408,6 +513,43 @@ def require_http_200(url: str) -> None:
         )
 
 
+def parse_canary(value: str) -> tuple[str, str, str, str, str]:
+    match = re.fullmatch(
+        r"(?P<name>[A-Za-z0-9_.-]+)=(?P<primary>[0-9]+):(?P<candidate>[0-9]+):"
+        r"(?P<primary_weight>[0-9]+):(?P<candidate_weight>[0-9]+)",
+        value,
+    )
+    if not match:
+        raise argparse.ArgumentTypeError(
+            "canary must use NAME=PRIMARY_PORT:CANDIDATE_PORT:PRIMARY_WEIGHT:CANDIDATE_WEIGHT"
+        )
+    values = match.groupdict()
+    for key in ("primary", "candidate"):
+        if not 1 <= int(values[key]) <= 65535:
+            raise argparse.ArgumentTypeError(f"invalid {key} port: {values[key]}")
+    if values["primary"] == values["candidate"]:
+        raise argparse.ArgumentTypeError("primary and candidate ports must differ")
+    for key in ("primary_weight", "candidate_weight"):
+        if not 0 <= int(values[key]) <= 1000:
+            raise argparse.ArgumentTypeError(f"invalid {key}: {values[key]}")
+    return (
+        values["name"],
+        values["primary"],
+        values["candidate"],
+        values["primary_weight"],
+        values["candidate_weight"],
+    )
+
+
+def parse_file_canary(value: str) -> tuple[Path, tuple[str, str, str, str, str]]:
+    path_text, separator, canary_text = value.partition("=")
+    if not separator or not path_text:
+        raise argparse.ArgumentTypeError(
+            "file canary must use PATH=NAME=PRIMARY_PORT:CANDIDATE_PORT:PRIMARY_WEIGHT:CANDIDATE_WEIGHT"
+        )
+    return Path(path_text), parse_canary(canary_text)
+
+
 def parse_file_switch(value: str) -> tuple[Path, tuple[str, str, str]]:
     path_text, separator, switch_text = value.partition("=")
     if not separator or not path_text:
@@ -481,6 +623,24 @@ def build_tune_transaction(
     for path, tunes in by_file.items():
         source = path.read_text(encoding="utf-8")
         updated = tune_upstreams_text(source, tunes)
+        entries.append((str(path), path, source, path.stat().st_mode & 0o777, updated))
+    return entries
+
+
+def build_canary_transaction(
+    file_canaries: list[tuple[Path, tuple[str, str, str, str, str]]],
+) -> list[tuple[str, Path, str, int, str]]:
+    by_file: dict[Path, list[tuple[str, str, str, str, str]]] = {}
+    names: list[str] = []
+    for path, canary in file_canaries:
+        names.append(canary[0])
+        by_file.setdefault(Path(path), []).append(canary)
+    if len(names) != len(set(names)):
+        raise ValueError("upstream names must be unique")
+    entries: list[tuple[str, Path, str, int, str]] = []
+    for path, canaries in by_file.items():
+        source = path.read_text(encoding="utf-8")
+        updated = set_canary_weights_text(source, canaries)
         entries.append((str(path), path, source, path.stat().st_mode & 0o777, updated))
     return entries
 
@@ -633,6 +793,20 @@ def main() -> int:
         help="repeatable PATH=NAME=CURRENT_PORT:NEXT_PORT entry; all files commit together",
     )
     parser.add_argument(
+        "--canary",
+        action="append",
+        type=parse_canary,
+        default=[],
+        help="repeatable NAME=PRIMARY:CANDIDATE:PRIMARY_WEIGHT:CANDIDATE_WEIGHT entry on --file",
+    )
+    parser.add_argument(
+        "--file-canary",
+        action="append",
+        type=parse_file_canary,
+        default=[],
+        help="repeatable PATH=NAME=PRIMARY:CANDIDATE:PRIMARY_WEIGHT:CANDIDATE_WEIGHT entry",
+    )
+    parser.add_argument(
         "--backup",
         action="append",
         type=parse_backup,
@@ -681,6 +855,8 @@ def main() -> int:
         for value in (
             args.switch,
             args.file_switch,
+            args.canary,
+            args.file_canary,
             args.backup,
             args.file_backup,
             args.tune,
@@ -705,6 +881,14 @@ def main() -> int:
         if not args.file:
             raise SystemExit("--tune requires --file")
         file_tunes = [(args.file, tune) for tune in args.tune]
+    elif args.file_canary:
+        if args.file or switches:
+            raise SystemExit("--file-canary cannot be combined with --file or --switch")
+        file_canaries = args.file_canary
+    elif args.canary:
+        if not args.file:
+            raise SystemExit("--canary requires --file")
+        file_canaries = [(args.file, canary) for canary in args.canary]
     elif args.file_backup:
         file_backups = args.file_backup
     elif args.backup:
@@ -728,6 +912,8 @@ def main() -> int:
         target_paths.add(args.file)
     if args.file_backup:
         target_paths.update(path for path, _backup in args.file_backup)
+    if args.file_canary:
+        target_paths.update(path for path, _canary in args.file_canary)
     if args.file_switch:
         target_paths.update(path for path, _switch in args.file_switch)
     if args.file_tune:
@@ -747,6 +933,12 @@ def main() -> int:
         elif args.file_backup:
             entries = build_backup_transaction(args.file_backup)
             effective_switches = [backup for _path, backup in args.file_backup]
+        elif args.file_canary:
+            entries = build_canary_transaction(args.file_canary)
+            effective_switches = [canary for _path, canary in args.file_canary]
+        elif args.canary:
+            entries = build_canary_transaction([(args.file, canary) for canary in args.canary])
+            effective_switches = args.canary
         elif args.file_switch:
             entries = build_file_transaction(args.file_switch)
             effective_switches = [switch for _path, switch in args.file_switch]
@@ -759,7 +951,16 @@ def main() -> int:
         raise SystemExit(str(error)) from None
     backup_mode = bool(args.backup or args.file_backup)
     tune_mode = bool(args.tune or args.file_tune)
-    for name, current, next_port in effective_switches:
+    canary_mode = bool(args.canary or args.file_canary)
+    for item in effective_switches:
+        if canary_mode:
+            name, primary, candidate, primary_weight, candidate_weight = item
+            print(
+                f"UPSTREAM_CANARY_PLAN upstream={name} primary={primary} candidate={candidate} "
+                f"weights={primary_weight}:{candidate_weight}"
+            )
+            continue
+        name, current, next_port = item
         if tune_mode:
             print(f"UPSTREAM_TUNE_PLAN upstream={name} max_fails={current} fail_timeout={next_port}")
             continue
@@ -815,7 +1016,12 @@ def main() -> int:
         if journal is not None and (committed or restored_after_failure):
             journal.unlink(missing_ok=True)
         lock.close()
-    for name, _, next_port in effective_switches:
+    for item in effective_switches:
+        if canary_mode:
+            name, _primary, _candidate, primary_weight, candidate_weight = item
+            print(f"UPSTREAM_CANARY_OK upstream={name} weights={primary_weight}:{candidate_weight}")
+            continue
+        name, _, next_port = item
         if tune_mode:
             print(f"UPSTREAM_TUNE_OK upstream={name} fail_timeout={next_port}")
         elif backup_mode:
