@@ -1304,6 +1304,10 @@ function renderAdvancedParameterPanel(kind = "") {
   delete els.advancedParameterPanel.dataset.advancedParameterPlacement;
   positionAdvancedParameterPanel();
   refreshIcons();
+  if (modelList) {
+    const selected = els.advancedParameterPanel.querySelector(".advanced-parameter-option.is-selected");
+    selected?.scrollIntoView?.({ block: "nearest" });
+  }
 }
 
 function openAdvancedParameterPanel(kind = "") {
@@ -1316,9 +1320,13 @@ function openAdvancedParameterPanel(kind = "") {
 function setAdvancedParameterValue(kind = "", value = "") {
   const select = advancedParameterNativeSelect(kind);
   if (!select) return;
-  select.value = String(value);
+  const nextValue = String(value);
+  const changed = select.value !== nextValue;
+  select.value = nextValue;
   closeAdvancedParameterPanel();
-  select.dispatchEvent(new Event("change", { bubbles: true }));
+  // Re-selecting the current model should behave like the native select: close
+  // the menu without replaying model initialization or resetting visible fields.
+  if (changed) select.dispatchEvent(new Event("change", { bubbles: true }));
   syncAdvancedParameterChips();
 }
 

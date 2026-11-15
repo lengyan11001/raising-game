@@ -122,14 +122,80 @@ test("Generate parameter pickers close after selection and duration uses a slide
   assert.doesNotMatch(picker, /advanced-parameter-option-check/);
   assert.match(picker, /advanced-parameter-options\$\{modelList \? " is-model-list"/);
   assert.match(picker, /advanced-parameter-model-check/);
+  assert.match(picker, /querySelector\("\.advanced-parameter-option\.is-selected"\)/);
+  assert.match(picker, /scrollIntoView\?\.\(\{ block: "nearest" \}\)/);
   assert.match(createSource, /dataset\.advancedParameterPlacement = openUp \? "up" : "down"/);
 
   const setter = createSource.slice(
     createSource.indexOf("function setAdvancedParameterValue("),
     createSource.indexOf("function handleAdvancedParameterTriggerClick("),
   );
-  assert.match(setter, /select\.value = String\(value\);\s*closeAdvancedParameterPanel\(\);/);
+  assert.match(setter, /const nextValue = String\(value\);/);
+  assert.match(setter, /const changed = select\.value !== nextValue;/);
+  assert.match(setter, /if \(changed\) select\.dispatchEvent\(new Event\("change", \{ bubbles: true \}\)\);/);
   assert.doesNotMatch(setter, /keepPanelOpen/);
+});
+
+test("model picker selection writes through the native select and skips duplicate change events", () => {
+  const setterSource = extractFunction(create, "setAdvancedParameterValue");
+  const events = [];
+  let closeCount = 0;
+  let syncCount = 0;
+  const select = {
+    value: "seedance",
+    dispatchEvent(event) {
+      events.push(event);
+      return true;
+    },
+  };
+  const setAdvancedParameterValue = new Function(
+    "advancedParameterNativeSelect",
+    "closeAdvancedParameterPanel",
+    "syncAdvancedParameterChips",
+    `${setterSource}
+return setAdvancedParameterValue;`,
+  )(
+    (kind) => kind === "model" ? select : null,
+    () => { closeCount += 1; },
+    () => { syncCount += 1; },
+  );
+
+  setAdvancedParameterValue("model", "seedance25-vega");
+  assert.equal(select.value, "seedance25-vega");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "change");
+  assert.equal(events[0].bubbles, true);
+  assert.equal(closeCount, 1);
+  assert.equal(syncCount, 1);
+
+  setAdvancedParameterValue("model", "seedance25-vega");
+  assert.equal(select.value, "seedance25-vega");
+  assert.equal(events.length, 1, "re-selecting the current model must not replay change handlers");
+  assert.equal(closeCount, 2);
+  assert.equal(syncCount, 2);
+});
+
+test("model picker filters hidden and disabled options in native order", () => {
+  const visibleOptionsSource = extractFunction(create, "advancedParameterVisibleOptions");
+  const options = [
+    { value: "seedance-nsfw", textContent: "Seedance 2.5（NSFW）", hidden: false, disabled: false, closest: () => null },
+    { value: "wan30", textContent: "W3.0", hidden: true, disabled: false, closest: () => null },
+    { value: "seedance", textContent: "Seedance 2.0", hidden: false, disabled: false, closest: () => ({ hidden: false, label: "Video" }) },
+    { value: "seedance25-vega", textContent: "seedance2.5-vega", hidden: false, disabled: true, closest: () => null },
+    { value: "seedance20-vega", textContent: "seedance2.0（vega）", hidden: false, disabled: false, closest: () => ({ hidden: false, label: "Video" }) },
+  ];
+  const select = { options };
+  const advancedParameterVisibleOptions = new Function(
+    "advancedParameterNativeSelect",
+    `${visibleOptionsSource}
+return advancedParameterVisibleOptions;`,
+  )(() => select);
+
+  assert.deepEqual(advancedParameterVisibleOptions("model"), [
+    { value: "seedance-nsfw", label: "Seedance 2.5（NSFW）", group: "" },
+    { value: "seedance", label: "Seedance 2.0", group: "Video" },
+    { value: "seedance20-vega", label: "seedance2.0（vega）", group: "Video" },
+  ]);
 });
 
 test("the www host serves the same site profile as the apex", () => {
