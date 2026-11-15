@@ -4279,3 +4279,12 @@ CODEX_TASK_STATE.md
 - Added the two missing imports and a regression test that checks every provider helper exported by `lib-providers` and referenced by the assembled server is destructured in the import block. No generation, regeneration, upload, polling, or backfill flow was changed.
 - Verification: focused Seedance Flash + Advanced Pricing tests `43/43`; full source suite `1342 pass / 0 fail / 1 skip`; exact platform release focused `43/43` and full `1342 pass / 0 fail / 1 skip`; `git diff --check` pass.
 - Deployed only Old through `scripts/deploy_local.sh --site old`. Platform release is `ce92952d5994fbc77f25e125bf9cbcbc7bd58e7d`, source is `36301660cd4bae60532c19b108a252540a55e0a1`. Public `/api/health` and `/` return 200. Live remains untouched at `f40e7a357f8ad311c45c72f162c04c39472f01a0`.
+
+## 2026-11-15 Step CT: assembled-server undefined-reference guard and one-row model selector
+
+- Root cause of the Seedance 2.0 failure was a provider helper imported in one server part but missing from the top-level `lib-providers` destructuring import. `node --check` validates syntax only and cannot catch cross-part undefined references.
+- Added `npm run check:undef`, which lints the fully assembled `server-source.js` with ESLint `no-undef` and maps failures back to the exact `server.parts/part-*.js` line. `npm test` now runs this check before the complete test suite.
+- The first full scan found and fixed six additional latent undefined references: catch-path `providerLabel`, platform promotion `absolutePublicUrl`, API-doc quarantine response `res`, and reference-media fallback `isVideoUrl`.
+- Restored the missing `seedance20-vega` video option while keeping `seedance25-vega`. The model picker now renders one model per row with a selected check; it still writes to the existing native select and dispatches `change`, so generation, restoration, and regeneration flows are unchanged.
+- Source commit `4a8ebbb8`; release integration commit `3dcca50a`.
+- Verification: source `npm test` 1342 pass / 0 fail / 1 skip; exact old-site worktree `npm test` 1342 pass / 0 fail / 1 skip; focused picker/Vega tests 123/123; `npm run check:undef`, `node --check`, and `git diff --check` pass.
