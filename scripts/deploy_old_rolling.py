@@ -270,6 +270,129 @@ def render_dropin(release: Path, node_path: Path) -> str:
     )
 
 
+def verify_inactive_candidate(
+    args: argparse.Namespace,
+    rolling,
+    *,
+    candidate_service: str,
+    candidate_port: str,
+    release: Path,
+) -> int:
+    if candidate_service != args.candidate_service or candidate_port != args.candidate_port:
+        raise DeployError("candidate-only verification refuses to target the active service or port")
+    candidate_pid = int(rolling.require_active(candidate_service, "systemctl"))
+    health_base = f"http://127.0.0.1:{candidate_port}"
+    for endpoint in ("livez", "health", "readyz"):
+        rolling.wait_http_200(
+            rolling.candidate_health_url(health_base, endpoint),
+            30,
+            2.0,
+            "curl",
+        )
+    for path in ("/", "/api/config/public", "/api/platform/playflux-templates"):
+        rolling.wait_http_200(
+            f"{health_base}{path}",
+            30,
+            2.0,
+            "curl",
+        )
+    rolling.wait_loaded_candidate(
+        health_base,
+        expected_release=args.commit,
+        expected_pid=candidate_pid,
+        require_workers_disabled=True,
+        attempts=30,
+        delay=2.0,
+        curl_bin="curl",
+    )
+    state = rolling.systemctl_show(
+        candidate_service,
+        "ActiveState,SubState,MainPID,NRestarts",
+        "systemctl",
+    )
+    if state.get("ActiveState") != "active" or state.get("SubState") != "running":
+        raise DeployError(f"candidate service is not active after verification: {state}")
+    if state.get("MainPID") != str(candidate_pid):
+        raise DeployError(
+            f"candidate PID mismatch after verification: expected={candidate_pid} observed={state.get('MainPID')}"
+        )
+    log(
+        f"OLD_CANDIDATE_READY release={args.commit} pid={candidate_pid} "
+        f"service={candidate_service} port={candidate_port} restarts={state.get('NRestarts', '0')}"
+    )
+    return candidate_pid
+
+
+def verify_primary_service_unchanged(rolling, *, service: str, expected_pid: int) -> None:
+    state = rolling.systemctl_show(
+        service,
+        "ActiveState,SubState,MainPID,NRestarts",
+        "systemctl",
+    )
+    if state.get("ActiveState") != "active" or state.get("SubState") != "running":
+        raise DeployError(f"primary service is not active after candidate verification: {state}")
+    if state.get("MainPID") != str(expected_pid):
+        raise DeployError(
+            "primary service PID changed during candidate-only verification: "
+            f"expected={expected_pid} observed={state.get('MainPID')}"
+        )
+    log(
+        f"OLD_PRIMARY_UNCHANGED service={service} pid={expected_pid} "
+        f"restarts={state.get('NRestarts', '0')}"
+    )
+
+
+def verify_public_health_unchanged(args: argparse.Namespace, rolling) -> None:
+    for url in args.health_url:
+        rolling.wait_http_200(url, 30, 2.0, "curl")
+    log(f"OLD_PUBLIC_HEALTH_UNCHANGED urls={len(args.health_url)}")
+
+
+def activate_inactive_candidate(
+    args: argparse.Namespace,
+    rolling,
+    *,
+    candidate_service: str,
+    candidate_port: str,
+    release: Path,
+    node_path: Path,
+    destination: Path,
+    previous_dropin: bytes | None,
+) -> int:
+    """Restart only the inactive candidate and restore it on any failed gate."""
+    primary_pid = int(rolling.require_active(args.primary_service, "systemctl"))
+    atomic_write(destination, render_dropin(release, node_path))
+    try:
+        run(["systemctl", "daemon-reload"], timeout=60)
+        run(["systemctl", "restart", candidate_service], timeout=120)
+        candidate_pid = verify_inactive_candidate(
+            args,
+            rolling,
+            candidate_service=candidate_service,
+            candidate_port=candidate_port,
+            release=release,
+        )
+        verify_primary_service_unchanged(
+            rolling,
+            service=args.primary_service,
+            expected_pid=primary_pid,
+        )
+        verify_public_health_unchanged(args, rolling)
+    except Exception:
+        if previous_dropin is None:
+            destination.unlink(missing_ok=True)
+        else:
+            atomic_write(destination, previous_dropin.decode("utf-8"))
+        try:
+            run(["systemctl", "daemon-reload"], timeout=60)
+            run(["systemctl", "restart", candidate_service], timeout=120)
+            log("OLD_CANDIDATE_ROLLBACK_OK")
+        except Exception as rollback_error:
+            log(f"OLD_CANDIDATE_ROLLBACK_FAILED {rollback_error}")
+        raise
+    return candidate_pid
+
+
 def atomic_write(path: Path, content: str, mode: int = 0o644) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     previous = path.read_bytes() if path.is_file() else None
@@ -345,6 +468,11 @@ def load_rolling_module(path: Path):
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Safely deploy an immutable Old release with a canary gate.")
     parser.add_argument("--apply", action="store_true", help="prepare the release and run the rolling transaction")
+    parser.add_argument(
+        "--candidate-only",
+        action="store_true",
+        help="prepare and verify only the inactive candidate; never migrate, reload Nginx, or move traffic",
+    )
     parser.add_argument("--commit", required=True, help="exact platform-release commit to deploy")
     parser.add_argument("--source-root", default=str(DEFAULT_SOURCE_ROOT))
     parser.add_argument("--releases-root", default=str(DEFAULT_RELEASES_ROOT))
@@ -439,6 +567,25 @@ def deploy(args: argparse.Namespace) -> int:
         f"PLAN active_port={active_port} candidate_port={target_port} "
         f"candidate_service={target_service} release={release}"
     )
+    if args.candidate_only:
+        if target_service != args.candidate_service or target_port != args.candidate_port:
+            raise DeployError("--candidate-only requires traffic to remain on the primary service/port")
+        if not args.apply:
+            log("OLD_CANDIDATE_ONLY_PLAN_OK")
+            return 0
+        activate_inactive_candidate(
+            args,
+            rolling,
+            candidate_service=target_service,
+            candidate_port=target_port,
+            release=release,
+            node_path=node_path,
+            destination=destination,
+            previous_dropin=previous_dropin,
+        )
+        log("OLD_CANDIDATE_ONLY_OK")
+        return 0
+
     command = transaction_command(args, release, active_port)
     if not args.apply:
         log("OLD_ROLLING_DEPLOY_PLAN_OK")

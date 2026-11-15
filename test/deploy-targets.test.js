@@ -99,9 +99,15 @@ test("production deploy targets use isolated release branches and roots", () => 
   assert.match(deploySite, /"rolling_candidate_port": "4175"/);
   assert.match(deploySite, /--rolling cannot be combined with --no-restart/);
   assert.match(deploySite, /--rolling is supported only for the Old production target/);
-  assert.match(deploySite, /use_rolling = bool\(target\.get\("rolling"\)\) and not args\.no_restart/);
+  assert.match(deploySite, /use_rolling = \(bool\(target\.get\("rolling"\)\) or args\.candidate_only\) and not args\.no_restart/);
+  assert.match(deploySite, /--candidate-only/);
+  assert.match(deploySite, /--apply-candidate/);
+  assert.match(deploySite, /--rolling-candidate-only/);
+  assert.match(deploySite, /--rolling-candidate-apply/);
   assert.match(deployPull, /--rolling cannot be combined with --no-restart or --no-mutations/);
   assert.match(deployPull, /--rolling is Old-only and requires --branch platform-release/);
+  assert.match(deployPull, /--rolling-candidate-only/);
+  assert.match(deployPull, /--rolling-candidate-apply/);
   assert.match(deployPull, /--rolling requires --commit with the exact platform-release commit/);
 });
 
@@ -426,9 +432,37 @@ test("Old rolling deployment migrates PostgreSQL before candidate traffic", () =
   assert.match(deploySite, /--rolling-migrate-command/);
   assert.match(deploySite, /--rolling-post-cutover-command/);
   assert.match(deployPull, /"scripts\/deploy_old_rolling\.py"/);
+  assert.match(deployPull, /\/etc\/nginx\/sites-enabled\/live\.123vipeak\.com/);
+  assert.match(deployPull, /raising_game_app_live/);
+  assert.match(deployPull, /https:\/\/live\.123vipeak\.com\/api\/health/);
   assert.match(deployPull, /set -euo pipefail/);
   assert.match(deployPull, /git -c core\.hooksPath=\/dev\/null checkout --detach/);
   assert.doesNotMatch(deployPull, /systemctl restart.*raising-game-demo\.service/);
+});
+
+test("candidate-only deployment is an explicit inactive-service dry-run by default", () => {
+  const command = printedDeployCommand([
+    "--rolling",
+    "--commit", "a".repeat(40),
+    "--rolling-candidate-only",
+    "--rolling-migrate-command", "echo MIGRATION_MUST_NOT_RUN",
+    "--rolling-post-cutover-command", "echo CUTOVER_MUST_NOT_RUN",
+    "--verify-url", "https://123vips.com/",
+    "--verify-contains", "https://123vips.com/=platform.css",
+  ]);
+  assert.match(command, /scripts\/deploy_old_rolling\.py --candidate-only --commit/);
+  assert.doesNotMatch(command, /scripts\/deploy_old_rolling\.py --apply/);
+  assert.doesNotMatch(command, /MIGRATION_MUST_NOT_RUN|CUTOVER_MUST_NOT_RUN/);
+});
+
+test("candidate-only apply requires an explicit second switch", () => {
+  const command = printedDeployCommand([
+    "--rolling",
+    "--commit", "b".repeat(40),
+    "--rolling-candidate-only",
+    "--rolling-candidate-apply",
+  ]);
+  assert.match(command, /scripts\/deploy_old_rolling\.py --apply --candidate-only --commit/);
 });
 
 test("release snapshot builder excludes foreign paths from both trees and ancestry", () => {

@@ -301,6 +301,16 @@ def main() -> None:
         action="store_true",
         help="Use the immutable-release dual-unit canary transaction instead of restarting the active checkout.",
     )
+    parser.add_argument(
+        "--rolling-candidate-only",
+        action="store_true",
+        help="Prepare and validate only the inactive Old candidate; never migrate or move traffic.",
+    )
+    parser.add_argument(
+        "--rolling-candidate-apply",
+        action="store_true",
+        help="Allow --rolling-candidate-only to restart the inactive candidate service.",
+    )
     parser.add_argument("--rolling-source-root", default="/opt/raising-game-release-src")
     parser.add_argument("--rolling-releases-root", default="/opt/raising-game-releases")
     parser.add_argument("--rolling-shared-assets", default="/opt/raising-game-shared/assets")
@@ -340,6 +350,10 @@ def main() -> None:
         args.no_restart = True
     if args.rolling and (args.no_restart or args.no_mutations):
         raise SystemExit("--rolling cannot be combined with --no-restart or --no-mutations")
+    if args.rolling_candidate_apply and not args.rolling_candidate_only:
+        raise SystemExit("--rolling-candidate-apply requires --rolling-candidate-only")
+    if args.rolling_candidate_only and not args.rolling:
+        raise SystemExit("--rolling-candidate-only requires --rolling")
     if args.rolling:
         if args.branch != "platform-release":
             raise SystemExit("--rolling is Old-only and requires --branch platform-release")
@@ -561,19 +575,27 @@ fi
         rolling_nginx_files = args.rolling_nginx_file or [
             "/etc/nginx/sites-enabled/default",
             "/etc/nginx/sites-enabled/chat.5vips.com",
+            "/etc/nginx/sites-enabled/live.123vipeak.com",
         ]
         rolling_upstream_names = args.rolling_upstream_name or [
             "raising_game_app",
             "raising_game_app_chat",
+            "raising_game_app_live",
         ]
         rolling_health_urls = args.rolling_health_url or [
             "https://123vips.com/api/health",
             "https://chat.5vips.com/api/health",
+            "https://live.123vipeak.com/api/health",
         ]
         rolling_arguments = [
             sys.executable,
             "scripts/deploy_old_rolling.py",
-            "--apply",
+        ]
+        if not args.rolling_candidate_only or args.rolling_candidate_apply:
+            rolling_arguments.append("--apply")
+        if args.rolling_candidate_only:
+            rolling_arguments.append("--candidate-only")
+        rolling_arguments.extend([
             "--commit", args.commit.lower(),
             "--source-root", args.rolling_source_root,
             "--releases-root", args.rolling_releases_root,
@@ -584,19 +606,20 @@ fi
             "--candidate-service", args.rolling_candidate_service,
             "--primary-port", args.rolling_primary_port,
             "--candidate-port", args.rolling_candidate_port,
-        ]
+        ])
         for path in rolling_nginx_files:
             rolling_arguments.extend(["--nginx-file", path])
         for name in rolling_upstream_names:
             rolling_arguments.extend(["--upstream-name", name])
         for url in rolling_health_urls:
             rolling_arguments.extend(["--health-url", url])
-        for command in args.rolling_migrate_command:
-            rolling_arguments.extend(["--migrate-command", command])
-        for command in args.rolling_post_cutover_command:
-            rolling_arguments.extend(["--post-cutover-command", command])
-        if verification_check != "true":
-            rolling_arguments.extend(["--post-cutover-command", verification_check])
+        if not args.rolling_candidate_only:
+            for command in args.rolling_migrate_command:
+                rolling_arguments.extend(["--migrate-command", command])
+            for command in args.rolling_post_cutover_command:
+                rolling_arguments.extend(["--post-cutover-command", command])
+            if verification_check != "true":
+                rolling_arguments.extend(["--post-cutover-command", verification_check])
         rolling_script_command = " ".join(shlex.quote(item) for item in rolling_arguments)
         rolling_command = f"""
 set -euo pipefail
