@@ -4189,3 +4189,13 @@ CODEX_TASK_STATE.md
   - 2K request returned HTTP 200 and an image URL, with `usage.output_tokens=16384`.
   - A 1K request with 10 reference images returned HTTP 200 and `usage.input_images=10`.
 - Deployment status at record time: implementation committed on the dedicated Seedream 5.5 branch; not yet merged, released, deployed, or published. Target is Old `123vips.com` only; Live must remain untouched.
+
+## 2026-11-15 Step BS: Seedream 5.5 deployed; regeneration reference persistence corrected
+
+- Production verification before the follow-up fix: 2K text-to-image `img-20261115100156-14c2c9` succeeded and charged exactly 5.25 credits; 1K plus one reference `img-20261115100247-ed6490` succeeded and charged exactly 4.20 credits. Both final images were persisted to OSS and served successfully.
+- Production replay exposed one regression: `advancedRegenerateBody()` treated the same saved reference as three aliases (asset ID, local preview URL, signed upstream URL). Regenerating `img-20261115100247-ed6490` created `img-20261115100405-c37efb` with three billed references and a 6.60-credit charge.
+- Fixed image regeneration reference reconstruction to prefer canonical `mediaAssets`, then ordered params/upstream evidence, and only fill genuinely missing entries from legacy alias arrays. Asset IDs, local paths, CDN URLs, signed URLs, and `asset://` URIs now cross-dedupe by asset identity while explicit repeated references remain ordered and preserved.
+- Seedream 5.5 jobs now persist canonical `mediaAssets` entries for every prepared reference (`type=reference_image`, `userAssetId`, preview/public URL, asset URI, order/name) instead of leaving `mediaAssets` null.
+- Files changed: `server.parts/part-27.js`, `server.parts/part-29.js`, `server.parts/part-43.js`, `test/seedream55.test.js`, `test/vega-regeneration-media.test.js`.
+- Verification: syntax checks and `git diff --check` pass; focused Seedream/regeneration/image/media tests pass 83/83; full `npm test` passes 1328 with 0 failures and 1 skip.
+- Remaining after deploy: verify the same one-reference regeneration now charges 4.20 and records one canonical `reference_image`; account for/refund the 2.40-credit overcharge from the pre-fix regression test if appropriate. Live remains untouched.

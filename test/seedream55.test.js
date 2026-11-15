@@ -133,6 +133,30 @@ test("Seedream 5.5 regeneration restores its provider and reference mode", () =>
   assert.match(platformCreate, /\["seedream55-image", "seedream5-image", "qwen-image3"\]\.includes\(provider\)/);
 });
 
+test("Seedream 5.5 persists canonical reference media assets", () => {
+  const assets = application.seedream55PreparedMediaAssets([{
+    id: "asset-1794708168754-709a6fa5",
+    localUrl: "/assets/user-uploads/user-1/asset-1794708168754-709a6fa5.png",
+    publicUrl: "https://assets-cdn.example.com/assets/user-uploads/user-1/asset-1794708168754-709a6fa5.png",
+    assetUri: "asset://asset-1794708168754-709a6fa5",
+    name: "reference.png",
+  }]);
+  assert.deepEqual(assets, [{
+    type: "reference_image",
+    userAssetId: "asset-1794708168754-709a6fa5",
+    url: "/assets/user-uploads/user-1/asset-1794708168754-709a6fa5.png",
+    imageUrl: "/assets/user-uploads/user-1/asset-1794708168754-709a6fa5.png",
+    sourceImageUrl: "/assets/user-uploads/user-1/asset-1794708168754-709a6fa5.png",
+    previewUrl: "/assets/user-uploads/user-1/asset-1794708168754-709a6fa5.png",
+    publicUrl: "https://assets-cdn.example.com/assets/user-uploads/user-1/asset-1794708168754-709a6fa5.png",
+    assetUri: "asset://asset-1794708168754-709a6fa5",
+    referenceAssetUri: "asset://asset-1794708168754-709a6fa5",
+    name: "reference.png",
+    order: 1,
+  }]);
+  assert.match(serverSource, /mediaAssets: preparedMediaAssets/);
+});
+
 test("Seedream 5.5 admin save paths accept its three pricing rows", () => {
   assert.match(serverSource, /key === "seedream55-1k" \|\| key === "seedream55-2k" \|\| key === "seedream55-reference"/);
   assert.match(serverSource, /next\.seedream55Image\.saleUsdPerReferenceImage/);

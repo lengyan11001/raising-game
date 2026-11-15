@@ -933,6 +933,7 @@ module.exports = {
   seedream55ImagePricingEstimate,
   seedream55ReferenceInputsFromBody,
   seedream55ImageRequestPayload,
+  seedream55PreparedMediaAssets,
   publicAdvancedPricingRows,
   adminAdvancedPricingView,
   publicGenerationRecord,

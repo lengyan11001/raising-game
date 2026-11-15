@@ -1243,6 +1243,25 @@ async function prepareSeedream55ReferenceImages(db, user, body = {}) {
   };
 }
 
+function seedream55PreparedMediaAssets(assets = []) {
+  return (Array.isArray(assets) ? assets : []).map((asset, index) => {
+    const userAssetId = String(firstPresent(asset?.id, asset?.userAssetId, asset?.assetId, "") || "").trim();
+    const imageUrl = String(firstPresent(asset?.localUrl, asset?.previewUrl, asset?.publicUrl, asset?.cdnUrl, "") || "").trim();
+    const publicUrl = String(firstPresent(asset?.publicUrl, asset?.cdnUrl, asset?.localUrl, "") || "").trim();
+    const assetUri = String(firstPresent(asset?.assetUri, asset?.referenceAssetUri, asset?.seedanceAssetUri, "") || "").trim();
+    if (!userAssetId && !imageUrl && !assetUri) return null;
+    return {
+      type: "reference_image",
+      ...(userAssetId ? { userAssetId } : {}),
+      ...(imageUrl ? { url: imageUrl, imageUrl, sourceImageUrl: imageUrl, previewUrl: imageUrl } : {}),
+      ...(publicUrl ? { publicUrl } : {}),
+      ...(assetUri ? { assetUri, referenceAssetUri: assetUri } : {}),
+      name: asset?.name || asset?.fileName || `Seedream 5.5 reference ${index + 1}`,
+      order: index + 1,
+    };
+  }).filter(Boolean);
+}
+
 async function submitSeedream55ImageGeneration(payload = {}, label = "image") {
   console.log(`[seedream55-image-submit-${label || "image"}]`, JSON.stringify(payload, null, 2));
   let raw;
@@ -1324,6 +1343,7 @@ async function runSeedream55ImageGenerationJob(job = {}, submission = null) {
 
     const prepared = await prepareSeedream55ReferenceImages(db, user, { ...bodyParams, ...body });
     const referencePreviewUrls = prepared.assets.map((asset) => asset.localUrl || asset.publicUrl || "").filter(Boolean);
+    const preparedMediaAssets = seedream55PreparedMediaAssets(prepared.assets);
     await upsertGenerationRecord({
       taskId,
       userAssetIds: prepared.assets.map((asset) => asset.id),
@@ -1332,6 +1352,7 @@ async function runSeedream55ImageGenerationJob(job = {}, submission = null) {
       imageUrls: referencePreviewUrls,
       sourceImageUrl: referencePreviewUrls[0] || "",
       sourceImageUrls: referencePreviewUrls,
+      mediaAssets: preparedMediaAssets,
       status: "running",
       params: {
         ...initialParams,
