@@ -646,6 +646,7 @@ if [ -n "$(git status --porcelain=v1 --untracked-files=no)" ]; then
   exit 30
 fi
 {forbidden_path_check}
+export PYTHONDONTWRITEBYTECODE=1
 {rolling_script_command}
 echo "ROLLING_DEPLOY_ENTRYPOINT_OK commit=$observed_commit"
 """

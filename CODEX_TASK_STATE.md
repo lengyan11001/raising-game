@@ -1,3 +1,9 @@
+## 2026-11-15 Step BS: rolling source checkout kept clean during candidate validation
+
+- The first candidate apply attempt stopped before any service restart because the remote release checkout contained generated `ops/__pycache__/`, and the independent-release builder correctly refuses dirty sources. Primary 4174, candidate 4175, and Nginx PIDs remained `317565`, `4112958`, and `3914088`.
+- Rolling entrypoint now exports `PYTHONDONTWRITEBYTECODE=1` before running candidate validation, so deployment Python cannot dirty its own source checkout. Existing generated cache directories must be removed once, without touching tracked files or runtime services.
+- Verification pending: focused deploy tests, full repository tests, rebuilt platform release, independent release-tree tests, fresh candidate dry-run, and only then a 4175-only apply.
+
 ## 2026-11-15 Step BR: candidate dry-run blockers fixed, release rebuild pending
 
 - Kept production traffic on 4174 throughout. Read-only preflight at 2026-11-15T16:17:30Z confirmed primary `raising-game-demo.service` MainPID `317565`, candidate `raising-game-demo-b.service` MainPID `4112958`, Nginx MainPID `3914088`, all `NRestarts=0`, and public `/api/health` 200 on all three sites.
