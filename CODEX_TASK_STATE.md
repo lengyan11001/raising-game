@@ -4292,3 +4292,19 @@ CODEX_TASK_STATE.md
 - Verification: source `npm test` 1342 pass / 0 fail / 1 skip; exact old-site worktree `npm test` 1342 pass / 0 fail / 1 skip; focused picker/Vega tests 123/123; `npm run check:undef`, `node --check`, and `git diff --check` pass.
 - Built final platform release `6e3ae64bc9c4e657259ce1785a9680ee54806733` from `old-site` commit `29cb01002f4b869ba47a6c161bd6c3990e47e3ce`; pushed only `platform-release` and deployed only Old through `scripts/deploy_local.sh --site old`.
 - Post-deploy acceptance: deployment exit 0, remote release `6e3ae64b`, service active/running at PID `305987`, `/api/health` `200`, homepage `200`; public `platform.html` contains both `seedance20-vega` and `seedance25-vega`, and `platform.create.parts/part-02.js` contains the one-row `is-model-list` selector and selected check. Live was not pushed or deployed.
+
+## 2026-11-15 Step CU: release identity gate rebased onto latest Old source; all gates green
+
+- Rebased the release-safety work onto latest Old integration commit `c745d7b9` rather than the older `old-site` baseline, preserving concurrent model/picker changes.
+- Branch: `codex/release-identity-gate-current`.
+- Commits: `cc9463f1` (loaded release ID + PID + worker-disabled rolling gate) and `e1c18d2b` (assembled-source newline normalization compatible with runtime source).
+- The undefined-symbol guard already existed in the latest baseline; this branch only normalizes each `server.parts` file with exactly one trailing newline when absent, matching runtime assembly and preventing token joins without changing normal function boundaries.
+- Verification on this branch:
+  - `npm run check:undef`: pass.
+  - readiness + deploy-target tests: 36 pass.
+  - resilience/rolling ops tests: 68 pass.
+  - Python rolling-transaction verifier tests: 11 pass.
+  - full `npm test`: 1347 pass / 0 fail / 1 skip.
+  - `git diff --check`: pass.
+- No release branch push, production deployment, service restart, Nginx/UFW/fail2ban/SSH/database mutation, or traffic switch was performed in this step.
+- Next safe step: build a uniquely named local candidate release from this committed branch, validate it only on idle port 4175 with workers disabled, then implement/test 1% -> 5% canary thresholds and automatic rollback before any production traffic switch.
