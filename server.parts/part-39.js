@@ -14,7 +14,7 @@ function publicPricingModelVisible(row = {}) {
   const provider = normalizeAdvancedProvider(row.provider);
   // These routes stay available internally but are not model choices on the
   // public generation page. Keep their pricing configs for admin/runtime use.
-  if (["seedance25", "seedance20-vega", "seedance25-vega"].includes(provider)) return false;
+  if (provider === "seedance25") return false;
   return publicAdvancedPricingRowVisible({ ...row, provider });
 }
 

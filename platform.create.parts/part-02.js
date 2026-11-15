@@ -759,7 +759,7 @@ function syncAdvancedProviderModelPresentation() {
     if (option.dataset.defaultIndex === undefined) option.dataset.defaultIndex = String(Array.from(option.parentElement?.querySelectorAll(":scope > option") || []).indexOf(option));
     const title = String(option.dataset.defaultTitle || "").trim();
     const displayName = String(advancedProviderModelSetting(option.value).displayName || "").trim();
-    option.textContent = displayName && displayName !== title ? `${displayName} · ${title}` : displayName || title;
+    option.textContent = displayName || title;
   });
   els.advancedProvider.querySelectorAll("optgroup").forEach((group) => {
     const options = Array.from(group.querySelectorAll(":scope > option"));
@@ -788,7 +788,7 @@ function syncAdvancedProviderExposure() {
     const raw = String(option.value || "").trim().toLowerCase();
     // Keep HappyHorse hidden on the old site, but expose Wan 3.0 Prime along
     // with Wan 3.0 when that tenant feature is enabled.
-    const permanentlyHidden = ["happyhorse", "seedance20-vega", "seedance25-vega"].includes(raw);
+    const permanentlyHidden = raw === "happyhorse";
     const primeHidden = raw === "wan30-prime" && !wan30Enabled;
     // Only show models belonging to the selected video/image/conversation tab.
     const otherMediaKindHidden = !advancedProviderMatchesCustomKind(raw, selectedMediaKind);
@@ -804,7 +804,7 @@ function syncAdvancedProviderExposure() {
   });
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
   const modeProvider = state.advancedCreateKind === "custom" ? "" : String(advancedCreateModeConfig()?.provider || "").trim().toLowerCase();
-  const permanentlyHiddenCurrent = ["happyhorse", "seedance20-vega", "seedance25-vega"].includes(current) || (current === "wan30-prime" && !wan30Enabled);
+  const permanentlyHiddenCurrent = current === "happyhorse" || (current === "wan30-prime" && !wan30Enabled);
   const tenantHiddenCurrent = !enabled && hiddenProviders.has(current) && !(
     (wan30Enabled && isPublicWan30ProviderOption(current))
     || (wan27Enabled && isPublicWan27ProviderOption(current))
