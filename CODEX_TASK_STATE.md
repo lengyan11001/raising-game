@@ -1,3 +1,14 @@
+## 2026-11-16 Step BJ: story P1 script-to-episode workflow
+
+- Added project-level `AGENTS.md` safety rules for bounded writes and contaminated conversations after an `8192`/`max_output_tokens` truncation.
+- Completed the admin story P1 flow: save script versions, select a version, AI analyze with preview, confirm import into PostgreSQL episodes/assets, and delete an episode with its canvas link.
+- Added transcript fields to the project detail API consumption plus responsive script editor, analysis, asset, and episode-management UI.
+- Backend remains PostgreSQL-only and owner-scoped; routes are admin-session gated and the existing Workflow canvas is not modified or mounted in the episodes tab.
+- Bumped the platform asset cache version to `story-p1-20261116-1`.
+- Added `test/story-canvas-p1.test.js`; focused story/workflow tests pass `49/49`, syntax checks, `npm run check:undef`, and `git diff --check` pass.
+- Full `npm test`: `1368 pass / 1 known unrelated baseline failure / 1 skipped`; the only failure is `Generate parameter pickers close after selection and duration uses a slider`.
+- Source is ready for an Old-only release build and deployment; Live must remain untouched.
+
 ## 2026-11-16 Step BI: story project create async form fix
 
 - Fixed `Cannot read properties of null (reading 'reset')` in `createStoryProject`: cache the submitted form before awaiting `POST /api/story/projects`, then call `form.reset()` instead of reading `event.currentTarget` after the await.

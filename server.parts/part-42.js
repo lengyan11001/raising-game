@@ -732,12 +732,35 @@ async function handleRequest(req, res) {
       return await handleCreateStoryProject(req, res);
     }
 
+    const storyProjectScriptsMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/scripts\/?$/);
+    if (req.method === "GET" && storyProjectScriptsMatch) {
+      return await handleListStoryScripts(req, res, decodeURIComponent(storyProjectScriptsMatch[1]));
+    }
+    if (req.method === "POST" && storyProjectScriptsMatch) {
+      return await handleCreateStoryScript(req, res, decodeURIComponent(storyProjectScriptsMatch[1]));
+    }
+
+    const storyProjectAnalyzeMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/analyze\/?$/);
+    if (req.method === "POST" && storyProjectAnalyzeMatch) {
+      return await handleAnalyzeStoryProject(req, res, decodeURIComponent(storyProjectAnalyzeMatch[1]));
+    }
+
+    const storyProjectImportMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/import\/?$/);
+    if (req.method === "POST" && storyProjectImportMatch) {
+      return await handleImportStoryAnalysis(req, res, decodeURIComponent(storyProjectImportMatch[1]));
+    }
+
     const storyProjectEpisodesMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/?$/);
     if (req.method === "GET" && storyProjectEpisodesMatch) {
       return await handleListStoryEpisodes(req, res, decodeURIComponent(storyProjectEpisodesMatch[1]));
     }
     if (req.method === "POST" && storyProjectEpisodesMatch) {
       return await handleCreateStoryEpisode(req, res, decodeURIComponent(storyProjectEpisodesMatch[1]));
+    }
+
+    const storyEpisodeMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/?$/);
+    if (req.method === "DELETE" && storyEpisodeMatch) {
+      return await handleDeleteStoryEpisode(req, res, decodeURIComponent(storyEpisodeMatch[1]), decodeURIComponent(storyEpisodeMatch[2]));
     }
 
     const storyProjectMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/?$/);
