@@ -1136,6 +1136,12 @@
     const projectId = storyState.selectedId;
     const episode = selectedStoryEpisode();
     if (!projectId || !episode || storyState.action) return;
+    const shots = [...storyState.shots].sort((a, b) => a.shotNo - b.shotNo);
+    if (!shots.length) {
+      storyState.actionMessage = "请先生成本集分镜。";
+      renderStoryDetail();
+      return;
+    }
     const videoModel = storyEl("storyVideoModel")?.value || storyState.videoModel;
     const optimizerModel = storyEl("storyOptimizerModel")?.value || storyState.optimizerModel;
     const resolution = storyEl("storyPromptResolution")?.value || storyState.promptResolution;
@@ -1144,19 +1150,44 @@
     storyState.promptResolution = resolution;
     storyState.action = "plan-prompts";
     storyState.episodeTab = "prompts";
-    storyState.actionMessage = "AI 正在按资产定稿和所选视频模型逐镜优化提示词…";
+    storyState.actionMessage = `AI 正在逐镜优化 0/${shots.length}…`;
     renderStoryDetail();
+    const updatedShots = [];
+    const failures = [];
+    let modelLabel = videoModel;
     try {
-      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/prompts/plan`, {
-        method: "POST",
-        body: { provider: videoModel, optimizerModel, resolution },
-      });
+      for (let index = 0; index < shots.length; index += 1) {
+        const shot = shots[index];
+        storyState.actionMessage = `AI 正在优化 ${index + 1}/${shots.length} · S${String(shot.shotNo).padStart(2, "0")} ${shot.title || ""}…`;
+        renderStoryDetail();
+        try {
+          const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/prompts/plan`, {
+            method: "POST",
+            body: { provider: videoModel, optimizerModel, resolution, shotId: shot.id },
+          });
+          modelLabel = payload.model?.label || modelLabel;
+          const savedShot = payload.shots?.[0];
+          if (savedShot) {
+            updatedShots.push(savedShot);
+            storyState.shots = storyState.shots.map((item) => item.id === savedShot.id ? { ...item, ...savedShot } : item);
+          }
+          if (Array.isArray(payload.failures)) failures.push(...payload.failures);
+        } catch (error) {
+          failures.push({ shotId: shot.id, shotNo: shot.shotNo, message: error.message || String(error) });
+        }
+        storyState.actionMessage = `AI 已优化 ${index + 1}/${shots.length} 个镜头，正在同步结果…`;
+        renderStoryDetail();
+      }
       await loadStoryEpisodeShots();
       await loadStoryDetail(projectId);
       storyState.episodeTab = "prompts";
-      storyState.actionMessage = payload.failures?.length
-        ? `已优化 ${payload.shots?.length || 0} 个镜头，失败 ${payload.failures.length} 个：${payload.failures.slice(0, 3).map((item) => `S${item.shotNo} ${item.message}`).join("；")}`
-        : `已按 ${payload.model?.label || videoModel} 生成并冻结 ${payload.shots?.length || 0} 个镜头的最终提示词。`;
+      const successCount = updatedShots.length;
+      const failureText = failures.length
+        ? `，失败 ${failures.length} 个：${failures.slice(0, 3).map((item) => `S${item.shotNo} ${item.message}`).join("；")}`
+        : "";
+      storyState.actionMessage = successCount
+        ? `已按 ${modelLabel} 生成并冻结 ${successCount} 个镜头的最终提示词${failureText}。`
+        : (failures[0]?.message || "全部镜头提示词优化失败，请重试。");
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
