@@ -101,6 +101,21 @@ test("public pricing uses the same configured model rows as the admin", () => {
   assert.match(platformUi, /Prices come directly from the current admin sale-price configuration/);
 });
 
+test("admin pricing rows round-trip through save without rejecting Seedream 5.5", async () => {
+  const admin = await application.adminAdvancedPricingView({});
+  const seedream55Keys = admin.rows
+    .map((row) => row.key)
+    .filter((key) => /^seedream55-(?:1k|2k|reference)$/.test(key))
+    .sort();
+  assert.deepEqual(seedream55Keys, ["seedream55-1k", "seedream55-2k", "seedream55-reference"]);
+
+  const saved = application.advancedPricingFromBody({
+    rows: admin.rows.filter((row) => row.pricingDisplayOnly !== true),
+    modelSettings: admin.modelSettings,
+  });
+  assert.equal(saved.seedream55Image.userConfigured, true);
+});
+
 test("public and admin pricing list only models visible on the generation page", async () => {
   const publicRows = application.publicAdvancedPricingRows();
   assert.equal(publicRows.some((row) => row.provider === "seedance20-vega"), true);

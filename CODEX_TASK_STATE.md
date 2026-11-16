@@ -1,3 +1,12 @@
+## 2026-11-16 Step BC: Seedream 5.5 pricing rows accepted by admin save
+
+- The admin form submits every pricing row even when the editor is changing another model. Editing Seedance 2.5 Flash therefore failed on `Unknown pricing row: seedream55-1k`.
+- Root cause: `ADVANCED_PRICING_ROW_KEYS` omitted Seedream 5.5's `seedream55-1k`, `seedream55-2k`, and `seedream55-reference` rows even though the save parser already handled them.
+- Added the three missing keys and exported the pricing parser for a focused regression. The new test round-trips every row returned by `adminAdvancedPricingView()` through the save parser, matching the admin submit payload.
+- Verification: focused tests passed 44/44; full `npm test` passed 1,360 with 0 failures and 1 skip; Node syntax checks and `git diff --check` passed.
+- The patch is based on the active production source `a58f814d`, not the older `old-site` branch tip, to avoid rolling back newer deployment safety work.
+- Deployment status: pending at the time this entry was written.
+
 ## 2026-11-15 Step BW: disk cleanup, media write-root discovery, and cutover delta sync
 
 - Reclaimed 1.2G of archived journal with `journalctl --vacuum-size=500M` and cleared APT package cache. Root disk improved from 88% (5.7G free) to 85% (7.1G free). Primary 4174, candidate 4175, and Nginx PIDs remained unchanged; all three public health URLs stayed 200.
