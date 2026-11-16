@@ -4551,4 +4551,5 @@ CODEX_TASK_STATE.md
 - Moved the new production helpers into `server.parts/part-49.js` so `part-03` stays under the source-split limit.
 - Verification: focused story/source/W3 tests 51/51 pass; syntax checks, `npm run check:undef`, and `git diff --check` pass; source full suite 1375 pass / 1 known unrelated baseline fail (parameter picker `scrollIntoView` assertion) / 1 skipped.
 - Changed files: `db.js`, `platform.css`, `platform.story.js`, `server.parts/part-01.js`, `server.parts/part-03.js`, `server.parts/part-42.js`, `server.parts/part-49.js`, `test/story-canvas-p1.test.js`.
-- Deployment status at record time: not committed, released, or deployed. Target is Old `123vips.com` only; Live must remain untouched.
+- Source commit: `e6afb778` (`Add AI asset and model prompt pipeline`). Platform release: `185daee0a561158d395338fd60bad252b374e791`.
+- Pushed only `platform-release`; rolled out Old through `scripts/deploy_local.sh --site old` with 1% and 5% canary gates. Active port `4175`, remote readiness reports release `185daee0`, `/api/health` and `/api/readyz` both return 200, and the public `platform.story.js` contains the asset/model/prompt controls. Live was not pushed or deployed.

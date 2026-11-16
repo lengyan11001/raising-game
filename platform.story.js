@@ -969,7 +969,7 @@
         resolution: model.resolution || "2K",
         ratio: model.ratio || storyState.detail?.project?.aspectRatio || "3:4",
         duration: 1,
-        params: { createKind: "story-asset", projectId, episodeId, assetId: asset.id, storyImageModel: model.id },
+        params: { createKind: "story-asset", projectId, episodeId, storyAssetId: asset.id, storyImageModel: model.id },
       },
     });
     const taskId = payload.taskId || payload.task?.taskId || payload.record?.taskId || "";
