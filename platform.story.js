@@ -14,6 +14,9 @@
     scripts: [],
     assets: [],
     selectedScriptId: "",
+    selectedEpisodeId: "",
+    episodeTab: "outline",
+    shots: [],
     analysis: null,
     analysisScriptId: "",
     action: "",
@@ -53,6 +56,16 @@
 
   function storyMetric(label, value) {
     return `<div class="story-metric"><span>${storyEscape(label)}</span><strong>${storyEscape(value)}</strong></div>`;
+  }
+
+  function storyEpisodeStatusLabel(value = "") {
+    return ({
+      draft: "草稿",
+      outline_locked: "大纲定稿",
+      shots_planned: "分镜规划",
+      ready: "可生成",
+      complete: "已完成",
+    })[value] || value || "草稿";
   }
 
   function storyProjectPreview(project = {}) {
@@ -307,10 +320,64 @@
             <p>${storyEscape(episode.synopsis || "尚未填写单集梗概。")}</p>
             <small>${episode.shotCount} 个镜头 · ${storyEscape(link?.canvasId || `story-episode-${episode.id}`)}</small>
           </div>
-          <span class="story-status-pill">${storyEscape(episode.status)}</span>
-          <button class="story-episode-delete" data-story-delete-episode="${storyEscape(episode.id)}" type="button" title="删除剧集" aria-label="删除第 ${Number(episode.episodeNo)} 集"><i data-lucide="trash-2"></i></button>
+          <span class="story-status-pill">${storyEscape(storyEpisodeStatusLabel(episode.status))}</span>
+          <div class="story-episode-actions">
+            <button type="button" data-story-open-episode="${storyEscape(episode.id)}"><i data-lucide="pen-line"></i><span>编辑大纲</span></button>
+            <button type="button" data-story-open-episode="${storyEscape(episode.id)}" data-story-episode-view="shots"><i data-lucide="clapperboard"></i><span>分镜清单</span></button>
+            <button class="story-episode-delete" data-story-delete-episode="${storyEscape(episode.id)}" type="button" title="删除剧集" aria-label="删除第 ${Number(episode.episodeNo)} 集"><i data-lucide="trash-2"></i></button>
+          </div>
         </article>`;
     }).join("") : `<div class="story-list-state">尚未拆集。创建第一集后，单集画布入口会固定为 <code>story-episode-&lt;id&gt;</code>。</div>`;
+    const selectedEpisode = episodes.find((episode) => episode.id === storyState.selectedEpisodeId);
+    const episodeWorkspace = selectedEpisode ? (() => {
+      const metadata = selectedEpisode.metadata && typeof selectedEpisode.metadata === "object" ? selectedEpisode.metadata : {};
+      const characters = Array.isArray(metadata.characters) ? metadata.characters.join("、") : "";
+      const scenes = Array.isArray(metadata.scenes) ? metadata.scenes.join("、") : "";
+      const isLocked = selectedEpisode.status === "outline_locked";
+      const shotRows = storyState.shots.length ? storyState.shots.map((shot) => `
+        <article class="story-shot-row">
+          <b>S${String(shot.shotNo).padStart(2, "0")}</b>
+          <div><strong>${storyEscape(shot.title || `镜头 ${shot.shotNo}`)}</strong><p>${storyEscape(shot.description || "尚未填写镜头描述。")}</p><small>${Number(shot.durationSeconds || 5)} 秒 · ${storyEscape(shot.status || "draft")}</small></div>
+          <button class="story-episode-delete" type="button" data-story-delete-shot="${storyEscape(shot.id)}" title="删除镜头" aria-label="删除镜头"><i data-lucide="trash-2"></i></button>
+        </article>`).join("") : `<div class="story-list-state">还没有镜头。先保存大纲，再按镜头顺序添加。</div>`;
+      return `
+        <section class="story-section story-episode-workspace">
+          <div class="story-workbench-head">
+            <button class="story-back-button" data-story-close-episode type="button"><i data-lucide="arrow-left"></i><span>返回分集</span></button>
+            <div><p class="eyebrow">EPISODE WORKBENCH</p><h3>E${String(selectedEpisode.episodeNo).padStart(2, "0")} · ${storyEscape(selectedEpisode.title || "未命名剧集")}</h3></div>
+            <span class="story-status-pill">${storyEscape(storyEpisodeStatusLabel(selectedEpisode.status))}</span>
+          </div>
+          <nav class="story-episode-stages" aria-label="本集制作阶段">
+            <button class="${storyState.episodeTab === "outline" ? "is-active" : ""}" data-story-episode-view="outline" type="button"><b>1</b>剧情大纲</button>
+            <button class="${storyState.episodeTab === "shots" ? "is-active" : ""}" data-story-episode-view="shots" type="button"><b>2</b>分镜清单</button>
+            <span><b>3</b>提示词冻结<small>下一步</small></span>
+            <span><b>4</b>图片/视频<small>后续接入</small></span>
+          </nav>
+          ${storyState.episodeTab === "outline" ? `
+            <form class="story-episode-edit-form" id="storyEpisodeEditForm">
+              <label>集标题<input id="storyEpisodeEditTitle" maxlength="160" value="${storyEscape(selectedEpisode.title)}" /></label>
+              <label>时长（秒）<input id="storyEpisodeEditDuration" type="number" min="0" max="86400" value="${Number(selectedEpisode.durationSeconds || 0)}" /></label>
+              <label class="story-field-wide">单集大纲<textarea id="storyEpisodeEditSynopsis" rows="9" maxlength="8000">${storyEscape(selectedEpisode.synopsis)}</textarea></label>
+              <label class="story-field-wide">结尾钩子<textarea id="storyEpisodeEditHook" rows="3" maxlength="2000">${storyEscape(metadata.hook || "")}</textarea></label>
+              <label>出场角色<input id="storyEpisodeEditCharacters" value="${storyEscape(characters)}" placeholder="用顿号或逗号分隔" /></label>
+              <label>场景<input id="storyEpisodeEditScenes" value="${storyEscape(scenes)}" placeholder="用顿号或逗号分隔" /></label>
+              <div class="story-episode-edit-actions story-field-wide">
+                <p>先修正事实和人物动机，再锁定大纲。锁定后仍可调整，但会显示定稿状态。</p>
+                <button class="story-secondary-button" type="button" data-story-save-episode>保存修改</button>
+                <button class="story-create-button" type="button" data-story-lock-episode="${isLocked ? "draft" : "outline_locked"}">${isLocked ? "恢复草稿" : "锁定大纲，进入分镜"}</button>
+              </div>
+            </form>` : `
+            <div class="story-shot-actions"><p>这里按顺序记录镜头。后续提示词、图片和视频会绑定到同一镜号。</p><strong>${storyState.shots.length} 个镜头</strong></div>
+            <div class="story-shot-list">${shotRows}</div>
+            <form class="story-shot-form" id="storyShotForm">
+              <label>镜头标题<input id="storyShotTitle" maxlength="160" placeholder="例如：白洁走进校长办公室" /></label>
+              <label>时长（秒）<input id="storyShotDuration" type="number" min="1" max="300" value="5" /></label>
+              <label class="story-field-wide">镜头描述<textarea id="storyShotDescription" rows="3" placeholder="景别、人物动作、对白、环境与连续性"></textarea></label>
+              <button class="story-create-button" type="submit"><i data-lucide="plus"></i><span>新增镜头</span></button>
+            </form>`}
+          <p class="story-message" id="storyEpisodeMessage">${storyEscape(storyState.actionMessage || "")}</p>
+        </section>`;
+    })() : "";
     const scopeCards = (contracts.scopes || []).map((scope) => `
       <div class="story-scope-card">
         <span>${storyEscape(scope.scope)} canvas</span>
@@ -345,6 +412,7 @@
           ${renderStoryAnalysisSection()}
         </div>
         <div class="story-tab-panel" data-story-tab-panel="episodes" ${storyState.detailTab === "episodes" ? "" : "hidden"}>
+          ${episodeWorkspace || `
           <section class="story-section">
             <div class="story-section-head"><div><p class="eyebrow">EPISODES</p><h3>分集剧本</h3></div><span>${episodes.length} / ${project.episodeTarget}</span></div>
             <p class="story-tab-lead">这里存放 AI 拆解后确认写入的每一集。每集应保留可制作的长大纲、出场角色、场景和结尾钩子。</p>
@@ -355,7 +423,7 @@
               <button class="story-create-button" type="submit"><i data-lucide="plus"></i><span>新增剧集</span></button>
             </form>
             <p class="story-message" id="storyEpisodeMessage"></p>
-          </section>
+          </section>`}
         </div>
         <div class="story-tab-panel" data-story-tab-panel="assets" ${storyState.detailTab === "assets" ? "" : "hidden"}>
           ${renderStoryAssetsSection()}
@@ -446,6 +514,11 @@
       storyState.contract = payload.contracts || storyState.contract;
       storyState.scripts = Array.isArray(payload.scripts) ? payload.scripts : [];
       storyState.assets = Array.isArray(payload.assets) ? payload.assets : [];
+      const episodes = Array.isArray(payload.episodes) ? payload.episodes : [];
+      if (storyState.selectedEpisodeId && !episodes.some((episode) => episode.id === storyState.selectedEpisodeId)) {
+        storyState.selectedEpisodeId = "";
+        storyState.shots = [];
+      }
       const selectedScript = storyState.scripts.find((script) => script.id === storyState.selectedScriptId);
       storyState.selectedScriptId = selectedScript?.id || storyState.scripts[0]?.id || "";
       if (storyState.analysisScriptId && storyState.analysisScriptId !== storyState.selectedScriptId) {
@@ -528,6 +601,157 @@
       if (message) message.textContent = error.message || String(error);
     } finally {
       if (button) button.disabled = false;
+    }
+  }
+
+  function selectedStoryEpisode() {
+    return (storyState.detail?.episodes || []).find((episode) => episode.id === storyState.selectedEpisodeId) || null;
+  }
+
+  function parseStoryNames(value = "") {
+    return String(value || "").split(/[、,，\n]+/).map((item) => item.trim()).filter(Boolean);
+  }
+
+  async function loadStoryEpisodeShots() {
+    const projectId = storyState.selectedId;
+    const episodeId = storyState.selectedEpisodeId;
+    if (!projectId || !episodeId) return;
+    const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/shots`);
+    storyState.shots = Array.isArray(payload.shots) ? payload.shots : [];
+  }
+
+  async function openStoryEpisode(episodeId = "", view = "outline") {
+    storyState.selectedEpisodeId = episodeId;
+    storyState.episodeTab = view === "shots" ? "shots" : "outline";
+    storyState.shots = [];
+    storyState.action = "";
+    storyState.actionMessage = "";
+    renderStoryDetail();
+    try {
+      await loadStoryEpisodeShots();
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+    }
+    renderStoryDetail();
+  }
+
+  function closeStoryEpisode() {
+    storyState.selectedEpisodeId = "";
+    storyState.shots = [];
+    storyState.actionMessage = "";
+    renderStoryDetail();
+  }
+
+  async function setStoryEpisodeView(view = "outline") {
+    if (!storyState.selectedEpisodeId || storyState.action) return;
+    storyState.episodeTab = view === "shots" ? "shots" : "outline";
+    storyState.actionMessage = "";
+    renderStoryDetail();
+    if (storyState.episodeTab !== "shots") return;
+    try {
+      await loadStoryEpisodeShots();
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+    }
+    renderStoryDetail();
+  }
+
+  async function saveStoryEpisode({ status = "" } = {}) {
+    const projectId = storyState.selectedId;
+    const episode = selectedStoryEpisode();
+    if (!projectId || !episode || storyState.action) return;
+    const title = storyEl("storyEpisodeEditTitle")?.value || "";
+    const durationSeconds = Number(storyEl("storyEpisodeEditDuration")?.value || 0);
+    const synopsis = storyEl("storyEpisodeEditSynopsis")?.value || "";
+    if (!synopsis.trim()) {
+      storyState.actionMessage = "单集大纲不能为空。";
+      renderStoryDetail();
+      return;
+    }
+    const metadata = { ...(episode.metadata || {}) };
+    metadata.hook = storyEl("storyEpisodeEditHook")?.value || "";
+    metadata.characters = parseStoryNames(storyEl("storyEpisodeEditCharacters")?.value || "");
+    metadata.scenes = parseStoryNames(storyEl("storyEpisodeEditScenes")?.value || "");
+    storyState.action = "save-episode";
+    storyState.actionMessage = status === "outline_locked" ? "正在锁定大纲…" : "正在保存本集…";
+    renderStoryDetail();
+    try {
+      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}`, {
+        method: "PUT",
+        body: {
+          title,
+          synopsis,
+          durationSeconds,
+          status: status || episode.status || "draft",
+          metadata,
+        },
+      });
+      storyState.detail.episodes = (storyState.detail.episodes || []).map((item) => item.id === episode.id
+        ? { ...item, ...payload.episode, shotCount: payload.episode?.shotCount ?? item.shotCount }
+        : item);
+      storyState.actionMessage = status === "outline_locked" ? "大纲已定稿，可以继续拆分镜。" : "本集修改已保存。";
+      if (status === "outline_locked") storyState.episodeTab = "shots";
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+    } finally {
+      storyState.action = "";
+      renderStoryDetail();
+    }
+  }
+
+  async function createStoryShot(event) {
+    event.preventDefault();
+    const projectId = storyState.selectedId;
+    const episodeId = storyState.selectedEpisodeId;
+    if (!projectId || !episodeId || storyState.action) return;
+    const title = storyEl("storyShotTitle")?.value || "";
+    if (!title.trim()) {
+      storyState.actionMessage = "请填写镜头标题。";
+      renderStoryDetail();
+      return;
+    }
+    storyState.action = "create-shot";
+    storyState.actionMessage = "正在新增镜头…";
+    try {
+      await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/shots`, {
+        method: "POST",
+        body: {
+          title,
+          durationSeconds: Number(storyEl("storyShotDuration")?.value || 5),
+          description: storyEl("storyShotDescription")?.value || "",
+        },
+      });
+      await loadStoryEpisodeShots();
+      const selected = selectedStoryEpisode();
+      if (selected) selected.shotCount = storyState.shots.length;
+      if (storyState.detail?.project) storyState.detail.project.shotCount = Math.max(0, Number(storyState.detail.project.shotCount || 0) + 1);
+      storyState.actionMessage = "镜头已新增。";
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+    } finally {
+      storyState.action = "";
+      renderStoryDetail();
+    }
+  }
+
+  async function deleteStoryShot(shotId = "") {
+    const projectId = storyState.selectedId;
+    const episodeId = storyState.selectedEpisodeId;
+    if (!projectId || !episodeId || !shotId || storyState.action) return;
+    storyState.action = "delete-shot";
+    storyState.actionMessage = "正在删除镜头…";
+    try {
+      await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/shots/${encodeURIComponent(shotId)}`, { method: "DELETE" });
+      await loadStoryEpisodeShots();
+      const selected = selectedStoryEpisode();
+      if (selected) selected.shotCount = storyState.shots.length;
+      if (storyState.detail?.project) storyState.detail.project.shotCount = Math.max(0, Number(storyState.detail.project.shotCount || 0) - 1);
+      storyState.actionMessage = "镜头已删除。";
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+    } finally {
+      storyState.action = "";
+      renderStoryDetail();
     }
   }
 
@@ -651,6 +875,14 @@
     storyEl("storyProjectDetail")?.addEventListener("click", (event) => {
       if (event.target.closest("[data-story-back]")) openStoryLibrary();
       else if (event.target.closest("[data-story-tab]")) setStoryDetailTab(event.target.closest("[data-story-tab]")?.dataset.storyTab || "");
+      else if (event.target.closest("[data-story-close-episode]")) closeStoryEpisode();
+      else if (event.target.closest("[data-story-open-episode]")) {
+        const button = event.target.closest("[data-story-open-episode]");
+        openStoryEpisode(button.dataset.storyOpenEpisode || "", button.dataset.storyEpisodeView || "outline");
+      }
+      else if (event.target.closest("[data-story-episode-view]")) setStoryEpisodeView(event.target.closest("[data-story-episode-view]")?.dataset.storyEpisodeView || "outline");
+      else if (event.target.closest("[data-story-save-episode]")) saveStoryEpisode();
+      else if (event.target.closest("[data-story-lock-episode]")) saveStoryEpisode({ status: event.target.closest("[data-story-lock-episode]")?.dataset.storyLockEpisode || "outline_locked" });
       else if (event.target.closest("[data-story-save-script]")) saveStoryScriptDraft();
       else if (event.target.closest("[data-story-analyze]")) analyzeStoryDraft();
       else if (event.target.closest("[data-story-import-analysis]")) importStoryAnalysis();
@@ -658,6 +890,11 @@
         const deleteButton = event.target.closest("[data-story-delete-episode]");
         if (deleteButton) {
           deleteStoryEpisode(deleteButton.dataset.storyDeleteEpisode || "");
+          return;
+        }
+        const deleteShotButton = event.target.closest("[data-story-delete-shot]");
+        if (deleteShotButton) {
+          deleteStoryShot(deleteShotButton.dataset.storyDeleteShot || "");
           return;
         }
         const scriptButton = event.target.closest("[data-story-script-id]");
@@ -672,6 +909,8 @@
     });
     storyEl("storyProjectDetail")?.addEventListener("submit", (event) => {
       if (event.target?.id === "storyEpisodeForm") createStoryEpisode(event);
+      else if (event.target?.id === "storyShotForm") createStoryShot(event);
+      else if (event.target?.id === "storyEpisodeEditForm") event.preventDefault();
     });
   }
 

@@ -6747,6 +6747,24 @@ function storyEpisodeFromRow(row = {}) {
   };
 }
 
+function storyShotFromRow(row = {}) {
+  return {
+    id: String(row.id || "").trim(),
+    projectId: String(row.project_id || "").trim(),
+    episodeId: String(row.episode_id || "").trim(),
+    shotNo: Math.max(1, Number(row.shot_no || 1) || 1),
+    title: String(row.title || "").trim(),
+    description: String(row.description || ""),
+    imagePrompt: String(row.image_prompt || ""),
+    videoPrompt: String(row.video_prompt || ""),
+    durationSeconds: Math.max(1, Number(row.duration_seconds || 5) || 5),
+    status: String(row.status || "draft").trim(),
+    metadata: row.metadata && typeof row.metadata === "object" ? row.metadata : {},
+    createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
+  };
+}
+
 function storyScriptVersionFromRow(row = {}) {
   return {
     id: String(row.id || "").trim(),
@@ -6947,6 +6965,113 @@ async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "
     client.release();
   }
   return row ? storyEpisodeFromRow(row) : null;
+}
+
+async function updateStoryEpisodeInDb({ projectId = "", ownerUserId = "", episodeId = "", title = "", synopsis = "", status = "draft", durationSeconds = 0, metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const targetId = String(episodeId || "").trim();
+  if (!parentId || !ownerId || !targetId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_story_episodes e
+     SET title = $3,
+         synopsis = $4,
+         status = $5,
+         duration_seconds = $6,
+         metadata = $7::jsonb,
+         updated_at = NOW()
+     FROM app_story_projects p
+     WHERE e.id = $1 AND e.project_id = $2 AND p.id = e.project_id AND p.owner_user_id = $8
+     RETURNING e.*`,
+    [targetId, parentId, String(title || ""), String(synopsis || ""), String(status || "draft"), Math.max(0, Number(durationSeconds || 0) || 0), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {}), ownerId],
+  );
+  if (rows.length) await query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
+  return rows[0] ? storyEpisodeFromRow(rows[0]) : null;
+}
+
+async function listStoryShotsFromDb({ projectId = "", ownerUserId = "", episodeId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const targetId = String(episodeId || "").trim();
+  if (!parentId || !ownerId || !targetId) return [];
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT s.*
+     FROM app_story_shots s
+     JOIN app_story_projects p ON p.id = s.project_id
+     WHERE s.project_id = $1 AND s.episode_id = $2 AND p.owner_user_id = $3
+     ORDER BY s.shot_no ASC, s.created_at ASC`,
+    [parentId, targetId, ownerId],
+  );
+  return rows.map(storyShotFromRow);
+}
+
+async function createStoryShotInDb({ id = "", projectId = "", episodeId = "", ownerUserId = "", shotNo = 0, title = "", description = "", imagePrompt = "", videoPrompt = "", durationSeconds = 5, status = "draft", metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const shotId = String(id || "").trim();
+  const parentId = String(projectId || "").trim();
+  const targetEpisodeId = String(episodeId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!shotId || !parentId || !targetEpisodeId || !ownerId) return null;
+  await ensureSchema();
+  const scope = await query(
+    `SELECT e.id FROM app_story_episodes e JOIN app_story_projects p ON p.id = e.project_id WHERE e.id = $1 AND e.project_id = $2 AND p.owner_user_id = $3`,
+    [targetEpisodeId, parentId, ownerId],
+  );
+  if (!scope.rows.length) return null;
+  let nextNo = Math.max(0, Number(shotNo || 0) || 0);
+  if (!nextNo) {
+    const next = await query(`SELECT COALESCE(MAX(shot_no), 0) + 1 AS next_no FROM app_story_shots WHERE episode_id = $1`, [targetEpisodeId]);
+    nextNo = Math.max(1, Number(next.rows[0]?.next_no || 1) || 1);
+  }
+  const { rows } = await query(
+    `INSERT INTO app_story_shots(id, project_id, episode_id, shot_no, title, description, image_prompt, video_prompt, duration_seconds, status, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb) RETURNING *`,
+    [shotId, parentId, targetEpisodeId, nextNo, String(title || ""), String(description || ""), String(imagePrompt || ""), String(videoPrompt || ""), Math.max(1, Number(durationSeconds || 5) || 5), String(status || "draft"), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {})],
+  );
+  await query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
+  return rows[0] ? storyShotFromRow(rows[0]) : null;
+}
+
+async function updateStoryShotInDb({ projectId = "", episodeId = "", ownerUserId = "", shotId = "", title = "", description = "", imagePrompt = "", videoPrompt = "", durationSeconds = 5, status = "draft", metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const targetEpisodeId = String(episodeId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const targetId = String(shotId || "").trim();
+  if (!parentId || !targetEpisodeId || !ownerId || !targetId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_story_shots s
+     SET title = $4, description = $5, image_prompt = $6, video_prompt = $7, duration_seconds = $8, status = $9, metadata = $10::jsonb, updated_at = NOW()
+     FROM app_story_projects p
+     WHERE s.id = $1 AND s.project_id = $2 AND s.episode_id = $3 AND p.id = s.project_id AND p.owner_user_id = $11
+     RETURNING s.*`,
+    [targetId, parentId, targetEpisodeId, String(title || ""), String(description || ""), String(imagePrompt || ""), String(videoPrompt || ""), Math.max(1, Number(durationSeconds || 5) || 5), String(status || "draft"), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {}), ownerId],
+  );
+  if (rows.length) await query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
+  return rows[0] ? storyShotFromRow(rows[0]) : null;
+}
+
+async function deleteStoryShotFromDb({ projectId = "", episodeId = "", ownerUserId = "", shotId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const targetEpisodeId = String(episodeId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const targetId = String(shotId || "").trim();
+  if (!parentId || !targetEpisodeId || !ownerId || !targetId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `DELETE FROM app_story_shots s USING app_story_projects p
+     WHERE s.id = $1 AND s.project_id = $2 AND s.episode_id = $3 AND p.id = s.project_id AND p.owner_user_id = $4
+     RETURNING s.*`,
+    [targetId, parentId, targetEpisodeId, ownerId],
+  );
+  if (rows.length) await query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
+  return rows[0] ? storyShotFromRow(rows[0]) : null;
 }
 
 async function listStoryScriptVersionsFromDb({ projectId = "", ownerUserId = "" } = {}) {
@@ -11348,6 +11473,11 @@ module.exports = {
   updateStoryProjectInDb,
   listStoryEpisodesFromDb,
   createStoryEpisodeInDb,
+  updateStoryEpisodeInDb,
+  listStoryShotsFromDb,
+  createStoryShotInDb,
+  updateStoryShotInDb,
+  deleteStoryShotFromDb,
   listStoryScriptVersionsFromDb,
   createStoryScriptVersionInDb,
   listStoryAssetsFromDb,
