@@ -1,3 +1,9 @@
+## 2026-11-16 Step BI: story project create async form fix
+
+- Fixed `Cannot read properties of null (reading 'reset')` in `createStoryProject`: cache the submitted form before awaiting `POST /api/story/projects`, then call `form.reset()` instead of reading `event.currentTarget` after the await.
+- Successful creation now clears the form and closes the creation sheet before refreshing the project library, so the create panel does not remain open.
+- Added regression assertions in `test/story-canvas-p0.test.js`; `node --check platform.story.js`, `git diff --check`, focused story tests `4/4`, and `npm run check:undef` passed.
+
 ## 2026-11-16 Step BH: story P0 visual alignment with Old canvas library
 
 - Reworked only the admin `episodes` panel in `platform.html`, `platform.css`, and `platform.story.js`; the existing Workflow canvas remains untouched and unmounted.
@@ -6,6 +12,9 @@
 - Updated `test/migration-runner.test.js` for the `2026-11-16-story-canvas-p0-v1` migration inserted between generation submit jobs and generation records.
 - Verification: `node --check platform.story.js`, `node --check platform.js`, `git diff --check`, and `npm run check:undef` passed. Full `npm test`: 1364 pass / 1 known unrelated baseline failure / 1 skipped (`1366` tests); log `/tmp/raising-story-style-full.log`. The remaining failure is `Generate parameter pickers close after selection and duration uses a slider`, unchanged from source `3e4106e8`.
 - Static UI previews: `/tmp/story-preview.png` and `/tmp/story-detail-preview.png`.
+- Committed the visual alignment as `02a8d82c6ea3f28ef4aab577ded272eb48769600`; built platform release `2905af7fce8dcb5a5f5d34166052c02f608fb25c` and pushed only `platform-release`.
+- Deployed Old only via `scripts/deploy_local.sh --site old`; `OLD_ROLLING_DEPLOY_OK active_port=4175 release=2905af7f...`. Public `/api/health`, `/api/livez`, and `/api/readyz` return `200`; livez/readyz report the new release. Both `4174` and `4175` return `200` for health/livez/readyz, and both services have `NRestarts=0`.
+- Anonymous `/api/story/contracts` and `/api/story/projects` return `401 LOGIN_REQUIRED`; the uploaded `platform.css`/`platform.story.js` contain the new dark canvas library and project-card markup. Live was not pushed or deployed.
 
 ## 2026-11-16 Step BG: admin story production P0 isolated from Workflow canvas
 

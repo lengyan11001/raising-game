@@ -105,4 +105,7 @@ test("episodes library uses the Old-site dark theme and canvas-style project car
   assert.match(storyModule, /class="story-project-card/);
   assert.match(storyModule, /class="story-project-preview"/);
   assert.match(storyModule, /data-story-back/);
+  assert.match(storyModule, /const form = event\.currentTarget;/);
+  assert.doesNotMatch(storyModule, /await[\s\S]{0,1200}event\.currentTarget\.reset\(\)/);
+  assert.match(storyModule, /form\.reset\(\);[\s\S]*setStoryCreateOpen\(false\);/);
 });
