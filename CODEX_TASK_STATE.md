@@ -4540,3 +4540,15 @@ CODEX_TASK_STATE.md
   - `git diff --check`: pass.
 - No release branch push, production deployment, service restart, Nginx/UFW/fail2ban/SSH/database mutation, or traffic switch was performed in this step.
 - Next safe step: build a uniquely named local candidate release from this committed branch, validate it only on idle port 4175 with workers disabled, then implement/test 1% -> 5% canary thresholds and automatic rollback before any production traffic switch.
+
+## 2026-11-16 Step CV: AI-owned episode production pipeline
+
+- Implemented the requested flow: AI episode breakdown -> AI shot list -> AI episode asset extraction -> image-model asset variants -> explicit asset approval -> video-model-specific one-shot-at-a-time prompt optimization -> `shot.videoPrompt`.
+- Asset planning now stores per-episode membership in PostgreSQL; replanning removes stale episode membership instead of leaking assets across episodes. Definition changes clear approval metadata and approved/rejected variant state.
+- Asset approval is a hard gate for prompt optimization (`STORY_ASSETS_NOT_APPROVED`). The UI exposes image generation model selection, variant generation, per-variant approval, video model selection, optimizer model selection, and resolution.
+- Prompt optimization rejects unsupported video models, uses the existing Seedance/Wan/W3 optimizer branches, and persists only the optimized result in `app_story_prompt_versions.prompt` plus `app_story_shots.video_prompt`. Prompt writes are sequential per shot to keep upstream payloads bounded; successful shots survive a later shot failure.
+- Asset replanning invalidates prior prompt versions as `stale`, clears shot video prompts/metadata, and returns the episode to `assets_planned`.
+- Moved the new production helpers into `server.parts/part-49.js` so `part-03` stays under the source-split limit.
+- Verification: focused story/source/W3 tests 51/51 pass; syntax checks, `npm run check:undef`, and `git diff --check` pass; source full suite 1375 pass / 1 known unrelated baseline fail (parameter picker `scrollIntoView` assertion) / 1 skipped.
+- Changed files: `db.js`, `platform.css`, `platform.story.js`, `server.parts/part-01.js`, `server.parts/part-03.js`, `server.parts/part-42.js`, `server.parts/part-49.js`, `test/story-canvas-p1.test.js`.
+- Deployment status at record time: not committed, released, or deployed. Target is Old `123vips.com` only; Live must remain untouched.
