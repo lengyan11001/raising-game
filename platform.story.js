@@ -305,7 +305,10 @@
 
   function storyApprovedAssetVariant(asset = {}) {
     const approvedId = String(asset.metadata?.approvedVariantId || "");
-    return storyAssetVariants(asset.id).find((variant) => variant.id === approvedId || variant.status === "approved") || null;
+    const variants = storyAssetVariants(asset.id);
+    return variants.find((variant) => variant.id === approvedId && variant.status === "approved")
+      || variants.find((variant) => variant.status === "approved")
+      || null;
   }
 
   function storyAssetVariantImageUrl(variant = {}) {
@@ -316,8 +319,13 @@
     return storyAssetVariants(asset.id).some((variant) => variant.status !== "failed" && Boolean(storyAssetVariantImageUrl(variant)));
   }
 
+  function storyAssetHasApprovedImage(asset = {}) {
+    const approved = storyApprovedAssetVariant(asset);
+    return Boolean(approved && approved.status === "approved" && storyAssetVariantImageUrl(approved));
+  }
+
   function storyAssetsNeedingImage(assets = []) {
-    return assets.filter((asset) => asset.status !== "approved" && !storyAssetHasGeneratedImage(asset));
+    return assets.filter((asset) => !storyAssetHasApprovedImage(asset) && !storyAssetHasGeneratedImage(asset));
   }
 
   function storyAssetKindLabel(kind = "") {
@@ -330,7 +338,7 @@
 
   function renderStoryEpisodeAssets(episode = {}) {
     const assets = storyEpisodeAssets(episode);
-    const approvedCount = assets.filter((asset) => asset.status === "approved").length;
+    const approvedCount = assets.filter((asset) => storyAssetHasApprovedImage(asset)).length;
     const missingImageAssets = storyAssetsNeedingImage(assets);
     const models = Array.isArray(storyState.productionModels?.image) ? storyState.productionModels.image : [];
     const imageModel = models.some((model) => model.id === storyState.imageModel) ? storyState.imageModel : (models[0]?.id || "qwen-image3");
@@ -339,12 +347,13 @@
       const visibleVariants = variants.filter((variant) => variant.status === "approved" || (variant.status !== "failed" && Boolean(storyAssetVariantImageUrl(variant))) || ["generating", "queued", "pending"].includes(variant.status));
       const failedCount = variants.filter((variant) => variant.status === "failed").length;
       const approved = storyApprovedAssetVariant(asset);
+      const approvedImage = Boolean(approved && storyAssetVariantImageUrl(approved));
       const generating = storyState.generatingAssetId === asset.id;
       return `
-        <article class="story-production-asset ${asset.status === "approved" ? "is-approved" : ""}">
+        <article class="story-production-asset ${approvedImage ? "is-approved" : ""}">
           <div class="story-production-asset-head">
             <div><span>${storyEscape(storyAssetKindLabel(asset.kind))}</span><strong>${storyEscape(asset.name)}</strong></div>
-            <span class="story-status-pill">${asset.status === "approved" ? "已定稿" : "待定稿"}</span>
+            <span class="story-status-pill">${approvedImage ? "已定稿" : "待定稿"}</span>
           </div>
           <p>${storyEscape(asset.description || "AI 尚未补全视觉描述。")}</p>
           ${asset.metadata?.continuity ? `<small>连续性：${storyEscape(asset.metadata.continuity)}</small>` : ""}
@@ -364,7 +373,7 @@
           </button>
         </article>`;
     }).join("");
-    const assetsReady = Boolean(assets.length && approvedCount === assets.length);
+    const assetsReady = Boolean(assets.length && assets.every((asset) => storyAssetHasApprovedImage(asset)));
     const allImagesReady = Boolean(assets.length && !missingImageAssets.length);
     const workflowStatus = assetsReady
       ? "全部资产已定稿。下一步进入“模型与提示词”，按所选视频模型逐镜优化。"
@@ -398,8 +407,8 @@
 
   function renderStoryEpisodePrompts(episode = {}) {
     const assets = storyEpisodeAssets(episode);
-    const approvedCount = assets.filter((asset) => asset.status === "approved").length;
-    const assetsReady = Boolean(assets.length && approvedCount === assets.length);
+    const approvedCount = assets.filter((asset) => storyAssetHasApprovedImage(asset)).length;
+    const assetsReady = Boolean(assets.length && assets.every((asset) => storyAssetHasApprovedImage(asset)));
     const promptReadyCount = storyState.shots.filter((shot) => Boolean(String(shot.videoPrompt || "").trim())).length;
     const promptsReady = Boolean(storyState.shots.length && promptReadyCount === storyState.shots.length);
     const videoModels = Array.isArray(storyState.productionModels?.video) ? storyState.productionModels.video : [];
@@ -499,7 +508,7 @@
       const scenes = Array.isArray(metadata.scenes) ? metadata.scenes.join("、") : "";
       const isLocked = ["outline_locked", "shots_planned", "assets_planned", "assets_ready", "prompts_planned", "ready", "complete"].includes(String(selectedEpisode.status || ""));
       const episodeAssets = storyEpisodeAssets(selectedEpisode);
-      const episodeAssetsReady = Boolean(episodeAssets.length && episodeAssets.every((asset) => asset.status === "approved"));
+      const episodeAssetsReady = Boolean(episodeAssets.length && episodeAssets.every((asset) => storyAssetHasApprovedImage(asset)));
       const nextStageButton = episodeAssetsReady
         ? `<button class="story-create-button" type="button" data-story-episode-view="prompts"><i data-lucide="arrow-right"></i><span>下一步：选模型与提示词</span></button>`
         : episodeAssets.length
