@@ -6,7 +6,8 @@
 - Strengthened the Papaya/Qwen story analyzer prompt: one chapter or complete story unit normally maps to one episode, each synopsis must be 240-500 Chinese characters, and it must cover concrete events, motivations, scenes, conflict, turn, and result in `开场 → 发展 → 转折 → 结尾` order. One-sentence summaries and generic phrases are prohibited.
 - Bumped the platform cache key to `story-workspace-tabs-20261116-1`.
 - Verification: story P0/P1 tests `10/10` pass, undefined-symbol guard passes, JavaScript syntax checks and `git diff --check` pass. Full `npm test` reports `1370 pass / 1 known unrelated baseline failure / 1 skipped`; the failure remains `Generate parameter pickers close after selection and duration uses a slider`.
-- Deployment status at record time: pending Old-only deployment; Live remains untouched.
+- Built and pushed platform release `7658ea5e034f01b6f8f7ee94fbf868beef4ae35a`; deployed Old-only with `scripts/deploy_local.sh --site old`. Rolling deployment switched Old traffic to port `4175` with `OLD_ROLLING_DEPLOY_OK`; release pruning retained 4 releases with 2 protected. Live was not pushed or deployed.
+- Post-deploy checks pass: `/api/health`, `/api/livez`, and `/api/readyz` return `200`; `livez` reports release `7658ea5e`; PostgreSQL reports `16.15` and is not in recovery; root filesystem has about `53G` free. Live browser verification confirms the four tabs render and each tab exclusively shows its matching panel. Existing episode text remains unchanged until the user reruns AI analysis and confirms the import.
 
 ## 2026-11-16 Step BK: Old release-disk exhaustion recovery
 
