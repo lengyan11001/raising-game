@@ -1201,7 +1201,7 @@ function syncAdvancedParameterChips() {
   const summary = items.filter((item) => item.kind !== "model").map((item) => item.valueLabel).filter(Boolean).join(" · ");
   if (els.advancedParameterSummary) els.advancedParameterSummary.textContent = summary;
   els.advancedParameterChips.innerHTML = items.map(({ kind, valueLabel }) => `
-    <button class="advanced-parameter-chip" type="button" data-parameter-kind="${escapeHtml(kind)}" data-advanced-parameter-open="${escapeHtml(kind)}" aria-expanded="${state.advancedParameterOpen === kind ? "true" : "false"}" title="${escapeHtml(`${advancedParameterChipLabel(kind)}: ${valueLabel}`)}">
+    <button class="advanced-parameter-chip" type="button" data-parameter-kind="${escapeHtml(kind)}" data-advanced-parameter-open="${escapeHtml(kind)}" aria-expanded="${state.advancedParameterOpen === kind ? "true" : "false"}" title="${escapeHtml(kind === "model" ? valueLabel : `${advancedParameterChipLabel(kind)}: ${valueLabel}`)}">
       <i data-lucide="${advancedParameterChipIcon(kind)}"></i>
       <span class="advanced-parameter-chip-label">${escapeHtml(kind === "model" ? "" : advancedParameterChipLabel(kind))}</span>
       <span class="advanced-parameter-chip-value">${escapeHtml(valueLabel)}</span>
