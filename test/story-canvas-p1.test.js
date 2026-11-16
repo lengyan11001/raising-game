@@ -165,3 +165,83 @@ test("story episode workbench exposes AI storyboard flow and hook repair", () =>
   assert.match(css, /\.story-shot-row \{[^}]*grid-template-columns/);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.story-episode-actions \{ grid-column: 2; grid-row: 3/);
 });
+
+test("story production pipeline gates approved assets before model-optimized prompts", () => {
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const routes = read("server.parts/part-42.js");
+  const db = read("db.js");
+  const imports = read("server.parts/part-01.js");
+  for (const name of [
+    "handlePlanStoryEpisodeAssets",
+    "handleCreateStoryAssetVariant",
+    "handleUpdateStoryAssetVariant",
+    "handleApproveStoryAssetVariant",
+    "handlePlanStoryEpisodePrompts",
+  ]) {
+    assert.match(handlerBody(handlers, name), /requireAdmin\(req, res\)/, `${name} must require admin`);
+  }
+  for (const route of [
+    /storyEpisodeAssetsPlanMatch[\s\S]*handlePlanStoryEpisodeAssets/,
+    /storyAssetVariantsMatch[\s\S]*handleCreateStoryAssetVariant/,
+    /storyAssetVariantMatch[\s\S]*handleUpdateStoryAssetVariant/,
+    /storyAssetVariantApproveMatch[\s\S]*handleApproveStoryAssetVariant/,
+    /storyEpisodePromptsPlanMatch[\s\S]*handlePlanStoryEpisodePrompts/,
+  ]) assert.match(routes, route);
+  for (const fn of [
+    "upsertStoryAssetPlanInDb",
+    "listStoryAssetVariantsFromDb",
+    "createStoryAssetVariantInDb",
+    "updateStoryAssetVariantInDb",
+    "approveStoryAssetVariantInDb",
+    "createStoryPromptVersionInDb",
+  ]) {
+    assert.match(db, new RegExp(`async function ${fn}\\(`), `db function ${fn}`);
+    assert.match(db, new RegExp(`\\b${fn},`), `db export ${fn}`);
+    assert.match(imports, new RegExp(`\\b${fn},`), `server import ${fn}`);
+  }
+  assert.match(handlers, /STORY_ASSETS_NOT_APPROVED/);
+  assert.match(handlers, /const unapproved = assets\.filter\(\(asset\) => asset\.status !== "approved"\)/);
+  assert.match(handlers, /if \(unapproved\.length\)[\s\S]*STORY_ASSETS_NOT_APPROVED/);
+  assert.match(handlers, /provider\.promptOptimizer[\s\S]*STORY_VIDEO_MODEL_OPTIMIZER_UNAVAILABLE/);
+  assert.match(handlers, /promptOptimizerRequestForPayload/);
+  assert.match(handlers, /includes\("vega"\)[\s\S]*"Seedance"[\s\S]*【\$\{label\} 执行约束】单一连续镜头/);
+  assert.match(db, /async function createStoryPromptVersionInDb[\s\S]*COALESCE\(MAX\(version_no\), 0\) \+ 1/);
+  assert.match(db, /async function createStoryPromptVersionInDb[\s\S]*video_prompt = \$3[\s\S]*status = 'prompt_ready'/);
+  assert.match(handlers, /createStoryPromptVersionInDb\(\{[\s\S]*prompt: optimized\.optimizedPrompt/);
+});
+
+test("story production UI selects image and video models and writes only optimized shot prompts", () => {
+  const story = read("platform.story.js");
+  const css = read("platform.css");
+  assert.match(story, /data-story-image-model/);
+  assert.match(story, /data-story-video-model/);
+  assert.match(story, /data-story-optimizer-model/);
+  assert.match(story, /data-story-prompt-resolution/);
+  assert.match(story, /AI 提取本集资产/);
+  assert.match(story, /生成未定稿设计图/);
+  assert.match(story, /资产定稿后才会解锁视频提示词/);
+  assert.match(story, /\/assets\/plan/);
+  assert.match(story, /\/variants\/\$\{encodeURIComponent\(variantId\)\}\/approve/);
+  assert.match(story, /\/prompts\/plan/);
+  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution \}/);
+  assert.match(story, /shot\.videoPrompt \?[\s\S]*已优化[\s\S]*待优化/);
+  assert.match(story, /cdnImageUrl/);
+  assert.match(css, /\.story-production-toolbar \{/);
+  assert.match(css, /\.story-production-controls \{/);
+  assert.match(css, /\.story-production-assets \{/);
+  assert.match(css, /\.story-asset-variant-list \{/);
+});
+
+test("story asset replanning removes stale episode scope and invalidates frozen prompts", () => {
+  const db = read("db.js");
+  const handlers = read("server.parts/part-03.js");
+  const story = read("platform.story.js");
+  assert.match(db, /async function invalidateStoryEpisodeProductionPrompts\(/);
+  assert.match(db, /UPDATE app_story_prompt_versions[\s\S]*SET status = 'stale'/);
+  assert.match(db, /UPDATE app_story_shots[\s\S]*SET video_prompt = ''/);
+  assert.match(db, /metadata->'episodeIds' \? \$2/);
+  assert.match(db, /filter\(\(id\) => id && id !== scopedEpisodeId\)/);
+  assert.match(db, /if \(definitionChanged\)[\s\S]*delete metadata\.approvedVariantId/);
+  assert.match(handlers, /if \(Array\.isArray\(metadata\.episodeIds\)\) return metadata\.episodeIds\.map\(String\)\.includes\(episodeId\)/);
+  assert.match(story, /if \(Array\.isArray\(asset\.metadata\?\.episodeIds\)\) return asset\.metadata\.episodeIds\.map\(String\)\.includes\(episodeId\)/);
+});

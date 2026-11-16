@@ -766,6 +766,31 @@ async function handleRequest(req, res) {
       return await handleDeleteStoryEpisode(req, res, decodeURIComponent(storyEpisodeMatch[1]), decodeURIComponent(storyEpisodeMatch[2]));
     }
 
+    const storyEpisodeAssetsPlanMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/assets\/plan\/?$/);
+    if (req.method === "POST" && storyEpisodeAssetsPlanMatch) {
+      return await handlePlanStoryEpisodeAssets(req, res, decodeURIComponent(storyEpisodeAssetsPlanMatch[1]), decodeURIComponent(storyEpisodeAssetsPlanMatch[2]));
+    }
+
+    const storyAssetVariantsMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/assets\/([^/]+)\/variants\/?$/);
+    if (req.method === "POST" && storyAssetVariantsMatch) {
+      return await handleCreateStoryAssetVariant(req, res, decodeURIComponent(storyAssetVariantsMatch[1]), decodeURIComponent(storyAssetVariantsMatch[2]));
+    }
+
+    const storyAssetVariantApproveMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/assets\/([^/]+)\/variants\/([^/]+)\/approve\/?$/);
+    if (req.method === "POST" && storyAssetVariantApproveMatch) {
+      return await handleApproveStoryAssetVariant(req, res, decodeURIComponent(storyAssetVariantApproveMatch[1]), decodeURIComponent(storyAssetVariantApproveMatch[2]), decodeURIComponent(storyAssetVariantApproveMatch[3]));
+    }
+
+    const storyAssetVariantMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/assets\/([^/]+)\/variants\/([^/]+)\/?$/);
+    if (req.method === "PUT" && storyAssetVariantMatch) {
+      return await handleUpdateStoryAssetVariant(req, res, decodeURIComponent(storyAssetVariantMatch[1]), decodeURIComponent(storyAssetVariantMatch[2]), decodeURIComponent(storyAssetVariantMatch[3]));
+    }
+
+    const storyEpisodePromptsPlanMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/prompts\/plan\/?$/);
+    if (req.method === "POST" && storyEpisodePromptsPlanMatch) {
+      return await handlePlanStoryEpisodePrompts(req, res, decodeURIComponent(storyEpisodePromptsPlanMatch[1]), decodeURIComponent(storyEpisodePromptsPlanMatch[2]));
+    }
+
     const storyEpisodeShotsMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/shots\/?$/);
     if (req.method === "GET" && storyEpisodeShotsMatch) {
       return await handleListStoryShots(req, res, decodeURIComponent(storyEpisodeShotsMatch[1]), decodeURIComponent(storyEpisodeShotsMatch[2]));

@@ -796,11 +796,13 @@ async function handleGetStoryProject(req, res, projectId = "") {
   const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
   if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
   if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
-  const [episodes, canvasLinks, scripts, assets] = await Promise.all([
+  const [episodes, canvasLinks, scripts, assets, assetVariants, promptVersions] = await Promise.all([
     listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id }),
     listStoryCanvasLinksFromDb({ projectId, ownerUserId: auth.user.id }),
     listStoryScriptVersionsFromDb({ projectId, ownerUserId: auth.user.id }),
     listStoryAssetsFromDb({ projectId, ownerUserId: auth.user.id }),
+    listStoryAssetVariantsFromDb({ projectId, ownerUserId: auth.user.id }),
+    listStoryPromptVersionsFromDb({ projectId, ownerUserId: auth.user.id }),
   ]);
   return sendJson(res, 200, {
     ok: true,
@@ -809,6 +811,9 @@ async function handleGetStoryProject(req, res, projectId = "") {
     episodes: episodes || [],
     scripts: scripts || [],
     assets: assets || [],
+    assetVariants: assetVariants || [],
+    promptVersions: promptVersions || [],
+    productionModels: storyProductionModels(),
     canvasLinks: canvasLinks || [],
     contracts: storyContracts(),
   });
@@ -1014,83 +1019,79 @@ const STORY_SHOT_PLANNER_SYSTEM_PROMPT = `你是专业中文影视分镜师。�
 6. durationSeconds 为1-30的整数，所有镜头时长之和应接近本集目标时长，允许上下浮动10%。
 7. hook 必须具体、有画面感，承接本集最后动作并指向下一集。`;
 
-function storyShotsFromModel(payload = {}, episode = {}) {
-  const root = payload?.data && typeof payload.data === "object" ? payload.data : payload;
-  const rawShots = Array.isArray(root?.shots) ? root.shots : (Array.isArray(root?.storyboard) ? root.storyboard : []);
-  const shots = rawShots.map((shot, index) => ({
-    shotNo: index + 1,
-    title: storyInputText(shot?.title || shot?.name || `镜头 ${index + 1}`, 160),
-    description: storyInputText(shot?.description || shot?.visual || shot?.action || "", 4000),
-    durationSeconds: Math.max(1, Math.min(30, Math.round(Number(shot?.durationSeconds || shot?.duration_seconds || 5) || 5))),
-    status: "planned",
-    metadata: {
-      shotSize: storyInputText(shot?.shotSize || shot?.shot_size || "", 80),
-      camera: storyInputText(shot?.camera || shot?.cameraMovement || "", 120),
-      location: storyInputText(shot?.location || shot?.scene || "", 160),
-      characters: storyTextList(shot?.characters, 24, 80),
-      dialogue: storyInputText(shot?.dialogue || shot?.lines || "", 1200),
-      storyBeat: storyInputText(shot?.storyBeat || shot?.story_beat || "", 500),
-    },
-  })).filter((shot) => shot.title || shot.description).slice(0, 80);
-  return {
-    hook: storyInputText(root?.hook || episode?.metadata?.hook || "", 500),
-    shots,
-  };
+function storyAssetBelongsToEpisode(asset = {}, episode = {}) {
+  const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata : {};
+  const episodeId = String(episode.id || "");
+  if (Array.isArray(metadata.episodeIds)) return metadata.episodeIds.map(String).includes(episodeId);
+  const name = String(asset.name || "").trim();
+  if (!name) return false;
+  const episodeMetadata = episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {};
+  return [...storyTextList(episodeMetadata.characters, 40, 100), ...storyTextList(episodeMetadata.scenes, 40, 120)]
+    .some((item) => item.includes(name) || name.includes(item));
 }
 
-async function planStoryEpisodeShots({ project = {}, episode = {} } = {}) {
-  const model = storyAnalyzerModel();
-  if (!model) {
-    throw Object.assign(new Error("AI 分镜模型尚未配置。"), { statusCode: 503, code: "MISSING_STORY_SHOT_MODEL" });
+function storyShotUsesAsset(asset = {}, shot = {}) {
+  const shotNos = storyTextList(asset.metadata?.shotNos || [], 80, 24)
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item));
+  if (shotNos.length) return shotNos.includes(Number(shot.shotNo || 0));
+  const name = String(asset.name || "").trim();
+  if (!name) return false;
+  const metadata = shot.metadata && typeof shot.metadata === "object" ? shot.metadata : {};
+  const kind = String(asset.kind || "");
+  if (kind === "style") return true;
+  if (kind === "character") {
+    const characters = storyTextList(metadata.characters, 40, 100);
+    if (characters.some((item) => item.includes(name) || name.includes(item))) return true;
   }
-  if (!String(episode.synopsis || "").trim()) {
-    throw Object.assign(new Error("单集大纲为空，无法拆分镜。"), { statusCode: 400, code: "STORY_EPISODE_SYNOPSIS_EMPTY" });
+  if (kind === "scene") {
+    const location = String(metadata.location || "").trim();
+    if (location && (location.includes(name) || name.includes(location))) return true;
   }
-  const metadata = episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {};
-  const userPrompt = [
-    `项目：${String(project.name || "未命名项目")}`,
-    `画幅：${String(project.aspectRatio || "9:16")}`,
-    `集数：E${String(episode.episodeNo || 1).padStart(2, "0")}`,
-    `标题：${String(episode.title || "")}`,
-    `目标时长：${Math.max(1, Number(episode.durationSeconds || 90) || 90)}秒`,
-    `出场角色：${storyTextList(metadata.characters, 30, 80).join("、") || "按大纲判断"}`,
-    `场景：${storyTextList(metadata.scenes, 30, 100).join("、") || "按大纲判断"}`,
-    `结尾钩子：${String(metadata.hook || "").trim() || "缺失，请根据本集结尾补写"}`,
-    "单集大纲开始",
-    String(episode.synopsis || "").trim(),
-    "单集大纲结束",
-    "请严格输出约定 JSON。",
-  ].join("\n");
-  const deadline = Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS;
-  const usage = { attempts: 0 };
-  const raw = await promptOptimizerUpstreamRequest({
-    model: model.upstreamModel,
-    messages: [
-      { role: "system", content: STORY_SHOT_PLANNER_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    temperature: 0.2,
-    max_tokens: 6500,
-  }, {
-    deadline,
-    requestContext: { storyShotPlanner: true, projectId: project.id, episodeId: episode.id },
-    usage,
-    optimizerModel: model,
-  });
-  const text = qwen37FlashResponseText(raw);
-  const parsed = storyParseJsonObject(text);
-  if (!parsed) {
-    throw Object.assign(new Error("AI 分镜没有返回有效 JSON，请重试。"), {
-      statusCode: 502,
-      code: "STORY_SHOT_PLAN_INVALID_JSON",
-      responsePreview: String(text || "").slice(0, 600),
-    });
-  }
-  const plan = storyShotsFromModel(parsed, episode);
-  if (!plan.shots.length) {
-    throw Object.assign(new Error("AI 分镜结果为空，请重试。"), { statusCode: 502, code: "STORY_SHOT_PLAN_EMPTY" });
-  }
-  return { ...plan, model: model.id, attempts: usage.attempts };
+  const haystack = [shot.title, shot.description, metadata.location, metadata.dialogue, metadata.storyBeat]
+    .filter(Boolean)
+    .join("\n");
+  return Boolean(name && haystack.includes(name));
+}
+
+function storyApprovedVariantForAsset(asset = {}, variants = []) {
+  const approvedId = String(asset.metadata?.approvedVariantId || "");
+  return variants.find((variant) => variant.assetId === asset.id && (variant.id === approvedId || variant.status === "approved")) || null;
+}
+
+function storyShotProductionPrompt({ project = {}, episode = {}, shot = {}, assets = [], variants = [] } = {}) {
+  const metadata = shot.metadata && typeof shot.metadata === "object" ? shot.metadata : {};
+  const episodeMetadata = episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {};
+  const relevantAssets = assets.filter((asset) => storyShotUsesAsset(asset, shot));
+  const assetLines = relevantAssets.map((asset) => {
+    const variant = storyApprovedVariantForAsset(asset, variants);
+    const visual = variant?.description || asset.description || "";
+    const imagePrompt = variant?.metadata?.imagePrompt || asset.metadata?.imagePrompt || "";
+    const continuity = asset.metadata?.continuity || "";
+    return [
+      `- ${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : asset.kind === "prop" ? "道具" : "资产"}：${asset.name}`,
+      `  视觉定稿：${visual}`,
+      continuity ? `  连续性：${continuity}` : "",
+      imagePrompt ? `  设计图依据：${imagePrompt}` : "",
+      variant?.metadata?.imageUrl ? `  已定稿参考图：${variant.metadata.imageUrl}` : "",
+    ].filter(Boolean).join("\n");
+  }).join("\n");
+  return [
+    `项目：${project.name || "未命名项目"}；画幅：${project.aspectRatio || "9:16"}`,
+    `本集：E${String(episode.episodeNo || 1).padStart(2, "0")} ${episode.title || ""}；时长：${Number(shot.durationSeconds || 5)} 秒`,
+    `镜头：S${String(shot.shotNo || 1).padStart(2, "0")} ${shot.title || ""}`,
+    `画面内容：${shot.description || "无"}`,
+    metadata.shotSize ? `景别：${metadata.shotSize}` : "",
+    metadata.camera ? `运镜：${metadata.camera}` : "",
+    metadata.location ? `地点：${metadata.location}` : "",
+    Array.isArray(metadata.characters) && metadata.characters.length ? `出场角色：${metadata.characters.join("、")}` : "",
+    metadata.dialogue ? `关键对白：${metadata.dialogue}` : "",
+    metadata.storyBeat ? `叙事作用：${metadata.storyBeat}` : "",
+    episodeMetadata.hook ? `本集钩子：${episodeMetadata.hook}` : "",
+    "已定稿资产（身份、服装、场景结构和关键道具必须严格延续）：",
+    assetLines || "- 本镜头未绑定资产，按镜头描述和前后镜连续性执行",
+    "请只生成这一镜可直接交给视频模型执行的提示词；不要拆成多镜，不要改写剧情，不要加入未定稿角色或道具。",
+  ].filter(Boolean).join("\n");
 }
 
 async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 0 } = {}) {
@@ -1383,6 +1384,259 @@ async function handlePlanStoryEpisodeShots(req, res, projectId = "", episodeId =
       message: error.message || "AI 分镜失败，请重试。",
     });
   }
+}
+
+async function handlePlanStoryEpisodeAssets(req, res, projectId = "", episodeId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
+  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  const episodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
+  const episode = (episodes || []).find((item) => item.id === episodeId);
+  if (!episode) return sendJson(res, 404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
+  const shots = await listStoryShotsFromDb({ projectId, ownerUserId: auth.user.id, episodeId });
+  if (!Array.isArray(shots) || !shots.length) {
+    return sendJson(res, 409, { ok: false, code: "STORY_ASSETS_REQUIRE_SHOTS", message: "请先生成并审核本集分镜。" });
+  }
+  try {
+    const result = await planStoryEpisodeAssets({ project, episode, shots });
+    const assets = await upsertStoryAssetPlanInDb({
+      projectId,
+      ownerUserId: auth.user.id,
+      episodeId,
+      assets: result.assets,
+    });
+    if (!assets) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "资产需求保存失败。" });
+    const metadata = { ...(episode.metadata || {}), assetsPlannedAt: new Date().toISOString() };
+    const savedEpisode = await updateStoryEpisodeInDb({
+      projectId,
+      ownerUserId: auth.user.id,
+      episodeId,
+      title: episode.title,
+      synopsis: episode.synopsis,
+      status: "assets_planned",
+      durationSeconds: episode.durationSeconds,
+      metadata,
+    });
+    return sendJson(res, 200, {
+      ok: true,
+      model: result.model,
+      attempts: result.attempts,
+      episode: savedEpisode || { ...episode, status: "assets_planned", metadata },
+      assets,
+      models: storyProductionModels(),
+    });
+  } catch (error) {
+    console.warn("[story-asset-plan-failed]", JSON.stringify({
+      projectId,
+      episodeId,
+      code: error.code || "",
+      statusCode: error.statusCode || 0,
+      message: String(error.message || error).slice(0, 240),
+    }));
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      code: error.code || "STORY_ASSET_PLAN_FAILED",
+      message: error.message || "AI 资产规划失败，请重试。",
+    });
+  }
+}
+
+async function handleCreateStoryAssetVariant(req, res, projectId = "", assetId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req, 256 * 1024);
+  const recordId = String(body.generationRecordId || body.taskId || "").trim();
+  let generatedRecord = null;
+  if (recordId) {
+    generatedRecord = await getGenerationRecordFromDb(recordId);
+    if (!generatedRecord || String(generatedRecord.userId || "") !== String(auth.user.id)) {
+      return sendJson(res, 404, { ok: false, code: "STORY_ASSET_GENERATION_NOT_FOUND", message: "资产设计图生成记录不存在。" });
+    }
+  }
+  const metadata = {
+    ...(body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {}),
+    ...(recordId ? { generationRecordId: recordId } : {}),
+    ...(body.provider ? { provider: storyInputText(body.provider, 80) } : {}),
+    ...(body.prompt ? { imagePrompt: storyInputText(body.prompt, 8000) } : {}),
+  };
+  if (generatedRecord) {
+    metadata.imageUrl = String(generatedRecord.imageResultUrl || generatedRecord.imageUrl || generatedRecord.cdnImageUrl || metadata.imageUrl || "");
+    metadata.generationStatus = String(generatedRecord.status || "");
+  }
+  const variant = await createStoryAssetVariantInDb({
+    id: randomId("asset-variant"),
+    projectId,
+    ownerUserId: auth.user.id,
+    assetId,
+    name: storyInputText(body.name, 240) || "设计图",
+    description: storyInputText(body.description || body.prompt, 8000),
+    status: storyInputText(body.status, 40) || "draft",
+    metadata,
+  });
+  if (!variant) return sendJson(res, 404, { ok: false, code: "STORY_ASSET_NOT_FOUND", message: "资产不存在。" });
+  return sendJson(res, 201, { ok: true, variant });
+}
+
+async function handleUpdateStoryAssetVariant(req, res, projectId = "", assetId = "", variantId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req, 256 * 1024);
+  const requestedStatus = storyInputText(body.status, 40);
+  const status = ["draft", "generating", "ready", "failed"].includes(requestedStatus) ? requestedStatus : "";
+  const variant = await updateStoryAssetVariantInDb({
+    projectId,
+    ownerUserId: auth.user.id,
+    assetId,
+    variantId,
+    name: storyInputText(body.name, 240),
+    description: storyInputText(body.description, 8000),
+    status,
+    metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null,
+  });
+  if (!variant) return sendJson(res, 404, { ok: false, code: "STORY_ASSET_VARIANT_NOT_FOUND", message: "资产设计图不存在。" });
+  return sendJson(res, 200, { ok: true, variant });
+}
+
+async function handleApproveStoryAssetVariant(req, res, projectId = "", assetId = "", variantId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const approved = await approveStoryAssetVariantInDb({ projectId, ownerUserId: auth.user.id, assetId, variantId });
+  if (!approved) return sendJson(res, 404, { ok: false, code: "STORY_ASSET_VARIANT_NOT_FOUND", message: "资产设计图不存在。" });
+  const episodeIds = storyTextList(approved.asset?.metadata?.episodeIds || [], 100, 80);
+  if (episodeIds.length) {
+    const [episodes, allAssets] = await Promise.all([
+      listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id }),
+      listStoryAssetsFromDb({ projectId, ownerUserId: auth.user.id }),
+    ]);
+    for (const episodeId of episodeIds) {
+      const episode = (episodes || []).find((item) => item.id === episodeId);
+      if (!episode) continue;
+      const episodeAssets = (allAssets || []).filter((asset) => storyAssetBelongsToEpisode(asset, episode));
+      if (!episodeAssets.length || episodeAssets.some((asset) => asset.status !== "approved")) continue;
+      await updateStoryEpisodeInDb({
+        projectId,
+        ownerUserId: auth.user.id,
+        episodeId,
+        title: episode.title,
+        synopsis: episode.synopsis,
+        status: "assets_ready",
+        durationSeconds: episode.durationSeconds,
+        metadata: { ...(episode.metadata || {}), assetsApprovedAt: new Date().toISOString() },
+      });
+    }
+  }
+  return sendJson(res, 200, { ok: true, ...approved });
+}
+
+async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req, 128 * 1024);
+  const providerId = storyInputText(body.provider, 80);
+  const provider = STORY_VIDEO_MODELS.find((model) => model.id === providerId);
+  if (!provider) {
+    return sendJson(res, 400, { ok: false, code: "STORY_VIDEO_MODEL_UNSUPPORTED", message: "请选择支持的视频模型。" });
+  }
+  if (!provider.promptOptimizer) {
+    return sendJson(res, 409, {
+      ok: false,
+      code: "STORY_VIDEO_MODEL_OPTIMIZER_UNAVAILABLE",
+      message: `${provider.label} 暂没有独立的提示词优化规则，请先选择 Seedance、Wan/W3 或已接入规则的同族模型。`,
+    });
+  }
+  const optimizerModelId = storyInputText(body.optimizerModel || body.optimizerModelId, 120);
+  const resolution = storyInputText(body.resolution, 24) || "720p";
+  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
+  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  const [episodes, shots, allAssets, variants] = await Promise.all([
+    listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id }),
+    listStoryShotsFromDb({ projectId, ownerUserId: auth.user.id, episodeId }),
+    listStoryAssetsFromDb({ projectId, ownerUserId: auth.user.id }),
+    listStoryAssetVariantsFromDb({ projectId, ownerUserId: auth.user.id }),
+  ]);
+  const episode = (episodes || []).find((item) => item.id === episodeId);
+  if (!episode) return sendJson(res, 404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
+  if (!Array.isArray(shots) || !shots.length) {
+    return sendJson(res, 409, { ok: false, code: "STORY_PROMPTS_REQUIRE_SHOTS", message: "请先生成本集分镜。" });
+  }
+  const assets = (allAssets || []).filter((asset) => storyAssetBelongsToEpisode(asset, episode));
+  if (!assets.length) {
+    return sendJson(res, 409, { ok: false, code: "STORY_PROMPTS_REQUIRE_ASSETS", message: "请先让 AI 提取本集资产并生成设计稿。" });
+  }
+  const unapproved = assets.filter((asset) => asset.status !== "approved");
+  if (unapproved.length) {
+    return sendJson(res, 409, {
+      ok: false,
+      code: "STORY_ASSETS_NOT_APPROVED",
+      message: `还有 ${unapproved.length} 个资产未定稿：${unapproved.map((asset) => asset.name).slice(0, 8).join("、")}`,
+      details: { assets: unapproved.map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind, status: asset.status })) },
+    });
+  }
+  const updatedShots = [];
+  const failures = [];
+  for (const shot of [...shots].sort((a, b) => a.shotNo - b.shotNo)) {
+    try {
+      const sourcePrompt = storyShotProductionPrompt({ project, episode, shot, assets, variants: variants || [] });
+      const optimized = await optimizeStoryShotPrompt({
+        prompt: sourcePrompt,
+        provider: provider.id,
+        providerLabel: provider.label,
+        duration: shot.durationSeconds,
+        resolution,
+        optimizerModelId,
+      });
+      const saved = await createStoryPromptVersionInDb({
+        id: randomId("prompt"),
+        projectId,
+        episodeId,
+        ownerUserId: auth.user.id,
+        shotId: shot.id,
+        prompt: optimized.optimizedPrompt,
+        status: "approved",
+        createdBy: "story-ai",
+        metadata: {
+          provider: provider.id,
+          providerLabel: provider.label,
+          optimizerModel: optimized.model,
+          optimizerMode: optimized.mode,
+          resolution,
+          assetIds: assets.filter((asset) => storyShotUsesAsset(asset, shot)).map((asset) => asset.id),
+          optimizedAt: new Date().toISOString(),
+        },
+      });
+      if (!saved?.shot) throw Object.assign(new Error("提示词已优化，但写入镜头失败。"), { code: "STORY_PROMPT_SAVE_FAILED" });
+      updatedShots.push(saved.shot);
+    } catch (error) {
+      failures.push({ shotId: shot.id, shotNo: shot.shotNo, code: error.code || "STORY_PROMPT_FAILED", message: error.message || String(error) });
+    }
+  }
+  if (!updatedShots.length) {
+    return sendJson(res, 502, {
+      ok: false,
+      code: "STORY_PROMPTS_ALL_FAILED",
+      message: failures[0]?.message || "全部镜头提示词优化失败，请重试。",
+      failures,
+    });
+  }
+  const savedEpisodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
+  return sendJson(res, 200, {
+    ok: true,
+    model: provider,
+    optimizerModel: optimizerModelId,
+    resolution,
+    episode: (savedEpisodes || []).find((item) => item.id === episodeId) || episode,
+    shots: updatedShots,
+    assets,
+    failures,
+  });
 }
 
 async function handleListStoryShots(req, res, projectId = "", episodeId = "") {

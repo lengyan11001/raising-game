@@ -6794,6 +6794,33 @@ function storyAssetFromRow(row = {}) {
   };
 }
 
+function storyAssetVariantFromRow(row = {}) {
+  return {
+    id: String(row.id || "").trim(),
+    assetId: String(row.asset_id || "").trim(),
+    name: String(row.name || "").trim(),
+    description: String(row.description || ""),
+    status: String(row.status || "planned").trim(),
+    metadata: row.metadata && typeof row.metadata === "object" ? row.metadata : {},
+    createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
+  };
+}
+
+function storyPromptVersionFromRow(row = {}) {
+  return {
+    id: String(row.id || "").trim(),
+    shotId: String(row.shot_id || "").trim(),
+    kind: String(row.kind || "video").trim(),
+    versionNo: Math.max(1, Number(row.version_no || 1) || 1),
+    prompt: String(row.prompt || ""),
+    negativePrompt: String(row.negative_prompt || ""),
+    status: String(row.status || "draft").trim(),
+    createdBy: String(row.created_by || "").trim(),
+    createdAt: toIsoString(row.created_at),
+  };
+}
+
 function storyCanvasLinkFromRow(row = {}) {
   return {
     id: String(row.id || "").trim(),
@@ -7225,6 +7252,351 @@ async function listStoryAssetsFromDb({ projectId = "", ownerUserId = "", kind = 
     params,
   );
   return rows.map(storyAssetFromRow);
+}
+
+async function listStoryAssetVariantsFromDb({ projectId = "", ownerUserId = "", assetId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!parentId || !ownerId) return [];
+  await ensureSchema();
+  const params = [parentId, ownerId];
+  let assetSql = "";
+  const cleanAssetId = String(assetId || "").trim();
+  if (cleanAssetId) {
+    params.push(cleanAssetId);
+    assetSql = ` AND av.asset_id = $${params.length}`;
+  }
+  const { rows } = await query(
+    `SELECT av.*
+     FROM app_story_asset_variants av
+     JOIN app_story_assets a ON a.id = av.asset_id
+     JOIN app_story_projects p ON p.id = a.project_id
+     WHERE a.project_id = $1 AND p.owner_user_id = $2${assetSql}
+     ORDER BY av.updated_at DESC, av.created_at DESC`,
+    params,
+  );
+  return rows.map(storyAssetVariantFromRow);
+}
+
+async function invalidateStoryEpisodeProductionPrompts(client, { projectId = "", episodeIds = [] } = {}) {
+  const scopedProjectId = String(projectId || "").trim();
+  const scopedEpisodeIds = [...new Set((Array.isArray(episodeIds) ? episodeIds : []).map(String).filter(Boolean))];
+  if (!client || !scopedProjectId || !scopedEpisodeIds.length) return;
+  await client.query(
+    `UPDATE app_story_prompt_versions pv
+     SET status = 'stale'
+     FROM app_story_shots s
+     WHERE pv.shot_id = s.id
+       AND s.project_id = $1
+       AND s.episode_id = ANY($2::text[])
+       AND pv.status <> 'stale'`,
+    [scopedProjectId, scopedEpisodeIds],
+  );
+  await client.query(
+    `UPDATE app_story_shots
+     SET video_prompt = '',
+         status = 'planned',
+         metadata = COALESCE(metadata, '{}'::jsonb) - 'videoPromptMeta',
+         updated_at = NOW()
+     WHERE project_id = $1 AND episode_id = ANY($2::text[])`,
+    [scopedProjectId, scopedEpisodeIds],
+  );
+  await client.query(
+    `UPDATE app_story_episodes
+     SET status = 'assets_planned', updated_at = NOW()
+     WHERE project_id = $1 AND id = ANY($2::text[]) AND status <> 'assets_planned'`,
+    [scopedProjectId, scopedEpisodeIds],
+  );
+}
+
+async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", episodeId = "", assets = [] } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const scopedEpisodeId = String(episodeId || "").trim();
+  if (!parentId || !ownerId || !scopedEpisodeId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  const saved = [];
+  const changedEpisodeIds = new Set();
+  try {
+    await client.query("BEGIN");
+    const scope = await client.query(
+      `SELECT e.id
+       FROM app_story_episodes e
+       JOIN app_story_projects p ON p.id = e.project_id
+       WHERE e.id = $1 AND e.project_id = $2 AND p.owner_user_id = $3
+       FOR UPDATE`,
+      [scopedEpisodeId, parentId, ownerId],
+    );
+    if (!scope.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    for (const raw of Array.isArray(assets) ? assets : []) {
+      const kind = ["character", "scene", "prop", "style", "audio"].includes(String(raw?.kind || "").trim())
+        ? String(raw.kind).trim()
+        : "character";
+      const name = String(raw?.name || "").trim().slice(0, 200);
+      if (!name) continue;
+      const description = String(raw?.description || "").trim().slice(0, 8000);
+      const incomingMetadata = raw?.metadata && typeof raw.metadata === "object" && !Array.isArray(raw.metadata) ? raw.metadata : {};
+      const existing = await client.query(
+        `SELECT * FROM app_story_assets
+         WHERE project_id = $1 AND kind = $2 AND name = $3
+         ORDER BY created_at ASC LIMIT 1`,
+        [parentId, kind, name],
+      );
+      let row;
+      if (existing.rows[0]) {
+        const old = existing.rows[0];
+        const oldMetadata = old.metadata && typeof old.metadata === "object" ? old.metadata : {};
+        const episodeIds = [...new Set([
+          ...(Array.isArray(oldMetadata.episodeIds) ? oldMetadata.episodeIds : []),
+          scopedEpisodeId,
+        ].map(String).filter(Boolean))];
+        const metadata = { ...oldMetadata, ...incomingMetadata, episodeIds };
+        const definitionChanged = String(old.description || "") !== description
+          || String(oldMetadata.imagePrompt || "") !== String(incomingMetadata.imagePrompt || "");
+        if (definitionChanged) {
+          delete metadata.approvedVariantId;
+          delete metadata.approvedAt;
+          for (const affectedEpisodeId of episodeIds) changedEpisodeIds.add(affectedEpisodeId);
+          await client.query(
+            `UPDATE app_story_asset_variants
+             SET status = CASE WHEN status = 'approved' THEN 'ready' ELSE status END, updated_at = NOW()
+             WHERE asset_id = $1`,
+            [old.id],
+          );
+        }
+        const nextStatus = String(old.status || "") === "approved" && !definitionChanged ? "approved" : "planned";
+        const updated = await client.query(
+          `UPDATE app_story_assets
+           SET description = $3, status = $4, metadata = $5::jsonb, updated_at = NOW()
+           WHERE id = $1 AND project_id = $2
+           RETURNING *`,
+          [old.id, parentId, description, nextStatus, JSON.stringify(metadata)],
+        );
+        row = updated.rows[0];
+      } else {
+        const inserted = await client.query(
+          `INSERT INTO app_story_assets(id, project_id, kind, name, description, status, metadata)
+           VALUES ($1, $2, $3, $4, $5, 'planned', $6::jsonb)
+           RETURNING *`,
+          [crypto.randomUUID(), parentId, kind, name, description, JSON.stringify({ ...incomingMetadata, episodeIds: [scopedEpisodeId] })],
+        );
+        row = inserted.rows[0];
+      }
+      if (row) saved.push(storyAssetFromRow(row));
+    }
+    const savedIds = new Set(saved.map((asset) => String(asset.id || "")).filter(Boolean));
+    const scopedAssets = await client.query(
+      `SELECT * FROM app_story_assets
+       WHERE project_id = $1 AND metadata->'episodeIds' ? $2`,
+      [parentId, scopedEpisodeId],
+    );
+    for (const row of scopedAssets.rows) {
+      if (savedIds.has(String(row.id || ""))) continue;
+      const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+      const episodeIds = (Array.isArray(metadata.episodeIds) ? metadata.episodeIds : [])
+        .map(String)
+        .filter((id) => id && id !== scopedEpisodeId);
+      await client.query(
+        `UPDATE app_story_assets SET metadata = $3::jsonb, updated_at = NOW()
+         WHERE id = $1 AND project_id = $2`,
+        [row.id, parentId, JSON.stringify({ ...metadata, episodeIds })],
+      );
+    }
+    changedEpisodeIds.add(scopedEpisodeId);
+    await invalidateStoryEpisodeProductionPrompts(client, { projectId: parentId, episodeIds: [...changedEpisodeIds] });
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return saved;
+}
+
+async function createStoryAssetVariantInDb({ id = "", projectId = "", ownerUserId = "", assetId = "", name = "", description = "", status = "draft", metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const parentAssetId = String(assetId || "").trim();
+  if (!parentId || !ownerId || !parentAssetId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `INSERT INTO app_story_asset_variants(id, asset_id, name, description, status, metadata)
+     SELECT $1, a.id, $4, $5, $6, $7::jsonb
+     FROM app_story_assets a
+     JOIN app_story_projects p ON p.id = a.project_id
+     WHERE a.id = $2 AND a.project_id = $3 AND p.owner_user_id = $8
+     RETURNING *`,
+    [String(id || crypto.randomUUID()), parentAssetId, parentId, String(name || "").slice(0, 240), String(description || "").slice(0, 8000), String(status || "draft"), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {}), ownerId],
+  );
+  return rows[0] ? storyAssetVariantFromRow(rows[0]) : null;
+}
+
+async function updateStoryAssetVariantInDb({ projectId = "", ownerUserId = "", assetId = "", variantId = "", name = "", description = "", status = "", metadata = null } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_story_asset_variants av
+     SET name = CASE WHEN $5 = '' THEN av.name ELSE $5 END,
+         description = CASE WHEN $6 = '' THEN av.description ELSE $6 END,
+         status = CASE WHEN $7 = '' THEN av.status ELSE $7 END,
+         metadata = CASE WHEN $8::jsonb IS NULL THEN av.metadata ELSE av.metadata || $8::jsonb END,
+         updated_at = NOW()
+     FROM app_story_assets a, app_story_projects p
+     WHERE av.id = $1 AND av.asset_id = a.id AND a.id = $4 AND a.project_id = $2
+       AND a.project_id = p.id AND p.owner_user_id = $3
+     RETURNING av.*`,
+    [String(variantId || ""), String(projectId || ""), String(ownerUserId || ""), String(assetId || ""), String(name || "").slice(0, 240), String(description || "").slice(0, 8000), String(status || ""), metadata && typeof metadata === "object" ? JSON.stringify(metadata) : null],
+  );
+  return rows[0] ? storyAssetVariantFromRow(rows[0]) : null;
+}
+
+async function approveStoryAssetVariantInDb({ projectId = "", ownerUserId = "", assetId = "", variantId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const selected = await client.query(
+      `SELECT av.*, a.project_id, a.name AS asset_name
+       FROM app_story_asset_variants av
+       JOIN app_story_assets a ON a.id = av.asset_id
+       JOIN app_story_projects p ON p.id = a.project_id
+       WHERE av.id = $1 AND av.asset_id = $2 AND a.project_id = $3 AND p.owner_user_id = $4
+       FOR UPDATE`,
+      [String(variantId || ""), String(assetId || ""), String(projectId || ""), String(ownerUserId || "")],
+    );
+    if (!selected.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    await client.query(
+      `UPDATE app_story_asset_variants
+       SET status = CASE WHEN id = $1 THEN 'approved' ELSE 'rejected' END, updated_at = NOW()
+       WHERE asset_id = $2`,
+      [String(variantId || ""), String(assetId || "")],
+    );
+    const assetResult = await client.query(
+      `UPDATE app_story_assets
+       SET status = 'approved', metadata = metadata || $3::jsonb, updated_at = NOW()
+       WHERE id = $1 AND project_id = $2
+       RETURNING *`,
+      [String(assetId || ""), String(projectId || ""), JSON.stringify({ approvedVariantId: String(variantId || ""), approvedAt: new Date().toISOString() })],
+    );
+    const variantResult = await client.query(`SELECT * FROM app_story_asset_variants WHERE id = $1`, [String(variantId || "")]);
+    await client.query("COMMIT");
+    return {
+      asset: assetResult.rows[0] ? storyAssetFromRow(assetResult.rows[0]) : null,
+      variant: variantResult.rows[0] ? storyAssetVariantFromRow(variantResult.rows[0]) : null,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function listStoryPromptVersionsFromDb({ projectId = "", ownerUserId = "", episodeId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const params = [String(projectId || ""), String(ownerUserId || "")];
+  let episodeSql = "";
+  if (String(episodeId || "").trim()) {
+    params.push(String(episodeId).trim());
+    episodeSql = ` AND s.episode_id = $${params.length}`;
+  }
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT pv.*
+     FROM app_story_prompt_versions pv
+     JOIN app_story_shots s ON s.id = pv.shot_id
+     JOIN app_story_projects p ON p.id = s.project_id
+     WHERE s.project_id = $1 AND p.owner_user_id = $2${episodeSql}
+     ORDER BY pv.created_at DESC`,
+    params,
+  );
+  return rows.map(storyPromptVersionFromRow);
+}
+
+async function createStoryPromptVersionInDb({ id = "", projectId = "", episodeId = "", ownerUserId = "", shotId = "", prompt = "", negativePrompt = "", status = "approved", createdBy = "", metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const shotResult = await client.query(
+      `SELECT s.* FROM app_story_shots s
+       JOIN app_story_projects p ON p.id = s.project_id
+       WHERE s.id = $1 AND s.project_id = $2 AND s.episode_id = $3 AND p.owner_user_id = $4
+       FOR UPDATE`,
+      [String(shotId || ""), String(projectId || ""), String(episodeId || ""), String(ownerUserId || "")],
+    );
+    if (!shotResult.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const versionResult = await client.query(
+      `SELECT COALESCE(MAX(version_no), 0) + 1 AS next_no
+       FROM app_story_prompt_versions WHERE shot_id = $1 AND kind = 'video'`,
+      [String(shotId || "")],
+    );
+    const versionNo = Math.max(1, Number(versionResult.rows[0]?.next_no || 1) || 1);
+    const promptResult = await client.query(
+      `INSERT INTO app_story_prompt_versions(id, shot_id, kind, version_no, prompt, negative_prompt, status, created_by)
+       VALUES ($1, $2, 'video', $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [String(id || crypto.randomUUID()), String(shotId || ""), versionNo, String(prompt || ""), String(negativePrompt || ""), String(status || "approved"), String(createdBy || "")],
+    );
+    const shotUpdate = await client.query(
+      `UPDATE app_story_shots
+       SET video_prompt = $3,
+           status = 'prompt_ready',
+           metadata = metadata || $4::jsonb,
+           updated_at = NOW()
+       WHERE id = $1 AND project_id = $2
+       RETURNING *`,
+      [String(shotId || ""), String(projectId || ""), String(prompt || ""), JSON.stringify({ videoPromptMeta: metadata && typeof metadata === "object" ? metadata : {} })],
+    );
+    const remainingResult = await client.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE TRIM(video_prompt) <> '')::int AS ready
+       FROM app_story_shots WHERE project_id = $1 AND episode_id = $2`,
+      [String(projectId || ""), String(episodeId || "")],
+    );
+    const totals = remainingResult.rows[0] || {};
+    if (Number(totals.total || 0) > 0 && Number(totals.ready || 0) >= Number(totals.total || 0)) {
+      await client.query(
+        `UPDATE app_story_episodes SET status = 'ready', updated_at = NOW()
+         WHERE id = $1 AND project_id = $2`,
+        [String(episodeId || ""), String(projectId || "")],
+      );
+    } else {
+      await client.query(
+        `UPDATE app_story_episodes SET status = 'prompts_planned', updated_at = NOW()
+         WHERE id = $1 AND project_id = $2`,
+        [String(episodeId || ""), String(projectId || "")],
+      );
+    }
+    const episodeResult = await client.query(`SELECT * FROM app_story_episodes WHERE id = $1`, [String(episodeId || "")]);
+    await client.query("COMMIT");
+    return {
+      shot: shotUpdate.rows[0] ? storyShotFromRow(shotUpdate.rows[0]) : null,
+      promptVersion: promptResult.rows[0] ? storyPromptVersionFromRow(promptResult.rows[0]) : null,
+      episode: episodeResult.rows[0] ? storyEpisodeFromRow(episodeResult.rows[0]) : null,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", episodes = [], assets = [], summary = "", totalEpisodeSuggestion = 0 } = {}) {
@@ -11551,6 +11923,13 @@ module.exports = {
   listStoryScriptVersionsFromDb,
   createStoryScriptVersionInDb,
   listStoryAssetsFromDb,
+  listStoryAssetVariantsFromDb,
+  upsertStoryAssetPlanInDb,
+  createStoryAssetVariantInDb,
+  updateStoryAssetVariantInDb,
+  approveStoryAssetVariantInDb,
+  listStoryPromptVersionsFromDb,
+  createStoryPromptVersionInDb,
   importStoryAnalysisInDb,
   deleteStoryEpisodeFromDb,
   listStoryCanvasLinksFromDb,

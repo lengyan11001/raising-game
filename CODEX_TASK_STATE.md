@@ -5,7 +5,9 @@
 - Locking an episode now immediately invokes AI shot planning and opens the shot list. The manual shot-creation form and its submit handler were removed from the primary workflow; the shots view offers explicit AI generation/regeneration only when recovery is needed.
 - Added hook-repair and AI-storyboard coverage. Focused story/workflow tests pass `49/49`; full `npm test` reports `1372 pass / 1 known unrelated baseline failure / 1 skipped`. Syntax checks, undefined-symbol guard, and `git diff --check` pass. The known failure remains `Generate parameter pickers close after selection and duration uses a slider`.
 - Files changed: `db.js`, `platform.css`, `platform.html`, `platform.js`, `platform.story.js`, `server.parts/part-01.js`, `server.parts/part-03.js`, `server.parts/part-42.js`, `test/story-canvas-p1.test.js`, `test/workflow-canvases.test.js`.
-- Deployment status: pending source commit, committed `old-site` release build, `platform-release` push, and Old-only deployment. Live must remain untouched.
+- Source commit `2fb4a2531296c2121f55b4f5831ba607dc54166b`; platform release `946f545cb865cf35ce2288913fdda0d19d0357af`; only `platform-release` was pushed. Remote `live-release` remains `f40e7a357f8ad311c45c72f162c04c39472f01a0`; Live was not deployed or pushed.
+- Old-only deployment through `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4175 release=946f545c...`. Public `/api/health`, `/api/livez`, and `/api/readyz` each return HTTP `200`; `/api/health` body is `{"ok":true}`.
+- Browser acceptance on `https://123vips.com/#episodes`, project `白洁`, episode E01: AI generated `10` continuous shots and moved the episode to `分镜规划 / shots_planned`; shot fields included duration, size, camera movement, location, characters, dialogue, and story beat. A missing hook was filled by AI, the manual shot-creation form was absent, and all `10` shots remained after a full page refresh. Model recorded by the page: `qwen3.7-flash`.
 
 ## 2026-11-16 Step BM: story episode workbench and shot planning
 
@@ -4538,3 +4540,15 @@ CODEX_TASK_STATE.md
   - `git diff --check`: pass.
 - No release branch push, production deployment, service restart, Nginx/UFW/fail2ban/SSH/database mutation, or traffic switch was performed in this step.
 - Next safe step: build a uniquely named local candidate release from this committed branch, validate it only on idle port 4175 with workers disabled, then implement/test 1% -> 5% canary thresholds and automatic rollback before any production traffic switch.
+
+## 2026-11-16 Step CV: AI-owned episode production pipeline
+
+- Implemented the requested flow: AI episode breakdown -> AI shot list -> AI episode asset extraction -> image-model asset variants -> explicit asset approval -> video-model-specific one-shot-at-a-time prompt optimization -> `shot.videoPrompt`.
+- Asset planning now stores per-episode membership in PostgreSQL; replanning removes stale episode membership instead of leaking assets across episodes. Definition changes clear approval metadata and approved/rejected variant state.
+- Asset approval is a hard gate for prompt optimization (`STORY_ASSETS_NOT_APPROVED`). The UI exposes image generation model selection, variant generation, per-variant approval, video model selection, optimizer model selection, and resolution.
+- Prompt optimization rejects unsupported video models, uses the existing Seedance/Wan/W3 optimizer branches, and persists only the optimized result in `app_story_prompt_versions.prompt` plus `app_story_shots.video_prompt`. Prompt writes are sequential per shot to keep upstream payloads bounded; successful shots survive a later shot failure.
+- Asset replanning invalidates prior prompt versions as `stale`, clears shot video prompts/metadata, and returns the episode to `assets_planned`.
+- Moved the new production helpers into `server.parts/part-49.js` so `part-03` stays under the source-split limit.
+- Verification: focused story/source/W3 tests 51/51 pass; syntax checks, `npm run check:undef`, and `git diff --check` pass; source full suite 1375 pass / 1 known unrelated baseline fail (parameter picker `scrollIntoView` assertion) / 1 skipped.
+- Changed files: `db.js`, `platform.css`, `platform.story.js`, `server.parts/part-01.js`, `server.parts/part-03.js`, `server.parts/part-42.js`, `server.parts/part-49.js`, `test/story-canvas-p1.test.js`.
+- Deployment status at record time: not committed, released, or deployed. Target is Old `123vips.com` only; Live must remain untouched.
