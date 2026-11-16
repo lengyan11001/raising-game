@@ -5,6 +5,9 @@
 - Root page cause was deployment retention, not a schema mutation: each Old release is about `515M` and the rolling deployer kept every prepared snapshot.
 - Hardened `scripts/deploy_old_rolling.py`: pre-deploy pruning only removes safe commit-named immutable releases outside protected loaded releases, post-deploy pruning retains the newest `4` plus any loaded release, and every prepare requires at least `2GiB` free disk.
 - Added coverage in `test/test_deploy_old_rolling.py`; Python compile, `git diff --check`, and `18/18` focused tests pass.
+- Built platform release `b37ee0f0b2d946eeb146577b4496a92f3de54429` from deploy-hardening commit `5a9ee9d1` and deployed it Old-only. The 1% and 5% canaries passed, traffic switched from `4175` to `4174`, and the entrypoint returned `OLD_ROLLING_DEPLOY_OK`; Live was not pushed or deployed.
+- Post-deploy verification: active release `b37ee0f0`; both services active; `/api/health`, `/api/livez`, `/api/readyz`, `/`, and `/platform.html` return `200`; unauthenticated story and notification APIs return `401 LOGIN_REQUIRED`; PostgreSQL reports `raising_game|false|PostgreSQL 16.15` (not in recovery).
+- Retention now holds three release directories totaling `1.6G` instead of sixteen; the post-deploy pruner reported `OLD_RELEASES_PRUNED removed=0 retention=4 protected=2` because the manual recovery cleanup had already removed the unsafe backlog. Root disk is `42G used / 49G`, `5.6G` free (`89%`).
 
 ## 2026-11-16 Step BJ: story P1 script-to-episode workflow
 
