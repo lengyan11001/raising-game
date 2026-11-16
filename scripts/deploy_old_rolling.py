@@ -236,7 +236,7 @@ def target_for_active_port(
 
 def dropin_path(service: str) -> Path:
     unit = service if service.endswith(".service") else f"{service}.service"
-    return Path(f"/etc/systemd/system/{unit}.d/89-release-root.conf")
+    return Path(f"/etc/systemd/system/{unit}.d/zz-release-root.conf")
 
 
 def validate_node_path(path: Path) -> Path:
