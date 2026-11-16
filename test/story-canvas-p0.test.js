@@ -91,3 +91,18 @@ test("episodes tab is separate, admin-only, and loads its own module", () => {
   assert.match(storyModule, /\/api\/story\/projects/);
   assert.doesNotMatch(storyModule, /localStorage|data\/.*\.json/i);
 });
+
+test("episodes library uses the Old-site dark theme and canvas-style project cards", () => {
+  const css = read("platform.css");
+  const html = read("platform.html");
+  const storyModule = read("platform.story.js");
+  assert.match(css, /\.story-panel \{[\s\S]*--story-pink: var\(--cyan\)/);
+  assert.match(css, /\.story-panel \{[\s\S]*#111014/);
+  assert.match(css, /\.story-project-library \{[^}]*grid-template-columns: repeat\(4/);
+  assert.match(css, /\.story-project-preview \{[^}]*aspect-ratio: 16 \/ 9/);
+  assert.match(html, /id="storyCreateSheet"/);
+  assert.match(html, /class="story-project-library" id="storyProjectList"/);
+  assert.match(storyModule, /class="story-project-card/);
+  assert.match(storyModule, /class="story-project-preview"/);
+  assert.match(storyModule, /data-story-back/);
+});

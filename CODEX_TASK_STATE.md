@@ -1,3 +1,12 @@
+## 2026-11-16 Step BH: story P0 visual alignment with Old canvas library
+
+- Reworked only the admin `episodes` panel in `platform.html`, `platform.css`, and `platform.story.js`; the existing Workflow canvas remains untouched and unmounted.
+- The project library now follows the Old site's dark canvas surface and pink brand accent (`#ff4fa3`), with 16:9 project previews, a `文 → 集 → 角 → 镜` flow, project metadata, a top-right create action, and a separate project detail view.
+- Unified the platform shell/canvas cache suffix at `story-p0-20261116-2` in `platform.js`, `platform.html`, and cache-busting tests.
+- Updated `test/migration-runner.test.js` for the `2026-11-16-story-canvas-p0-v1` migration inserted between generation submit jobs and generation records.
+- Verification: `node --check platform.story.js`, `node --check platform.js`, `git diff --check`, and `npm run check:undef` passed. Full `npm test`: 1364 pass / 1 known unrelated baseline failure / 1 skipped (`1366` tests); log `/tmp/raising-story-style-full.log`. The remaining failure is `Generate parameter pickers close after selection and duration uses a slider`, unchanged from source `3e4106e8`.
+- Static UI previews: `/tmp/story-preview.png` and `/tmp/story-detail-preview.png`.
+
 ## 2026-11-16 Step BG: admin story production P0 isolated from Workflow canvas
 
 - Added a top-level admin-only `episodes` tab backed by `platform.story.js`. The panel is a separate `data-panel="episodes"` section and does not mount or modify the existing Workflow canvas.

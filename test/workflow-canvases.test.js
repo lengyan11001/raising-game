@@ -1122,11 +1122,11 @@ test("canvas assets and project previews are explicitly cache-busted", () => {
   const manager = read("platform.workflow-canvases.js");
   const library = read("workflow-react/src/components/workflow/WorkflowLibrary.js");
 
-  assert.match(loader, /const CANVAS_ASSET_VERSION = "canvas-20261111-4"/);
+  assert.match(loader, /const CANVAS_ASSET_VERSION = "story-p0-20261116-2"/);
   assert.match(loader, /file === "workflow-react\/dist\/canvas\.js"/);
   assert.match(loader, /url\.searchParams\.set\("canvas", CANVAS_ASSET_VERSION\)/);
-  assert.match(html, /platform\.js\?v=canvas-20261111-4/);
-  assert.match(html, /platform\.css\?v=canvas-20261111-4/);
+  assert.match(html, /platform\.js\?v=story-p0-20261116-2/);
+  assert.match(html, /platform\.css\?v=story-p0-20261116-2/);
   assert.match(manager, /function workflowCanvasProjectPreview/);
   assert.ok(manager.indexOf('class="workflow-canvas-project-preview is-image"') < manager.indexOf('class="workflow-canvas-project-preview is-video"'));
   assert.match(library, /if \(image\) return \{ kind: 'image'/);
