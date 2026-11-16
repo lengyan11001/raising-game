@@ -11211,7 +11211,7 @@ select:focus,
   align-items: center;
   gap: 6px;
   min-height: 36px;
-  max-width: min(280px, 78vw);
+  max-width: min(360px, 82vw);
   padding: 0 12px;
   border: 1px solid rgba(255,255,255,.1);
   border-radius: 999px;
@@ -11261,19 +11261,19 @@ select:focus,
 }
 .advanced-parameter-chip[data-parameter-kind="model"],
 .advanced-parameter-chip[data-parameter-kind="mode"] {
-  max-width: 160px;
+  max-width: min(360px, 82vw);
 }
 .advanced-parameter-chip[data-parameter-kind="model"] .advanced-parameter-chip-value,
 .advanced-parameter-chip[data-parameter-kind="mode"] .advanced-parameter-chip-value {
-  max-width: 110px;
+  max-width: none;
 }
 .advanced-parameter-chip-label:empty {
   display: none !important;
 }
 .advanced-parameter-chip-value {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
 }
 .advanced-parameter-chip-caret {
@@ -11287,11 +11287,11 @@ select:focus,
   top: calc(100% + 10px);
   z-index: 90;
   display: grid;
-  gap: 10px;
-  width: min(560px, calc(100vw - 32px));
-  max-height: min(58vh, 470px);
+  gap: 8px;
+  width: min(480px, calc(100vw - 32px));
+  max-height: min(48vh, 380px);
   overflow: auto;
-  padding: 16px;
+  padding: 12px;
   border: 1px solid rgba(255,255,255,.14);
   border-radius: 16px;
   color: var(--text);
@@ -11308,16 +11308,16 @@ select:focus,
 .advanced-parameter-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
 }
 .advanced-parameter-option {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-height: 32px;
+  min-height: 30px;
   max-width: 100%;
-  padding: 0 11px;
+  padding: 0 10px;
   border: 1px solid rgba(255,255,255,.1);
   border-radius: 999px;
   color: rgba(247,247,251,.86);
@@ -11342,7 +11342,7 @@ select:focus,
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: .76rem;
+  font-size: .74rem;
   font-weight: 850;
   white-space: nowrap;
 }
@@ -11431,11 +11431,11 @@ select:focus,
     margin-left: 0;
   }
   .advanced-parameter-chip {
-    max-width: min(214px, 68vw);
+    max-width: 100%;
   }
   .advanced-parameter-chip[data-parameter-kind="model"],
   .advanced-parameter-chip[data-parameter-kind="mode"] {
-    max-width: 150px;
+    max-width: 100%;
   }
   .advanced-parameter-panel {
     position: absolute;
@@ -11444,7 +11444,7 @@ select:focus,
     top: calc(100% + 8px);
     bottom: auto;
     width: auto;
-    max-height: none;
+    max-height: min(48vh, 380px);
     padding: 13px;
   }
   .advanced-parameter-panel[data-advanced-parameter-placement="up"] {

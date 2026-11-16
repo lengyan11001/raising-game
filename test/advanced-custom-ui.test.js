@@ -164,6 +164,13 @@ test("Advanced results use a compact paged multi-column card grid", () => {
   assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
 });
 
+test("Generate parameter picker stays compact and selected chips show full labels", () => {
+  assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?width: min\(480px, calc\(100vw - 32px\)\)[\s\S]*?max-height: min\(48vh, 380px\)/);
+  assert.match(css, /\.advanced-parameter-option \{[\s\S]*?min-height: 30px;[\s\S]*?padding: 0 10px/);
+  assert.match(css, /\.advanced-parameter-chip-value \{[\s\S]*?overflow: visible;[\s\S]*?text-overflow: clip/);
+  assert.match(create, /kind === "model" \? valueLabel :/);
+});
+
 test("Generate dialogs expand to the available viewport without redundant scrolling", () => {
   assert.match(css, /\.modal\.advanced-preset-modal \{[\s\S]*?max-height: calc\(100dvh - 28px\)[\s\S]*?overflow: hidden/);
   assert.match(css, /\.advanced-preset-modal form \{[\s\S]*?display: flex;[\s\S]*?flex-direction: column;[\s\S]*?max-height: calc\(100dvh - 28px\)/);

@@ -1,3 +1,11 @@
+## 2026-11-16 Step BD: Generate parameter picker compact layout
+
+- The Generate model/parameter popup is now narrower and shorter: `480px` maximum width, `48vh / 380px` maximum height, tighter gaps, smaller option rows, and the same compact height on mobile instead of removing the cap.
+- Selected parameter chips now grow enough to show their complete values. The model chip no longer carries a visible or tooltip title prefix and displays only the selected model name.
+- Changed files: `platform.css`, `platform.create.parts/part-02.js`, `test/advanced-custom-ui.test.js`, and this state file.
+- Verification: focused parameter-picker tests pass; full `npm test` passed 1,361 with 0 failures and 1 skip; Node syntax and `git diff --check` pass.
+- No database schema/data changes. Deployment status is recorded below after release.
+
 ## 2026-11-16 Step BC: Seedream 5.5 pricing rows accepted by admin save
 
 - The admin form submits every pricing row even when the editor is changing another model. Editing Seedance 2.5 Flash therefore failed on `Unknown pricing row: seedream55-1k`.
