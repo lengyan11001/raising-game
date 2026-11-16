@@ -1249,21 +1249,28 @@ function positionAdvancedParameterPanel() {
   if (!panel || panel.hidden || !chip) return;
   const chipRect = chip.getBoundingClientRect();
   const viewportGap = 12;
-  const viewportTop = advancedParameterViewportTop();
   const panelGap = 10;
+  const viewportTop = advancedParameterViewportTop();
   const spaceBelow = Math.max(0, window.innerHeight - chipRect.bottom - panelGap - viewportGap);
   const spaceAbove = Math.max(0, chipRect.top - panelGap - viewportTop);
+  const panelWidth = Math.min(480, Math.max(0, window.innerWidth - viewportGap * 2));
+  const maxLeft = Math.max(viewportGap, window.innerWidth - viewportGap - panelWidth);
+
+  panel.style.position = "fixed";
+  panel.style.width = `${panelWidth}px`;
+  panel.style.left = `${Math.round(Math.min(Math.max(viewportGap, chipRect.left), maxLeft))}px`;
+  panel.style.right = "auto";
   panel.style.maxHeight = "none";
-  const neededHeight = Math.ceil(panel.getBoundingClientRect().height);
-  const fitsBelow = neededHeight <= spaceBelow;
-  const fitsAbove = neededHeight <= spaceAbove;
-  const comfortableBelow = Math.min(220, neededHeight);
-  const openUp = !fitsBelow && !fitsAbove && spaceBelow < comfortableBelow && spaceAbove > spaceBelow;
+  const contentHeight = Math.ceil(panel.getBoundingClientRect().height);
+  const heightCap = Math.min(300, Math.floor(window.innerHeight * 0.52));
+  const wantedHeight = Math.min(contentHeight, heightCap);
+  const openUp = spaceBelow < wantedHeight && spaceAbove > spaceBelow;
   const available = openUp ? spaceAbove : spaceBelow;
+  const panelHeight = Math.max(0, Math.min(wantedHeight, available));
   panel.dataset.advancedParameterPlacement = openUp ? "up" : "down";
-  if (neededHeight > available) {
-    panel.style.maxHeight = `${Math.max(0, Math.floor(available))}px`;
-  } else panel.style.removeProperty("max-height");
+  panel.style.maxHeight = `${Math.floor(panelHeight)}px`;
+  panel.style.top = openUp ? "auto" : `${Math.round(chipRect.bottom + panelGap)}px`;
+  panel.style.bottom = openUp ? `${Math.round(window.innerHeight - chipRect.top + panelGap)}px` : "auto";
   panel.scrollTop = 0;
 }
 

@@ -11283,7 +11283,7 @@ select:focus,
 }
 .advanced-parameter-panel {
   box-sizing: border-box;
-  position: absolute;
+  position: fixed;
   left: 0;
   top: calc(100% + 10px);
   z-index: 90;
