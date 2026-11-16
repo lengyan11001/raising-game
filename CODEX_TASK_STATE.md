@@ -5,7 +5,12 @@
 - Created `2026-11-16-story-canvas-p0-v1` in the migration ledger and runtime schema readiness. Project and episode creation also create `story-project-<id>` / `story-episode-<id>` canvas references.
 - Built on production source `3e4106e8b00ff848dedba027cfd97f241407a34a`, not the older local `old-site` head. The previous dirty workspace is fully preserved in stash `backup dirty workspace before story P0 isolation 2026-11-16`; new P0 files were also backed up under `/tmp/raising-story-newfiles-20261116/`.
 - Pre-deploy verification: `npm run check:undef` passed; Node syntax and `git diff --check` passed; story P0, deploy-target, and side-navigation focused suite passed `25/25`. Two unrelated `platform-site-profile` assertions still fail because production source `3e4106e8` lacks later parameter-picker/test-route UI changes; this P0 does not alter those areas.
-- Deployment status is recorded below after the Old-only release and smoke verification.
+- Source integration commit: `6140436c2103e5999eca6405efa07d38d3210243`; platform release `7d70dd327b07ced40faa9314cacbf5535e58e69e`. A local Live release `72ffa29b` was generated but was not pushed or deployed; Live remains untouched.
+- Deployed Old only through the required `scripts/deploy_local.sh --site old` entrypoint. The 1% and 5% canaries passed and the atomic traffic switch returned `OLD_ROLLING_DEPLOY_OK`.
+- Post-deploy state: `raising-game-demo` serves active traffic on `4174`, PID `578002`, `NRestarts=0`; `raising-game-demo-b` remains active on `4175`, PID `490808`, `NRestarts=0`. `/api/health`, `/api/livez`, and `/api/readyz` all return `200`.
+- All three Nginx upstreams (`raising_game_app`, `raising_game_app_chat`, and `raising_game_app_live`) now have `4174` primary and `4175` backup.
+- PostgreSQL verification found all nine `app_story_*` tables and exactly one `2026-11-16-story-canvas-p0-v1` migration-ledger row. Anonymous `/api/story/contracts` and `/api/story/projects` requests return `401 LOGIN_REQUIRED`; the public shell loads `platform.story.js`, but every story API remains admin-gated.
+- The previous dirty workspace and new P0 files remain recoverable in stash `backup dirty workspace before story P0 isolation 2026-11-16` and `/tmp/raising-story-newfiles-20261116/`; do not drop either backup.
 
 ## 2026-11-16 Step BF: Old release drop-in must override service WorkingDirectory
 
