@@ -226,6 +226,8 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution \}/);
   assert.match(story, /shot\.videoPrompt \?[\s\S]*已优化[\s\S]*待优化/);
   assert.match(story, /cdnImageUrl/);
+  assert.match(story, /createKind: "story-asset"[\s\S]*storyAssetId: asset\.id/);
+  assert.doesNotMatch(story, /createKind: "story-asset"[\s\S]{0,120}assetId: asset\.id/);
   assert.match(css, /\.story-production-toolbar \{/);
   assert.match(css, /\.story-production-controls \{/);
   assert.match(css, /\.story-production-assets \{/);
