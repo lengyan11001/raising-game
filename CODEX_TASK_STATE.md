@@ -1,3 +1,13 @@
+## 2026-11-16 Step BL: story workspace tabs and production-length episode outlines
+
+- Reworked the crowded story project detail into four CSS-toggled workspace tabs: `剧本与拆解`, `分集`, `资产库`, and `制作路径`. Tab switching preserves the current textarea DOM instead of re-rendering the project.
+- `分集` now has an explicit lead explaining that each row is the imported production outline. `剧本与拆解` owns script versions, the analyzer, and the preview; assets and static pipeline/canvas guidance no longer share the same long scrolling surface.
+- Analysis preview now shows each episode's ending hook plus referenced characters and scenes.
+- Strengthened the Papaya/Qwen story analyzer prompt: one chapter or complete story unit normally maps to one episode, each synopsis must be 240-500 Chinese characters, and it must cover concrete events, motivations, scenes, conflict, turn, and result in `开场 → 发展 → 转折 → 结尾` order. One-sentence summaries and generic phrases are prohibited.
+- Bumped the platform cache key to `story-workspace-tabs-20261116-1`.
+- Verification: story P0/P1 tests `10/10` pass, undefined-symbol guard passes, JavaScript syntax checks and `git diff --check` pass. Full `npm test` reports `1370 pass / 1 known unrelated baseline failure / 1 skipped`; the failure remains `Generate parameter pickers close after selection and duration uses a slider`.
+- Deployment status at record time: pending Old-only deployment; Live remains untouched.
+
 ## 2026-11-16 Step BK: Old release-disk exhaustion recovery
 
 - Incident: the Old host root filesystem reached `100%` after immutable release snapshots accumulated. PostgreSQL 16 panicked during checkpoint on `No space left on device`, entered automatic recovery, and returned `57P03` until capacity was restored.
@@ -5,6 +15,9 @@
 - Root page cause was deployment retention, not a schema mutation: each Old release is about `515M` and the rolling deployer kept every prepared snapshot.
 - Hardened `scripts/deploy_old_rolling.py`: pre-deploy pruning only removes safe commit-named immutable releases outside protected loaded releases, post-deploy pruning retains the newest `4` plus any loaded release, and every prepare requires at least `2GiB` free disk.
 - Added coverage in `test/test_deploy_old_rolling.py`; Python compile, `git diff --check`, and `18/18` focused tests pass.
+- Built platform release `b37ee0f0b2d946eeb146577b4496a92f3de54429` from deploy-hardening commit `5a9ee9d1` and deployed it Old-only. The 1% and 5% canaries passed, traffic switched from `4175` to `4174`, and the entrypoint returned `OLD_ROLLING_DEPLOY_OK`; Live was not pushed or deployed.
+- Post-deploy verification: active release `b37ee0f0`; both services active; `/api/health`, `/api/livez`, `/api/readyz`, `/`, and `/platform.html` return `200`; unauthenticated story and notification APIs return `401 LOGIN_REQUIRED`; PostgreSQL reports `raising_game|false|PostgreSQL 16.15` (not in recovery).
+- Retention now holds three release directories totaling `1.6G` instead of sixteen; the post-deploy pruner reported `OLD_RELEASES_PRUNED removed=0 retention=4 protected=2` because the manual recovery cleanup had already removed the unsafe backlog. Root disk is `42G used / 49G`, `5.6G` free (`89%`).
 
 ## 2026-11-16 Step BJ: story P1 script-to-episode workflow
 
