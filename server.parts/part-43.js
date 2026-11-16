@@ -937,6 +937,7 @@ module.exports = {
   seedream55PreparedMediaAssets,
   publicAdvancedPricingRows,
   adminAdvancedPricingView,
+  advancedPricingFromBody,
   publicGenerationRecord,
   publicGenerationPollRecord,
   publicUserAsset,
