@@ -171,6 +171,7 @@ test("Generate parameter picker stays compact and selected chips show full label
   assert.match(css, /\.advanced-parameter-option \{[\s\S]*?min-height: 30px;[\s\S]*?padding: 0 10px/);
   assert.match(css, /\.advanced-parameter-chip-value \{[\s\S]*?overflow: visible;[\s\S]*?text-overflow: clip/);
   assert.match(create, /kind === "model" \? valueLabel :/);
+  assert.match(create, /\$\{kind === "model" \? "" : `<i class="advanced-parameter-chip-caret" data-lucide="chevron-down"><\/i>`\}/);
   assert.match(create, /function advancedParameterViewportTop\(\)/);
   assert.match(create, /\.site-head[\s\S]*?style\.position === "sticky"[\s\S]*?rect\.bottom \+ 8/);
   assert.match(create, /panel\.style\.position = "fixed"/);

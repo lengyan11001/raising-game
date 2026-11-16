@@ -1205,7 +1205,7 @@ function syncAdvancedParameterChips() {
       <i data-lucide="${advancedParameterChipIcon(kind)}"></i>
       <span class="advanced-parameter-chip-label">${escapeHtml(kind === "model" ? "" : advancedParameterChipLabel(kind))}</span>
       <span class="advanced-parameter-chip-value">${escapeHtml(valueLabel)}</span>
-      <i class="advanced-parameter-chip-caret" data-lucide="chevron-down"></i>
+      ${kind === "model" ? "" : `<i class="advanced-parameter-chip-caret" data-lucide="chevron-down"></i>`}
     </button>
   `).join("");
   const open = state.advancedParameterOpen;
