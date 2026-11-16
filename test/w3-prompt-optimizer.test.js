@@ -126,6 +126,8 @@ const helpers = new Function("papayaLanguageRequest", [
   extractFunction(server, "seedancePromptOptimizerTimelineRanges"),
   extractFunction(server, "seedancePromptOptimizerRequestedDuration"),
   extractFunction(server, "seedancePromptOptimizerTimelineInstruction"),
+  extractFunction(server, "seedancePromptOptimizerUngroundedStoryDetails"),
+  extractFunction(server, "seedancePromptOptimizerRemoveUngroundedStoryDetails"),
   extractFunction(server, "seedancePromptOptimizerContentIssues"),
   extractFunction(server, "seedancePromptOptimizerRepairContent"),
   extractFunction(server, "seedancePromptOptimizerCorrectionInstruction"),
@@ -555,6 +557,32 @@ test("Seedance optimizer flattens nested JSON and normalizes malformed heading b
   assert.doesNotMatch(parsed.optimizedPrompt, /optimizedPrompt/);
   assert.deepEqual(parsed.notes, ["outer note", "inner note"]);
   assert.deepEqual(parsed.referencePlan, ["图片1：脸部参考"]);
+});
+
+test("Seedance optimizer recovers double-encoded JSON with trailing text", () => {
+  const prompt = "【素材绑定】\n图片1：角色A脸部参考。\n【动作时间轴】\n0—4秒：角色A抬头。";
+  const payload = JSON.stringify({ optimizedPrompt: prompt, notes: ["grounded"] });
+  const doubleEncoded = `${JSON.stringify(payload)}\n\n【Seedance 执行约束】单一连续镜头。`;
+  const parsed = helpers.w3ParseOptimizerJson(doubleEncoded);
+  assert.equal(parsed.optimizedPrompt, prompt);
+  assert.deepEqual(parsed.notes, ["grounded"]);
+});
+
+test("Seedance optimizer removes unrequested story details instead of importing hooks", () => {
+  const source = "【近景】白洁站在玄关，手指停在门把上，身后传来逼近的脚步声。";
+  const contaminated = [
+    "【动作时间轴】",
+    "0—3秒：白洁站在玄关，手指停在门把上。",
+    "3—6秒：手机屏幕突然亮起，她缓缓按下回复键。",
+    "【本集钩子】",
+    "窗外霓虹映亮半张脸，她收到陌生号码短信：周末老地方，别迟到。",
+  ].join("\n");
+  const issues = helpers.seedancePromptOptimizerContentIssues(contaminated, 6, source);
+  assert.ok(issues.some((issue) => issue.type === "story"));
+  const repaired = helpers.seedancePromptOptimizerRepairContent(contaminated, 6, source);
+  assert.match(repaired, /白洁站在玄关，手指停在门把上/);
+  assert.doesNotMatch(repaired, /手机屏幕|回复键|本集钩子|陌生号码|周末老地方|霓虹/);
+  assert.deepEqual(helpers.seedancePromptOptimizerContentIssues(repaired, 6, source).filter((issue) => issue.type === "story"), []);
 });
 
 test("Seedance optimizer unwraps object-valued optimizedPrompt into readable text", () => {

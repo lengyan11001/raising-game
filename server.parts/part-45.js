@@ -77,6 +77,7 @@ Return a prompt that is directly usable in Seedance:
 - LIGHTING AND SKIN: describe real-footage appearance through physical light and texture, such as warm side light, soft natural window light, mild unevenness, visible pores, natural matte skin, restrained highlights, and natural shadow transitions. Do not default to glamour or CG trigger stacks such as 精致、俊美、冷白皮、水光肌、8K超清、磨皮、美颜、蜡像高光、身体油光. If the user asks for fairer skin, express it as brighter, softer lighting, exposure, or white balance without changing facial geometry or deep skin texture.
 - PRESERVE NEGATIVE CONSTRAINTS: Seedance has no universal negative_prompt field. Convert the user's negative constraints into positive, observable end-of-prompt constraints (for example, steady framing, natural skin texture, realistic material response, stable identity).
 - DIALOGUE LOCK: Every explicit quoted line, script line, speaker/line pair, voice-over, and line inside 【对话】 must survive verbatim and stay assigned to the same speaker and beat. Do not paraphrase, omit, merge, translate, or replace dialogue with breathing, moaning, intimacy, or narration. A script's spoken lines and its visual action are separate requirements: preserving one never permits dropping the other. Never invent dialogue. If audio is enabled but no dialogue was supplied, describe only restrained ambience or leave it unspecified.
+- STORY GROUNDING LOCK: This is one existing shot, not a new draft. Do not add any story beat, hook, event, character, prop, location, phone event, message, doorway event, or emotional reveal that is not explicitly written in PROMPT START. Never copy details from an adjacent shot, an episode hook, a synopsis, or a familiar story pattern. Do not append a 【本集钩子】 section unless PROMPT START contains that section. Do not extend the action timeline with a new event to fill time; hold, settle, or continue the last supplied action instead. Every person, prop, location, sound, dialogue line, and action in the result must be traceable to PROMPT START.
 - Keep the prompt within 5000 characters. Do not pad. Prefer clear, executable prose over tag piles. The prompt must read as a Seedance instruction, not an explanation of your rewrite.
 
 Return JSON only, with this shape:
@@ -178,12 +179,43 @@ function w3ParseOptimizerJson(text = "") {
   const source = String(text || "").trim();
   if (!source) return null;
   const candidates = [];
-  const fenced = source.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced) candidates.push(fenced[1].trim());
-  candidates.push(source);
-  const first = source.indexOf("{");
-  const last = source.lastIndexOf("}");
-  if (first >= 0 && last > first) candidates.push(source.slice(first, last + 1));
+  const addCandidate = (value = "") => {
+    const candidate = String(value || "").trim();
+    if (candidate && !candidates.includes(candidate)) candidates.push(candidate);
+  };
+  const fencedMatches = source.matchAll(/```(?:json|JSON)?\s*([\s\S]*?)```/g);
+  for (const match of fencedMatches) addCandidate(match[1]);
+  addCandidate(source);
+  // Some language models double-encode JSON as a quoted/escaped string.
+  if (source.startsWith('"')) {
+    let escaped = false;
+    for (let index = 1; index < source.length; index += 1) {
+      const char = source[index];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        try {
+          const decodedString = JSON.parse(source.slice(0, index + 1));
+          addCandidate(decodedString);
+        } catch {}
+        break;
+      }
+    }
+  }
+  const decoded = source.replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\r/g, "\r");
+  if (decoded !== source) addCandidate(decoded);
+  const sources = [...candidates];
+  for (const candidate of sources) {
+    const first = candidate.indexOf("{");
+    const last = candidate.lastIndexOf("}");
+    if (first >= 0 && last > first) addCandidate(candidate.slice(first, last + 1));
+  }
   const normalizePlan = (items) => Array.isArray(items)
     ? items.map((item) => String(item?.label || item?.text || item || "").trim()).filter(Boolean).slice(0, 12)
     : [];
@@ -299,6 +331,48 @@ function seedancePromptOptimizerTimelineInstruction(duration) {
   return `TIMELINE LOCK (authoritative): The requested duration is exactly ${duration} seconds. Required non-overlapping beat coverage: ${required}. Every timecode must stay within 0—${duration}秒. The final beat must end at ${duration}秒. Do not collapse the timeline to a shorter 0—5s clip when the requested duration is longer.`;
 }
 
+function seedancePromptOptimizerUngroundedStoryDetails(text = "", sourcePrompt = "") {
+  const optimized = String(text || "");
+  const original = String(sourcePrompt || "");
+  const checks = [
+    { label: "本集钩子", pattern: /【本集钩子】|本集钩子/u },
+    { label: "短信/陌生号码/回复键", pattern: /短信|陌生号码|回复键/u },
+    { label: "手机屏幕亮起", pattern: /手机屏幕\s*(?:突然|骤然|忽然)?\s*亮起/u },
+    { label: "窗外霓虹", pattern: /窗外霓虹|霓虹光影/u },
+    { label: "额外短信台词", pattern: /周末老地方|别迟到/u },
+  ];
+  return checks
+    .filter((check) => check.pattern.test(optimized) && !check.pattern.test(original))
+    .map((check) => check.label);
+}
+
+function seedancePromptOptimizerRemoveUngroundedStoryDetails(text = "", sourcePrompt = "") {
+  const source = String(text || "");
+  const original = String(sourcePrompt || "");
+  const checks = [
+    { pattern: /【本集钩子】|本集钩子/u, section: true },
+    { pattern: /短信|陌生号码|回复键/u },
+    { pattern: /手机屏幕\s*(?:突然|骤然|忽然)?\s*亮起/u },
+    { pattern: /窗外霓虹|霓虹光影/u },
+    { pattern: /周末老地方|别迟到/u },
+  ].filter((check) => !check.pattern.test(original));
+  if (!checks.length) return source;
+  const lines = source.split(/\r?\n/);
+  const output = [];
+  let skippingSection = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^【[^】]+】/u.test(trimmed)) {
+      skippingSection = checks.some((check) => check.section && check.pattern.test(trimmed));
+      if (skippingSection) continue;
+    }
+    if (skippingSection) continue;
+    if (trimmed && checks.some((check) => !check.section && check.pattern.test(trimmed))) continue;
+    output.push(line);
+  }
+  return w3NormalizeOptimizerPromptFormatting(output.join("\n"));
+}
+
 function seedancePromptOptimizerContentIssues(text = "", duration = 5, sourcePrompt = "") {
   const optimized = String(text || "");
   const issues = [];
@@ -316,11 +390,13 @@ function seedancePromptOptimizerContentIssues(text = "", duration = 5, sourcePro
   } else if (Number(duration) >= 10 && maxEnd < Number(duration) - 0.75) {
     issues.push({ type: "timeline", message: `Timeline ends at ${maxEnd || "no explicit beat"}s before requested ${duration}s.` });
   }
+  const ungroundedStoryDetails = seedancePromptOptimizerUngroundedStoryDetails(optimized, sourcePrompt);
+  if (ungroundedStoryDetails.length) issues.push({ type: "story", details: ungroundedStoryDetails });
   return issues;
 }
 
 function seedancePromptOptimizerRepairContent(text = "", duration = 5, sourcePrompt = "") {
-  let output = w3NormalizeOptimizerPromptFormatting(text);
+  let output = seedancePromptOptimizerRemoveUngroundedStoryDetails(text, sourcePrompt);
   const issues = seedancePromptOptimizerContentIssues(output, duration, sourcePrompt);
   const dialogueIssue = issues.find((issue) => issue.type === "dialogue");
   if (dialogueIssue) {
@@ -353,6 +429,10 @@ function seedancePromptOptimizerCorrectionInstruction(issues = [], duration = 5)
   }
   if (issues.some((issue) => issue.type === "timeline")) {
     parts.push(`TIMELINE LOCK FAILED. Rewrite with exact non-overlapping beats through ${duration}秒. Do not return only a 0—5s shot when ${duration} seconds was requested.`);
+  }
+  const story = issues.find((issue) => issue.type === "story");
+  if (story) {
+    parts.push(`STORY GROUNDING LOCK FAILED. Remove these details because they are absent from PROMPT START: ${story.details.join(" / ")}. Do not replace them with another new beat.`);
   }
   return parts.join("\n");
 }
@@ -529,7 +609,7 @@ function seedancePromptOptimizerRequest(payload = {}, { languageCorrection = fal
     "MEDIA INVENTORY (ordered; these are the only valid reference labels):",
     seedancePromptOptimizerReferenceInventory(references),
     "",
-    `Rewrite the following prompt according to the Seedance system rules. Preserve every explicit adult intention already present. ${timelineInstruction} ${dialogueInstruction} ${referenceInstruction} Return JSON only.`,
+    `Rewrite the following prompt according to the Seedance system rules. Preserve every explicit adult intention already present. This is a rewrite of exactly one existing shot: do not invent or import any new story beat, hook, prop, location, event, phone message, or action. ${timelineInstruction} ${dialogueInstruction} ${referenceInstruction} Return JSON only.`,
     "PROMPT START",
     originalPrompt,
     "PROMPT END",

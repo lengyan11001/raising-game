@@ -274,6 +274,9 @@ async function optimizeStoryShotPrompt({ prompt = "", provider = "", providerLab
   if (!optimizedPrompt) {
     throw Object.assign(new Error("提示词优化结果为空。"), { statusCode: 502, code: "STORY_SHOT_PROMPT_OPTIMIZER_EMPTY" });
   }
+  if (seedanceRequest) {
+    optimizedPrompt = seedancePromptOptimizerRepairContent(optimizedPrompt, request.duration, request.originalPrompt);
+  }
   optimizedPrompt = seedanceRequest
     ? w3NormalizeOptimizerPromptFormatting(scaleStoryPromptForProvider(optimizedPrompt, provider)).slice(0, W3_PROMPT_MAX_CHARS).trim()
     : w3TruncatePrompt(w3NormalizeConstraintStack(w3NormalizeWanPromptFormatting(optimizedPrompt)));
