@@ -112,11 +112,17 @@ class DeployOldRollingTests(unittest.TestCase):
     def test_dropin_targets_one_service_suffix(self) -> None:
         self.assertEqual(
             ROLLING.dropin_path("raising-game-demo-b.service"),
-            Path("/etc/systemd/system/raising-game-demo-b.service.d/89-release-root.conf"),
+            Path("/etc/systemd/system/raising-game-demo-b.service.d/zz-release-root.conf"),
         )
         self.assertEqual(
             ROLLING.dropin_path("raising-game-demo-b"),
-            Path("/etc/systemd/system/raising-game-demo-b.service.d/89-release-root.conf"),
+            Path("/etc/systemd/system/raising-game-demo-b.service.d/zz-release-root.conf"),
+        )
+
+    def test_release_dropin_sorts_after_working_directory_overrides(self) -> None:
+        self.assertGreater(
+            ROLLING.dropin_path("raising-game-demo.service").name,
+            "isolated-google-login.conf",
         )
 
     def test_dropin_always_targets_exact_immutable_release(self) -> None:

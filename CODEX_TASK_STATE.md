@@ -1,3 +1,10 @@
+## 2026-11-16 Step BF: Old release drop-in must override service WorkingDirectory
+
+- After fixing active-port role orientation, the next Old-only deploy reached the inactive `raising-game-demo.service` but the candidate loaded `/opt/raising-game-demo` instead of the immutable release. The service's existing `isolated-google-login.conf` sorts after `89-release-root.conf` and overrides its `WorkingDirectory`, so `/api/livez` had no release identity and the transaction rolled back safely.
+- The release drop-in is now written as `zz-release-root.conf`, which sorts after all current service drop-ins and keeps the candidate pinned to the immutable release directory. Rollback still restores or removes this exact drop-in.
+- Added a regression test that requires the release drop-in name to sort after `isolated-google-login.conf`.
+- Focused deploy tests passed `16/16`; full test status and deployment outcome are recorded after verification.
+
 ## 2026-11-16 Step BE: Old rolling deploy active-port role fix
 
 - The first deployment of the compact Generate parameter picker safely rolled back because the rolling wrapper always passed the default primary/candidate roles to the transaction. With production traffic already on `4175` (`raising-game-demo-b.service`), the transaction expected that active service to contain the new release instead of the inactive `4174` target.
