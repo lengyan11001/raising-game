@@ -1,8 +1,20 @@
+## 2026-11-16 Step BJ: story P1 script-to-episode workflow
+
+- Added project-level `AGENTS.md` safety rules for bounded writes and contaminated conversations after an `8192`/`max_output_tokens` truncation.
+- Completed the admin story P1 flow: save script versions, select a version, AI analyze with preview, confirm import into PostgreSQL episodes/assets, and delete an episode with its canvas link.
+- Added transcript fields to the project detail API consumption plus responsive script editor, analysis, asset, and episode-management UI.
+- Backend remains PostgreSQL-only and owner-scoped; routes are admin-session gated and the existing Workflow canvas is not modified or mounted in the episodes tab.
+- Bumped the platform asset cache version to `story-p1-20261116-1`.
+- Added `test/story-canvas-p1.test.js`; focused story/workflow tests pass `49/49`, syntax checks, `npm run check:undef`, and `git diff --check` pass.
+- Full `npm test`: `1368 pass / 1 known unrelated baseline failure / 1 skipped`; the only failure is `Generate parameter pickers close after selection and duration uses a slider`.
+- Source is ready for an Old-only release build and deployment; Live must remain untouched.
+
 ## 2026-11-16 Step BI: story project create async form fix
 
 - Fixed `Cannot read properties of null (reading 'reset')` in `createStoryProject`: cache the submitted form before awaiting `POST /api/story/projects`, then call `form.reset()` instead of reading `event.currentTarget` after the await.
 - Successful creation now clears the form and closes the creation sheet before refreshing the project library, so the create panel does not remain open.
 - Added regression assertions in `test/story-canvas-p0.test.js`; `node --check platform.story.js`, `git diff --check`, focused story tests `4/4`, and `npm run check:undef` passed.
+- Committed as `4cca705bb72b1ed4e11e831d67b8442f2c755d53`; platform release `15b0556b4104e0b9b7302bf507771eaaad62a7dd` pushed only to `platform-release` and deployed Old-only. `OLD_ROLLING_DEPLOY_OK active_port=4174`; `/api/health`, `/api/livez`, and `/api/readyz` all return `200`, and `livez`/`readyz` report release `15b0556b`. Uploaded `platform.story.js` contains the cached form reference and closes the create sheet on success. Live remains untouched.
 
 ## 2026-11-16 Step BH: story P0 visual alignment with Old canvas library
 

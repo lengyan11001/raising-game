@@ -10,6 +10,13 @@
     detail: null,
     contract: null,
     message: "",
+    scripts: [],
+    assets: [],
+    selectedScriptId: "",
+    analysis: null,
+    analysisScriptId: "",
+    action: "",
+    actionMessage: "",
   };
 
   function storyEscape(value = "") {
@@ -108,7 +115,108 @@
   function renderStoryContract(detail = null) {
     const badge = storyEl("storyContractBadge");
     const contract = detail?.contracts || storyState.contract;
-    if (badge) badge.textContent = contract?.version ? `P0 · ${contract.version}` : "P0 · 契约未加载";
+    if (badge) badge.textContent = contract?.version ? `P1 · ${contract.version}` : "P1 · 契约未加载";
+  }
+
+  function selectedStoryScript() {
+    return storyState.scripts.find((script) => script.id === storyState.selectedScriptId) || storyState.scripts[0] || null;
+  }
+
+  function renderStoryScriptSection() {
+    const script = selectedStoryScript();
+    const versions = storyState.scripts.map((item) => `
+      <button class="story-script-version${item.id === script?.id ? " is-active" : ""}" data-story-script-id="${storyEscape(item.id)}" type="button">
+        <span>V${storyEscape(item.versionNo)}</span>
+        <strong>${storyEscape(item.title || "未命名文稿")}</strong>
+        <small>${storyEscape(storyDate(item.createdAt))}</small>
+      </button>`).join("");
+    return `
+      <section class="story-section story-script-section">
+        <div class="story-section-head">
+          <div><p class="eyebrow">SCRIPT WORKSPACE</p><h3>剧本与版本</h3></div>
+          <span>${storyState.scripts.length} 个版本</span>
+        </div>
+        <div class="story-script-layout">
+          <aside class="story-script-versions" aria-label="剧本版本">
+            <div class="story-script-versions-head"><strong>版本记录</strong><small>每次保存都会新增版本</small></div>
+            ${versions || `<div class="story-script-empty">尚未保存剧本</div>`}
+          </aside>
+          <div class="story-script-editor">
+            <div class="story-script-editor-grid">
+              <label>文稿标题<input id="storyScriptTitle" maxlength="160" value="${storyEscape(script?.title || `第 ${storyState.scripts.length + 1} 版文稿`)}" placeholder="例如：夜班便利店 第一季" /></label>
+              <label>目标集数<input id="storyAnalysisTarget" type="number" min="1" max="50" value="${Number(storyState.detail?.project?.episodeTarget || 1)}" /></label>
+            </div>
+            <label class="story-script-content">正文<textarea id="storyScriptContent" rows="16" maxlength="1500000" placeholder="粘贴完整小说、故事大纲或分集草案。建议先保存版本，再让 AI 拆解。">${storyEscape(script?.content || "")}</textarea></label>
+            <div class="story-script-actions">
+              <p class="story-message" id="storyScriptMessage">${storyEscape(storyState.actionMessage)}</p>
+              <div>
+                <button class="story-secondary-button" data-story-save-script type="button" ${storyState.action ? "disabled" : ""}><i data-lucide="save"></i><span>保存为新版本</span></button>
+                <button class="story-create-button" data-story-analyze type="button" ${storyState.action || !script ? "disabled" : ""}><i data-lucide="sparkles"></i><span>AI 拆解</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>`;
+  }
+
+  function renderStoryAnalysisSection() {
+    const analysis = storyState.analysis;
+    if (!analysis) {
+      return `
+        <section class="story-section story-analysis-section">
+          <div class="story-section-head"><div><p class="eyebrow">AI BREAKDOWN</p><h3>拆解预览</h3></div><span>只预览，不写库</span></div>
+          <div class="story-analysis-empty"><i data-lucide="wand-sparkles"></i><div><strong>先保存剧本，再执行 AI 拆解</strong><span>模型会给出分集梗概、角色与场景建议；确认后才写入 PostgreSQL。</span></div></div>
+        </section>`;
+    }
+    const episodes = (analysis.episodes || []).map((episode) => `
+      <article class="story-analysis-episode">
+        <b>E${String(episode.episodeNo).padStart(2, "0")}</b>
+        <div><strong>${storyEscape(episode.title || `第 ${episode.episodeNo} 集`)}</strong><p>${storyEscape(episode.synopsis || episode.summary || "暂无梗概")}</p><small>${Number(episode.durationSeconds || 0)} 秒</small></div>
+      </article>`).join("");
+    const characters = (analysis.characters || []).map((item) => `<span>${storyEscape(item.name)}</span>`).join("");
+    const scenes = (analysis.scenes || []).map((item) => `<span>${storyEscape(item.name)}</span>`).join("");
+    return `
+      <section class="story-section story-analysis-section">
+        <div class="story-section-head">
+          <div><p class="eyebrow">AI BREAKDOWN</p><h3>拆解预览</h3></div>
+          <span>${analysis.episodes?.length || 0} 集 · 建议 ${Number(analysis.totalEpisodeSuggestion || 0) || "待定"} 集</span>
+        </div>
+        <p class="story-analysis-summary">${storyEscape(analysis.summary || "模型未返回整体梗概。")}</p>
+        <div class="story-analysis-list">${episodes}</div>
+        <div class="story-analysis-tags">
+          <div><span>角色</span>${characters || "<em>无</em>"}</div>
+          <div><span>场景</span>${scenes || "<em>无</em>"}</div>
+        </div>
+        <div class="story-analysis-actions">
+          <p>确认后会按集号写入或更新剧集，并同步角色与场景资产。</p>
+          <button class="story-create-button" data-story-import-analysis type="button" ${storyState.action ? "disabled" : ""}><i data-lucide="database-zap"></i><span>确认写入剧集</span></button>
+        </div>
+      </section>`;
+  }
+
+  function renderStoryAssetsSection() {
+    const definitions = [
+      { kind: "character", label: "角色资产", icon: "users" },
+      { kind: "scene", label: "场景资产", icon: "clapperboard" },
+    ];
+    const groups = definitions.map((definition) => {
+      const items = storyState.assets.filter((asset) => asset.kind === definition.kind);
+      return `
+        <div class="story-asset-group">
+          <div class="story-asset-head"><span><i data-lucide="${definition.icon}"></i>${definition.label}</span><small>${items.length}</small></div>
+          ${items.length ? items.map((asset) => `
+            <article class="story-asset-row">
+              <strong>${storyEscape(asset.name)}</strong>
+              <p>${storyEscape(asset.description || "尚未填写资产说明。")}</p>
+              <small>${storyEscape(asset.status)} · ${Number(asset.variantCount || 0)} 个变体</small>
+            </article>`).join("") : `<div class="story-asset-empty">拆解确认后自动建立${definition.label}。</div>`}
+        </div>`;
+    }).join("");
+    return `
+      <section class="story-section">
+        <div class="story-section-head"><div><p class="eyebrow">ASSETS</p><h3>角色与场景</h3></div><span>${storyState.assets.length} 项</span></div>
+        <div class="story-asset-grid">${groups}</div>
+      </section>`;
   }
 
   function renderStoryDetail() {
@@ -153,6 +261,7 @@
             <small>${episode.shotCount} 个镜头 · ${storyEscape(link?.canvasId || `story-episode-${episode.id}`)}</small>
           </div>
           <span class="story-status-pill">${storyEscape(episode.status)}</span>
+          <button class="story-episode-delete" data-story-delete-episode="${storyEscape(episode.id)}" type="button" title="删除剧集" aria-label="删除第 ${Number(episode.episodeNo)} 集"><i data-lucide="trash-2"></i></button>
         </article>`;
     }).join("") : `<div class="story-list-state">尚未拆集。创建第一集后，单集画布入口会固定为 <code>story-episode-&lt;id&gt;</code>。</div>`;
     const scopeCards = (contracts.scopes || []).map((scope) => `
@@ -183,6 +292,9 @@
           ${storyMetric("资产", project.assetCount)}
           ${storyMetric("镜头", project.shotCount)}
         </div>
+        ${renderStoryScriptSection()}
+        ${renderStoryAnalysisSection()}
+        ${renderStoryAssetsSection()}
         <section class="story-section">
           <div class="story-section-head"><div><p class="eyebrow">PIPELINE</p><h3>剧集生产流程</h3></div><span>契约冻结</span></div>
           <div class="story-flow">${flow.map((item, index) => `<span><b>${index + 1}</b>${storyEscape(item)}</span>`).join("")}</div>
@@ -202,8 +314,8 @@
           <p class="story-message" id="storyEpisodeMessage"></p>
         </section>
         <section class="story-section story-p0-note">
-          <div class="story-section-head"><div><p class="eyebrow">P0 BOUNDARY</p><h3>当前只冻结结构</h3></div><span>${storyEscape(contracts.version || "story-p0-v1")}</span></div>
-          <p>画布只保存布局与引用；剧本、资产、镜头、提示词版本、生成引用和归属记录全部写入 PostgreSQL。LLM 自动拆解、人物形象生成和镜头视频生成在后续阶段接入。</p>
+          <div class="story-section-head"><div><p class="eyebrow">P1 BOUNDARY</p><h3>剧本到剧集已闭环</h3></div><span>${storyEscape(contracts.version || "story-p0-v1")}</span></div>
+          <p>剧本版本、AI 拆解结果、剧集与角色场景资产全部写入 PostgreSQL。画布仍只保存布局与引用；角色形象生成、分镜和镜头视频生成在后续阶段接入。</p>
         </section>
       </div>`;
     storyRefreshIcons();
@@ -274,11 +386,26 @@
       if (storyState.selectedId !== id) return;
       storyState.detail = payload;
       storyState.contract = payload.contracts || storyState.contract;
+      storyState.scripts = Array.isArray(payload.scripts) ? payload.scripts : [];
+      storyState.assets = Array.isArray(payload.assets) ? payload.assets : [];
+      const selectedScript = storyState.scripts.find((script) => script.id === storyState.selectedScriptId);
+      storyState.selectedScriptId = selectedScript?.id || storyState.scripts[0]?.id || "";
+      if (storyState.analysisScriptId && storyState.analysisScriptId !== storyState.selectedScriptId) {
+        storyState.analysis = null;
+        storyState.analysisScriptId = "";
+      }
+      storyState.action = "";
+      storyState.actionMessage = "";
       storyState.loading = false;
       renderStoryDetail();
     } catch (error) {
       storyState.loading = false;
       storyState.detail = null;
+      storyState.scripts = [];
+      storyState.assets = [];
+      storyState.selectedScriptId = "";
+      storyState.analysis = null;
+      storyState.analysisScriptId = "";
       const host = storyEl("storyProjectDetail");
       if (host) host.innerHTML = `
         <div class="story-detail-panel">
@@ -346,6 +473,106 @@
     }
   }
 
+  async function saveStoryScriptDraft() {
+    const projectId = storyState.selectedId;
+    if (!projectId || storyState.action) return;
+    const title = storyEl("storyScriptTitle")?.value || "";
+    const content = storyEl("storyScriptContent")?.value || "";
+    if (!content.trim()) {
+      storyState.actionMessage = "请输入剧本或小说正文。";
+      renderStoryDetail();
+      return;
+    }
+    storyState.action = "save";
+    storyState.actionMessage = "正在保存剧本版本…";
+    renderStoryDetail();
+    try {
+      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/scripts`, {
+        method: "POST",
+        body: { title, content },
+      });
+      storyState.selectedScriptId = payload.script?.id || storyState.selectedScriptId;
+      storyState.analysis = null;
+      storyState.analysisScriptId = "";
+      await loadStoryDetail(projectId);
+      storyState.actionMessage = `已保存 V${payload.script?.versionNo || ""} 剧本版本。`;
+      renderStoryDetail();
+    } catch (error) {
+      storyState.action = "";
+      storyState.actionMessage = error.message || String(error);
+      renderStoryDetail();
+    }
+  }
+
+  async function analyzeStoryDraft() {
+    const projectId = storyState.selectedId;
+    const script = selectedStoryScript();
+    if (!projectId || !script || storyState.action) return;
+    const targetEpisodes = Math.max(0, Number(storyEl("storyAnalysisTarget")?.value || 0) || 0);
+    storyState.action = "analyze";
+    storyState.actionMessage = "AI 正在拆解剧本，通常需要几十秒…";
+    renderStoryDetail();
+    try {
+      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/analyze`, {
+        method: "POST",
+        body: { scriptVersionId: script.id, targetEpisodes },
+      });
+      storyState.analysis = payload.analysis || null;
+      storyState.analysisScriptId = payload.scriptVersionId || script.id;
+      storyState.action = "";
+      storyState.actionMessage = `拆解完成 · ${payload.model || "分析模型"} · ${payload.attempts || 1} 次尝试`;
+      renderStoryDetail();
+    } catch (error) {
+      storyState.action = "";
+      storyState.actionMessage = error.message || String(error);
+      renderStoryDetail();
+    }
+  }
+
+  async function importStoryAnalysis() {
+    const projectId = storyState.selectedId;
+    const analysis = storyState.analysis;
+    if (!projectId || !analysis || storyState.action) return;
+    storyState.action = "import";
+    storyState.actionMessage = "正在写入剧集与资产…";
+    renderStoryDetail();
+    try {
+      await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/import`, {
+        method: "POST",
+        body: { analysis },
+      });
+      storyState.analysis = null;
+      storyState.analysisScriptId = "";
+      await loadStoryDetail(projectId);
+      storyState.actionMessage = `已写入 ${analysis.episodes?.length || 0} 集。`;
+      renderStoryDetail();
+    } catch (error) {
+      storyState.action = "";
+      storyState.actionMessage = error.message || String(error);
+      renderStoryDetail();
+    }
+  }
+
+  async function deleteStoryEpisode(episodeId = "") {
+    const projectId = storyState.selectedId;
+    const id = String(episodeId || "").trim();
+    if (!projectId || !id || storyState.action) return;
+    if (!window.confirm("删除这一集？已关联的单集画布引用也会移除。")) return;
+    storyState.action = "delete";
+    storyState.actionMessage = "正在删除剧集…";
+    renderStoryDetail();
+    try {
+      await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await loadStoryDetail(projectId);
+      storyState.actionMessage = "剧集已删除。";
+      renderStoryDetail();
+    } catch (error) {
+      storyState.action = "";
+      storyState.actionMessage = error.message || String(error);
+      renderStoryDetail();
+    }
+  }
+
   function initStoryPanel() {
     if (storyState.initialized) return;
     storyState.initialized = true;
@@ -364,6 +591,24 @@
     });
     storyEl("storyProjectDetail")?.addEventListener("click", (event) => {
       if (event.target.closest("[data-story-back]")) openStoryLibrary();
+      else if (event.target.closest("[data-story-save-script]")) saveStoryScriptDraft();
+      else if (event.target.closest("[data-story-analyze]")) analyzeStoryDraft();
+      else if (event.target.closest("[data-story-import-analysis]")) importStoryAnalysis();
+      else {
+        const deleteButton = event.target.closest("[data-story-delete-episode]");
+        if (deleteButton) {
+          deleteStoryEpisode(deleteButton.dataset.storyDeleteEpisode || "");
+          return;
+        }
+        const scriptButton = event.target.closest("[data-story-script-id]");
+        if (scriptButton) {
+          storyState.selectedScriptId = scriptButton.dataset.storyScriptId || "";
+          storyState.action = "";
+          storyState.actionMessage = "";
+          if (storyState.analysisScriptId !== storyState.selectedScriptId) storyState.analysis = null;
+          renderStoryDetail();
+        }
+      }
     });
     storyEl("storyProjectDetail")?.addEventListener("submit", (event) => {
       if (event.target?.id === "storyEpisodeForm") createStoryEpisode(event);

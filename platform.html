@@ -8,7 +8,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=story-p0-20261116-2" />
+    <link rel="stylesheet" href="./platform.css?v=story-p1-20261116-1" />
     <link rel="stylesheet" href="./platform.prompt-editor.css?v=main-site-compat-20261111-1" />
     <script src="./platform.vitals.js?v=main-site-compat-20261111-1" defer></script>
     <script>
@@ -842,12 +842,12 @@
         <div class="story-shell">
           <header class="story-library-head">
             <div class="story-library-title">
-              <span class="story-kicker"><i data-lucide="clapperboard"></i> STORY PRODUCTION · ADMIN</span>
-              <h2>我的剧集项目</h2>
-              <p>从剧本定稿到角色、场景、分镜与最终镜头。项目、资产和生成引用统一归档在 PostgreSQL。</p>
+              <span class="story-kicker"><i data-lucide="clapperboard"></i> STORY WORKBENCH · ADMIN</span>
+              <h2>剧集</h2>
+              <p>文稿、剧集、角色与场景集中管理。</p>
             </div>
             <div class="story-library-actions">
-              <span class="story-contract-badge" id="storyContractBadge">P0 · 加载中</span>
+              <span class="story-contract-badge" id="storyContractBadge">P1 · 加载中</span>
               <button class="story-icon-button" id="storyRefreshProjects" type="button" title="刷新项目" aria-label="刷新项目"><i data-lucide="refresh-cw"></i></button>
               <button class="story-create-button" id="storyCreateProjectToggle" type="button"><i data-lucide="plus"></i><span>新建项目</span></button>
             </div>
@@ -860,9 +860,9 @@
             </div>
             <form class="story-create-form" id="storyProjectForm">
               <label class="story-field"><span>项目名</span><input id="storyProjectName" maxlength="120" placeholder="例如：夜班便利店" required /></label>
-              <label class="story-field"><span>目标集数</span><input id="storyProjectEpisodes" type="number" min="1" max="1000" value="1" /></label>
+              <label class="story-field"><span>预计集数</span><input id="storyProjectEpisodes" type="number" min="1" max="50" placeholder="可留空" /></label>
               <label class="story-field"><span>画幅</span><select id="storyProjectAspect"><option value="9:16">9:16 竖屏</option><option value="16:9">16:9 横屏</option><option value="1:1">1:1 方形</option><option value="4:5">4:5</option></select></label>
-              <label class="story-field story-field-wide"><span>项目说明</span><textarea id="storyProjectDescription" maxlength="4000" rows="2" placeholder="题材、受众、交付标准"></textarea></label>
+              <label class="story-field story-field-wide"><span>项目说明</span><textarea id="storyProjectDescription" maxlength="4000" rows="2" placeholder="题材、受众或交付要求，可留空"></textarea></label>
               <div class="story-create-actions">
                 <p class="story-message" id="storyProjectMessage"></p>
                 <button class="story-create-button" type="submit"><i data-lucide="arrow-up-right"></i><span>创建项目</span></button>
@@ -1724,6 +1724,6 @@
     <script>
       window.VIPEAK_PROMPT_EDITOR_MODE = "rich";
     </script>
-    <script src="./platform.js?v=story-p0-20261116-2"></script>
+    <script src="./platform.js?v=story-p1-20261116-1"></script>
   </body>
 </html>

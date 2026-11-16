@@ -29,3 +29,12 @@
 - Never re-run broad repository searches merely to confirm known facts. Use recorded paths, line anchors, and test commands from the state file.
 - Pipe noisy test/build output through a targeted filter or save it to a temporary file and print only failures and the final summary.
 - After compaction, resume from `CODEX_TASK_STATE.md`; do not replay the prior discovery pass.
+
+## Large Write and Tool-Call Safety
+
+- Never create or replace a source file with one oversized `cat > file <<'EOF'` command, one huge `apply_patch`, or one unbounded generated response. The configured custom provider may hard-stop at 8,192 output tokens and leave an invalid tool call in the conversation history.
+- Write in bounded increments: create the scaffold first, then add or patch at most roughly 150 lines per tool call. Split larger implementations by function or section.
+- After each increment, run the narrowest relevant syntax check or focused test. Stop and repair the current increment before writing the next one.
+- Prefer `apply_patch` for edits. When a new file is genuinely required, use multiple append/patch steps instead of embedding the whole file in one shell command.
+- Never put a full long document, generated guide, or large source file into a single tool argument. Write a section at a time and verify the file tail/brace balance.
+- If a response ends with `Incomplete response returned, reason: max_output_tokens`, do not continue in that contaminated conversation. Preserve the state in `CODEX_TASK_STATE.md`, fork/start a fresh conversation, and resume from the recorded state.

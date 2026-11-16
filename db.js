@@ -6747,6 +6747,35 @@ function storyEpisodeFromRow(row = {}) {
   };
 }
 
+function storyScriptVersionFromRow(row = {}) {
+  return {
+    id: String(row.id || "").trim(),
+    projectId: String(row.project_id || "").trim(),
+    versionNo: Math.max(1, Number(row.version_no || 1) || 1),
+    title: String(row.title || "").trim(),
+    content: String(row.content || ""),
+    status: String(row.status || "draft").trim(),
+    createdBy: String(row.created_by || "").trim(),
+    frozenAt: toIsoString(row.frozen_at),
+    createdAt: toIsoString(row.created_at),
+  };
+}
+
+function storyAssetFromRow(row = {}) {
+  return {
+    id: String(row.id || "").trim(),
+    projectId: String(row.project_id || "").trim(),
+    kind: String(row.kind || "character").trim(),
+    name: String(row.name || "").trim(),
+    description: String(row.description || ""),
+    status: String(row.status || "planned").trim(),
+    metadata: row.metadata && typeof row.metadata === "object" ? row.metadata : {},
+    variantCount: Math.max(0, Number(row.variant_count || 0) || 0),
+    createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
+  };
+}
+
 function storyCanvasLinkFromRow(row = {}) {
   return {
     id: String(row.id || "").trim(),
@@ -6910,6 +6939,246 @@ async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "
       `UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`,
       [parentId],
     );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return row ? storyEpisodeFromRow(row) : null;
+}
+
+async function listStoryScriptVersionsFromDb({ projectId = "", ownerUserId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!parentId || !ownerId) return [];
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT sv.*
+     FROM app_story_script_versions sv
+     JOIN app_story_projects p ON p.id = sv.project_id
+     WHERE sv.project_id = $1 AND p.owner_user_id = $2
+     ORDER BY sv.version_no DESC, sv.created_at DESC`,
+    [parentId, ownerId],
+  );
+  return rows.map(storyScriptVersionFromRow);
+}
+
+async function createStoryScriptVersionInDb({ id = "", projectId = "", ownerUserId = "", title = "", content = "", status = "draft", createdBy = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const scriptId = String(id || "").trim();
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!scriptId || !parentId || !ownerId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  let row;
+  try {
+    await client.query("BEGIN");
+    const project = await client.query(
+      `SELECT id FROM app_story_projects WHERE id = $1 AND owner_user_id = $2 FOR UPDATE`,
+      [parentId, ownerId],
+    );
+    if (!project.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const next = await client.query(
+      `SELECT COALESCE(MAX(version_no), 0) + 1 AS next_no FROM app_story_script_versions WHERE project_id = $1`,
+      [parentId],
+    );
+    const versionNo = Math.max(1, Number(next.rows[0]?.next_no || 1) || 1);
+    const inserted = await client.query(
+      `INSERT INTO app_story_script_versions(id, project_id, version_no, title, content, status, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [scriptId, parentId, versionNo, String(title || ""), String(content || ""), String(status || "draft"), String(createdBy || "")],
+    );
+    row = inserted.rows[0];
+    await client.query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return row ? storyScriptVersionFromRow(row) : null;
+}
+
+async function listStoryAssetsFromDb({ projectId = "", ownerUserId = "", kind = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const cleanKind = String(kind || "").trim();
+  if (!parentId || !ownerId) return [];
+  await ensureSchema();
+  const params = [parentId, ownerId];
+  let kindSql = "";
+  if (cleanKind) {
+    params.push(cleanKind);
+    kindSql = ` AND a.kind = $${params.length}`;
+  }
+  const { rows } = await query(
+    `SELECT a.*,
+            (SELECT COUNT(*) FROM app_story_asset_variants av WHERE av.asset_id = a.id) AS variant_count
+     FROM app_story_assets a
+     JOIN app_story_projects p ON p.id = a.project_id
+     WHERE a.project_id = $1 AND p.owner_user_id = $2${kindSql}
+     ORDER BY a.kind ASC, a.updated_at DESC, a.created_at ASC`,
+    params,
+  );
+  return rows.map(storyAssetFromRow);
+}
+
+async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", episodes = [], assets = [], summary = "", totalEpisodeSuggestion = 0 } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!parentId || !ownerId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  const importedEpisodes = [];
+  const importedAssets = [];
+  try {
+    await client.query("BEGIN");
+    const project = await client.query(
+      `SELECT id FROM app_story_projects WHERE id = $1 AND owner_user_id = $2 FOR UPDATE`,
+      [parentId, ownerId],
+    );
+    if (!project.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    for (const episode of Array.isArray(episodes) ? episodes : []) {
+      const episodeNo = Math.max(1, Math.min(10000, Math.round(Number(episode.episodeNo || 0) || 0)));
+      if (!episodeNo) continue;
+      const episodeId = String(episode.id || "").trim() || crypto.randomUUID();
+      const row = await client.query(
+        `INSERT INTO app_story_episodes(id, project_id, episode_no, title, synopsis, status, duration_seconds, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+         ON CONFLICT (project_id, episode_no) DO UPDATE
+         SET title = EXCLUDED.title,
+             synopsis = EXCLUDED.synopsis,
+             status = EXCLUDED.status,
+             duration_seconds = EXCLUDED.duration_seconds,
+             metadata = EXCLUDED.metadata,
+             updated_at = NOW()
+         RETURNING *`,
+        [
+          episodeId,
+          parentId,
+          episodeNo,
+          String(episode.title || `第 ${episodeNo} 集`),
+          String(episode.synopsis || ""),
+          String(episode.status || "draft"),
+          Math.max(0, Math.min(86400, Math.round(Number(episode.durationSeconds || 0) || 0))),
+          JSON.stringify(episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {}),
+        ],
+      );
+      const savedEpisode = row.rows[0];
+      await client.query(
+        `INSERT INTO app_story_canvas_links(id, project_id, scope_type, scope_id, canvas_id)
+         VALUES ($1, $2, 'episode', $3, $4)
+         ON CONFLICT (scope_type, scope_id, canvas_id) DO NOTHING`,
+        [crypto.randomUUID(), parentId, savedEpisode.id, `story-episode-${savedEpisode.id}`],
+      );
+      importedEpisodes.push(storyEpisodeFromRow(savedEpisode));
+    }
+    for (const asset of Array.isArray(assets) ? assets : []) {
+      const kind = ["character", "scene", "prop", "style", "audio"].includes(String(asset.kind || "").trim())
+        ? String(asset.kind).trim()
+        : "character";
+      const name = String(asset.name || "").trim();
+      if (!name) continue;
+      const existing = await client.query(
+        `SELECT * FROM app_story_assets WHERE project_id = $1 AND kind = $2 AND name = $3 ORDER BY created_at ASC LIMIT 1`,
+        [parentId, kind, name],
+      );
+      const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata : {};
+      let assetRow;
+      if (existing.rows[0]) {
+        const updated = await client.query(
+          `UPDATE app_story_assets
+           SET description = $3, status = $4, metadata = $5::jsonb, updated_at = NOW()
+           WHERE id = $1 AND project_id = $2
+           RETURNING *`,
+          [existing.rows[0].id, parentId, String(asset.description || ""), String(asset.status || "planned"), JSON.stringify(metadata)],
+        );
+        assetRow = updated.rows[0];
+      } else {
+        const inserted = await client.query(
+          `INSERT INTO app_story_assets(id, project_id, kind, name, description, status, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+           RETURNING *`,
+          [crypto.randomUUID(), parentId, kind, name, String(asset.description || ""), String(asset.status || "planned"), JSON.stringify(metadata)],
+        );
+        assetRow = inserted.rows[0];
+      }
+      if (assetRow) importedAssets.push(storyAssetFromRow(assetRow));
+    }
+    const settingsPatch = {
+      lastAnalysis: {
+        summary: String(summary || ""),
+        totalEpisodeSuggestion: Math.max(0, Number(totalEpisodeSuggestion || 0) || 0),
+        importedAt: new Date().toISOString(),
+      },
+    };
+    await client.query(
+      `UPDATE app_story_projects
+       SET episode_target = GREATEST(1, $3),
+           settings = COALESCE(settings, '{}'::jsonb) || $4::jsonb,
+           updated_at = NOW()
+       WHERE id = $1 AND owner_user_id = $2`,
+      [parentId, ownerId, Math.max(1, importedEpisodes.length), JSON.stringify(settingsPatch)],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return {
+    project: await getStoryProjectFromDb({ id: parentId, ownerUserId: ownerId }),
+    episodes: importedEpisodes,
+    assets: importedAssets,
+  };
+}
+
+async function deleteStoryEpisodeFromDb({ projectId = "", ownerUserId = "", episodeId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const targetId = String(episodeId || "").trim();
+  if (!parentId || !ownerId || !targetId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  let row;
+  try {
+    await client.query("BEGIN");
+    const project = await client.query(
+      `SELECT id FROM app_story_projects WHERE id = $1 AND owner_user_id = $2 FOR UPDATE`,
+      [parentId, ownerId],
+    );
+    if (!project.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const deleted = await client.query(
+      `DELETE FROM app_story_episodes WHERE id = $1 AND project_id = $2 RETURNING *`,
+      [targetId, parentId],
+    );
+    row = deleted.rows[0];
+    if (row) {
+      await client.query(
+        `DELETE FROM app_story_canvas_links WHERE project_id = $1 AND scope_type = 'episode' AND scope_id = $2`,
+        [parentId, targetId],
+      );
+      await client.query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -11079,6 +11348,11 @@ module.exports = {
   updateStoryProjectInDb,
   listStoryEpisodesFromDb,
   createStoryEpisodeInDb,
+  listStoryScriptVersionsFromDb,
+  createStoryScriptVersionInDb,
+  listStoryAssetsFromDb,
+  importStoryAnalysisInDb,
+  deleteStoryEpisodeFromDb,
   listStoryCanvasLinksFromDb,
   findUserUnlockInDb,
   normalizeApiSubtokenRecord,

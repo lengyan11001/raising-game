@@ -796,15 +796,19 @@ async function handleGetStoryProject(req, res, projectId = "") {
   const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
   if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
   if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
-  const [episodes, canvasLinks] = await Promise.all([
+  const [episodes, canvasLinks, scripts, assets] = await Promise.all([
     listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id }),
     listStoryCanvasLinksFromDb({ projectId, ownerUserId: auth.user.id }),
+    listStoryScriptVersionsFromDb({ projectId, ownerUserId: auth.user.id }),
+    listStoryAssetsFromDb({ projectId, ownerUserId: auth.user.id }),
   ]);
   return sendJson(res, 200, {
     ok: true,
     contractVersion: STORY_CONTRACT_VERSION,
     project: storyProjectClientView(project),
     episodes: episodes || [],
+    scripts: scripts || [],
+    assets: assets || [],
     canvasLinks: canvasLinks || [],
     contracts: storyContracts(),
   });
@@ -822,6 +826,304 @@ async function handleUpdateStoryProject(req, res, projectId = "") {
   const project = await updateStoryProjectInDb({ id: projectId, ownerUserId: auth.user.id, ...merged });
   if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
   return sendJson(res, 200, { ok: true, project: storyProjectClientView(project) });
+}
+
+const STORY_ANALYZER_SYSTEM_PROMPT = `你是专业中文影视编剧与制片拆解助手。你的任务是把用户提供的剧本或小说原文，整理成可制作的剧集开发结果。
+只输出一个合法 JSON 对象，不要 Markdown，不要代码围栏，不要解释。所有叙事字段使用中文。
+返回结构必须为：
+{
+  "summary": "整部作品一句话概述",
+  "totalEpisodeSuggestion": 12,
+  "episodes": [
+    {
+      "episodeNo": 1,
+      "title": "本集标题",
+      "synopsis": "本集完整但精炼的剧情梗概，包含起承转合",
+      "hook": "结尾钩子",
+      "durationSeconds": 90,
+      "characters": ["出场角色名"],
+      "scenes": ["场景名"]
+    }
+  ],
+  "characters": [
+    {"name": "角色名", "role": "主角/配角/反派", "description": "身份、性格、关系", "appearance": "可持续复用的外形与服装特征"}
+  ],
+  "scenes": [
+    {"name": "场景名", "description": "空间、时间、光线与美术特征"}
+  ]
+}
+规则：
+1. 如果用户给了目标集数，就按要求拆；没给目标集数时，由你根据剧情容量判断，totalEpisodeSuggestion 给出建议总集数。
+2. 第一版最多输出 30 集；如果建议总集数超过 30，先完整拆解前 30 集，并在 summary 末尾注明“本次拆解前30集”。
+3. 每集梗概要可直接用于后续分场与分镜，不写空泛套话。
+4. characters 和 scenes 去重，只保留对制作有用的稳定资产；角色外形要具体、可复用，不要写镜头动作。
+5. 保持原文人物关系、时代、类型和核心冲突，不擅自改结局。`;
+
+function storyParseJsonObject(text = "") {
+  const source = String(text || "").trim();
+  if (!source) return null;
+  const candidates = [];
+  const fenced = source.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) candidates.push(fenced[1].trim());
+  candidates.push(source);
+  const first = source.indexOf("{");
+  const last = source.lastIndexOf("}");
+  if (first >= 0 && last > first) candidates.push(source.slice(first, last + 1));
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+  return null;
+}
+
+function storyTextList(value, maxItems = 24, maxLength = 120) {
+  const list = Array.isArray(value) ? value : (value ? String(value).split(/[，,、\n]/) : []);
+  return [...new Set(list.map((item) => storyInputText(item?.name || item, maxLength)).filter(Boolean))].slice(0, maxItems);
+}
+
+function storyAnalysisFromModel(payload = {}) {
+  const root = payload.analysis && typeof payload.analysis === "object"
+    ? payload.analysis
+    : payload.data && typeof payload.data === "object"
+      ? payload.data
+      : payload;
+  const rawEpisodes = Array.isArray(root.episodes) ? root.episodes : [];
+  const episodes = rawEpisodes.map((episode, index) => {
+    const episodeNo = Math.max(1, Math.round(Number(episode?.episodeNo || episode?.episode_no || index + 1) || index + 1));
+    const characters = storyTextList(episode?.characters || episode?.roles, 24, 80);
+    const scenes = storyTextList(episode?.scenes || episode?.locations, 24, 100);
+    const hook = storyInputText(episode?.hook || episode?.cliffhanger || "", 500);
+    return {
+      episodeNo,
+      title: storyInputText(episode?.title || `第 ${episodeNo} 集`, 160),
+      synopsis: storyInputText(episode?.synopsis || episode?.summary || episode?.outline || "", 8000),
+      status: "draft",
+      durationSeconds: Math.max(0, Math.min(86400, Math.round(Number(episode?.durationSeconds || episode?.duration_seconds || 0) || 0))),
+      metadata: { hook, characters, scenes },
+    };
+  }).filter((episode) => episode.title || episode.synopsis).slice(0, 30);
+  const characters = (Array.isArray(root.characters) ? root.characters : []).map((character) => {
+    const name = storyInputText(character?.name || character, 120);
+    const role = storyInputText(character?.role || "", 120);
+    const description = storyInputText(character?.description || character?.bio || "", 2400);
+    const appearance = storyInputText(character?.appearance || character?.look || "", 1600);
+    return {
+      kind: "character",
+      name,
+      description: [role ? `定位：${role}` : "", description, appearance ? `外形：${appearance}` : ""].filter(Boolean).join("\n"),
+      status: "planned",
+      metadata: { role, appearance },
+    };
+  }).filter((asset) => asset.name).slice(0, 80);
+  const scenes = (Array.isArray(root.scenes) ? root.scenes : []).map((scene) => ({
+    kind: "scene",
+    name: storyInputText(scene?.name || scene, 120),
+    description: storyInputText(scene?.description || scene?.summary || "", 2400),
+    status: "planned",
+    metadata: {},
+  })).filter((asset) => asset.name).slice(0, 120);
+  return {
+    summary: storyInputText(root.summary || root.logline || "", 3000),
+    totalEpisodeSuggestion: Math.max(0, Math.min(1000, Math.round(Number(root.totalEpisodeSuggestion || root.total_episodes || episodes.length) || 0))),
+    episodes,
+    characters,
+    scenes,
+  };
+}
+
+function storyAnalyzerModel() {
+  for (const id of ["qwen3.7-flash", "carrothub-papaya-1.0", "byteplus-language"]) {
+    const model = promptOptimizerSelectedModel(id);
+    if (model?.configured?.()) return model;
+  }
+  return null;
+}
+
+async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 0 } = {}) {
+  const model = storyAnalyzerModel();
+  if (!model) {
+    throw Object.assign(new Error("剧本拆解模型尚未配置。"), {
+      statusCode: 503,
+      code: "MISSING_STORY_ANALYZER_MODEL",
+    });
+  }
+  const content = String(script.content || "").trim().slice(0, 120000);
+  if (!content) {
+    throw Object.assign(new Error("请先保存剧本或小说文本。"), { statusCode: 400, code: "STORY_SCRIPT_EMPTY" });
+  }
+  const target = Math.max(0, Math.min(50, Math.round(Number(targetEpisodes || 0) || 0)));
+  const userPrompt = [
+    `项目名：${String(project.name || "未命名项目")}`,
+    `项目说明：${String(project.description || "无")}`,
+    `画幅：${String(project.aspectRatio || "9:16")}`,
+    target ? `目标集数：${target}` : "目标集数：由你根据内容判断",
+    `文稿标题：${String(script.title || "未命名文稿")}`,
+    "文稿开始",
+    content,
+    "文稿结束",
+    "请严格输出约定的 JSON。",
+  ].join("\n");
+  const deadline = Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS;
+  const usage = { attempts: 0 };
+  const raw = await promptOptimizerUpstreamRequest({
+    model: model.upstreamModel,
+    messages: [
+      { role: "system", content: STORY_ANALYZER_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.2,
+    max_tokens: 7000,
+  }, {
+    deadline,
+    requestContext: { storyAnalyzer: true, projectId: project.id, scriptVersionId: script.id, targetEpisodes: target },
+    usage,
+    optimizerModel: model,
+  });
+  const text = qwen37FlashResponseText(raw);
+  const parsed = storyParseJsonObject(text);
+  if (!parsed) {
+    throw Object.assign(new Error("拆解模型没有返回有效 JSON，请重试。"), {
+      statusCode: 502,
+      code: "STORY_ANALYSIS_INVALID_JSON",
+      responsePreview: String(text || "").slice(0, 600),
+    });
+  }
+  const analysis = storyAnalysisFromModel(parsed);
+  if (!analysis.episodes.length) {
+    throw Object.assign(new Error("拆解结果没有有效剧集，请检查原文或重试。"), {
+      statusCode: 502,
+      code: "STORY_ANALYSIS_EMPTY",
+    });
+  }
+  return { analysis, model: model.id, attempts: usage.attempts };
+}
+
+function storyAnalysisPayload(body = {}) {
+  const raw = body.analysis && typeof body.analysis === "object" ? body.analysis : body;
+  const analysis = storyAnalysisFromModel(raw);
+  return {
+    summary: storyInputText(raw.summary || analysis.summary, 3000),
+    totalEpisodeSuggestion: analysis.totalEpisodeSuggestion,
+    episodes: analysis.episodes.slice(0, 100),
+    assets: [...analysis.characters, ...analysis.scenes].slice(0, 200),
+  };
+}
+
+async function handleListStoryScripts(req, res, projectId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
+  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  const scripts = await listStoryScriptVersionsFromDb({ projectId, ownerUserId: auth.user.id });
+  return sendJson(res, 200, { ok: true, scripts: scripts || [] });
+}
+
+async function handleCreateStoryScript(req, res, projectId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  let body = {};
+  try {
+    body = await readJson(req, 2 * 1024 * 1024);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, { ok: false, code: error.code || "INVALID_JSON", message: error.message || "请求内容无效。" });
+  }
+  const title = storyInputText(body.title, 160) || "未命名文稿";
+  const content = String(body.content || "").slice(0, 1500000);
+  if (!content.trim()) return sendJson(res, 400, { ok: false, code: "STORY_CONTENT_REQUIRED", message: "请输入剧本或小说文本。" });
+  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
+  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  const script = await createStoryScriptVersionInDb({
+    id: randomId("script"),
+    projectId,
+    ownerUserId: auth.user.id,
+    title,
+    content,
+    status: "draft",
+    createdBy: auth.user.id,
+  });
+  if (!script) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "文稿保存失败。" });
+  return sendJson(res, 201, { ok: true, script });
+}
+
+async function handleAnalyzeStoryProject(req, res, projectId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  let body = {};
+  try {
+    body = await readJson(req, 256 * 1024);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, { ok: false, code: error.code || "INVALID_JSON", message: error.message || "请求内容无效。" });
+  }
+  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
+  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  const scripts = await listStoryScriptVersionsFromDb({ projectId, ownerUserId: auth.user.id });
+  const scriptId = String(body.scriptVersionId || "").trim();
+  const script = scriptId ? (scripts || []).find((item) => item.id === scriptId) : scripts?.[0];
+  if (!script) return sendJson(res, 400, { ok: false, code: "STORY_SCRIPT_REQUIRED", message: "请先保存一版剧本或小说文本。" });
+  try {
+    const result = await analyzeStoryScript({ project, script, targetEpisodes: body.targetEpisodes });
+    return sendJson(res, 200, { ok: true, scriptVersionId: script.id, ...result });
+  } catch (error) {
+    console.warn("[story-analyze-failed]", JSON.stringify({
+      projectId,
+      scriptVersionId: script.id,
+      code: error.code || "",
+      statusCode: error.statusCode || 0,
+      message: String(error.message || error).slice(0, 240),
+    }));
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      code: error.code || "STORY_ANALYSIS_FAILED",
+      message: error.message || "剧本拆解失败，请重试。",
+    });
+  }
+}
+
+async function handleImportStoryAnalysis(req, res, projectId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  let body = {};
+  try {
+    body = await readJson(req, 512 * 1024);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, { ok: false, code: error.code || "INVALID_JSON", message: error.message || "请求内容无效。" });
+  }
+  const payload = storyAnalysisPayload(body);
+  if (!payload.episodes.length) return sendJson(res, 400, { ok: false, code: "STORY_ANALYSIS_EMPTY", message: "没有可写入的剧集。" });
+  const imported = await importStoryAnalysisInDb({
+    projectId,
+    ownerUserId: auth.user.id,
+    ...payload,
+  });
+  if (!imported) {
+    if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+    return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    project: imported.project ? storyProjectClientView(imported.project) : null,
+    episodes: imported.episodes,
+    assets: imported.assets,
+  });
+}
+
+async function handleDeleteStoryEpisode(req, res, projectId = "", episodeId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const deleted = await deleteStoryEpisodeFromDb({ projectId, ownerUserId: auth.user.id, episodeId });
+  if (deleted === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!deleted) return sendJson(res, 404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
+  return sendJson(res, 200, { ok: true, episode: deleted });
 }
 
 async function handleListStoryEpisodes(req, res, projectId = "") {
