@@ -267,11 +267,11 @@ function seedancePromptOptimizerDialogueLines(source = "") {
   const quoted = /[“「『]([^”」』\n]{1,300})[”」』]|"([^"\n]{1,300})"/gu;
   let match = null;
   while ((match = quoted.exec(text)) && lines.length < 16) add(match[1] || match[2]);
-  const nonSpeakerLabels = /^(?:环境|场景|镜头|运镜|动作|时长|总时长|风格|画质|光影|色调|素材|冲突|主体|视觉|参考|声音|音频|音乐|说明|备注)$/u;
+  const nonSpeakerLabels = /^(?:项目|本集|镜头|画面|画面内容|景别|运镜|地点|出场角色|叙事作用|本集钩子|视觉定稿|连续性|设计图依据|已定稿参考图记录|环境|场景|动作|时长|总时长|风格|画质|光影|色调|素材|冲突|主体|视觉|参考|声音|音频|音乐|说明|备注)$/u;
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.length > 220) continue;
-    const labeled = line.match(/^(?:台词|对白|对话)\s*[：:]\s*(.+)$/);
+    const labeled = line.match(/^(?:关键)?(?:台词|对白|对话)\s*[：:]\s*(.+)$/);
     if (labeled) {
       add(labeled[1]);
       continue;
@@ -333,7 +333,7 @@ function seedancePromptOptimizerTimelineInstruction(duration) {
 
 function seedancePromptOptimizerUngroundedStoryDetails(text = "", sourcePrompt = "") {
   const optimized = String(text || "");
-  const original = String(sourcePrompt || "");
+  const original = String(sourcePrompt || "").split(/\r?\n/).filter((line) => !/^\s*本集钩子\s*[：:]/u.test(line)).join("\n");
   const checks = [
     { label: "本集钩子", pattern: /【本集钩子】|本集钩子/u },
     { label: "短信/陌生号码/回复键", pattern: /短信|陌生号码|回复键/u },
@@ -348,14 +348,14 @@ function seedancePromptOptimizerUngroundedStoryDetails(text = "", sourcePrompt =
 
 function seedancePromptOptimizerRemoveUngroundedStoryDetails(text = "", sourcePrompt = "") {
   const source = String(text || "");
-  const original = String(sourcePrompt || "");
+  const original = String(sourcePrompt || "").split(/\r?\n/).filter((line) => !/^\s*本集钩子\s*[：:]/u.test(line)).join("\n");
   const checks = [
-    { pattern: /【本集钩子】|本集钩子/u, section: true },
+    { pattern: /【本集钩子】|本集钩子/u, section: true, always: true },
     { pattern: /短信|陌生号码|回复键/u },
     { pattern: /手机屏幕\s*(?:突然|骤然|忽然)?\s*亮起/u },
     { pattern: /窗外霓虹|霓虹光影/u },
     { pattern: /周末老地方|别迟到/u },
-  ].filter((check) => !check.pattern.test(original));
+  ].filter((check) => check.always || !check.pattern.test(original));
   if (!checks.length) return source;
   const lines = source.split(/\r?\n/);
   const output = [];

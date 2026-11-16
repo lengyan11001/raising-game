@@ -364,6 +364,15 @@
           </button>
         </article>`;
     }).join("");
+    const assetsReady = Boolean(assets.length && approvedCount === assets.length);
+    const allImagesReady = Boolean(assets.length && !missingImageAssets.length);
+    const workflowStatus = assetsReady
+      ? "全部资产已定稿。下一步进入“模型与提示词”，按所选视频模型逐镜优化。"
+      : !assets.length
+        ? "下一步：先点“AI 提取本集资产”。AI 只抽取本集分镜会用到的人物、场景和关键道具。"
+        : missingImageAssets.length
+          ? `下一步：点“补齐 ${missingImageAssets.length} 个资产图”，生成后逐项审核并设为定稿。`
+          : "下一步：逐张审核设计图，满意后点“设为定稿”；全部定稿才解锁视频提示词。";
     return `
       <section class="story-production-panel">
         <div class="story-production-toolbar">
@@ -371,10 +380,17 @@
           <div class="story-production-controls">
             <label>出图模型<select data-story-image-model>${models.map((model) => `<option value="${storyEscape(model.id)}" ${model.id === imageModel ? "selected" : ""}>${storyEscape(model.label)}</option>`).join("")}</select></label>
             <button class="story-secondary-button" type="button" data-story-plan-assets ${storyState.action ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${assets.length ? "重新提取资产" : "AI 提取本集资产"}</span></button>
-            <button class="story-create-button" type="button" data-story-generate-assets ${!missingImageAssets.length || storyState.action ? "disabled" : ""}><i data-lucide="images"></i><span>${missingImageAssets.length ? `补齐 ${missingImageAssets.length} 个资产图` : assets.length && approvedCount === assets.length ? "资产已全部定稿" : "设计图已齐，待审核"}</span></button>
+            ${assetsReady
+              ? `<button class="story-create-button" type="button" data-story-episode-view="prompts"><i data-lucide="arrow-right"></i><span>下一步：选模型并生成提示词</span></button>`
+              : `<button class="story-create-button" type="button" data-story-generate-assets ${!missingImageAssets.length || storyState.action ? "disabled" : ""}><i data-lucide="images"></i><span>${missingImageAssets.length ? `补齐 ${missingImageAssets.length} 个资产图` : assets.length ? "设计图已齐，待审核" : "先提取资产"}</span></button>`}
           </div>
         </div>
-        <div class="story-production-summary"><strong>${approvedCount} / ${assets.length}</strong><span>${assets.length && approvedCount === assets.length ? "全部资产已定稿，可进入模型与提示词。" : "资产尚未全部定稿；定稿图会作为后续镜头提示词和视频参考。"}</span></div>
+        <div class="story-workflow-guide ${assetsReady ? "is-ready" : ""}">
+          <span><b>资产阶段</b>① 选出图模型 → ② AI 提取资产 → ③ 生成设计图 → ④ 逐项设为定稿</span>
+          <strong>${allImagesReady && !assetsReady ? "只差审核定稿" : assetsReady ? "可进入下一步" : "尚未完成"}</strong>
+          <p>${workflowStatus}</p>
+        </div>
+        <div class="story-production-summary ${assetsReady ? "is-ready" : "is-warning"}"><strong>${approvedCount} / ${assets.length}</strong><span>${assetsReady ? "全部资产已定稿，可进入模型与提示词。" : "资产尚未全部定稿；定稿图会作为后续镜头提示词和视频参考。"}</span></div>
         <div class="story-production-assets">${cards || `<div class="story-shot-ai-empty"><i data-lucide="boxes"></i><div><strong>等待 AI 提取资产</strong><p>先按已生成的分镜提取人物、场景和关键道具，再生成设计图。</p></div></div>`}</div>
         <p class="story-message" id="storyEpisodeMessage">${storyEscape(storyState.actionMessage || "")}</p>
       </section>`;
@@ -384,6 +400,8 @@
     const assets = storyEpisodeAssets(episode);
     const approvedCount = assets.filter((asset) => asset.status === "approved").length;
     const assetsReady = Boolean(assets.length && approvedCount === assets.length);
+    const promptReadyCount = storyState.shots.filter((shot) => Boolean(String(shot.videoPrompt || "").trim())).length;
+    const promptsReady = Boolean(storyState.shots.length && promptReadyCount === storyState.shots.length);
     const videoModels = Array.isArray(storyState.productionModels?.video) ? storyState.productionModels.video : [];
     const optimizerModels = Array.isArray(storyState.productionModels?.optimizer) ? storyState.productionModels.optimizer.filter((model) => model.configured !== false) : [];
     const videoModel = storyState.videoModel || videoModels[0]?.id || "seedance-nsfw";
@@ -395,7 +413,7 @@
         <article class="story-prompt-shot ${shot.videoPrompt ? "is-ready" : ""}">
           <div class="story-prompt-shot-head"><b>S${String(shot.shotNo).padStart(2, "0")}</b><strong>${storyEscape(shot.title || `镜头 ${shot.shotNo}`)}</strong><span>${shot.videoPrompt ? "已优化" : "待优化"}</span></div>
           <p>${storyEscape(shot.description || "无镜头描述")}</p>
-          ${shot.videoPrompt ? `<details open><summary>最终视频提示词${promptMeta.providerLabel ? ` · ${storyEscape(promptMeta.providerLabel)}` : ""}</summary><pre>${storyEscape(shot.videoPrompt)}</pre></details>` : `<small>资产定稿后，AI 会按所选模型规则生成本镜头的最终视频提示词。</small>`}
+          ${shot.videoPrompt ? `<details open><summary>最终视频提示词 · ${storyEscape(promptMeta.providerLabel || selectedVideoModel?.label || videoModel)}${promptMeta.resolution ? ` · ${storyEscape(promptMeta.resolution)}` : ""}</summary><pre>${storyEscape(shot.videoPrompt)}</pre></details>` : `<small>资产定稿后，AI 会按所选模型规则生成本镜头的最终视频提示词。</small>`}
         </article>`;
     }).join("");
     return `
@@ -406,8 +424,14 @@
             <label>视频模型<select data-story-video-model>${videoModels.map((model) => `<option value="${storyEscape(model.id)}" ${model.id === videoModel ? "selected" : ""}>${storyEscape(model.label)}${model.promptOptimizer ? "" : "（无独立优化规则）"}</option>`).join("")}</select></label>
             <label>优化模型<select data-story-optimizer-model>${optimizerModels.map((model) => `<option value="${storyEscape(model.id)}" ${model.id === optimizerModel ? "selected" : ""}>${storyEscape(model.label)}</option>`).join("")}</select></label>
             <label>视频分辨率<select data-story-prompt-resolution>${["480p", "720p", "1080p", "4K"].map((resolution) => `<option value="${resolution}" ${resolution === storyState.promptResolution ? "selected" : ""}>${resolution}</option>`).join("")}</select></label>
-            <button class="story-create-button" type="button" data-story-plan-prompts ${assetsReady && storyState.shots.length && selectedVideoModel?.promptOptimizer && optimizerModel && !storyState.action ? "" : "disabled"}><i data-lucide="wand-sparkles"></i><span>${storyState.action === "plan-prompts" ? "AI 正在逐镜优化…" : "资产已定稿，生成全部提示词"}</span></button>
+            <button class="story-create-button" type="button" data-story-plan-prompts ${assetsReady && storyState.shots.length && selectedVideoModel?.promptOptimizer && optimizerModel && !storyState.action ? "" : "disabled"}><i data-lucide="wand-sparkles"></i><span>${storyState.action === "plan-prompts" ? "AI 正在逐镜优化…" : promptsReady ? "按当前模型重新优化全部" : "按所选模型生成全部提示词"}</span></button>
           </div>
+        </div>
+        <div class="story-workflow-guide ${promptsReady ? "is-ready" : ""}">
+          <span><b>提示词阶段</b>资产全部定稿 → 选视频模型/优化模型/分辨率 → AI 逐镜优化 → 冻结最终提示词</span>
+          <strong>${promptsReady ? `${promptReadyCount} / ${storyState.shots.length} 已冻结` : `${promptReadyCount} / ${storyState.shots.length} 已优化`}</strong>
+          <p>${!assetsReady ? "资产门禁尚未通过。先回“资产设计”完成生成和定稿。" : promptsReady ? `本集提示词已按 ${selectedVideoModel?.label || videoModel} 优化并冻结。下一步：进入图片/视频生成（后续接入）。` : "模型选择已就绪。点“按所选模型生成全部提示词”，AI 会逐镜优化并写入 PostgreSQL。"}</p>
+          ${!assetsReady ? `<button class="story-secondary-button" type="button" data-story-episode-view="assets"><i data-lucide="arrow-left"></i><span>回到资产设计</span></button>` : ""}
         </div>
         <div class="story-production-summary ${assetsReady ? "is-ready" : "is-warning"}">
           <strong>${assetsReady ? "资产门禁已通过" : `资产 ${approvedCount} / ${assets.length} 已定稿`}</strong>
@@ -474,6 +498,13 @@
       const characters = Array.isArray(metadata.characters) ? metadata.characters.join("、") : "";
       const scenes = Array.isArray(metadata.scenes) ? metadata.scenes.join("、") : "";
       const isLocked = ["outline_locked", "shots_planned", "assets_planned", "assets_ready", "prompts_planned", "ready", "complete"].includes(String(selectedEpisode.status || ""));
+      const episodeAssets = storyEpisodeAssets(selectedEpisode);
+      const episodeAssetsReady = Boolean(episodeAssets.length && episodeAssets.every((asset) => asset.status === "approved"));
+      const nextStageButton = episodeAssetsReady
+        ? `<button class="story-create-button" type="button" data-story-episode-view="prompts"><i data-lucide="arrow-right"></i><span>下一步：选模型与提示词</span></button>`
+        : episodeAssets.length
+          ? `<button class="story-create-button" type="button" data-story-episode-view="assets"><i data-lucide="arrow-right"></i><span>下一步：设计并定稿资产</span></button>`
+          : `<button class="story-create-button" type="button" data-story-plan-assets><i data-lucide="sparkles"></i><span>下一步：AI 提取本集资产</span></button>`;
       const shotRows = storyState.shots.length ? storyState.shots.map((shot) => `
         <article class="story-shot-row">
           <b>S${String(shot.shotNo).padStart(2, "0")}</b>
@@ -514,8 +545,11 @@
               </div>
             </form>` : storyState.episodeTab === "shots" ? `
             <div class="story-shot-actions">
-              <div><p>AI 已按定稿大纲拆成可审核镜头。后续提示词、图片和视频会绑定到同一镜号。</p><strong>${storyState.shots.length} 个镜头</strong></div>
-              <button class="story-secondary-button" type="button" data-story-plan-shots ${isLocked && !storyState.action ? "" : "disabled"}><i data-lucide="sparkles"></i><span>${storyState.shots.length ? "重新 AI 分镜" : "AI 生成分镜"}</span></button>
+              <div><p>AI 已按定稿大纲拆成可审核镜头。下一步由 AI 提取本集人物、场景和关键道具，再按所选出图模型生成设计图。</p><strong>${storyState.shots.length} 个镜头</strong></div>
+              <div class="story-shot-action-buttons">
+                <button class="story-secondary-button" type="button" data-story-plan-shots ${isLocked && !storyState.action ? "" : "disabled"}><i data-lucide="sparkles"></i><span>${storyState.shots.length ? "重新 AI 分镜" : "AI 生成分镜"}</span></button>
+                ${storyState.shots.length ? nextStageButton : ""}
+              </div>
             </div>
             <div class="story-shot-list">${shotRows}</div>
             ${storyState.action === "plan-shots" ? `<div class="story-list-state is-loading"><i data-lucide="loader-circle"></i>AI 正在拆分镜并写入 PostgreSQL…</div>` : ""}

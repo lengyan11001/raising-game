@@ -212,6 +212,15 @@ test("story production pipeline gates approved assets before model-optimized pro
   assert.match(handlers, /createStoryPromptVersionInDb\(\{[\s\S]*prompt: optimized\.optimizedPrompt/);
 });
 
+test("story shot prompt source never injects the episode hook into every shot", () => {
+  const handlers = read("server.parts/part-03.js");
+  const start = handlers.indexOf("function storyShotProductionPrompt(");
+  assert.notEqual(start, -1);
+  const promptSource = handlers.slice(start, handlers.indexOf("\n}\n", start));
+  assert.match(promptSource, /关键对白/);
+  assert.doesNotMatch(promptSource, /本集钩子/);
+});
+
 test("story production UI selects image and video models and writes only optimized shot prompts", () => {
   const story = read("platform.story.js");
   const css = read("platform.css");
@@ -227,6 +236,10 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /历史失败 \$\{failedCount\} 次，已收起/);
   assert.match(story, /已完成 \$\{index\} \/ \$\{assets\.length\}，剩余/);
   assert.match(story, /资产定稿后才会解锁视频提示词/);
+  assert.match(story, /下一步：AI 提取本集资产/);
+  assert.match(story, /下一步：选模型并生成提示词/);
+  assert.match(story, /按所选模型生成全部提示词/);
+  assert.match(story, /本集提示词已按 \$\{selectedVideoModel\?\.label \|\| videoModel\} 优化并冻结/);
   assert.match(story, /\/assets\/plan/);
   assert.match(story, /\/variants\/\$\{encodeURIComponent\(variantId\)\}\/approve/);
   assert.match(story, /\/prompts\/plan/);
@@ -240,6 +253,8 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(css, /\.story-production-controls \{/);
   assert.match(css, /\.story-production-assets \{/);
   assert.match(css, /\.story-asset-variant-list \{/);
+  assert.match(css, /\.story-workflow-guide \{/);
+  assert.match(css, /\.story-shot-action-buttons \{/);
 });
 
 test("story asset images use refreshed authenticated media URLs instead of persisted signed URLs", () => {
