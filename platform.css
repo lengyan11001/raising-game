@@ -15603,6 +15603,7 @@ body.app-keyboard-open {
 .story-shot-actions > div { display: grid; gap: 4px; min-width: 0; }
 .story-shot-actions p { margin: 0; color: #908694; font-size: 10px; line-height: 1.55; }
 .story-shot-actions strong { flex: 0 0 auto; color: #ffb1d0; font-size: 10px; }
+.story-shot-action-buttons { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .story-shot-list { display: grid; gap: 7px; margin-bottom: 10px; }
 .story-shot-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) 28px; align-items: start; gap: 11px; padding: 10px 11px; background: #19171c; border: 1px solid var(--story-line); border-radius: 8px; }
 .story-shot-row > b { display: grid; min-height: 32px; place-items: center; color: #ffb6d4; background: rgba(255, 79, 163, .1); border-radius: 6px; font: 750 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -15629,6 +15630,14 @@ body.app-keyboard-open {
 .story-production-summary strong { flex: 0 0 auto; color: #e9deec; }
 .story-production-summary.is-ready { border-color: #48b985; }
 .story-production-summary.is-warning { border-color: #d99645; }
+.story-workflow-guide { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 7px 14px; padding: 11px 12px; color: #a79cab; background: rgba(255, 255, 255, .025); border: 1px solid var(--story-line); border-radius: 8px; }
+.story-workflow-guide > span { color: #d8cedb; font-size: 10px; line-height: 1.6; }
+.story-workflow-guide > span b { margin-right: 8px; color: #ff9dc5; font-size: 9px; letter-spacing: .08em; }
+.story-workflow-guide > strong { padding: 4px 8px; color: #e5a85f; background: rgba(217, 150, 69, .1); border-radius: 999px; font-size: 9px; white-space: nowrap; }
+.story-workflow-guide > p { grid-column: 1 / -1; margin: 0; color: #928896; font-size: 10px; line-height: 1.6; }
+.story-workflow-guide > button { grid-column: 2; grid-row: 2; justify-self: end; }
+.story-workflow-guide.is-ready { border-color: rgba(72, 185, 133, .42); }
+.story-workflow-guide.is-ready > strong { color: #71d5a7; background: rgba(72, 185, 133, .12); }
 .story-production-assets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .story-production-asset { display: grid; align-content: start; gap: 9px; padding: 12px; background: #18161a; border: 1px solid var(--story-line); border-radius: 9px; }
 .story-production-asset.is-approved { border-color: rgba(72, 185, 133, .45); }
@@ -15691,6 +15700,9 @@ body.app-keyboard-open {
   .story-prompt-controls { width: 100%; max-width: none; }
   .story-production-controls { width: 100%; justify-content: flex-start; }
   .story-production-assets { grid-template-columns: 1fr; }
+  .story-workflow-guide { grid-template-columns: 1fr; }
+  .story-workflow-guide > strong,
+  .story-workflow-guide > button { grid-column: 1; grid-row: auto; justify-self: start; }
 }
 @media (max-width: 720px) {
   .story-shell { padding: 20px 14px 46px; }

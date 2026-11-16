@@ -585,6 +585,43 @@ test("Seedance optimizer removes unrequested story details instead of importing 
   assert.deepEqual(helpers.seedancePromptOptimizerContentIssues(repaired, 6, source).filter((issue) => issue.type === "story"), []);
 });
 
+test("Seedance optimizer does not treat grounded shot metadata as dialogue", () => {
+  const source = [
+    "项目：白洁；画幅：9:16",
+    "本集：E01 门后的人；时长：6 秒",
+    "镜头：S01 玄关停步",
+    "画面内容：白洁站在玄关，手指停在门把上。",
+    "景别：近景",
+    "运镜：缓慢推近",
+    "地点：玄关",
+    "出场角色：白洁",
+    "叙事作用：建立紧张感",
+    "本集钩子：门外的人说出她的旧名。",
+    "视觉定稿：自然窗光，写实皮肤质感。",
+    "关键对白：谁在外面？",
+  ].join("\n");
+  assert.deepEqual(helpers.seedancePromptOptimizerDialogueLines(source), ["谁在外面？"]);
+});
+
+test("Seedance optimizer always strips an invented episode hook section", () => {
+  const source = [
+    "本集钩子：门外的人说出她的旧名。",
+    "画面内容：白洁站在玄关，手指停在门把上。",
+  ].join("\n");
+  const contaminated = [
+    "【动作时间轴】",
+    "0—3秒：白洁站在玄关，手指停在门把上。",
+    "【本集钩子】",
+    "门外的人说出她的旧名。",
+  ].join("\n");
+  const issues = helpers.seedancePromptOptimizerContentIssues(contaminated, 3, source);
+  assert.ok(issues.some((issue) => issue.type === "story"));
+  const repaired = helpers.seedancePromptOptimizerRepairContent(contaminated, 3, source);
+  assert.match(repaired, /白洁站在玄关/);
+  assert.doesNotMatch(repaired, /本集钩子|旧名/);
+  assert.deepEqual(helpers.seedancePromptOptimizerContentIssues(repaired, 3, source).filter((issue) => issue.type === "story"), []);
+});
+
 test("Seedance optimizer unwraps object-valued optimizedPrompt into readable text", () => {
   const nested = JSON.stringify({
     optimizedPrompt: {

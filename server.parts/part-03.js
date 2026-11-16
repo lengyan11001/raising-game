@@ -1074,7 +1074,6 @@ function storyApprovedVariantForAsset(asset = {}, variants = []) {
 
 function storyShotProductionPrompt({ project = {}, episode = {}, shot = {}, assets = [], variants = [] } = {}) {
   const metadata = shot.metadata && typeof shot.metadata === "object" ? shot.metadata : {};
-  const episodeMetadata = episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {};
   const relevantAssets = assets.filter((asset) => storyShotUsesAsset(asset, shot));
   const assetLines = relevantAssets.map((asset) => {
     const variant = storyApprovedVariantForAsset(asset, variants);
@@ -1100,7 +1099,6 @@ function storyShotProductionPrompt({ project = {}, episode = {}, shot = {}, asse
     Array.isArray(metadata.characters) && metadata.characters.length ? `出场角色：${metadata.characters.join("、")}` : "",
     metadata.dialogue ? `关键对白：${metadata.dialogue}` : "",
     metadata.storyBeat ? `叙事作用：${metadata.storyBeat}` : "",
-    episodeMetadata.hook ? `本集钩子：${episodeMetadata.hook}` : "",
     "已定稿资产（身份、服装、场景结构和关键道具必须严格延续）：",
     assetLines || "- 本镜头未绑定资产，按镜头描述和前后镜连续性执行",
     "请只生成这一镜可直接交给视频模型执行的提示词；不要拆成多镜，不要改写剧情，不要加入未定稿角色或道具。",
