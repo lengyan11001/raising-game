@@ -158,6 +158,27 @@ class DeployOldRollingTests(unittest.TestCase):
             "verify /opt/releases/commit /opt/shared/assets",
             command,
         )
+        self.assertEqual(command[command.index("--primary-port") + 1], "4174")
+        self.assertEqual(command[command.index("--candidate-port") + 1], "4175")
+
+    def test_transaction_roles_follow_current_active_port(self) -> None:
+        args = ROLLING.parse_args([
+            "--commit", "a" * 40,
+            "--shared-assets", "/opt/shared/assets",
+            "--primary-service", "primary.service",
+            "--candidate-service", "candidate.service",
+            "--primary-port", "4174",
+            "--candidate-port", "4175",
+        ])
+        command = ROLLING.transaction_command(
+            args,
+            Path("/opt/releases/commit"),
+            "4175",
+        )
+        self.assertEqual(command[command.index("--primary-service") + 1], "candidate.service")
+        self.assertEqual(command[command.index("--candidate-service") + 1], "primary.service")
+        self.assertEqual(command[command.index("--primary-port") + 1], "4175")
+        self.assertEqual(command[command.index("--candidate-port") + 1], "4174")
 
     def test_dependency_manifests_must_match_the_candidate_node_modules(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

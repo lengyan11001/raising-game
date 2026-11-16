@@ -1,3 +1,11 @@
+## 2026-11-16 Step BE: Old rolling deploy active-port role fix
+
+- The first deployment of the compact Generate parameter picker safely rolled back because the rolling wrapper always passed the default primary/candidate roles to the transaction. With production traffic already on `4175` (`raising-game-demo-b.service`), the transaction expected that active service to contain the new release instead of the inactive `4174` target.
+- `transaction_command()` now passes effective primary/candidate service and port roles in the direction of the discovered active port: the current active unit is primary and the inactive target unit is candidate. This keeps the transaction's no-op/rollback semantics aligned with the wrapper's computed target.
+- Added a regression test for active `4175`, asserting the transaction receives `raising-game-demo-b.service:4175` as primary and `raising-game-demo.service:4174` as candidate.
+- Focused deploy tests passed `15/15`; full `npm test` passed `1,361` with `0` failures and `1` skipped; Python compile and `git diff --check` passed.
+- No database changes. Deployment is completed below only after the corrected release passes the Old-only rolling deploy.
+
 ## 2026-11-16 Step BD: Generate parameter picker compact layout
 
 - The Generate model/parameter popup is now narrower and shorter: `480px` maximum width, `48vh / 380px` maximum height, tighter gaps, smaller option rows, and the same compact height on mobile instead of removing the cap.

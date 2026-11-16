@@ -427,15 +427,21 @@ def expand_hook(template: str, release: Path, shared_assets: Path) -> str:
 
 def transaction_command(args: argparse.Namespace, release: Path, active_port: str) -> list[str]:
     shared_assets = Path(args.shared_assets).resolve()
+    if active_port == args.primary_port:
+        primary_service, primary_port = args.primary_service, args.primary_port
+        candidate_service, candidate_port = args.candidate_service, args.candidate_port
+    else:
+        primary_service, primary_port = args.candidate_service, args.candidate_port
+        candidate_service, candidate_port = args.primary_service, args.primary_port
     command = [
         args.python,
         str(release / "ops" / "rolling-deploy-transaction.py"),
         "--apply",
         "--release", str(release),
-        "--primary-service", args.primary_service,
-        "--candidate-service", args.candidate_service,
-        "--primary-port", args.primary_port,
-        "--candidate-port", args.candidate_port,
+        "--primary-service", primary_service,
+        "--candidate-service", candidate_service,
+        "--primary-port", primary_port,
+        "--candidate-port", candidate_port,
         "--env-file", str(args.env_file),
         "--switch-script", str(release / "ops" / "nginx-upstream-switch.py"),
         "--canary-percent", str(args.canary_percent),
