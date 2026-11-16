@@ -1,3 +1,11 @@
+## 2026-11-16 Step BK: Old release-disk exhaustion recovery
+
+- Incident: the Old host root filesystem reached `100%` after immutable release snapshots accumulated. PostgreSQL 16 panicked during checkpoint on `No space left on device`, entered automatic recovery, and returned `57P03` until capacity was restored.
+- Immediate recovery: removed 13 immutable release directories not referenced by either running service, retaining active `699c31a3` and rollback/primary `15b0556b`. Root usage dropped from `100%` to `87%` (`6.1G` free). PostgreSQL completed recovery and `database system is ready to accept connections`; `/api/readyz` returned `200` and normal pages/API auth checks recovered.
+- Root page cause was deployment retention, not a schema mutation: each Old release is about `515M` and the rolling deployer kept every prepared snapshot.
+- Hardened `scripts/deploy_old_rolling.py`: pre-deploy pruning only removes safe commit-named immutable releases outside protected loaded releases, post-deploy pruning retains the newest `4` plus any loaded release, and every prepare requires at least `2GiB` free disk.
+- Added coverage in `test/test_deploy_old_rolling.py`; Python compile, `git diff --check`, and `18/18` focused tests pass.
+
 ## 2026-11-16 Step BJ: story P1 script-to-episode workflow
 
 - Added project-level `AGENTS.md` safety rules for bounded writes and contaminated conversations after an `8192`/`max_output_tokens` truncation.
