@@ -200,7 +200,8 @@ test("story production pipeline gates approved assets before model-optimized pro
     assert.match(imports, new RegExp(`\\b${fn},`), `server import ${fn}`);
   }
   assert.match(handlers, /STORY_ASSETS_NOT_APPROVED/);
-  assert.match(handlers, /const unapproved = assets\.filter\(\(asset\) => asset\.status !== "approved"\)/);
+  assert.match(handlers, /function storyAssetDesignReady[\s\S]*storyApprovedVariantHasImage/);
+  assert.match(handlers, /const unapproved = assets\.filter\(\(asset\) => !storyAssetDesignReady\(asset, variants \|\| \[\]\)\)/);
   assert.match(handlers, /if \(unapproved\.length\)[\s\S]*STORY_ASSETS_NOT_APPROVED/);
   assert.match(handlers, /provider\.promptOptimizer[\s\S]*STORY_VIDEO_MODEL_OPTIMIZER_UNAVAILABLE/);
   assert.match(handlers, /promptOptimizerRequestForPayload/);
@@ -231,6 +232,8 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /AI 提取本集资产/);
   assert.match(story, /补齐 \$\{missingImageAssets\.length\} 个资产图/);
   assert.match(story, /storyAssetsNeedingImage/);
+  assert.match(story, /function storyAssetHasApprovedImage[\s\S]*storyAssetVariantImageUrl\(approved\)/);
+  assert.match(story, /assets\.every\(\(asset\) => storyAssetHasApprovedImage\(asset\)\)/);
   assert.match(story, /function storyVariantStatusLabel[\s\S]*可审核/);
   assert.match(story, /设计图已齐，待审核/);
   assert.match(story, /历史失败 \$\{failedCount\} 次，已收起/);

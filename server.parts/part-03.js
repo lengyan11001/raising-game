@@ -1069,7 +1069,25 @@ function storyShotUsesAsset(asset = {}, shot = {}) {
 
 function storyApprovedVariantForAsset(asset = {}, variants = []) {
   const approvedId = String(asset.metadata?.approvedVariantId || "");
-  return variants.find((variant) => variant.assetId === asset.id && (variant.id === approvedId || variant.status === "approved")) || null;
+  const assetVariants = variants.filter((variant) => variant.assetId === asset.id);
+  return assetVariants.find((variant) => variant.id === approvedId && variant.status === "approved")
+    || assetVariants.find((variant) => variant.status === "approved")
+    || null;
+}
+
+function storyApprovedVariantHasImage(variant = {}) {
+  if (!variant || variant.status !== "approved") return false;
+  const metadata = variant.metadata && typeof variant.metadata === "object" ? variant.metadata : {};
+  return Boolean(
+    String(variant.mediaUrl || "").trim()
+      || String(metadata.mediaUrl || "").trim()
+      || String(metadata.imageUrl || "").trim()
+      || String(metadata.generationRecordId || "").trim()
+  );
+}
+
+function storyAssetDesignReady(asset = {}, variants = []) {
+  return storyApprovedVariantHasImage(storyApprovedVariantForAsset(asset, variants));
 }
 
 function storyShotProductionPrompt({ project = {}, episode = {}, shot = {}, assets = [], variants = [] } = {}) {
@@ -1521,15 +1539,16 @@ async function handleApproveStoryAssetVariant(req, res, projectId = "", assetId 
   if (!approved) return sendJson(res, 404, { ok: false, code: "STORY_ASSET_VARIANT_NOT_FOUND", message: "资产设计图不存在。" });
   const episodeIds = storyTextList(approved.asset?.metadata?.episodeIds || [], 100, 80);
   if (episodeIds.length) {
-    const [episodes, allAssets] = await Promise.all([
+    const [episodes, allAssets, allVariants] = await Promise.all([
       listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id }),
       listStoryAssetsFromDb({ projectId, ownerUserId: auth.user.id }),
+      listStoryAssetVariantsFromDb({ projectId, ownerUserId: auth.user.id }),
     ]);
     for (const episodeId of episodeIds) {
       const episode = (episodes || []).find((item) => item.id === episodeId);
       if (!episode) continue;
       const episodeAssets = (allAssets || []).filter((asset) => storyAssetBelongsToEpisode(asset, episode));
-      if (!episodeAssets.length || episodeAssets.some((asset) => asset.status !== "approved")) continue;
+      if (!episodeAssets.length || episodeAssets.some((asset) => !storyAssetDesignReady(asset, allVariants || []))) continue;
       await updateStoryEpisodeInDb({
         projectId,
         ownerUserId: auth.user.id,
@@ -1590,13 +1609,13 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
   if (targetShotId && !shots.some((shot) => shot.id === targetShotId)) {
     return sendJson(res, 404, { ok: false, code: "STORY_SHOT_NOT_FOUND", message: "要优化的镜头不存在。" });
   }
-  const unapproved = assets.filter((asset) => asset.status !== "approved");
+  const unapproved = assets.filter((asset) => !storyAssetDesignReady(asset, variants || []));
   if (unapproved.length) {
     return sendJson(res, 409, {
       ok: false,
       code: "STORY_ASSETS_NOT_APPROVED",
-      message: `还有 ${unapproved.length} 个资产未定稿：${unapproved.map((asset) => asset.name).slice(0, 8).join("、")}`,
-      details: { assets: unapproved.map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind, status: asset.status })) },
+      message: `还有 ${unapproved.length} 个资产未定稿或缺少已定稿设计图：${unapproved.map((asset) => asset.name).slice(0, 8).join("、")}`,
+      details: { assets: unapproved.map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind, status: asset.status, hasApprovedImage: false })) },
     });
   }
   const updatedShots = [];
