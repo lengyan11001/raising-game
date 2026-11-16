@@ -117,6 +117,10 @@
           <i data-lucide="workflow"></i>
           <span data-i18n="nav.workflow">Workflow</span>
         </button>
+        <button class="top-tab" data-tab="episodes" data-admin-only type="button" hidden>
+          <i data-lucide="clapperboard"></i>
+          <span>剧集</span>
+        </button>
         <button class="top-tab" data-tab="referral" type="button">
           <i data-lucide="share-2"></i>
           <span data-i18n="nav.referral">Referral</span>
@@ -832,6 +836,47 @@
 
       <section class="workflow-panel" data-panel="workflow" hidden>
         <div class="workflow-shell" id="workflowRoot"></div>
+      </section>
+
+      <section class="story-panel" data-panel="episodes" hidden>
+        <div class="story-shell">
+          <header class="story-hero">
+            <div>
+              <p class="eyebrow">ADMIN · STORY PRODUCTION</p>
+              <h2>剧集项目</h2>
+              <p>一个剧本对应一个项目。P0 固定项目、剧集、资产、镜头与提示词的数据边界，业务数据只写入 PostgreSQL。</p>
+            </div>
+            <div class="story-contract-badge" id="storyContractBadge">P0 · 加载中</div>
+          </header>
+          <div class="story-layout">
+            <aside class="story-project-rail">
+              <form class="story-create-form" id="storyProjectForm">
+                <div class="story-rail-head">
+                  <strong>新建剧集项目</strong>
+                  <small>Admin only</small>
+                </div>
+                <label>项目名<input id="storyProjectName" maxlength="120" placeholder="例如：夜班便利店" required /></label>
+                <label>目标集数<input id="storyProjectEpisodes" type="number" min="1" max="1000" value="1" /></label>
+                <label>画幅<select id="storyProjectAspect"><option value="9:16">9:16 竖屏</option><option value="16:9">16:9 横屏</option><option value="1:1">1:1 方形</option><option value="4:5">4:5</option></select></label>
+                <label>项目说明<textarea id="storyProjectDescription" maxlength="4000" rows="3" placeholder="题材、受众、交付标准"></textarea></label>
+                <button class="primary-button" type="submit">创建项目</button>
+                <p class="story-message" id="storyProjectMessage"></p>
+              </form>
+              <div class="story-project-list-head">
+                <strong>项目列表</strong>
+                <button class="ghost-button" id="storyRefreshProjects" type="button">刷新</button>
+              </div>
+              <div class="story-project-list" id="storyProjectList"></div>
+            </aside>
+            <main class="story-detail" id="storyProjectDetail">
+              <div class="story-empty">
+                <i data-lucide="clapperboard"></i>
+                <h3>选择一个项目</h3>
+                <p>创建后即可看到剧本版本、剧集、资产、镜头和三级画布入口。</p>
+              </div>
+            </main>
+          </div>
+        </div>
       </section>
 
       <section class="asset-panel" data-panel="assets" hidden>

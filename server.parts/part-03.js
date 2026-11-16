@@ -663,6 +663,201 @@ async function handleDeleteWorkflowCanvas(req, res, canvasId = "") {
   return sendJson(res, 200, { ok: true, canvases: workflowCanvasListView(canvases), deletedId: canvasId });
 }
 
+const STORY_CONTRACT_VERSION = "story-p0-v1";
+const STORY_CANVAS_LIMITS = Object.freeze({ maxNodes: 100, maxEdges: 200 });
+const STORY_PORT_TYPES = Object.freeze(["text", "script", "episode", "asset", "shot", "prompt", "image", "video", "review"]);
+const STORY_ASSET_KINDS = Object.freeze(["character", "scene", "prop", "style", "audio"]);
+const STORY_CANVAS_SCOPES = Object.freeze([
+  Object.freeze({
+    scope: "project",
+    purpose: "原始文稿、定稿、拆集、全局资产和交付审核",
+    ...STORY_CANVAS_LIMITS,
+    nodeTypes: ["script.input", "script.finalize", "episode.planner", "asset.extractor", "review.gate"],
+  }),
+  Object.freeze({
+    scope: "episode",
+    purpose: "单集场次、连续性、镜头规划和角色/场景引用",
+    ...STORY_CANVAS_LIMITS,
+    nodeTypes: ["asset.character", "asset.scene", "shot.planner", "prompt.composer", "review.gate"],
+  }),
+  Object.freeze({
+    scope: "shot",
+    purpose: "镜头提示词冻结、图片/视频生成引用和审核",
+    ...STORY_CANVAS_LIMITS,
+    nodeTypes: ["prompt.composer", "media.image_generate", "media.video_generate", "review.gate"],
+  }),
+]);
+const STORY_NODE_CONTRACTS = Object.freeze([
+  Object.freeze({ type: "script.input", scope: "project", title: "原始文稿", inputs: [], outputs: [{ type: "text", multiple: false }] }),
+  Object.freeze({ type: "script.finalize", scope: "project", title: "定稿", inputs: [{ type: "text", multiple: false }], outputs: [{ type: "script", multiple: false }, { type: "episode", multiple: true }] }),
+  Object.freeze({ type: "episode.planner", scope: "project", title: "拆集/拆场", inputs: [{ type: "script", multiple: false }], outputs: [{ type: "episode", multiple: true }] }),
+  Object.freeze({ type: "asset.extractor", scope: "project", title: "资产提取", inputs: [{ type: "script", multiple: true }, { type: "episode", multiple: true }], outputs: [{ type: "asset", multiple: true }] }),
+  Object.freeze({ type: "asset.character", scope: "episode", title: "角色设定", inputs: [{ type: "asset", multiple: true }, { type: "text", multiple: true }], outputs: [{ type: "asset", multiple: false }, { type: "prompt", multiple: false }, { type: "image", multiple: true }] }),
+  Object.freeze({ type: "asset.scene", scope: "episode", title: "场景设定", inputs: [{ type: "asset", multiple: true }, { type: "text", multiple: true }], outputs: [{ type: "asset", multiple: false }, { type: "prompt", multiple: false }, { type: "image", multiple: true }] }),
+  Object.freeze({ type: "shot.planner", scope: "episode", title: "分镜规划", inputs: [{ type: "episode", multiple: false }, { type: "asset", multiple: true }], outputs: [{ type: "shot", multiple: true }] }),
+  Object.freeze({ type: "prompt.composer", scope: "episode", title: "镜头提示词", inputs: [{ type: "shot", multiple: false }, { type: "asset", multiple: true }], outputs: [{ type: "prompt", multiple: false }] }),
+  Object.freeze({ type: "prompt.composer", scope: "shot", title: "最终提示词", inputs: [{ type: "shot", multiple: false }, { type: "asset", multiple: true }, { type: "text", multiple: true }], outputs: [{ type: "prompt", multiple: false }] }),
+  Object.freeze({ type: "media.image_generate", scope: "shot", title: "图片生成", inputs: [{ type: "prompt", multiple: false }, { type: "image", multiple: true }], outputs: [{ type: "image", multiple: true }] }),
+  Object.freeze({ type: "media.video_generate", scope: "shot", title: "视频生成", inputs: [{ type: "prompt", multiple: false }, { type: "image", multiple: true }, { type: "video", multiple: true }], outputs: [{ type: "video", multiple: true }] }),
+  Object.freeze({ type: "review.gate", scope: "project", title: "项目审核", inputs: [{ type: "script", multiple: true }, { type: "episode", multiple: true }, { type: "asset", multiple: true }], outputs: [{ type: "review", multiple: false }] }),
+  Object.freeze({ type: "review.gate", scope: "episode", title: "单集审核", inputs: [{ type: "shot", multiple: true }, { type: "image", multiple: true }], outputs: [{ type: "review", multiple: false }] }),
+  Object.freeze({ type: "review.gate", scope: "shot", title: "镜头审核", inputs: [{ type: "image", multiple: true }, { type: "video", multiple: true }], outputs: [{ type: "review", multiple: false }] }),
+]);
+
+function storyContracts() {
+  return {
+    version: STORY_CONTRACT_VERSION,
+    canvasLimits: STORY_CANVAS_LIMITS,
+    portTypes: STORY_PORT_TYPES,
+    assetKinds: STORY_ASSET_KINDS,
+    scopes: STORY_CANVAS_SCOPES,
+    nodes: STORY_NODE_CONTRACTS,
+    rules: {
+      businessData: "PostgreSQL only",
+      canvasPayload: "layout and references only",
+      versioning: "freeze script, asset, prompt, and generation references; upstream changes mark downstream outputs stale",
+      generation: "image and video nodes reference generation records instead of embedding media metadata",
+    },
+  };
+}
+
+function storyProjectClientView(project = {}) {
+  return {
+    id: project.id,
+    name: project.name,
+    description: project.description,
+    status: project.status,
+    aspectRatio: project.aspectRatio,
+    episodeTarget: project.episodeTarget,
+    settings: project.settings,
+    episodeCount: project.episodeCount,
+    scriptVersionCount: project.scriptVersionCount,
+    assetCount: project.assetCount,
+    shotCount: project.shotCount,
+    latestScriptAt: project.latestScriptAt,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+  };
+}
+
+function storyInputText(value = "", maxLength = 2000) {
+  return String(value || "").trim().slice(0, maxLength);
+}
+
+function storyProjectInput(body = {}) {
+  const aspectRatio = ["9:16", "16:9", "1:1", "4:5"].includes(String(body.aspectRatio || "").trim())
+    ? String(body.aspectRatio).trim()
+    : "9:16";
+  const episodeTarget = Math.max(1, Math.min(1000, Math.round(Number(body.episodeTarget || 1) || 1)));
+  return {
+    name: storyInputText(body.name, 120) || "未命名剧集项目",
+    description: storyInputText(body.description, 4000),
+    status: storyInputText(body.status, 40) || "draft",
+    aspectRatio,
+    episodeTarget,
+    settings: body.settings && typeof body.settings === "object" && !Array.isArray(body.settings) ? body.settings : {},
+  };
+}
+
+async function handleStoryContracts(req, res) {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  return sendJson(res, 200, { ok: true, contract: storyContracts() });
+}
+
+async function handleListStoryProjects(req, res) {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const projects = await listStoryProjectsFromDb(auth.user.id);
+  if (projects === null) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  return sendJson(res, 200, { ok: true, contractVersion: STORY_CONTRACT_VERSION, projects: projects.map(storyProjectClientView) });
+}
+
+async function handleCreateStoryProject(req, res) {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req, 256 * 1024);
+  const project = await createStoryProjectInDb({
+    id: randomId("story"),
+    ownerUserId: auth.user.id,
+    ...storyProjectInput(body),
+  });
+  if (!project) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  return sendJson(res, 201, { ok: true, project: storyProjectClientView(project) });
+}
+
+async function handleGetStoryProject(req, res, projectId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
+  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  const [episodes, canvasLinks] = await Promise.all([
+    listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id }),
+    listStoryCanvasLinksFromDb({ projectId, ownerUserId: auth.user.id }),
+  ]);
+  return sendJson(res, 200, {
+    ok: true,
+    contractVersion: STORY_CONTRACT_VERSION,
+    project: storyProjectClientView(project),
+    episodes: episodes || [],
+    canvasLinks: canvasLinks || [],
+    contracts: storyContracts(),
+  });
+}
+
+async function handleUpdateStoryProject(req, res, projectId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const existing = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
+  if (existing === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!existing) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  const body = await readJson(req, 256 * 1024);
+  const merged = storyProjectInput({ ...storyProjectClientView(existing), ...body });
+  const project = await updateStoryProjectInDb({ id: projectId, ownerUserId: auth.user.id, ...merged });
+  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  return sendJson(res, 200, { ok: true, project: storyProjectClientView(project) });
+}
+
+async function handleListStoryEpisodes(req, res, projectId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
+  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  const episodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
+  return sendJson(res, 200, { ok: true, episodes: episodes || [] });
+}
+
+async function handleCreateStoryEpisode(req, res, projectId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req, 256 * 1024);
+  const episode = await createStoryEpisodeInDb({
+    id: randomId("episode"),
+    projectId,
+    ownerUserId: auth.user.id,
+    episodeNo: Math.max(0, Math.round(Number(body.episodeNo || 0) || 0)),
+    title: storyInputText(body.title, 160),
+    synopsis: storyInputText(body.synopsis, 8000),
+    status: storyInputText(body.status, 40) || "draft",
+    durationSeconds: Math.max(0, Math.min(24 * 60 * 60, Math.round(Number(body.durationSeconds || 0) || 0))),
+    metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {},
+  });
+  if (!episode) {
+    if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+    return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  }
+  return sendJson(res, 201, { ok: true, episode });
+}
+
 function compactPlainText(value = "", maxLength = 220) {
   const text = String(value || "")
     .replace(/<[^>]*>/g, " ")

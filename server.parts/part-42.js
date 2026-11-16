@@ -720,6 +720,34 @@ async function handleRequest(req, res) {
       return await handleUnlockUndressToolResult(req, res, decodeURIComponent(unlockUndressToolMatch[1]));
     }
 
+    if (req.method === "GET" && url.pathname === "/api/story/contracts") {
+      return await handleStoryContracts(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/story/projects") {
+      return await handleListStoryProjects(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/story/projects") {
+      return await handleCreateStoryProject(req, res);
+    }
+
+    const storyProjectEpisodesMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/?$/);
+    if (req.method === "GET" && storyProjectEpisodesMatch) {
+      return await handleListStoryEpisodes(req, res, decodeURIComponent(storyProjectEpisodesMatch[1]));
+    }
+    if (req.method === "POST" && storyProjectEpisodesMatch) {
+      return await handleCreateStoryEpisode(req, res, decodeURIComponent(storyProjectEpisodesMatch[1]));
+    }
+
+    const storyProjectMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/?$/);
+    if (req.method === "GET" && storyProjectMatch) {
+      return await handleGetStoryProject(req, res, decodeURIComponent(storyProjectMatch[1]));
+    }
+    if (req.method === "PUT" && storyProjectMatch) {
+      return await handleUpdateStoryProject(req, res, decodeURIComponent(storyProjectMatch[1]));
+    }
+
     if (req.method === "GET" && url.pathname === "/api/workflow/presets") {
       return await handleWorkflowPresets(req, res);
     }
