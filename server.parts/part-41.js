@@ -218,8 +218,9 @@ async function handleAdminGenerationRecordMedia(req, res, taskId) {
       }
     }
   }
-  if (!isPublicHttpUrl(target.url || "")) return sendJson(res, 404, { ok: false, message: "Generated media is unavailable." });
-  return proxyRemoteMedia(req, res, target.url, { fallbackMime: mime, headers });
+  const inlineUrl = generationRecordInlineMediaUrl(target);
+  if (!isPublicHttpUrl(inlineUrl)) return sendJson(res, 404, { ok: false, message: "Generated media is unavailable." });
+  return proxyRemoteMedia(req, res, inlineUrl, { fallbackMime: mime, headers });
 }
 
 function generationRecordMediaAssetIds(record = {}) {
@@ -1411,6 +1412,28 @@ function makeR2PresignedDownloadUrl({ key, fileName, contentType = "application/
   const stringToSign = ["AWS4-HMAC-SHA256", xDate, scope, sha256Hex(canonicalRequest)].join("\n");
   const signature = hmac(signAwsKey(R2.secretKey, date, R2.region || "auto", "s3"), stringToSign, "hex");
   return `${endpoint.protocol}//${endpoint.host}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
+}
+
+function generationRecordInlineMediaUrl(target = {}) {
+  const storage = objectStorageDownloadKey(target);
+  if (storage.provider === "oss" && storage.key) {
+    return makeOssSignedCdnUrl({
+      key: storage.key,
+      fileName: target.fileName,
+      contentType: target.mime,
+      download: false,
+      config: OSS,
+    }) || target.url || "";
+  }
+  if (storage.provider === "r2" && storage.key) {
+    return makeR2PresignedDownloadUrl({
+      key: storage.key,
+      fileName: target.fileName,
+      contentType: target.mime,
+      expiresSeconds: 600,
+    }) || target.url || "";
+  }
+  return target.url || "";
 }
 
 function generationRecordDownloadUrlPayload(target = {}, fallbackUrl = "") {
