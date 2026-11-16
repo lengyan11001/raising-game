@@ -1,3 +1,9 @@
+## 2026-11-16 Step BI: story project create async form fix
+
+- Fixed `Cannot read properties of null (reading 'reset')` in `createStoryProject`: cache the submitted form before awaiting `POST /api/story/projects`, then call `form.reset()` instead of reading `event.currentTarget` after the await.
+- Successful creation now clears the form and closes the creation sheet before refreshing the project library, so the create panel does not remain open.
+- Added regression assertions in `test/story-canvas-p0.test.js`; `node --check platform.story.js`, `git diff --check`, focused story tests `4/4`, and `npm run check:undef` passed.
+
 ## 2026-11-16 Step BH: story P0 visual alignment with Old canvas library
 
 - Reworked only the admin `episodes` panel in `platform.html`, `platform.css`, and `platform.story.js`; the existing Workflow canvas remains untouched and unmounted.

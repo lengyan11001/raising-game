@@ -291,13 +291,14 @@
 
   async function createStoryProject(event) {
     event.preventDefault();
+    const form = event.currentTarget;
     const message = storyEl("storyProjectMessage");
     const name = storyEl("storyProjectName")?.value || "";
     if (!name.trim()) {
       if (message) message.textContent = "请输入项目名。";
       return;
     }
-    const button = event.currentTarget.querySelector('button[type="submit"]');
+    const button = form.querySelector('button[type="submit"]');
     if (button) button.disabled = true;
     if (message) message.textContent = "正在创建…";
     try {
@@ -310,7 +311,7 @@
           episodeTarget: Number(storyEl("storyProjectEpisodes")?.value || 1),
         },
       });
-      event.currentTarget.reset();
+      form.reset();
       if (message) message.textContent = "";
       setStoryCreateOpen(false);
       await loadStoryProjects(payload.project?.id || "");
