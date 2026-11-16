@@ -308,17 +308,36 @@
     return storyAssetVariants(asset.id).find((variant) => variant.id === approvedId || variant.status === "approved") || null;
   }
 
+  function storyAssetVariantImageUrl(variant = {}) {
+    return String(variant.mediaUrl || variant.metadata?.mediaUrl || variant.metadata?.imageUrl || "").trim();
+  }
+
+  function storyAssetHasGeneratedImage(asset = {}) {
+    return storyAssetVariants(asset.id).some((variant) => variant.status !== "failed" && Boolean(storyAssetVariantImageUrl(variant)));
+  }
+
+  function storyAssetsNeedingImage(assets = []) {
+    return assets.filter((asset) => asset.status !== "approved" && !storyAssetHasGeneratedImage(asset));
+  }
+
   function storyAssetKindLabel(kind = "") {
     return ({ character: "角色", scene: "场景", prop: "道具", style: "风格", audio: "声音" })[kind] || "资产";
+  }
+
+  function storyVariantStatusLabel(status = "") {
+    return ({ approved: "已定稿", ready: "可审核", generating: "生成中", queued: "排队中", pending: "等待中", rejected: "未选", failed: "失败", draft: "草稿" })[status] || status || "待处理";
   }
 
   function renderStoryEpisodeAssets(episode = {}) {
     const assets = storyEpisodeAssets(episode);
     const approvedCount = assets.filter((asset) => asset.status === "approved").length;
+    const missingImageAssets = storyAssetsNeedingImage(assets);
     const models = Array.isArray(storyState.productionModels?.image) ? storyState.productionModels.image : [];
     const imageModel = models.some((model) => model.id === storyState.imageModel) ? storyState.imageModel : (models[0]?.id || "qwen-image3");
     const cards = assets.map((asset) => {
       const variants = storyAssetVariants(asset.id);
+      const visibleVariants = variants.filter((variant) => variant.status === "approved" || (variant.status !== "failed" && Boolean(storyAssetVariantImageUrl(variant))) || ["generating", "queued", "pending"].includes(variant.status));
+      const failedCount = variants.filter((variant) => variant.status === "failed").length;
       const approved = storyApprovedAssetVariant(asset);
       const generating = storyState.generatingAssetId === asset.id;
       return `
@@ -330,15 +349,16 @@
           <p>${storyEscape(asset.description || "AI 尚未补全视觉描述。")}</p>
           ${asset.metadata?.continuity ? `<small>连续性：${storyEscape(asset.metadata.continuity)}</small>` : ""}
           <details><summary>查看设计图提示词</summary><p>${storyEscape(asset.metadata?.imagePrompt || asset.description || "无")}</p></details>
-          ${approved?.metadata?.imageUrl ? `<img class="story-production-asset-image" src="${storyEscape(approved.metadata.imageUrl)}" alt="${storyEscape(asset.name)} 定稿设计图" loading="lazy" />` : ""}
+          ${approved && storyAssetVariantImageUrl(approved) ? `<img class="story-production-asset-image" src="${storyEscape(storyAssetVariantImageUrl(approved))}" alt="${storyEscape(asset.name)} 定稿设计图" loading="lazy" />` : ""}
           <div class="story-asset-variant-list">
-            ${variants.length ? variants.map((variant) => `
+            ${visibleVariants.length ? visibleVariants.map((variant) => `
               <div class="story-asset-variant ${variant.status === "approved" ? "is-approved" : ""}">
-                ${variant.metadata?.imageUrl ? `<img src="${storyEscape(variant.metadata.imageUrl)}" alt="${storyEscape(asset.name)} 设计变体" loading="lazy" />` : `<span>${storyEscape(variant.status || "生成中")}</span>`}
-                <small>${storyEscape(variant.status === "approved" ? "已定稿" : variant.status === "rejected" ? "未选" : variant.status || "待处理")}</small>
-                ${variant.metadata?.imageUrl && variant.status !== "approved" ? `<button type="button" data-story-approve-variant="${storyEscape(variant.id)}" data-story-asset-id="${storyEscape(asset.id)}">设为定稿</button>` : ""}
+                ${storyAssetVariantImageUrl(variant) ? `<img src="${storyEscape(storyAssetVariantImageUrl(variant))}" alt="${storyEscape(asset.name)} 设计变体" loading="lazy" />` : `<span>${storyEscape(storyVariantStatusLabel(variant.status))}</span>`}
+                <small>${storyEscape(storyVariantStatusLabel(variant.status))}</small>
+                ${storyAssetVariantImageUrl(variant) && variant.status !== "approved" ? `<button type="button" data-story-approve-variant="${storyEscape(variant.id)}" data-story-asset-id="${storyEscape(asset.id)}">设为定稿</button>` : ""}
               </div>`).join("") : `<span class="story-asset-empty">还没有设计图。</span>`}
           </div>
+          ${failedCount ? `<small class="story-asset-history">历史失败 ${failedCount} 次，已收起，不占用设计图区。</small>` : ""}
           <button class="story-secondary-button" type="button" data-story-generate-asset="${storyEscape(asset.id)}" ${generating || storyState.action ? "disabled" : ""}>
             <i data-lucide="${generating ? "loader-circle" : "image-plus"}"></i><span>${generating ? "正在生成设计图…" : variants.length ? "再生成一版" : "AI 生成设计图"}</span>
           </button>
@@ -351,10 +371,10 @@
           <div class="story-production-controls">
             <label>出图模型<select data-story-image-model>${models.map((model) => `<option value="${storyEscape(model.id)}" ${model.id === imageModel ? "selected" : ""}>${storyEscape(model.label)}</option>`).join("")}</select></label>
             <button class="story-secondary-button" type="button" data-story-plan-assets ${storyState.action ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${assets.length ? "重新提取资产" : "AI 提取本集资产"}</span></button>
-            <button class="story-create-button" type="button" data-story-generate-assets ${!assets.length || storyState.action ? "disabled" : ""}><i data-lucide="images"></i><span>生成未定稿设计图</span></button>
+            <button class="story-create-button" type="button" data-story-generate-assets ${!missingImageAssets.length || storyState.action ? "disabled" : ""}><i data-lucide="images"></i><span>${missingImageAssets.length ? `补齐 ${missingImageAssets.length} 个资产图` : assets.length && approvedCount === assets.length ? "资产已全部定稿" : "设计图已齐，待审核"}</span></button>
           </div>
         </div>
-        <div class="story-production-summary"><strong>${approvedCount} / ${assets.length}</strong><span>资产已定稿。每个定稿设计图会作为后续镜头提示词和视频参考。</span></div>
+        <div class="story-production-summary"><strong>${approvedCount} / ${assets.length}</strong><span>${assets.length && approvedCount === assets.length ? "全部资产已定稿，可进入模型与提示词。" : "资产尚未全部定稿；定稿图会作为后续镜头提示词和视频参考。"}</span></div>
         <div class="story-production-assets">${cards || `<div class="story-shot-ai-empty"><i data-lucide="boxes"></i><div><strong>等待 AI 提取资产</strong><p>先按已生成的分镜提取人物、场景和关键道具，再生成设计图。</p></div></div>`}</div>
         <p class="story-message" id="storyEpisodeMessage">${storyEscape(storyState.actionMessage || "")}</p>
       </section>`;
@@ -988,7 +1008,7 @@
     });
     const variant = created.variant;
     try {
-      let imageUrl = storyGenerationImageUrl(payload.record || {}) || variant?.metadata?.imageUrl || "";
+      let imageUrl = storyGenerationImageUrl(payload.record || {}) || storyAssetVariantImageUrl(variant);
       let generationStatus = "ready";
       if (!imageUrl) {
         const record = await pollStoryGenerationRecord(taskId);
@@ -1063,7 +1083,7 @@
   }
 
   async function generateMissingStoryAssets() {
-    const assets = storyEpisodeAssets(selectedStoryEpisode() || {}).filter((asset) => asset.status !== "approved");
+    const assets = storyAssetsNeedingImage(storyEpisodeAssets(selectedStoryEpisode() || {}));
     if (!assets.length || storyState.action) return;
     storyState.action = "generate-assets";
     storyState.episodeTab = "assets";
@@ -1071,9 +1091,9 @@
     renderStoryDetail();
     const failures = [];
     try {
-      for (const asset of assets) {
+      for (const [index, asset] of assets.entries()) {
         storyState.generatingAssetId = asset.id;
-        storyState.actionMessage = `正在生成「${asset.name}」…（剩余 ${assets.length - failures.length}）`;
+        storyState.actionMessage = `正在生成「${asset.name}」…（已完成 ${index} / ${assets.length}，剩余 ${assets.length - index - 1}）`;
         renderStoryDetail();
         try {
           await createStoryAssetImageVariant(asset);

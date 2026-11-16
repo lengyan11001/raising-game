@@ -218,7 +218,12 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /data-story-optimizer-model/);
   assert.match(story, /data-story-prompt-resolution/);
   assert.match(story, /AI 提取本集资产/);
-  assert.match(story, /生成未定稿设计图/);
+  assert.match(story, /补齐 \$\{missingImageAssets\.length\} 个资产图/);
+  assert.match(story, /storyAssetsNeedingImage/);
+  assert.match(story, /function storyVariantStatusLabel[\s\S]*可审核/);
+  assert.match(story, /设计图已齐，待审核/);
+  assert.match(story, /历史失败 \$\{failedCount\} 次，已收起/);
+  assert.match(story, /已完成 \$\{index\} \/ \$\{assets\.length\}，剩余/);
   assert.match(story, /资产定稿后才会解锁视频提示词/);
   assert.match(story, /\/assets\/plan/);
   assert.match(story, /\/variants\/\$\{encodeURIComponent\(variantId\)\}\/approve/);
@@ -232,6 +237,21 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(css, /\.story-production-controls \{/);
   assert.match(css, /\.story-production-assets \{/);
   assert.match(css, /\.story-asset-variant-list \{/);
+});
+
+test("story asset images use refreshed authenticated media URLs instead of persisted signed URLs", () => {
+  const handlers = read("server.parts/part-03.js");
+  const generation = read("server.parts/part-41.js");
+  const story = read("platform.story.js");
+  assert.match(handlers, /function storyAssetVariantClientView[\s\S]*adminGenerationMediaUrl\(generationRecordId\)/);
+  assert.match(handlers, /assetVariants: \(assetVariants \|\| \[\]\)\.map\(storyAssetVariantClientView\)/);
+  assert.match(handlers, /已定稿参考图记录：\$\{String\(variant\.metadata\.generationRecordId\)\.trim\(\)\}/);
+  assert.doesNotMatch(handlers, /已定稿参考图：\$\{variant\.metadata\.imageUrl\}/);
+  assert.match(story, /function storyAssetVariantImageUrl\(variant = \{\}\)[\s\S]*variant\.mediaUrl[\s\S]*metadata\?\.mediaUrl/);
+  assert.match(story, /src="\$\{storyEscape\(storyAssetVariantImageUrl\(variant\)\)\}"/);
+  assert.match(generation, /function generationRecordInlineMediaUrl\(target = \{\}\)/);
+  assert.match(generation, /makeOssSignedCdnUrl\(\{[\s\S]*download: false/);
+  assert.match(generation, /proxyRemoteMedia\(req, res, inlineUrl/);
 });
 
 test("story asset replanning removes stale episode scope and invalidates frozen prompts", () => {

@@ -15649,6 +15649,7 @@ body.app-keyboard-open {
 .story-asset-variant > span { display: grid; min-height: 84px; place-items: center; color: #736a77; font-size: 9px; }
 .story-asset-variant small { color: #817786; font-size: 8px; }
 .story-asset-variant button { min-height: 27px; color: #c9f4df; background: rgba(72, 185, 133, .1); border: 1px solid rgba(72, 185, 133, .28); border-radius: 5px; font-size: 8px; font-weight: 720; }
+.story-asset-history { display: block; margin: 7px 0; color: #817786; font-size: 8px; }
 .story-prompt-controls { max-width: 640px; }
 .story-prompt-shot-list { display: grid; gap: 8px; }
 .story-prompt-shot { padding: 11px 12px; background: #18161a; border: 1px solid var(--story-line); border-radius: 8px; }

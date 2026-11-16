@@ -4553,3 +4553,14 @@ CODEX_TASK_STATE.md
 - Changed files: `db.js`, `platform.css`, `platform.story.js`, `server.parts/part-01.js`, `server.parts/part-03.js`, `server.parts/part-42.js`, `server.parts/part-49.js`, `test/story-canvas-p1.test.js`.
 - Source commit: `e6afb778` (`Add AI asset and model prompt pipeline`). Platform release: `185daee0a561158d395338fd60bad252b374e791`.
 - Pushed only `platform-release`; rolled out Old through `scripts/deploy_local.sh --site old` with 1% and 5% canary gates. Active port `4175`, remote readiness reports release `185daee0`, `/api/health` and `/api/readyz` both return 200, and the public `platform.story.js` contains the asset/model/prompt controls. Live was not pushed or deployed.
+
+## 2026-11-16 Step CW: Story asset signed media URLs refresh from generation records
+
+- Root cause of the intermittent story asset image failures: asset variant rows persisted OSS CDN URLs whose signatures expire after roughly ten minutes. The image records themselves still succeeded; later browser/HEAD requests to the stale persisted URL returned 403.
+- `server.parts/part-03.js` now exposes variants through `storyAssetVariantClientView()` and derives the media URL from `metadata.generationRecordId` at response time. Project reads plus create/update/approve variant responses all use the refreshed view.
+- `server.parts/part-41.js` now creates a fresh inline OSS/R2 signed URL inside `handleAdminGenerationRecordMedia()` for each proxy request instead of reusing a persisted short-lived URL.
+- `platform.story.js` resolves preview, approved image, approval controls, and generation completion checks through `storyAssetVariantImageUrl()`, which prefers the refreshed authenticated URL and retains legacy metadata fallbacks.
+- Prompt optimization now records the approved generation-record ID rather than embedding a short-lived signed image URL in the model prompt.
+- Asset UX from the same batch keeps completed ready variants, offers a separate per-asset regeneration action, collapses historical failures, and batches only missing images.
+- Verification: syntax checks pass; `npm run check:undef` passes; `git diff --check` passes; focused story, generation-list, local-media-retention, and Vega-regeneration tests pass 64/64.
+- Source commit pending at time of this record; production deployment and browser validation remain pending in the next step.

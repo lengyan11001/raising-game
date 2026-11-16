@@ -740,6 +740,19 @@ function storyProjectClientView(project = {}) {
   };
 }
 
+function storyAssetVariantClientView(variant = {}) {
+  if (!variant || typeof variant !== "object") return variant;
+  const metadata = variant.metadata && typeof variant.metadata === "object" ? { ...variant.metadata } : {};
+  const generationRecordId = String(metadata.generationRecordId || "").trim();
+  const mediaUrl = generationRecordId ? adminGenerationMediaUrl(generationRecordId) : "";
+  if (mediaUrl) metadata.mediaUrl = mediaUrl;
+  return {
+    ...variant,
+    metadata,
+    mediaUrl: mediaUrl || String(variant.mediaUrl || metadata.mediaUrl || metadata.imageUrl || ""),
+  };
+}
+
 function storyInputText(value = "", maxLength = 2000) {
   return String(value || "").trim().slice(0, maxLength);
 }
@@ -811,7 +824,7 @@ async function handleGetStoryProject(req, res, projectId = "") {
     episodes: episodes || [],
     scripts: scripts || [],
     assets: assets || [],
-    assetVariants: assetVariants || [],
+    assetVariants: (assetVariants || []).map(storyAssetVariantClientView),
     promptVersions: promptVersions || [],
     productionModels: storyProductionModels(),
     canvasLinks: canvasLinks || [],
@@ -1073,7 +1086,7 @@ function storyShotProductionPrompt({ project = {}, episode = {}, shot = {}, asse
       `  视觉定稿：${visual}`,
       continuity ? `  连续性：${continuity}` : "",
       imagePrompt ? `  设计图依据：${imagePrompt}` : "",
-      variant?.metadata?.imageUrl ? `  已定稿参考图：${variant.metadata.imageUrl}` : "",
+      String(variant?.metadata?.generationRecordId || "").trim() ? `  已定稿参考图记录：${String(variant.metadata.generationRecordId).trim()}` : "",
     ].filter(Boolean).join("\n");
   }).join("\n");
   return [
@@ -1478,7 +1491,7 @@ async function handleCreateStoryAssetVariant(req, res, projectId = "", assetId =
     metadata,
   });
   if (!variant) return sendJson(res, 404, { ok: false, code: "STORY_ASSET_NOT_FOUND", message: "资产不存在。" });
-  return sendJson(res, 201, { ok: true, variant });
+  return sendJson(res, 201, { ok: true, variant: storyAssetVariantClientView(variant) });
 }
 
 async function handleUpdateStoryAssetVariant(req, res, projectId = "", assetId = "", variantId = "") {
@@ -1499,7 +1512,7 @@ async function handleUpdateStoryAssetVariant(req, res, projectId = "", assetId =
     metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null,
   });
   if (!variant) return sendJson(res, 404, { ok: false, code: "STORY_ASSET_VARIANT_NOT_FOUND", message: "资产设计图不存在。" });
-  return sendJson(res, 200, { ok: true, variant });
+  return sendJson(res, 200, { ok: true, variant: storyAssetVariantClientView(variant) });
 }
 
 async function handleApproveStoryAssetVariant(req, res, projectId = "", assetId = "", variantId = "") {
@@ -1531,7 +1544,11 @@ async function handleApproveStoryAssetVariant(req, res, projectId = "", assetId 
       });
     }
   }
-  return sendJson(res, 200, { ok: true, ...approved });
+  return sendJson(res, 200, {
+    ok: true,
+    ...approved,
+    variant: storyAssetVariantClientView(approved.variant),
+  });
 }
 
 async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId = "") {
