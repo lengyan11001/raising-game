@@ -333,13 +333,18 @@
       const metadata = selectedEpisode.metadata && typeof selectedEpisode.metadata === "object" ? selectedEpisode.metadata : {};
       const characters = Array.isArray(metadata.characters) ? metadata.characters.join("、") : "";
       const scenes = Array.isArray(metadata.scenes) ? metadata.scenes.join("、") : "";
-      const isLocked = selectedEpisode.status === "outline_locked";
+      const isLocked = ["outline_locked", "shots_planned", "ready", "complete"].includes(String(selectedEpisode.status || ""));
       const shotRows = storyState.shots.length ? storyState.shots.map((shot) => `
         <article class="story-shot-row">
           <b>S${String(shot.shotNo).padStart(2, "0")}</b>
-          <div><strong>${storyEscape(shot.title || `镜头 ${shot.shotNo}`)}</strong><p>${storyEscape(shot.description || "尚未填写镜头描述。")}</p><small>${Number(shot.durationSeconds || 5)} 秒 · ${storyEscape(shot.status || "draft")}</small></div>
+          <div>
+            <strong>${storyEscape(shot.title || `镜头 ${shot.shotNo}`)}</strong>
+            <p>${storyEscape(shot.description || "尚未填写镜头描述。")}</p>
+            <small>${Number(shot.durationSeconds || 5)} 秒${shot.metadata?.shotSize ? ` · ${storyEscape(shot.metadata.shotSize)}` : ""}${shot.metadata?.camera ? ` · ${storyEscape(shot.metadata.camera)}` : ""}${shot.metadata?.location ? ` · ${storyEscape(shot.metadata.location)}` : ""}</small>
+            ${shot.metadata?.dialogue ? `<p class="story-shot-dialogue"><b>对白</b>${storyEscape(shot.metadata.dialogue)}</p>` : ""}
+          </div>
           <button class="story-episode-delete" type="button" data-story-delete-shot="${storyEscape(shot.id)}" title="删除镜头" aria-label="删除镜头"><i data-lucide="trash-2"></i></button>
-        </article>`).join("") : `<div class="story-list-state">还没有镜头。先保存大纲，再按镜头顺序添加。</div>`;
+        </article>`).join("") : `<div class="story-shot-ai-empty"><i data-lucide="sparkles"></i><div><strong>等待 AI 拆分镜</strong><p>锁定大纲后会自动生成镜头；如果中途失败，可以在这里重新执行。</p></div><button class="story-create-button" type="button" data-story-plan-shots ${isLocked ? "" : "disabled"}><span>AI 生成分镜</span></button></div>`;
       return `
         <section class="story-section story-episode-workspace">
           <div class="story-workbench-head">
@@ -364,17 +369,15 @@
               <div class="story-episode-edit-actions story-field-wide">
                 <p>先修正事实和人物动机，再锁定大纲。锁定后仍可调整，但会显示定稿状态。</p>
                 <button class="story-secondary-button" type="button" data-story-save-episode>保存修改</button>
-                <button class="story-create-button" type="button" data-story-lock-episode="${isLocked ? "draft" : "outline_locked"}">${isLocked ? "恢复草稿" : "锁定大纲，进入分镜"}</button>
+                <button class="story-create-button" type="button" data-story-lock-episode="${isLocked ? "draft" : "outline_locked"}">${isLocked ? "恢复草稿" : "锁定大纲，AI 拆分镜"}</button>
               </div>
             </form>` : `
-            <div class="story-shot-actions"><p>这里按顺序记录镜头。后续提示词、图片和视频会绑定到同一镜号。</p><strong>${storyState.shots.length} 个镜头</strong></div>
+            <div class="story-shot-actions">
+              <div><p>AI 已按定稿大纲拆成可审核镜头。后续提示词、图片和视频会绑定到同一镜号。</p><strong>${storyState.shots.length} 个镜头</strong></div>
+              <button class="story-secondary-button" type="button" data-story-plan-shots ${isLocked && !storyState.action ? "" : "disabled"}><i data-lucide="sparkles"></i><span>${storyState.shots.length ? "重新 AI 分镜" : "AI 生成分镜"}</span></button>
+            </div>
             <div class="story-shot-list">${shotRows}</div>
-            <form class="story-shot-form" id="storyShotForm">
-              <label>镜头标题<input id="storyShotTitle" maxlength="160" placeholder="例如：白洁走进校长办公室" /></label>
-              <label>时长（秒）<input id="storyShotDuration" type="number" min="1" max="300" value="5" /></label>
-              <label class="story-field-wide">镜头描述<textarea id="storyShotDescription" rows="3" placeholder="景别、人物动作、对白、环境与连续性"></textarea></label>
-              <button class="story-create-button" type="submit"><i data-lucide="plus"></i><span>新增镜头</span></button>
-            </form>`}
+            ${storyState.action === "plan-shots" ? `<div class="story-list-state is-loading"><i data-lucide="loader-circle"></i>AI 正在拆分镜并写入 PostgreSQL…</div>` : ""}`}
           <p class="story-message" id="storyEpisodeMessage">${storyEscape(storyState.actionMessage || "")}</p>
         </section>`;
     })() : "";
@@ -656,6 +659,35 @@
     renderStoryDetail();
   }
 
+  async function generateStoryEpisodeShots({ confirmReplace = true } = {}) {
+    const projectId = storyState.selectedId;
+    const episode = selectedStoryEpisode();
+    if (!projectId || !episode || storyState.action) return;
+    if (!["outline_locked", "shots_planned"].includes(String(episode.status || ""))) {
+      storyState.actionMessage = "请先锁定本集大纲，再由 AI 拆分镜。";
+      renderStoryDetail();
+      return;
+    }
+    if (confirmReplace && storyState.shots.length && !window.confirm("重新生成会替换当前全部镜头，继续吗？")) return;
+    storyState.action = "plan-shots";
+    storyState.actionMessage = "AI 正在按定稿大纲拆分镜，通常需要几十秒…";
+    storyState.episodeTab = "shots";
+    renderStoryDetail();
+    try {
+      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/shots/plan`, { method: "POST" });
+      storyState.shots = Array.isArray(payload.shots) ? payload.shots : [];
+      storyState.detail.episodes = (storyState.detail.episodes || []).map((item) => item.id === episode.id
+        ? { ...item, ...payload.episode, shotCount: payload.shots?.length || 0 }
+        : item);
+      storyState.actionMessage = `AI 分镜完成 · ${payload.shots?.length || 0} 个镜头 · ${payload.model || "分析模型"}`;
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+    } finally {
+      storyState.action = "";
+      renderStoryDetail();
+    }
+  }
+
   async function saveStoryEpisode({ status = "" } = {}) {
     const projectId = storyState.selectedId;
     const episode = selectedStoryEpisode();
@@ -673,7 +705,7 @@
     metadata.characters = parseStoryNames(storyEl("storyEpisodeEditCharacters")?.value || "");
     metadata.scenes = parseStoryNames(storyEl("storyEpisodeEditScenes")?.value || "");
     storyState.action = "save-episode";
-    storyState.actionMessage = status === "outline_locked" ? "正在锁定大纲…" : "正在保存本集…";
+    storyState.actionMessage = status === "outline_locked" ? "正在锁定大纲，随后由 AI 拆分镜…" : "正在保存本集…";
     renderStoryDetail();
     try {
       const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}`, {
@@ -689,8 +721,20 @@
       storyState.detail.episodes = (storyState.detail.episodes || []).map((item) => item.id === episode.id
         ? { ...item, ...payload.episode, shotCount: payload.episode?.shotCount ?? item.shotCount }
         : item);
-      storyState.actionMessage = status === "outline_locked" ? "大纲已定稿，可以继续拆分镜。" : "本集修改已保存。";
-      if (status === "outline_locked") storyState.episodeTab = "shots";
+      if (status === "outline_locked") {
+        storyState.action = "plan-shots";
+        storyState.actionMessage = "大纲已定稿，AI 正在拆分镜，通常需要几十秒…";
+        storyState.episodeTab = "shots";
+        renderStoryDetail();
+        const planPayload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/shots/plan`, { method: "POST" });
+        storyState.shots = Array.isArray(planPayload.shots) ? planPayload.shots : [];
+        storyState.detail.episodes = (storyState.detail.episodes || []).map((item) => item.id === episode.id
+          ? { ...item, ...planPayload.episode, shotCount: planPayload.shots?.length || 0 }
+          : item);
+        storyState.actionMessage = `大纲已定稿，AI 已拆分 ${planPayload.shots?.length || 0} 个镜头 · ${planPayload.model || "分析模型"}`;
+      } else {
+        storyState.actionMessage = "本集修改已保存。";
+      }
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -883,6 +927,7 @@
       else if (event.target.closest("[data-story-episode-view]")) setStoryEpisodeView(event.target.closest("[data-story-episode-view]")?.dataset.storyEpisodeView || "outline");
       else if (event.target.closest("[data-story-save-episode]")) saveStoryEpisode();
       else if (event.target.closest("[data-story-lock-episode]")) saveStoryEpisode({ status: event.target.closest("[data-story-lock-episode]")?.dataset.storyLockEpisode || "outline_locked" });
+      else if (event.target.closest("[data-story-plan-shots]")) generateStoryEpisodeShots();
       else if (event.target.closest("[data-story-save-script]")) saveStoryScriptDraft();
       else if (event.target.closest("[data-story-analyze]")) analyzeStoryDraft();
       else if (event.target.closest("[data-story-import-analysis]")) importStoryAnalysis();
@@ -909,7 +954,6 @@
     });
     storyEl("storyProjectDetail")?.addEventListener("submit", (event) => {
       if (event.target?.id === "storyEpisodeForm") createStoryEpisode(event);
-      else if (event.target?.id === "storyShotForm") createStoryShot(event);
       else if (event.target?.id === "storyEpisodeEditForm") event.preventDefault();
     });
   }

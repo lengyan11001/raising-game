@@ -774,6 +774,11 @@ async function handleRequest(req, res) {
       return await handleCreateStoryShot(req, res, decodeURIComponent(storyEpisodeShotsMatch[1]), decodeURIComponent(storyEpisodeShotsMatch[2]));
     }
 
+    const storyEpisodeShotsPlanMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/shots\/plan\/?$/);
+    if (req.method === "POST" && storyEpisodeShotsPlanMatch) {
+      return await handlePlanStoryEpisodeShots(req, res, decodeURIComponent(storyEpisodeShotsPlanMatch[1]), decodeURIComponent(storyEpisodeShotsPlanMatch[2]));
+    }
+
     const storyShotMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/shots\/([^/]+)\/?$/);
     if (req.method === "PUT" && storyShotMatch) {
       return await handleUpdateStoryShot(req, res, decodeURIComponent(storyShotMatch[1]), decodeURIComponent(storyShotMatch[2]), decodeURIComponent(storyShotMatch[3]));

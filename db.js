@@ -7074,6 +7074,75 @@ async function deleteStoryShotFromDb({ projectId = "", episodeId = "", ownerUser
   return rows[0] ? storyShotFromRow(rows[0]) : null;
 }
 
+async function replaceStoryShotsInDb({ projectId = "", episodeId = "", ownerUserId = "", shots = [], episodePatch = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const targetEpisodeId = String(episodeId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!parentId || !targetEpisodeId || !ownerId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const episodeScope = await client.query(
+      `SELECT e.* FROM app_story_episodes e
+       JOIN app_story_projects p ON p.id = e.project_id
+       WHERE e.id = $1 AND e.project_id = $2 AND p.owner_user_id = $3
+       FOR UPDATE`,
+      [targetEpisodeId, parentId, ownerId],
+    );
+    if (!episodeScope.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const currentEpisode = episodeScope.rows[0];
+    const currentMetadata = currentEpisode.metadata && typeof currentEpisode.metadata === "object" ? currentEpisode.metadata : {};
+    const patchMetadata = episodePatch.metadata && typeof episodePatch.metadata === "object" ? episodePatch.metadata : {};
+    const status = String(episodePatch.status || currentEpisode.status || "shots_planned");
+    const episodeRow = await client.query(
+      `UPDATE app_story_episodes
+       SET status = $3, metadata = $4::jsonb, updated_at = NOW()
+       WHERE id = $1 AND project_id = $2
+       RETURNING *`,
+      [targetEpisodeId, parentId, status, JSON.stringify({ ...currentMetadata, ...patchMetadata })],
+    );
+    await client.query(`DELETE FROM app_story_shots WHERE project_id = $1 AND episode_id = $2`, [parentId, targetEpisodeId]);
+    const savedShots = [];
+    for (const [index, shot] of (Array.isArray(shots) ? shots : []).entries()) {
+      const row = await client.query(
+        `INSERT INTO app_story_shots(id, project_id, episode_id, shot_no, title, description, image_prompt, video_prompt, duration_seconds, status, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+         RETURNING *`,
+        [
+          String(shot.id || "").trim() || crypto.randomUUID(),
+          parentId,
+          targetEpisodeId,
+          index + 1,
+          String(shot.title || `镜头 ${index + 1}`),
+          String(shot.description || ""),
+          String(shot.imagePrompt || ""),
+          String(shot.videoPrompt || ""),
+          Math.max(1, Math.min(300, Math.round(Number(shot.durationSeconds || 5) || 5))),
+          String(shot.status || "planned"),
+          JSON.stringify(shot.metadata && typeof shot.metadata === "object" ? shot.metadata : {}),
+        ],
+      );
+      savedShots.push(storyShotFromRow(row.rows[0]));
+    }
+    await client.query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
+    await client.query("COMMIT");
+    return {
+      episode: { ...storyEpisodeFromRow(episodeRow.rows[0]), shotCount: savedShots.length },
+      shots: savedShots,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function listStoryScriptVersionsFromDb({ projectId = "", ownerUserId = "" } = {}) {
   if (!dbEnabled()) return null;
   const parentId = String(projectId || "").trim();
@@ -11478,6 +11547,7 @@ module.exports = {
   createStoryShotInDb,
   updateStoryShotInDb,
   deleteStoryShotFromDb,
+  replaceStoryShotsInDb,
   listStoryScriptVersionsFromDb,
   createStoryScriptVersionInDb,
   listStoryAssetsFromDb,

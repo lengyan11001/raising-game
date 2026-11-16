@@ -379,6 +379,7 @@ const {
   createStoryShotInDb,
   updateStoryShotInDb,
   deleteStoryShotFromDb,
+  replaceStoryShotsInDb,
   listStoryScriptVersionsFromDb,
   createStoryScriptVersionInDb,
   listStoryAssetsFromDb,

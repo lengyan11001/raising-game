@@ -943,6 +943,156 @@ function storyAnalyzerModel() {
   return null;
 }
 
+async function repairStoryAnalysisHooks({ analysis, model, deadline, usage }) {
+  const missing = analysis.episodes.filter((episode) => !String(episode.metadata?.hook || "").trim());
+  if (!missing.length) return analysis;
+  const prompt = [
+    "下面这些剧集缺少结尾钩子。请依据本集大纲和下一集开头，补齐能直接用于制作审稿的钩子。",
+    "只输出合法 JSON：{\"hooks\":[{\"episodeNo\":1,\"hook\":\"30-100个中文字符\"}]}",
+    "钩子必须承接本集最后一个具体画面或人物决定，并制造下一集必须继续观看的悬念；不得复述整段大纲。",
+    JSON.stringify(analysis.episodes.map((episode, index) => ({
+      episodeNo: episode.episodeNo,
+      title: episode.title,
+      synopsis: episode.synopsis,
+      nextEpisodeTitle: analysis.episodes[index + 1]?.title || "",
+      nextEpisodeOpening: analysis.episodes[index + 1]?.synopsis || "",
+    }))),
+  ].join("\n");
+  try {
+    const raw = await promptOptimizerUpstreamRequest({
+      model: model.upstreamModel,
+      messages: [
+        { role: "system", content: "你是中文短剧总编剧，擅长写具体、有画面感、能驱动下一集的结尾钩子。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.35,
+      max_tokens: 2400,
+    }, {
+      deadline,
+      requestContext: { storyAnalyzer: true, storyHookRepair: true, model: model.id },
+      usage,
+      optimizerModel: model,
+    });
+    const parsed = storyParseJsonObject(qwen37FlashResponseText(raw));
+    const hooks = new Map((Array.isArray(parsed?.hooks) ? parsed.hooks : []).map((item) => [
+      Math.max(1, Math.round(Number(item?.episodeNo || 0) || 0)),
+      storyInputText(item?.hook, 500),
+    ]));
+    for (const episode of analysis.episodes) {
+      const hook = hooks.get(episode.episodeNo);
+      if (hook) episode.metadata = { ...(episode.metadata || {}), hook };
+    }
+  } catch {}
+  return analysis;
+}
+
+const STORY_SHOT_PLANNER_SYSTEM_PROMPT = `你是专业中文影视分镜师。请把已经定稿的单集大纲拆成可连续制作、可逐镜审核的镜头清单。
+只输出一个合法 JSON 对象，不要 Markdown，不要代码围栏，不要解释。返回结构：
+{
+  "hook": "如果输入钩子为空，补写30-100个中文字符的结尾钩子；否则原样返回",
+  "shots": [
+    {
+      "shotNo": 1,
+      "title": "12字以内镜头标题",
+      "description": "80-220个中文字符的可执行分镜描述",
+      "durationSeconds": 5,
+      "shotSize": "远景/全景/中景/近景/特写",
+      "camera": "固定/推/拉/摇/移/跟/手持等",
+      "location": "具体场景",
+      "characters": ["出场角色"],
+      "dialogue": "对白、旁白或留空",
+      "storyBeat": "本镜承担的剧情推进"
+    }
+  ]
+}
+规则：
+1. 严格按大纲时间顺序覆盖开场、发展、转折、结尾，不新增原文没有依据的主要事件，不改变人物关系和结果。
+2. 镜头数量按本集时长和剧情密度决定，通常每5-10秒一个镜头；90秒建议8-14个镜头，所有 shotNo 连续且唯一。
+3. 每个镜头只表现一个清晰的视觉动作或信息变化。description 必须写清景别、人物动作、环境、关键道具、情绪和与前后镜头的连续性。
+4. 充分使用输入的出场角色、场景和结尾钩子；必须有一个明确镜头落地钩子，不能只写在镜头外。
+5. dialogue 只保留能推动剧情或揭示人物关系的关键对白，禁止长篇复述。
+6. durationSeconds 为1-30的整数，所有镜头时长之和应接近本集目标时长，允许上下浮动10%。
+7. hook 必须具体、有画面感，承接本集最后动作并指向下一集。`;
+
+function storyShotsFromModel(payload = {}, episode = {}) {
+  const root = payload?.data && typeof payload.data === "object" ? payload.data : payload;
+  const rawShots = Array.isArray(root?.shots) ? root.shots : (Array.isArray(root?.storyboard) ? root.storyboard : []);
+  const shots = rawShots.map((shot, index) => ({
+    shotNo: index + 1,
+    title: storyInputText(shot?.title || shot?.name || `镜头 ${index + 1}`, 160),
+    description: storyInputText(shot?.description || shot?.visual || shot?.action || "", 4000),
+    durationSeconds: Math.max(1, Math.min(30, Math.round(Number(shot?.durationSeconds || shot?.duration_seconds || 5) || 5))),
+    status: "planned",
+    metadata: {
+      shotSize: storyInputText(shot?.shotSize || shot?.shot_size || "", 80),
+      camera: storyInputText(shot?.camera || shot?.cameraMovement || "", 120),
+      location: storyInputText(shot?.location || shot?.scene || "", 160),
+      characters: storyTextList(shot?.characters, 24, 80),
+      dialogue: storyInputText(shot?.dialogue || shot?.lines || "", 1200),
+      storyBeat: storyInputText(shot?.storyBeat || shot?.story_beat || "", 500),
+    },
+  })).filter((shot) => shot.title || shot.description).slice(0, 80);
+  return {
+    hook: storyInputText(root?.hook || episode?.metadata?.hook || "", 500),
+    shots,
+  };
+}
+
+async function planStoryEpisodeShots({ project = {}, episode = {} } = {}) {
+  const model = storyAnalyzerModel();
+  if (!model) {
+    throw Object.assign(new Error("AI 分镜模型尚未配置。"), { statusCode: 503, code: "MISSING_STORY_SHOT_MODEL" });
+  }
+  if (!String(episode.synopsis || "").trim()) {
+    throw Object.assign(new Error("单集大纲为空，无法拆分镜。"), { statusCode: 400, code: "STORY_EPISODE_SYNOPSIS_EMPTY" });
+  }
+  const metadata = episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {};
+  const userPrompt = [
+    `项目：${String(project.name || "未命名项目")}`,
+    `画幅：${String(project.aspectRatio || "9:16")}`,
+    `集数：E${String(episode.episodeNo || 1).padStart(2, "0")}`,
+    `标题：${String(episode.title || "")}`,
+    `目标时长：${Math.max(1, Number(episode.durationSeconds || 90) || 90)}秒`,
+    `出场角色：${storyTextList(metadata.characters, 30, 80).join("、") || "按大纲判断"}`,
+    `场景：${storyTextList(metadata.scenes, 30, 100).join("、") || "按大纲判断"}`,
+    `结尾钩子：${String(metadata.hook || "").trim() || "缺失，请根据本集结尾补写"}`,
+    "单集大纲开始",
+    String(episode.synopsis || "").trim(),
+    "单集大纲结束",
+    "请严格输出约定 JSON。",
+  ].join("\n");
+  const deadline = Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS;
+  const usage = { attempts: 0 };
+  const raw = await promptOptimizerUpstreamRequest({
+    model: model.upstreamModel,
+    messages: [
+      { role: "system", content: STORY_SHOT_PLANNER_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.2,
+    max_tokens: 6500,
+  }, {
+    deadline,
+    requestContext: { storyShotPlanner: true, projectId: project.id, episodeId: episode.id },
+    usage,
+    optimizerModel: model,
+  });
+  const text = qwen37FlashResponseText(raw);
+  const parsed = storyParseJsonObject(text);
+  if (!parsed) {
+    throw Object.assign(new Error("AI 分镜没有返回有效 JSON，请重试。"), {
+      statusCode: 502,
+      code: "STORY_SHOT_PLAN_INVALID_JSON",
+      responsePreview: String(text || "").slice(0, 600),
+    });
+  }
+  const plan = storyShotsFromModel(parsed, episode);
+  if (!plan.shots.length) {
+    throw Object.assign(new Error("AI 分镜结果为空，请重试。"), { statusCode: 502, code: "STORY_SHOT_PLAN_EMPTY" });
+  }
+  return { ...plan, model: model.id, attempts: usage.attempts };
+}
+
 async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 0 } = {}) {
   const model = storyAnalyzerModel();
   if (!model) {
@@ -999,6 +1149,7 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
       code: "STORY_ANALYSIS_EMPTY",
     });
   }
+  await repairStoryAnalysisHooks({ analysis, model, deadline, usage });
   return { analysis, model: model.id, attempts: usage.attempts };
 }
 
@@ -1182,6 +1333,56 @@ async function handleUpdateStoryEpisode(req, res, projectId = "", episodeId = ""
     return sendJson(res, 404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
   }
   return sendJson(res, 200, { ok: true, episode });
+}
+
+async function handlePlanStoryEpisodeShots(req, res, projectId = "", episodeId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
+  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  const episodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
+  const episode = (episodes || []).find((item) => item.id === episodeId);
+  if (!episode) return sendJson(res, 404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
+  if (!["outline_locked", "shots_planned"].includes(String(episode.status || ""))) {
+    return sendJson(res, 409, { ok: false, code: "STORY_OUTLINE_NOT_LOCKED", message: "请先锁定本集大纲，再由 AI 拆分镜。" });
+  }
+  try {
+    const result = await planStoryEpisodeShots({ project, episode });
+    const metadata = { ...(episode.metadata || {}) };
+    if (result.hook) metadata.hook = result.hook;
+    const saved = await replaceStoryShotsInDb({
+      projectId,
+      episodeId,
+      ownerUserId: auth.user.id,
+      shots: result.shots,
+      episodePatch: { status: "shots_planned", metadata },
+    });
+    if (!saved) {
+      return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "分镜保存失败。" });
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      model: result.model,
+      attempts: result.attempts,
+      episode: saved.episode,
+      shots: saved.shots,
+    });
+  } catch (error) {
+    console.warn("[story-shot-plan-failed]", JSON.stringify({
+      projectId,
+      episodeId,
+      code: error.code || "",
+      statusCode: error.statusCode || 0,
+      message: String(error.message || error).slice(0, 240),
+    }));
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      code: error.code || "STORY_SHOT_PLAN_FAILED",
+      message: error.message || "AI 分镜失败，请重试。",
+    });
+  }
 }
 
 async function handleListStoryShots(req, res, projectId = "", episodeId = "") {
