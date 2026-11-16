@@ -7,7 +7,9 @@
 - Added responsive workbench, shot-list, and action styles; bumped platform/canvas cache version to `story-episode-workbench-20261116-1`.
 - Files changed: `db.js`, `platform.story.js`, `platform.css`, `platform.html`, `platform.js`, `server.parts/part-01.js`, `server.parts/part-03.js`, `server.parts/part-42.js`, `test/story-canvas-p1.test.js`, `test/workflow-canvases.test.js`.
 - Verification: story/workflow focused tests pass `53/53`; full `npm test` reports `1372 pass / 1 known unrelated baseline failure / 1 skipped`. The only failure remains `Generate parameter pickers close after selection and duration uses a slider`; syntax checks, undefined-symbol guard, and `git diff --check` pass.
-- Deployment pending: commit, build `platform-release` from `old-site`, deploy Old only, then browser-verify outline save, lock, shot create/delete, and responsive layout.
+- Built and pushed platform release `c8510308dde23593cfbd63573d50dc2372f03e4a` from source `160ae9aa5ea9344fe1b710fc079cdd7505342c8a`; deployed Old only with `scripts/deploy_local.sh --site old`. Rolling deploy switched traffic to port `4174` with `OLD_ROLLING_DEPLOY_OK`; Live was not pushed or deployed and remains `f40e7a35`.
+- Browser verification on `123vips.com/#episodes` passed end to end: edited episode duration and saw it persist after save, locked the outline, entered shot planning, created S01, deleted S01, returned to the episode list, and confirmed `大纲定稿` plus `0 个镜头` survive a full page refresh. Screenshots confirm the row actions and workbench layout are usable in the desktop viewport.
+- Post-deploy `/api/health`, `/api/livez`, and `/api/readyz` return `200`; both readiness endpoints report clean release `c8510308`.
 
 ## 2026-11-16 Step BL: story workspace tabs and production-length episode outlines
 
