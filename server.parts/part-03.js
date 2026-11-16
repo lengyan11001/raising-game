@@ -1570,6 +1570,7 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
   }
   const optimizerModelId = storyInputText(body.optimizerModel || body.optimizerModelId, 120);
   const resolution = storyInputText(body.resolution, 24) || "720p";
+  const targetShotId = storyInputText(body.shotId, 120);
   const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
   if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
   if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
@@ -1588,6 +1589,9 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
   if (!assets.length) {
     return sendJson(res, 409, { ok: false, code: "STORY_PROMPTS_REQUIRE_ASSETS", message: "请先让 AI 提取本集资产并生成设计稿。" });
   }
+  if (targetShotId && !shots.some((shot) => shot.id === targetShotId)) {
+    return sendJson(res, 404, { ok: false, code: "STORY_SHOT_NOT_FOUND", message: "要优化的镜头不存在。" });
+  }
   const unapproved = assets.filter((asset) => asset.status !== "approved");
   if (unapproved.length) {
     return sendJson(res, 409, {
@@ -1599,7 +1603,10 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
   }
   const updatedShots = [];
   const failures = [];
-  for (const shot of [...shots].sort((a, b) => a.shotNo - b.shotNo)) {
+  const promptShots = targetShotId
+    ? shots.filter((shot) => shot.id === targetShotId)
+    : [...shots].sort((a, b) => a.shotNo - b.shotNo);
+  for (const shot of promptShots) {
     try {
       const sourcePrompt = storyShotProductionPrompt({ project, episode, shot, assets, variants: variants || [] });
       const optimized = await optimizeStoryShotPrompt({

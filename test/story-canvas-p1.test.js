@@ -207,6 +207,8 @@ test("story production pipeline gates approved assets before model-optimized pro
   assert.match(handlers, /includes\("vega"\)[\s\S]*"Seedance"[\s\S]*【\$\{label\} 执行约束】单一连续镜头/);
   assert.match(db, /async function createStoryPromptVersionInDb[\s\S]*COALESCE\(MAX\(version_no\), 0\) \+ 1/);
   assert.match(db, /async function createStoryPromptVersionInDb[\s\S]*video_prompt = \$3[\s\S]*status = 'prompt_ready'/);
+  assert.match(handlers, /const targetShotId = storyInputText\(body\.shotId, 120\)/);
+  assert.match(handlers, /const promptShots = targetShotId[\s\S]*shots\.filter\(\(shot\) => shot\.id === targetShotId\)/);
   assert.match(handlers, /createStoryPromptVersionInDb\(\{[\s\S]*prompt: optimized\.optimizedPrompt/);
 });
 
@@ -228,7 +230,8 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /\/assets\/plan/);
   assert.match(story, /\/variants\/\$\{encodeURIComponent\(variantId\)\}\/approve/);
   assert.match(story, /\/prompts\/plan/);
-  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution \}/);
+  assert.match(story, /for \(let index = 0; index < shots\.length; index \+= 1\)/);
+  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: shot\.id \}/);
   assert.match(story, /shot\.videoPrompt \?[\s\S]*已优化[\s\S]*待优化/);
   assert.match(story, /cdnImageUrl/);
   assert.match(story, /createKind: "story-asset"[\s\S]*storyAssetId: asset\.id/);
