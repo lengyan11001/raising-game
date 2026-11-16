@@ -1,3 +1,13 @@
+## 2026-11-16 Step BL: story workspace tabs and production-length episode outlines
+
+- Reworked the crowded story project detail into four CSS-toggled workspace tabs: `剧本与拆解`, `分集`, `资产库`, and `制作路径`. Tab switching preserves the current textarea DOM instead of re-rendering the project.
+- `分集` now has an explicit lead explaining that each row is the imported production outline. `剧本与拆解` owns script versions, the analyzer, and the preview; assets and static pipeline/canvas guidance no longer share the same long scrolling surface.
+- Analysis preview now shows each episode's ending hook plus referenced characters and scenes.
+- Strengthened the Papaya/Qwen story analyzer prompt: one chapter or complete story unit normally maps to one episode, each synopsis must be 240-500 Chinese characters, and it must cover concrete events, motivations, scenes, conflict, turn, and result in `开场 → 发展 → 转折 → 结尾` order. One-sentence summaries and generic phrases are prohibited.
+- Bumped the platform cache key to `story-workspace-tabs-20261116-1`.
+- Verification: story P0/P1 tests `10/10` pass, undefined-symbol guard passes, JavaScript syntax checks and `git diff --check` pass. Full `npm test` reports `1370 pass / 1 known unrelated baseline failure / 1 skipped`; the failure remains `Generate parameter pickers close after selection and duration uses a slider`.
+- Deployment status at record time: pending Old-only deployment; Live remains untouched.
+
 ## 2026-11-16 Step BK: Old release-disk exhaustion recovery
 
 - Incident: the Old host root filesystem reached `100%` after immutable release snapshots accumulated. PostgreSQL 16 panicked during checkpoint on `No space left on device`, entered automatic recovery, and returned `57P03` until capacity was restored.

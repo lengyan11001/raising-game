@@ -81,3 +81,27 @@ test("story P1 UI has bounded responsive script and analysis surfaces", () => {
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.story-script-layout \{ grid-template-columns: 1fr; \}/);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.story-analysis-tags,[\s\S]*\.story-asset-grid \{ grid-template-columns: 1fr; \}/);
 });
+
+test("story P1 separates script, episodes, assets, and production guidance into tabs", () => {
+  const story = read("platform.story.js");
+  const css = read("platform.css");
+  assert.match(story, /const STORY_DETAIL_TABS = \[/);
+  for (const tab of ["script", "episodes", "assets", "production"]) {
+    assert.match(story, new RegExp(`id: "${tab}"`));
+    assert.match(story, new RegExp(`data-story-tab-panel="${tab}"`));
+  }
+  assert.match(story, /data-story-tab="\$\{tab\.id\}"/);
+  assert.match(story, /function setStoryDetailTab\(/);
+  assert.match(story, /setStoryDetailTab\(event\.target\.closest\("\[data-story-tab\]"\)/);
+  assert.match(story, /storyState\.detailTab = "episodes"/);
+  assert.match(css, /\.story-detail-tabs \{[^}]*display: flex/);
+  assert.match(css, /\.story-tab-panel\[hidden\] \{ display: none; \}/);
+});
+
+test("story analyzer requests production-length episode outlines", () => {
+  const handlers = read("server.parts/part-03.js");
+  assert.match(handlers, /本集可制作剧情大纲，240-500个中文字符/);
+  assert.match(handlers, /通常一章或一个完整情节单元拆为一集/);
+  assert.match(handlers, /禁止只写一句话摘要/);
+  assert.match(handlers, /开场 → 发展 → 转折 → 结尾/);
+});

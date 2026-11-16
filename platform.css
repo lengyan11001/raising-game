@@ -15485,6 +15485,14 @@ body.app-keyboard-open {
 .story-metric { display: grid; gap: 5px; padding: 14px; background: #19171c; border: 1px solid var(--story-line); border-radius: 10px; }
 .story-metric span { color: #918894; font-size: 10px; }
 .story-metric strong { color: #f6f0f7; font-size: 23px; line-height: 1; }
+.story-detail-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 5px; background: #171519; border: 1px solid var(--story-line); border-radius: 10px; }
+.story-detail-tab { display: inline-flex; min-height: 38px; align-items: center; gap: 7px; flex: 0 0 auto; padding: 0 13px; color: #9d949f; background: transparent; border: 1px solid transparent; border-radius: 7px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.story-detail-tab:hover { color: #eee7f0; background: rgba(255, 255, 255, .045); }
+.story-detail-tab.is-active { color: #ffd7e7; background: rgba(255, 79, 163, .11); border-color: rgba(255, 79, 163, .22); }
+.story-detail-tab svg { width: 14px; height: 14px; }
+.story-tab-panel[hidden] { display: none; }
+.story-tab-panel > .story-section:first-child { margin-top: 12px; }
+.story-tab-lead { margin: 9px 0 0; color: #918894; font-size: 11px; line-height: 1.65; }
 .story-section { margin-top: 14px; padding: 16px; background: rgba(255, 255, 255, .015); border: 1px solid var(--story-line); border-radius: 11px; }
 .story-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .story-section-head h3 { margin: 4px 0 0; color: #f1ebf2; font-size: 16px; }
@@ -15537,6 +15545,8 @@ body.app-keyboard-open {
 .story-analysis-episode > b { display: grid; min-height: 34px; place-items: center; color: #ffb6d4; background: rgba(255, 79, 163, .1); border-radius: 6px; font: 750 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .story-analysis-episode strong { color: #e8e1ea; font-size: 12px; }
 .story-analysis-episode p { margin: 4px 0; color: #9b929f; font-size: 10px; line-height: 1.6; }
+.story-analysis-episode .story-analysis-hook { margin-top: 7px; padding: 7px 9px; color: #c9bdcf; background: rgba(255, 79, 163, .05); border-radius: 6px; }
+.story-analysis-episode .story-analysis-hook b { display: block; margin-bottom: 2px; color: #ff9dc5; font-size: 8px; letter-spacing: .08em; }
 .story-analysis-episode small { color: #746c78; font-size: 9px; }
 .story-analysis-tags { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 11px; }
 .story-analysis-tags > div { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 10px; background: #171519; border: 1px solid var(--story-line); border-radius: 8px; }
@@ -15604,6 +15614,8 @@ body.app-keyboard-open {
   .story-create-actions { display: grid; }
   .story-create-actions .story-create-button { width: 100%; }
   .story-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .story-detail-tabs { padding: 4px; }
+  .story-detail-tab { min-height: 36px; padding: 0 10px; }
   .story-detail-panel { padding: 14px; }
   .story-detail-head { display: grid; }
   .story-detail-badges { justify-content: flex-start; }

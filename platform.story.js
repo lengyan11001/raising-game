@@ -5,6 +5,7 @@
     loading: false,
     view: "library",
     createOpen: false,
+    detailTab: "script",
     projects: [],
     selectedId: "",
     detail: null,
@@ -118,6 +119,42 @@
     if (badge) badge.textContent = contract?.version ? `P1 · ${contract.version}` : "P1 · 契约未加载";
   }
 
+  const STORY_DETAIL_TABS = [
+    { id: "script", label: "剧本与拆解", icon: "file-text" },
+    { id: "episodes", label: "分集", icon: "list-video" },
+    { id: "assets", label: "资产库", icon: "library" },
+    { id: "production", label: "制作路径", icon: "route" },
+  ];
+
+  function storyDetailTabId(value = "") {
+    return STORY_DETAIL_TABS.some((tab) => tab.id === value) ? value : "script";
+  }
+
+  function renderStoryDetailTabs() {
+    return `
+      <nav class="story-detail-tabs" aria-label="剧集项目工作区">
+        ${STORY_DETAIL_TABS.map((tab) => `
+          <button class="story-detail-tab${storyState.detailTab === tab.id ? " is-active" : ""}" data-story-tab="${tab.id}" type="button" aria-selected="${storyState.detailTab === tab.id}">
+            <i data-lucide="${tab.icon}"></i><span>${tab.label}</span>
+          </button>`).join("")}
+      </nav>`;
+  }
+
+  function setStoryDetailTab(value = "") {
+    const tab = storyDetailTabId(value);
+    storyState.detailTab = tab;
+    const host = storyEl("storyProjectDetail");
+    if (!host) return;
+    host.querySelectorAll("[data-story-tab]").forEach((button) => {
+      const active = button.dataset.storyTab === tab;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    host.querySelectorAll("[data-story-tab-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.storyTabPanel !== tab;
+    });
+  }
+
   function selectedStoryScript() {
     return storyState.scripts.find((script) => script.id === storyState.selectedScriptId) || storyState.scripts[0] || null;
   }
@@ -168,11 +205,21 @@
           <div class="story-analysis-empty"><i data-lucide="wand-sparkles"></i><div><strong>先保存剧本，再执行 AI 拆解</strong><span>模型会给出分集梗概、角色与场景建议；确认后才写入 PostgreSQL。</span></div></div>
         </section>`;
     }
-    const episodes = (analysis.episodes || []).map((episode) => `
-      <article class="story-analysis-episode">
-        <b>E${String(episode.episodeNo).padStart(2, "0")}</b>
-        <div><strong>${storyEscape(episode.title || `第 ${episode.episodeNo} 集`)}</strong><p>${storyEscape(episode.synopsis || episode.summary || "暂无梗概")}</p><small>${Number(episode.durationSeconds || 0)} 秒</small></div>
-      </article>`).join("");
+    const episodes = (analysis.episodes || []).map((episode) => {
+      const hook = String(episode.metadata?.hook || episode.hook || "").trim();
+      const characters = Array.isArray(episode.metadata?.characters) ? episode.metadata.characters : [];
+      const scenes = Array.isArray(episode.metadata?.scenes) ? episode.metadata.scenes : [];
+      return `
+        <article class="story-analysis-episode">
+          <b>E${String(episode.episodeNo).padStart(2, "0")}</b>
+          <div>
+            <strong>${storyEscape(episode.title || `第 ${episode.episodeNo} 集`)}</strong>
+            <p>${storyEscape(episode.synopsis || episode.summary || "暂无梗概")}</p>
+            ${hook ? `<p class="story-analysis-hook"><b>结尾钩子</b>${storyEscape(hook)}</p>` : ""}
+            <small>${Number(episode.durationSeconds || 0)} 秒${characters.length ? ` · 角色：${storyEscape(characters.join("、"))}` : ""}${scenes.length ? ` · 场景：${storyEscape(scenes.join("、"))}` : ""}</small>
+          </div>
+        </article>`;
+    }).join("");
     const characters = (analysis.characters || []).map((item) => `<span>${storyEscape(item.name)}</span>`).join("");
     const scenes = (analysis.scenes || []).map((item) => `<span>${storyEscape(item.name)}</span>`).join("");
     return `
@@ -292,31 +339,41 @@
           ${storyMetric("资产", project.assetCount)}
           ${storyMetric("镜头", project.shotCount)}
         </div>
-        ${renderStoryScriptSection()}
-        ${renderStoryAnalysisSection()}
-        ${renderStoryAssetsSection()}
-        <section class="story-section">
-          <div class="story-section-head"><div><p class="eyebrow">PIPELINE</p><h3>剧集生产流程</h3></div><span>契约冻结</span></div>
-          <div class="story-flow">${flow.map((item, index) => `<span><b>${index + 1}</b>${storyEscape(item)}</span>`).join("")}</div>
-        </section>
-        <section class="story-section">
-          <div class="story-section-head"><div><p class="eyebrow">CANVAS SCOPE</p><h3>三级画布结构</h3></div><code>${storyEscape(projectCanvas?.canvasId || `story-project-${project.id}`)}</code></div>
-          <div class="story-scope-grid">${scopeCards}</div>
-        </section>
-        <section class="story-section">
-          <div class="story-section-head"><div><p class="eyebrow">EPISODES</p><h3>剧集</h3></div><span>${episodes.length} / ${project.episodeTarget}</span></div>
-          <div class="story-episode-list">${episodeRows}</div>
-          <form class="story-episode-form" id="storyEpisodeForm">
-            <label>集标题<input id="storyEpisodeTitle" maxlength="160" placeholder="可选" /></label>
-            <label>单集梗概<textarea id="storyEpisodeSynopsis" maxlength="8000" rows="2" placeholder="本集冲突、场景与结尾钩子"></textarea></label>
-            <button class="story-create-button" type="submit"><i data-lucide="plus"></i><span>新增剧集</span></button>
-          </form>
-          <p class="story-message" id="storyEpisodeMessage"></p>
-        </section>
-        <section class="story-section story-p0-note">
-          <div class="story-section-head"><div><p class="eyebrow">P1 BOUNDARY</p><h3>剧本到剧集已闭环</h3></div><span>${storyEscape(contracts.version || "story-p0-v1")}</span></div>
-          <p>剧本版本、AI 拆解结果、剧集与角色场景资产全部写入 PostgreSQL。画布仍只保存布局与引用；角色形象生成、分镜和镜头视频生成在后续阶段接入。</p>
-        </section>
+        ${renderStoryDetailTabs()}
+        <div class="story-tab-panel" data-story-tab-panel="script" ${storyState.detailTab === "script" ? "" : "hidden"}>
+          ${renderStoryScriptSection()}
+          ${renderStoryAnalysisSection()}
+        </div>
+        <div class="story-tab-panel" data-story-tab-panel="episodes" ${storyState.detailTab === "episodes" ? "" : "hidden"}>
+          <section class="story-section">
+            <div class="story-section-head"><div><p class="eyebrow">EPISODES</p><h3>分集剧本</h3></div><span>${episodes.length} / ${project.episodeTarget}</span></div>
+            <p class="story-tab-lead">这里存放 AI 拆解后确认写入的每一集。每集应保留可制作的长大纲、出场角色、场景和结尾钩子。</p>
+            <div class="story-episode-list">${episodeRows}</div>
+            <form class="story-episode-form" id="storyEpisodeForm">
+              <label>集标题<input id="storyEpisodeTitle" maxlength="160" placeholder="可选" /></label>
+              <label>单集大纲<textarea id="storyEpisodeSynopsis" maxlength="8000" rows="3" placeholder="本集开场、发展、转折、结尾钩子与关键场景"></textarea></label>
+              <button class="story-create-button" type="submit"><i data-lucide="plus"></i><span>新增剧集</span></button>
+            </form>
+            <p class="story-message" id="storyEpisodeMessage"></p>
+          </section>
+        </div>
+        <div class="story-tab-panel" data-story-tab-panel="assets" ${storyState.detailTab === "assets" ? "" : "hidden"}>
+          ${renderStoryAssetsSection()}
+        </div>
+        <div class="story-tab-panel" data-story-tab-panel="production" ${storyState.detailTab === "production" ? "" : "hidden"}>
+          <section class="story-section">
+            <div class="story-section-head"><div><p class="eyebrow">PIPELINE</p><h3>剧集生产流程</h3></div><span>契约冻结</span></div>
+            <div class="story-flow">${flow.map((item, index) => `<span><b>${index + 1}</b>${storyEscape(item)}</span>`).join("")}</div>
+          </section>
+          <section class="story-section">
+            <div class="story-section-head"><div><p class="eyebrow">CANVAS SCOPE</p><h3>三级画布结构</h3></div><code>${storyEscape(projectCanvas?.canvasId || `story-project-${project.id}`)}</code></div>
+            <div class="story-scope-grid">${scopeCards}</div>
+          </section>
+          <section class="story-section story-p0-note">
+            <div class="story-section-head"><div><p class="eyebrow">CURRENT BOUNDARY</p><h3>当前制作边界</h3></div><span>${storyEscape(contracts.version || "story-p0-v1")}</span></div>
+            <p>剧本版本、AI 拆解结果、剧集与角色场景资产全部写入 PostgreSQL。画布仍只保存布局与引用；角色形象生成、分镜和镜头视频生成在后续阶段接入。</p>
+          </section>
+        </div>
       </div>`;
     storyRefreshIcons();
   }
@@ -376,6 +433,7 @@
   async function loadStoryDetail(projectId = "") {
     const id = String(projectId || "").trim();
     if (!id) return;
+    if (storyState.selectedId !== id) storyState.detailTab = "script";
     storyState.view = "detail";
     storyState.createOpen = false;
     storyState.selectedId = id;
@@ -544,6 +602,7 @@
       storyState.analysis = null;
       storyState.analysisScriptId = "";
       await loadStoryDetail(projectId);
+      storyState.detailTab = "episodes";
       storyState.actionMessage = `已写入 ${analysis.episodes?.length || 0} 集。`;
       renderStoryDetail();
     } catch (error) {
@@ -591,6 +650,7 @@
     });
     storyEl("storyProjectDetail")?.addEventListener("click", (event) => {
       if (event.target.closest("[data-story-back]")) openStoryLibrary();
+      else if (event.target.closest("[data-story-tab]")) setStoryDetailTab(event.target.closest("[data-story-tab]")?.dataset.storyTab || "");
       else if (event.target.closest("[data-story-save-script]")) saveStoryScriptDraft();
       else if (event.target.closest("[data-story-analyze]")) analyzeStoryDraft();
       else if (event.target.closest("[data-story-import-analysis]")) importStoryAnalysis();
