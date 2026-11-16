@@ -5,7 +5,11 @@
 - Added the three missing keys and exported the pricing parser for a focused regression. The new test round-trips every row returned by `adminAdvancedPricingView()` through the save parser, matching the admin submit payload.
 - Verification: focused tests passed 44/44; full `npm test` passed 1,360 with 0 failures and 1 skip; Node syntax checks and `git diff --check` passed.
 - The patch is based on the active production source `a58f814d`, not the older `old-site` branch tip, to avoid rolling back newer deployment safety work.
-- Deployment status: pending at the time this entry was written.
+- The first Old rolling deploy rolled back safely because `DB_MIGRATION_RUNTIME_ROOT` was scoped only to the first `node` command in a three-command migration sequence. The later `--apply` and verification invocations fell back to the release root and could not resolve `node_modules/pg`.
+- Fixed the deployment command to `export DB_MIGRATION_RUNTIME_ROOT=/opt/raising-game-demo` before all three migration invocations, with a deploy-target regression assertion. Focused tests passed 52/52; Python compile and `git diff --check` passed.
+- Source `7339c0481193b604d9d38afb90600f95833f48bc`; platform release `8f7c0cc2a14d275d50801e2699c4ce8e6a9fae33`. Deployed Old-only through `scripts/deploy_local.sh --site old` with exit 0. Canaries at 1% and 5% each completed 23 successful polls; traffic moved from 4174 to 4175 only after candidate readiness.
+- Post-deploy verification: `/api/health` and `/api/readyz` return 200; readyz reports the exact clean release `8f7c0cc2a14d275d50801e2699c4ce8e6a9fae33`, PID `471085`, and background schedulers/submit queue/worker disabled. Live was not changed or pushed.
+- Deployment log: `/tmp/raising-seedream55-pricing-deploy-2.log`.
 
 ## 2026-11-15 Step BW: disk cleanup, media write-root discovery, and cutover delta sync
 
