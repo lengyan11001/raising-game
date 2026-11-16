@@ -1231,27 +1231,40 @@ function closeAdvancedParameterPanel() {
   });
 }
 
+function advancedParameterViewportTop() {
+  const viewportGap = 12;
+  const header = document.querySelector(".site-head");
+  if (!header) return viewportGap;
+  const style = window.getComputedStyle(header);
+  const rect = header.getBoundingClientRect();
+  const overlaysViewportTop = (style.position === "sticky" || style.position === "fixed")
+    && rect.top <= viewportGap
+    && rect.bottom > viewportGap;
+  return overlaysViewportTop ? rect.bottom + 8 : viewportGap;
+}
+
 function positionAdvancedParameterPanel() {
   const panel = els.advancedParameterPanel;
   const chip = els.advancedParameterChips?.querySelector(`[data-advanced-parameter-open="${state.advancedParameterOpen}"]`);
   if (!panel || panel.hidden || !chip) return;
   const chipRect = chip.getBoundingClientRect();
   const viewportGap = 12;
-  const spaceBelow = Math.max(0, window.innerHeight - chipRect.bottom - viewportGap);
-  const spaceAbove = Math.max(0, chipRect.top - viewportGap);
-  const previousMaxHeight = panel.style.maxHeight;
+  const viewportTop = advancedParameterViewportTop();
+  const panelGap = 10;
+  const spaceBelow = Math.max(0, window.innerHeight - chipRect.bottom - panelGap - viewportGap);
+  const spaceAbove = Math.max(0, chipRect.top - panelGap - viewportTop);
   panel.style.maxHeight = "none";
   const neededHeight = Math.ceil(panel.getBoundingClientRect().height);
   const fitsBelow = neededHeight <= spaceBelow;
   const fitsAbove = neededHeight <= spaceAbove;
-  const openUp = !fitsBelow && (fitsAbove || spaceAbove > spaceBelow);
+  const comfortableBelow = Math.min(220, neededHeight);
+  const openUp = !fitsBelow && !fitsAbove && spaceBelow < comfortableBelow && spaceAbove > spaceBelow;
   const available = openUp ? spaceAbove : spaceBelow;
   panel.dataset.advancedParameterPlacement = openUp ? "up" : "down";
   if (neededHeight > available) {
     panel.style.maxHeight = `${Math.max(0, Math.floor(available))}px`;
-  } else {
-    panel.style.maxHeight = previousMaxHeight;
-  }
+  } else panel.style.removeProperty("max-height");
+  panel.scrollTop = 0;
 }
 
 function renderAdvancedParameterPanel(kind = "") {
@@ -1306,7 +1319,15 @@ function renderAdvancedParameterPanel(kind = "") {
   refreshIcons();
   if (modelList) {
     const selected = els.advancedParameterPanel.querySelector(".advanced-parameter-option.is-selected");
-    selected?.scrollIntoView?.({ block: "nearest" });
+    if (selected) {
+      const panelRect = els.advancedParameterPanel.getBoundingClientRect();
+      const selectedRect = selected.getBoundingClientRect();
+      if (selectedRect.top < panelRect.top) {
+        els.advancedParameterPanel.scrollTop -= panelRect.top - selectedRect.top;
+      } else if (selectedRect.bottom > panelRect.bottom) {
+        els.advancedParameterPanel.scrollTop += selectedRect.bottom - panelRect.bottom;
+      }
+    }
   }
 }
 

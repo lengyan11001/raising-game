@@ -11282,6 +11282,7 @@ select:focus,
   color: rgba(247,247,251,.44) !important;
 }
 .advanced-parameter-panel {
+  box-sizing: border-box;
   position: absolute;
   left: 0;
   top: calc(100% + 10px);

@@ -169,6 +169,12 @@ test("Generate parameter picker stays compact and selected chips show full label
   assert.match(css, /\.advanced-parameter-option \{[\s\S]*?min-height: 30px;[\s\S]*?padding: 0 10px/);
   assert.match(css, /\.advanced-parameter-chip-value \{[\s\S]*?overflow: visible;[\s\S]*?text-overflow: clip/);
   assert.match(create, /kind === "model" \? valueLabel :/);
+  assert.match(create, /function advancedParameterViewportTop\(\)/);
+  assert.match(create, /\.site-head[\s\S]*?style\.position === "sticky"[\s\S]*?rect\.bottom \+ 8/);
+  assert.match(create, /const openUp = !fitsBelow && !fitsAbove && spaceBelow < comfortableBelow && spaceAbove > spaceBelow/);
+  assert.match(create, /panel\.style\.removeProperty\("max-height"\)/);
+  assert.doesNotMatch(create, /selected\?\.scrollIntoView/);
+  assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?box-sizing: border-box/);
 });
 
 test("Generate dialogs expand to the available viewport without redundant scrolling", () => {
