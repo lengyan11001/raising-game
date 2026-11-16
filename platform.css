@@ -15569,7 +15569,7 @@ body.app-keyboard-open {
 .story-asset-row small { color: #6f6874; font-size: 9px; }
 .story-asset-empty { padding: 20px 12px; color: #766e7a; font-size: 9px; text-align: center; }
 .story-episode-list { display: grid; gap: 8px; margin-top: 14px; }
-.story-episode-row { display: grid; grid-template-columns: 50px minmax(0, 1fr) auto 30px; gap: 12px; align-items: start; padding: 12px; background: #19171c; border: 1px solid var(--story-line); border-radius: 9px; }
+.story-episode-row { display: grid; grid-template-columns: 50px minmax(0, 1fr) auto minmax(230px, auto); gap: 12px; align-items: start; padding: 12px; background: #19171c; border: 1px solid var(--story-line); border-radius: 9px; }
 .story-episode-index { display: grid; min-height: 38px; place-items: center; color: #ffb6d4; background: rgba(255, 79, 163, .1); border: 1px solid rgba(255, 79, 163, .17); border-radius: 7px; font: 760 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .story-episode-copy strong { color: #e8e1ea; }
 .story-episode-copy p { margin: 5px 0; color: #9b929f; font-size: 11px; line-height: 1.55; }
@@ -15577,6 +15577,39 @@ body.app-keyboard-open {
 .story-episode-delete { display: grid; width: 28px; height: 28px; place-items: center; padding: 0; color: #8b818f; background: transparent; border: 1px solid transparent; border-radius: 6px; }
 .story-episode-delete:hover { color: #ff9fbb; background: rgba(255, 83, 124, .08); border-color: rgba(255, 83, 124, .18); }
 .story-episode-delete svg { width: 13px; height: 13px; }
+.story-episode-actions { display: flex; align-items: start; justify-content: flex-end; gap: 6px; }
+.story-episode-actions button { display: inline-flex; min-height: 28px; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; color: #bdb3c1; background: rgba(255, 255, 255, .035); border: 1px solid var(--story-line); border-radius: 6px; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.story-episode-actions button:hover { color: #fff; background: rgba(255, 255, 255, .07); }
+.story-episode-actions button svg { width: 12px; height: 12px; }
+.story-episode-actions .story-episode-delete { width: 28px; padding: 0; }
+.story-episode-workspace { margin-top: 14px; }
+.story-workbench-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--story-line); }
+.story-workbench-head h3 { margin: 3px 0 0; color: #eee7f0; font-size: 18px; }
+.story-episode-stages { display: flex; gap: 7px; margin: 14px 0; overflow-x: auto; }
+.story-episode-stages button,
+.story-episode-stages > span { display: inline-flex; flex: 0 0 auto; min-height: 38px; align-items: center; gap: 7px; padding: 0 12px; color: #857b89; background: #171519; border: 1px solid var(--story-line); border-radius: 7px; font-size: 10px; font-weight: 710; }
+.story-episode-stages button { cursor: pointer; }
+.story-episode-stages button.is-active { color: #fff; background: rgba(255, 79, 163, .1); border-color: rgba(255, 79, 163, .34); }
+.story-episode-stages b { display: grid; width: 19px; height: 19px; place-items: center; color: #ffb2d1; background: rgba(255, 79, 163, .13); border-radius: 50%; font: 750 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.story-episode-stages small { color: #6f6675; font-size: 8px; }
+.story-episode-edit-form,
+.story-shot-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .35fr); gap: 10px; padding: 14px; background: #171519; border: 1px solid var(--story-line); border-radius: 9px; }
+.story-episode-edit-form label,
+.story-shot-form label { display: grid; gap: 6px; color: #9c939f; font-size: 10px; font-weight: 680; }
+.story-episode-edit-form textarea { resize: vertical; line-height: 1.65; }
+.story-episode-edit-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 3px; }
+.story-episode-edit-actions p { flex: 1 1 300px; margin: 0; color: #837a87; font-size: 9px; line-height: 1.55; }
+.story-shot-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 9px; padding: 10px 12px; background: rgba(255, 79, 163, .045); border-left: 2px solid rgba(255, 79, 163, .5); }
+.story-shot-actions p { margin: 0; color: #908694; font-size: 10px; line-height: 1.55; }
+.story-shot-actions strong { flex: 0 0 auto; color: #ffb1d0; font-size: 10px; }
+.story-shot-list { display: grid; gap: 7px; margin-bottom: 10px; }
+.story-shot-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) 28px; align-items: start; gap: 11px; padding: 10px 11px; background: #19171c; border: 1px solid var(--story-line); border-radius: 8px; }
+.story-shot-row > b { display: grid; min-height: 32px; place-items: center; color: #ffb6d4; background: rgba(255, 79, 163, .1); border-radius: 6px; font: 750 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.story-shot-row strong { color: #e5dde8; font-size: 11px; }
+.story-shot-row p { margin: 4px 0; color: #958c99; font-size: 10px; line-height: 1.55; }
+.story-shot-row small { color: #746c78; font-size: 8px; }
+.story-shot-form { grid-template-columns: minmax(0, 1fr) 130px; }
+.story-shot-form .story-create-button { align-self: end; justify-self: start; }
 .story-episode-form { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(240px, 1.5fr) auto; gap: 10px; align-items: end; margin-top: 13px; padding-top: 13px; border-top: 1px dashed var(--story-line); }
 .story-episode-form label { display: grid; gap: 6px; color: #9c939f; font-size: 10px; font-weight: 680; }
 .story-episode-form .story-create-button { min-width: 104px; }
@@ -15631,9 +15664,18 @@ body.app-keyboard-open {
   .story-script-actions .story-create-button,
   .story-script-actions .story-secondary-button,
   .story-analysis-actions .story-create-button { width: 100%; }
-  .story-episode-row { grid-template-columns: 44px minmax(0, 1fr) 30px; }
-  .story-episode-index { grid-row: 1 / span 2; }
+  .story-episode-row { grid-template-columns: 44px minmax(0, 1fr); }
+  .story-episode-index { grid-row: 1 / span 3; }
   .story-episode-copy { grid-column: 2; grid-row: 1; }
   .story-episode-row > .story-status-pill { grid-column: 2; grid-row: 2; justify-self: start; }
-  .story-episode-delete { grid-column: 3; grid-row: 1; }
+  .story-episode-actions { grid-column: 2; grid-row: 3; justify-content: flex-start; flex-wrap: wrap; }
+  .story-workbench-head { grid-template-columns: minmax(0, 1fr) auto; }
+  .story-workbench-head .story-back-button { grid-column: 1 / -1; justify-self: start; }
+  .story-episode-edit-form,
+  .story-shot-form { grid-template-columns: 1fr; }
+  .story-episode-edit-actions { display: grid; grid-template-columns: 1fr; }
+  .story-episode-edit-actions .story-create-button,
+  .story-episode-edit-actions .story-secondary-button,
+  .story-shot-form .story-create-button { width: 100%; }
+  .story-shot-actions { display: grid; }
 }

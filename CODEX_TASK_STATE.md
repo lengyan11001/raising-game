@@ -1,3 +1,14 @@
+## 2026-11-16 Step BM: story episode workbench and shot planning
+
+- Added the missing post-import production path: each episode row now opens a dedicated workbench for `剧情大纲 → 分镜清单`; later prompt, image, and video stages are visible as future gates instead of dead-end actions.
+- Episode outline editing now persists title, duration, synopsis, ending hook, characters, and scenes. Locking the outline moves into shot planning, while `恢复草稿` remains available.
+- Added ordered shot CRUD backed by PostgreSQL: list/create/update/delete APIs, DB ownership checks, server imports, and UI forms for adding and deleting shots. No JSON/file fallback was introduced.
+- Fixed the outline save race that previously re-read form values after re-rendering, and preserved episode shot counts when updating an episode.
+- Added responsive workbench, shot-list, and action styles; bumped platform/canvas cache version to `story-episode-workbench-20261116-1`.
+- Files changed: `db.js`, `platform.story.js`, `platform.css`, `platform.html`, `platform.js`, `server.parts/part-01.js`, `server.parts/part-03.js`, `server.parts/part-42.js`, `test/story-canvas-p1.test.js`, `test/workflow-canvases.test.js`.
+- Verification: story/workflow focused tests pass `53/53`; full `npm test` reports `1372 pass / 1 known unrelated baseline failure / 1 skipped`. The only failure remains `Generate parameter pickers close after selection and duration uses a slider`; syntax checks, undefined-symbol guard, and `git diff --check` pass.
+- Deployment pending: commit, build `platform-release` from `old-site`, deploy Old only, then browser-verify outline save, lock, shot create/delete, and responsive layout.
+
 ## 2026-11-16 Step BL: story workspace tabs and production-length episode outlines
 
 - Reworked the crowded story project detail into four CSS-toggled workspace tabs: `剧本与拆解`, `分集`, `资产库`, and `制作路径`. Tab switching preserves the current textarea DOM instead of re-rendering the project.

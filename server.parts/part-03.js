@@ -1162,6 +1162,100 @@ async function handleCreateStoryEpisode(req, res, projectId = "") {
   return sendJson(res, 201, { ok: true, episode });
 }
 
+async function handleUpdateStoryEpisode(req, res, projectId = "", episodeId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req, 512 * 1024);
+  const episode = await updateStoryEpisodeInDb({
+    projectId,
+    ownerUserId: auth.user.id,
+    episodeId,
+    title: storyInputText(body.title, 160),
+    synopsis: storyInputText(body.synopsis, 8000),
+    status: storyInputText(body.status, 40) || "draft",
+    durationSeconds: Math.max(0, Math.min(24 * 60 * 60, Math.round(Number(body.durationSeconds || 0) || 0))),
+    metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {},
+  });
+  if (!episode) {
+    if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+    return sendJson(res, 404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
+  }
+  return sendJson(res, 200, { ok: true, episode });
+}
+
+async function handleListStoryShots(req, res, projectId = "", episodeId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const shots = await listStoryShotsFromDb({ projectId, ownerUserId: auth.user.id, episodeId });
+  if (shots === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  return sendJson(res, 200, { ok: true, shots: shots || [] });
+}
+
+async function handleCreateStoryShot(req, res, projectId = "", episodeId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req, 512 * 1024);
+  const shot = await createStoryShotInDb({
+    id: randomId("shot"),
+    projectId,
+    episodeId,
+    ownerUserId: auth.user.id,
+    shotNo: Math.max(0, Math.round(Number(body.shotNo || 0) || 0)),
+    title: storyInputText(body.title, 160),
+    description: storyInputText(body.description, 4000),
+    imagePrompt: storyInputText(body.imagePrompt, 8000),
+    videoPrompt: storyInputText(body.videoPrompt, 8000),
+    durationSeconds: Math.max(1, Math.min(300, Math.round(Number(body.durationSeconds || 5) || 5))),
+    status: storyInputText(body.status, 40) || "draft",
+    metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {},
+  });
+  if (!shot) {
+    if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+    return sendJson(res, 404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
+  }
+  return sendJson(res, 201, { ok: true, shot });
+}
+
+async function handleUpdateStoryShot(req, res, projectId = "", episodeId = "", shotId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req, 512 * 1024);
+  const shot = await updateStoryShotInDb({
+    projectId,
+    episodeId,
+    ownerUserId: auth.user.id,
+    shotId,
+    title: storyInputText(body.title, 160),
+    description: storyInputText(body.description, 4000),
+    imagePrompt: storyInputText(body.imagePrompt, 8000),
+    videoPrompt: storyInputText(body.videoPrompt, 8000),
+    durationSeconds: Math.max(1, Math.min(300, Math.round(Number(body.durationSeconds || 5) || 5))),
+    status: storyInputText(body.status, 40) || "draft",
+    metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {},
+  });
+  if (!shot) {
+    if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "镜头存储不可用。" });
+    return sendJson(res, 404, { ok: false, code: "STORY_SHOT_NOT_FOUND", message: "镜头不存在。" });
+  }
+  return sendJson(res, 200, { ok: true, shot });
+}
+
+async function handleDeleteStoryShot(req, res, projectId = "", episodeId = "", shotId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const shot = await deleteStoryShotFromDb({ projectId, episodeId, ownerUserId: auth.user.id, shotId });
+  if (!shot) {
+    if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "镜头存储不可用。" });
+    return sendJson(res, 404, { ok: false, code: "STORY_SHOT_NOT_FOUND", message: "镜头不存在。" });
+  }
+  return sendJson(res, 200, { ok: true, shot });
+}
+
 function compactPlainText(value = "", maxLength = 220) {
   const text = String(value || "")
     .replace(/<[^>]*>/g, " ")
