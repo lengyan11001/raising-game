@@ -12,6 +12,7 @@ import importlib.util
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,8 @@ DEFAULT_PRIMARY_SERVICE = "raising-game-demo.service"
 DEFAULT_CANDIDATE_SERVICE = "raising-game-demo-b.service"
 DEFAULT_PRIMARY_PORT = "4174"
 DEFAULT_CANDIDATE_PORT = "4175"
+DEFAULT_RELEASE_RETENTION = 4
+DEFAULT_MINIMUM_FREE_BYTES = 2 * 1024**3
 DEFAULT_ENV_FILE = Path("/etc/raising-game-demo.env")
 DEFAULT_NGINX_ENABLED_ROOT = Path("/etc/nginx/sites-enabled")
 DEFAULT_NGINX_FILES = (
@@ -121,6 +124,61 @@ def release_marker(release: Path) -> str:
     if not COMMIT_RE.fullmatch(identity):
         raise DeployError(f"immutable release marker has an invalid commit: {identity!r}")
     return identity
+
+
+def loaded_release_paths(releases_root: Path, services: list[str], rolling) -> set[Path]:
+    """Return release checkouts currently used by the rolling services."""
+    root = releases_root.resolve()
+    loaded: set[Path] = set()
+    for service in services:
+        values = rolling.systemctl_show(service, "ActiveState,SubState,MainPID", "systemctl")
+        pid = values.get("MainPID", "0")
+        if not pid.isdigit() or pid == "0":
+            continue
+        try:
+            cwd = Path(os.readlink(f"/proc/{pid}/cwd")).resolve()
+        except OSError:
+            continue
+        if cwd.parent == root:
+            loaded.add(cwd)
+    return loaded
+
+
+def prune_old_releases(releases_root: Path, protected: set[Path], retain: int) -> list[Path]:
+    """Remove only immutable, identified release directories outside the retention set."""
+    if retain < 2:
+        raise DeployError("release retention must keep at least two releases")
+    root = releases_root.resolve()
+    protected = {path.resolve() for path in protected}
+    candidates: list[tuple[float, Path]] = []
+    for child in root.iterdir():
+        if child.is_symlink() or not child.is_dir() or not COMMIT_RE.fullmatch(child.name):
+            continue
+        try:
+            if release_marker(child) != child.name:
+                continue
+        except DeployError:
+            continue
+        candidates.append((child.stat().st_mtime, child.resolve()))
+    candidates.sort(key=lambda item: (item[0], item[1].name), reverse=True)
+    keep = protected | {path for _, path in candidates[:retain]}
+    removed: list[Path] = []
+    for _, path in candidates:
+        if path in keep:
+            continue
+        run(["rm", "-rf", "--", str(path)], timeout=120)
+        removed.append(path)
+    return removed
+
+
+def validate_release_disk_capacity(releases_root: Path, minimum_free: int = DEFAULT_MINIMUM_FREE_BYTES) -> None:
+    """Fail before an immutable release copy can consume the last free disk."""
+    usage = shutil.disk_usage(releases_root)
+    if usage.free < minimum_free:
+        raise DeployError(
+            "insufficient free disk for immutable release: "
+            f"free={usage.free} required={minimum_free} path={releases_root}"
+        )
 
 
 def validate_upstream_coverage(
@@ -490,6 +548,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--candidate-service", default=DEFAULT_CANDIDATE_SERVICE)
     parser.add_argument("--primary-port", default=DEFAULT_PRIMARY_PORT)
     parser.add_argument("--candidate-port", default=DEFAULT_CANDIDATE_PORT)
+    parser.add_argument("--release-retention", type=int, default=DEFAULT_RELEASE_RETENTION)
     parser.add_argument("--nginx-file", action="append", default=[])
     parser.add_argument("--upstream-name", action="append", default=[])
     parser.add_argument("--nginx-enabled-root", default=str(DEFAULT_NGINX_ENABLED_ROOT))
@@ -514,6 +573,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("Old production deployment requires the fixed 1% -> 5% canary")
     if args.canary_observe_seconds <= 0 or args.canary_poll_seconds <= 0:
         parser.error("canary observation durations must be positive")
+    if args.release_retention < 2:
+        parser.error("--release-retention must keep at least two releases")
     return args
 
 
@@ -555,6 +616,16 @@ def deploy(args: argparse.Namespace) -> int:
     )
     if releases_root.is_symlink():
         raise DeployError(f"release root must not be a symlink: {releases_root}")
+    if args.apply:
+        loaded = loaded_release_paths(
+            releases_root,
+            [args.primary_service, args.candidate_service],
+            rolling,
+        )
+        removed = prune_old_releases(releases_root, loaded, args.release_retention)
+        if removed:
+            log(f"OLD_RELEASES_PREPRUNE removed={len(removed)} protected={len(loaded)}")
+    validate_release_disk_capacity(releases_root)
     release = releases_root / args.commit
     if release.exists() or release.is_symlink():
         if release_marker(release) != args.commit:
@@ -633,6 +704,16 @@ def deploy(args: argparse.Namespace) -> int:
     if observed != target_port:
         raise DeployError(f"post-deploy active port mismatch: observed={observed} expected={target_port}")
     log(f"OLD_ROLLING_DEPLOY_OK active_port={observed} release={args.commit}")
+    protected = loaded_release_paths(
+        releases_root,
+        [args.primary_service, args.candidate_service],
+        rolling,
+    ) | {release.resolve()}
+    removed = prune_old_releases(releases_root, protected, args.release_retention)
+    log(
+        f"OLD_RELEASES_PRUNED removed={len(removed)} "
+        f"retention={args.release_retention} protected={len(protected)}"
+    )
     return 0
 
 

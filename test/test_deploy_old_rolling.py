@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,41 @@ SPEC.loader.exec_module(ROLLING)
 
 
 class DeployOldRollingTests(unittest.TestCase):
+    def test_release_pruning_keeps_loaded_and_newest_immutable_releases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            releases = []
+            for index in range(6):
+                commit = f"{index + 1:040x}"
+                release = root / commit
+                release.mkdir()
+                (release / "RELEASE_COMMIT").write_text(commit + "\n", encoding="utf-8")
+                os.utime(release, (1000 + index, 1000 + index))
+                releases.append(release)
+            stale_loaded = releases[0]
+            unknown = root / "not-a-release"
+            unknown.mkdir()
+            removed = ROLLING.prune_old_releases(root, {stale_loaded}, retain=3)
+
+            self.assertEqual([path.name for path in removed], [releases[2].name, releases[1].name])
+            self.assertTrue(stale_loaded.is_dir())
+            self.assertTrue(unknown.is_dir())
+            self.assertEqual(
+                sorted(path.name for path in root.iterdir() if path.is_dir()),
+                sorted([stale_loaded.name, *[path.name for path in releases[3:]], unknown.name]),
+            )
+
+    def test_release_copy_requires_free_disk_headroom(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            usage = type("Usage", (), {"free": ROLLING.DEFAULT_MINIMUM_FREE_BYTES - 1})
+            with mock.patch.object(ROLLING.shutil, "disk_usage", return_value=usage):
+                with self.assertRaisesRegex(ROLLING.DeployError, "insufficient free disk"):
+                    ROLLING.validate_release_disk_capacity(root)
+            usage.free = ROLLING.DEFAULT_MINIMUM_FREE_BYTES
+            with mock.patch.object(ROLLING.shutil, "disk_usage", return_value=usage):
+                ROLLING.validate_release_disk_capacity(root)
+
     def test_target_follows_discovered_active_port(self) -> None:
         self.assertEqual(
             ROLLING.target_for_active_port(
