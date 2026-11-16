@@ -3,6 +3,7 @@
 - Fixed `Cannot read properties of null (reading 'reset')` in `createStoryProject`: cache the submitted form before awaiting `POST /api/story/projects`, then call `form.reset()` instead of reading `event.currentTarget` after the await.
 - Successful creation now clears the form and closes the creation sheet before refreshing the project library, so the create panel does not remain open.
 - Added regression assertions in `test/story-canvas-p0.test.js`; `node --check platform.story.js`, `git diff --check`, focused story tests `4/4`, and `npm run check:undef` passed.
+- Committed as `4cca705bb72b1ed4e11e831d67b8442f2c755d53`; platform release `15b0556b4104e0b9b7302bf507771eaaad62a7dd` pushed only to `platform-release` and deployed Old-only. `OLD_ROLLING_DEPLOY_OK active_port=4174`; `/api/health`, `/api/livez`, and `/api/readyz` all return `200`, and `livez`/`readyz` report release `15b0556b`. Uploaded `platform.story.js` contains the cached form reference and closes the create sheet on success. Live remains untouched.
 
 ## 2026-11-16 Step BH: story P0 visual alignment with Old canvas library
 
