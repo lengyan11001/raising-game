@@ -1,3 +1,12 @@
+## 2026-11-16 Step BN: AI-owned hooks and shot planning
+
+- Reworked the episode workflow so the user supplies and reviews the source script while AI owns the production draft. Empty hooks returned by the initial script analysis are repaired by a second AI pass; if a hook is still missing, the AI shot planner writes it while planning the locked episode.
+- Added PostgreSQL-backed AI shot planning at `POST /api/story/projects/:projectId/episodes/:episodeId/shots/plan`. It requires a locked outline, generates continuous shots with duration, shot size, camera movement, location, characters, dialogue, and story beat, then atomically replaces the episode shot list and moves the episode to `shots_planned`.
+- Locking an episode now immediately invokes AI shot planning and opens the shot list. The manual shot-creation form and its submit handler were removed from the primary workflow; the shots view offers explicit AI generation/regeneration only when recovery is needed.
+- Added hook-repair and AI-storyboard coverage. Focused story/workflow tests pass `49/49`; full `npm test` reports `1372 pass / 1 known unrelated baseline failure / 1 skipped`. Syntax checks, undefined-symbol guard, and `git diff --check` pass. The known failure remains `Generate parameter pickers close after selection and duration uses a slider`.
+- Files changed: `db.js`, `platform.css`, `platform.html`, `platform.js`, `platform.story.js`, `server.parts/part-01.js`, `server.parts/part-03.js`, `server.parts/part-42.js`, `test/story-canvas-p1.test.js`, `test/workflow-canvases.test.js`.
+- Deployment status: pending source commit, committed `old-site` release build, `platform-release` push, and Old-only deployment. Live must remain untouched.
+
 ## 2026-11-16 Step BM: story episode workbench and shot planning
 
 - Added the missing post-import production path: each episode row now opens a dedicated workbench for `剧情大纲 → 分镜清单`; later prompt, image, and video stages are visible as future gates instead of dead-end actions.

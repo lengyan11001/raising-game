@@ -104,15 +104,18 @@ test("story analyzer requests production-length episode outlines", () => {
   assert.match(handlers, /通常一章或一个完整情节单元拆为一集/);
   assert.match(handlers, /禁止只写一句话摘要/);
   assert.match(handlers, /开场 → 发展 → 转折 → 结尾/);
+  assert.match(handlers, /repairStoryAnalysisHooks/);
+  assert.match(handlers, /缺少结尾钩子/);
 });
 
-test("story episode workbench persists outline edits and ordered shots", () => {
+test("story episode workbench persists outline edits and AI-planned shots", () => {
   const handlers = read("server.parts/part-03.js");
   const routes = read("server.parts/part-42.js");
   const db = read("db.js");
   const imports = read("server.parts/part-01.js");
   for (const name of [
     "handleUpdateStoryEpisode",
+    "handlePlanStoryEpisodeShots",
     "handleListStoryShots",
     "handleCreateStoryShot",
     "handleUpdateStoryShot",
@@ -123,18 +126,22 @@ test("story episode workbench persists outline edits and ordered shots", () => {
   assert.match(routes, /storyEpisodeMatch[\s\S]*req\.method === "PUT"[\s\S]*handleUpdateStoryEpisode/);
   assert.match(routes, /storyEpisodeShotsMatch[\s\S]*req\.method === "GET"[\s\S]*handleListStoryShots/);
   assert.match(routes, /storyEpisodeShotsMatch[\s\S]*req\.method === "POST"[\s\S]*handleCreateStoryShot/);
+  assert.match(routes, /storyEpisodeShotsPlanMatch[\s\S]*req\.method === "POST"[\s\S]*handlePlanStoryEpisodeShots/);
   assert.match(routes, /storyShotMatch[\s\S]*req\.method === "PUT"[\s\S]*handleUpdateStoryShot/);
   assert.match(routes, /storyShotMatch[\s\S]*req\.method === "DELETE"[\s\S]*handleDeleteStoryShot/);
-  for (const fn of ["updateStoryEpisodeInDb", "listStoryShotsFromDb", "createStoryShotInDb", "updateStoryShotInDb", "deleteStoryShotFromDb"]) {
+  for (const fn of ["updateStoryEpisodeInDb", "listStoryShotsFromDb", "createStoryShotInDb", "updateStoryShotInDb", "deleteStoryShotFromDb", "replaceStoryShotsInDb"]) {
     assert.match(db, new RegExp(`async function ${fn}\\(`), `db function ${fn}`);
     assert.match(db, new RegExp(`\\b${fn},`), `db export ${fn}`);
     assert.match(imports, new RegExp(`\\b${fn},`), `server import ${fn}`);
   }
   assert.match(db, /async function listStoryShotsFromDb[\s\S]*p\.owner_user_id = \$3[\s\S]*ORDER BY s\.shot_no ASC/);
   assert.match(db, /async function createStoryShotInDb[\s\S]*SELECT COALESCE\(MAX\(shot_no\), 0\) \+ 1/);
+  assert.match(handlers, /STORY_SHOT_PLANNER_SYSTEM_PROMPT/);
+  assert.match(handlers, /通常每5-10秒一个镜头/);
+  assert.match(db, /async function replaceStoryShotsInDb[\s\S]*DELETE FROM app_story_shots/);
 });
 
-test("story episode workbench exposes outline, lock, shots, and deletion controls", () => {
+test("story episode workbench exposes AI storyboard flow and hook repair", () => {
   const story = read("platform.story.js");
   const css = read("platform.css");
   assert.match(story, /data-story-open-episode=/);
@@ -142,16 +149,19 @@ test("story episode workbench exposes outline, lock, shots, and deletion control
   assert.match(story, /data-story-episode-view="shots"/);
   assert.match(story, /data-story-save-episode/);
   assert.match(story, /data-story-lock-episode/);
+  assert.match(story, /data-story-plan-shots/);
   assert.match(story, /data-story-delete-shot/);
   assert.match(story, /function setStoryEpisodeView\(/);
   assert.match(story, /function saveStoryEpisode\(/);
-  assert.match(story, /function createStoryShot\(/);
+  assert.match(story, /function generateStoryEpisodeShots\(/);
+  assert.match(story, /锁定大纲，AI 拆分镜/);
+  assert.match(story, /shots\/plan/);
   assert.match(story, /function deleteStoryShot\(/);
   assert.match(story, /const title = storyEl\("storyEpisodeEditTitle"\)\?\.value/);
   assert.match(story, /\/shots\/\$\{encodeURIComponent\(shotId\)\}`[\s\S]*method: "DELETE"/);
   assert.match(css, /\.story-episode-workspace \{/);
   assert.match(css, /\.story-workbench-head \{[^}]*grid-template-columns/);
-  assert.match(css, /\.story-episode-edit-form,[\s\S]*\.story-shot-form \{[^}]*display: grid/);
+  assert.match(css, /\.story-shot-ai-empty \{[^}]*grid-template-columns/);
   assert.match(css, /\.story-shot-row \{[^}]*grid-template-columns/);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.story-episode-actions \{ grid-column: 2; grid-row: 3/);
 });

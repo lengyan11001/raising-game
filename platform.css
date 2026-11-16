@@ -15600,6 +15600,7 @@ body.app-keyboard-open {
 .story-episode-edit-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 3px; }
 .story-episode-edit-actions p { flex: 1 1 300px; margin: 0; color: #837a87; font-size: 9px; line-height: 1.55; }
 .story-shot-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 9px; padding: 10px 12px; background: rgba(255, 79, 163, .045); border-left: 2px solid rgba(255, 79, 163, .5); }
+.story-shot-actions > div { display: grid; gap: 4px; min-width: 0; }
 .story-shot-actions p { margin: 0; color: #908694; font-size: 10px; line-height: 1.55; }
 .story-shot-actions strong { flex: 0 0 auto; color: #ffb1d0; font-size: 10px; }
 .story-shot-list { display: grid; gap: 7px; margin-bottom: 10px; }
@@ -15608,6 +15609,12 @@ body.app-keyboard-open {
 .story-shot-row strong { color: #e5dde8; font-size: 11px; }
 .story-shot-row p { margin: 4px 0; color: #958c99; font-size: 10px; line-height: 1.55; }
 .story-shot-row small { color: #746c78; font-size: 8px; }
+.story-shot-row .story-shot-dialogue { padding: 6px 8px; color: #c6b9ca; background: rgba(255, 255, 255, .035); border-radius: 5px; }
+.story-shot-row .story-shot-dialogue b { margin-right: 7px; color: #ff9fc7; font-size: 8px; letter-spacing: .08em; }
+.story-shot-ai-empty { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 18px; background: linear-gradient(120deg, rgba(255, 79, 163, .08), rgba(25, 23, 28, .72)); border: 1px dashed rgba(255, 79, 163, .32); border-radius: 9px; }
+.story-shot-ai-empty > svg { width: 22px; color: #ff91be; }
+.story-shot-ai-empty strong { color: #e8dceb; font-size: 12px; }
+.story-shot-ai-empty p { margin: 4px 0 0; color: #918795; font-size: 10px; line-height: 1.55; }
 .story-shot-form { grid-template-columns: minmax(0, 1fr) 130px; }
 .story-shot-form .story-create-button { align-self: end; justify-self: start; }
 .story-episode-form { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(240px, 1.5fr) auto; gap: 10px; align-items: end; margin-top: 13px; padding-top: 13px; border-top: 1px dashed var(--story-line); }
@@ -15678,4 +15685,5 @@ body.app-keyboard-open {
   .story-episode-edit-actions .story-secondary-button,
   .story-shot-form .story-create-button { width: 100%; }
   .story-shot-actions { display: grid; }
+  .story-shot-ai-empty { grid-template-columns: 1fr; }
 }
