@@ -11290,7 +11290,7 @@ select:focus,
   display: grid;
   gap: 8px;
   width: min(480px, calc(100vw - 32px));
-  max-height: min(48vh, 380px);
+  max-height: min(52vh, 300px);
   overflow: auto;
   padding: 12px;
   border: 1px solid rgba(255,255,255,.14);
@@ -11445,7 +11445,7 @@ select:focus,
     top: calc(100% + 8px);
     bottom: auto;
     width: auto;
-    max-height: min(48vh, 380px);
+    max-height: min(52vh, 300px);
     padding: 13px;
   }
   .advanced-parameter-panel[data-advanced-parameter-placement="up"] {

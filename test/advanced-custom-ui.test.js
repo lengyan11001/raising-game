@@ -165,7 +165,9 @@ test("Advanced results use a compact paged multi-column card grid", () => {
 });
 
 test("Generate parameter picker stays compact and selected chips show full labels", () => {
-  assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?width: min\(480px, calc\(100vw - 32px\)\)[\s\S]*?max-height: min\(48vh, 380px\)/);
+  assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?width: min\(480px, calc\(100vw - 32px\)\)[\s\S]*?max-height: min\(52vh, 300px\)/);
+  assert.match(css, /\.advanced-parameter-options\.is-model-list \{[\s\S]*?gap: 8px/);
+  assert.match(css, /\.advanced-parameter-options\.is-model-list \.advanced-parameter-option \{[\s\S]*?min-height: 48px/);
   assert.match(css, /\.advanced-parameter-option \{[\s\S]*?min-height: 30px;[\s\S]*?padding: 0 10px/);
   assert.match(css, /\.advanced-parameter-chip-value \{[\s\S]*?overflow: visible;[\s\S]*?text-overflow: clip/);
   assert.match(create, /kind === "model" \? valueLabel :/);
