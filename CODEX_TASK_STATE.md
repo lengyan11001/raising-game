@@ -7,7 +7,10 @@
 - Bumped the platform asset cache version to `story-p1-20261116-1`.
 - Added `test/story-canvas-p1.test.js`; focused story/workflow tests pass `49/49`, syntax checks, `npm run check:undef`, and `git diff --check` pass.
 - Full `npm test`: `1368 pass / 1 known unrelated baseline failure / 1 skipped`; the only failure is `Generate parameter pickers close after selection and duration uses a slider`.
-- Source is ready for an Old-only release build and deployment; Live must remain untouched.
+- Built and pushed platform release `699c31a303fa6f087cf70eceeb5bf2d68737c069`; deployed Old-only with `scripts/deploy_local.sh --site old` and left Live untouched.
+- Rolling deployment moved Old traffic from `4174` to `4175`; process PID `592081` reports clean release `699c31a3`, and background schedulers/submit queue/worker are disabled.
+- Post-deploy checks pass: `/api/health`, `/api/livez`, and `/api/readyz` return `200`; unauthenticated `GET /api/story/projects` returns `401 LOGIN_REQUIRED`; legacy Live surfaces remain `404`.
+- Public `platform.story.js` exactly matches the release (`sha256 b0c70d9f18a9...`) and contains `data-story-save-script`, `data-story-analyze`, and `data-story-import-analysis`. The server replaces the source cache token with content-derived version `bb14436353f9`, which includes the P1 assets; public `platform.js` and `platform.css` match the release bytes.
 
 ## 2026-11-16 Step BI: story project create async form fix
 
