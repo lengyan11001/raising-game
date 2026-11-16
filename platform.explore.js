@@ -183,6 +183,9 @@ function setTab(tab) {
     if (deferred?.then) deferred.then(loadCanvases).catch(() => {});
     else loadCanvases();
   }
+  if (nextTab === "episodes") {
+    window.PlatformStory?.open?.();
+  }
   closeAccountMenu();
   closeMobileDrawer();
   trackGooglePageView();

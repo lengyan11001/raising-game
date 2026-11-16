@@ -27,6 +27,11 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-16-story-canvas-p0-v1",
+    description: "Create screenplay project, episode, asset, shot, prompt, generation, and canvas-link storage",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",
@@ -146,6 +151,123 @@ const GENERATION_SUBMIT_JOBS_DDL = Object.freeze([
   `CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_ready_idx ON app_generation_submit_jobs (status, available_at, created_at) WHERE status IN ('queued', 'retry');`,
   `CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_lease_idx ON app_generation_submit_jobs (status, lease_until) WHERE status = 'processing';`,
   `CREATE INDEX IF NOT EXISTS app_generation_submit_jobs_unknown_idx ON app_generation_submit_jobs (updated_at DESC) WHERE status = 'unknown';`,
+]);
+
+const STORY_CANVAS_P0_DDL = Object.freeze([
+  `CREATE TABLE IF NOT EXISTS app_story_projects (
+     id TEXT PRIMARY KEY,
+     owner_user_id TEXT NOT NULL DEFAULT '',
+     name TEXT NOT NULL DEFAULT '',
+     description TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'draft',
+     aspect_ratio TEXT NOT NULL DEFAULT '9:16',
+     episode_target INTEGER NOT NULL DEFAULT 1,
+     settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+  `CREATE INDEX IF NOT EXISTS app_story_projects_owner_updated_idx ON app_story_projects (owner_user_id, updated_at DESC, created_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS app_story_script_versions (
+     id TEXT PRIMARY KEY,
+     project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+     version_no INTEGER NOT NULL DEFAULT 1,
+     title TEXT NOT NULL DEFAULT '',
+     content TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'draft',
+     created_by TEXT NOT NULL DEFAULT '',
+     frozen_at TIMESTAMPTZ,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE (project_id, version_no)
+   );`,
+  `CREATE INDEX IF NOT EXISTS app_story_script_versions_project_idx ON app_story_script_versions (project_id, version_no DESC);`,
+  `CREATE TABLE IF NOT EXISTS app_story_episodes (
+     id TEXT PRIMARY KEY,
+     project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+     episode_no INTEGER NOT NULL DEFAULT 1,
+     title TEXT NOT NULL DEFAULT '',
+     synopsis TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'draft',
+     duration_seconds INTEGER NOT NULL DEFAULT 0,
+     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE (project_id, episode_no)
+   );`,
+  `CREATE INDEX IF NOT EXISTS app_story_episodes_project_idx ON app_story_episodes (project_id, episode_no ASC);`,
+  `CREATE TABLE IF NOT EXISTS app_story_assets (
+     id TEXT PRIMARY KEY,
+     project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+     kind TEXT NOT NULL DEFAULT 'character',
+     name TEXT NOT NULL DEFAULT '',
+     description TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'planned',
+     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+  `CREATE INDEX IF NOT EXISTS app_story_assets_project_kind_idx ON app_story_assets (project_id, kind, updated_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS app_story_asset_variants (
+     id TEXT PRIMARY KEY,
+     asset_id TEXT NOT NULL REFERENCES app_story_assets(id) ON DELETE CASCADE,
+     name TEXT NOT NULL DEFAULT '',
+     description TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'planned',
+     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+  `CREATE INDEX IF NOT EXISTS app_story_asset_variants_asset_idx ON app_story_asset_variants (asset_id, updated_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS app_story_shots (
+     id TEXT PRIMARY KEY,
+     project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+     episode_id TEXT NOT NULL REFERENCES app_story_episodes(id) ON DELETE CASCADE,
+     shot_no INTEGER NOT NULL DEFAULT 1,
+     title TEXT NOT NULL DEFAULT '',
+     description TEXT NOT NULL DEFAULT '',
+     image_prompt TEXT NOT NULL DEFAULT '',
+     video_prompt TEXT NOT NULL DEFAULT '',
+     duration_seconds INTEGER NOT NULL DEFAULT 5,
+     status TEXT NOT NULL DEFAULT 'draft',
+     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE (episode_id, shot_no)
+   );`,
+  `CREATE INDEX IF NOT EXISTS app_story_shots_episode_idx ON app_story_shots (episode_id, shot_no ASC);`,
+  `CREATE TABLE IF NOT EXISTS app_story_prompt_versions (
+     id TEXT PRIMARY KEY,
+     shot_id TEXT NOT NULL REFERENCES app_story_shots(id) ON DELETE CASCADE,
+     kind TEXT NOT NULL DEFAULT 'video',
+     version_no INTEGER NOT NULL DEFAULT 1,
+     prompt TEXT NOT NULL DEFAULT '',
+     negative_prompt TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'draft',
+     created_by TEXT NOT NULL DEFAULT '',
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE (shot_id, kind, version_no)
+   );`,
+  `CREATE TABLE IF NOT EXISTS app_story_generation_refs (
+     id TEXT PRIMARY KEY,
+     project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+     shot_id TEXT NOT NULL REFERENCES app_story_shots(id) ON DELETE CASCADE,
+     prompt_version_id TEXT REFERENCES app_story_prompt_versions(id) ON DELETE SET NULL,
+     generation_record_id TEXT NOT NULL DEFAULT '',
+     kind TEXT NOT NULL DEFAULT 'video',
+     status TEXT NOT NULL DEFAULT 'queued',
+     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+  `CREATE INDEX IF NOT EXISTS app_story_generation_refs_shot_idx ON app_story_generation_refs (shot_id, created_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS app_story_canvas_links (
+     id TEXT PRIMARY KEY,
+     project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+     scope_type TEXT NOT NULL DEFAULT 'project',
+     scope_id TEXT NOT NULL DEFAULT '',
+     canvas_id TEXT NOT NULL DEFAULT '',
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE (scope_type, scope_id, canvas_id)
+   );`,
+  `CREATE INDEX IF NOT EXISTS app_story_canvas_links_project_idx ON app_story_canvas_links (project_id, scope_type, scope_id);`,
 ]);
 
 async function runStatements(client, statements) {
@@ -318,6 +440,8 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
         await runStatements(schemaLockClient, REQUEST_IDEMPOTENCY_DDL);
       } else if (migration.version === "2026-11-11-generation-submit-jobs-v1") {
         await runStatements(schemaLockClient, GENERATION_SUBMIT_JOBS_DDL);
+      } else if (migration.version === "2026-11-16-story-canvas-p0-v1") {
+        await runStatements(schemaLockClient, STORY_CANVAS_P0_DDL);
       } else {
         throw new Error(`Unknown schema migration: ${migration.version}`);
       }

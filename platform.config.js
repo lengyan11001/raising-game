@@ -7,7 +7,7 @@ const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";
 const REGISTRATION_ATTRIBUTION_KEY = "raisingGameRegistrationAttribution";
 const AGE_GATE_ACCEPTED_KEY = "raisingGameAgeGateAccepted";
-const ALL_TABS = new Set(["home", "gallery", "cases", "characters", "chat", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing", "test"]);
+const ALL_TABS = new Set(["home", "gallery", "cases", "characters", "chat", "advanced", "workflow", "episodes", "assets", "access", "history", "topups", "spending", "referral", "pricing", "test"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 15;
@@ -1250,6 +1250,7 @@ function isTabAllowed(tab) {
   // Internal preview routes are gated only by role. Tenant menu allowlists
   // must not hide Test from administrators.
   if (normalized === "test") return state.user?.role === "admin";
+  if (normalized === "episodes") return state.user?.role === "admin";
   const allowed = tenantAllowedTabs();
   if (allowed.length && !allowed.includes(normalized)) return false;
   if (tenantDisabledTabs().includes(normalized)) return false;

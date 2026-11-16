@@ -10,6 +10,7 @@
     "platform.ui.parts/part-05.js",
     "platform.ui.parts/part-06.js",
     "platform.ui.parts/part-07.js",
+    "platform.story.js",
     "platform.telegram.js",
     "platform.google.js",
     "platform.explore.js",

@@ -1615,6 +1615,138 @@ async function ensureSchemaInner({ client = null } = {}) {
   `);
   await run(`CREATE INDEX IF NOT EXISTS app_workflow_canvases_user_updated_idx ON app_workflow_canvases (user_id, updated_at DESC, created_at DESC);`);
   await run(`
+    CREATE TABLE IF NOT EXISTS app_story_projects (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      aspect_ratio TEXT NOT NULL DEFAULT '9:16',
+      episode_target INTEGER NOT NULL DEFAULT 1,
+      settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_projects_owner_updated_idx ON app_story_projects (owner_user_id, updated_at DESC, created_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_story_script_versions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+      version_no INTEGER NOT NULL DEFAULT 1,
+      title TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_by TEXT NOT NULL DEFAULT '',
+      frozen_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (project_id, version_no)
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_script_versions_project_idx ON app_story_script_versions (project_id, version_no DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_story_episodes (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+      episode_no INTEGER NOT NULL DEFAULT 1,
+      title TEXT NOT NULL DEFAULT '',
+      synopsis TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      duration_seconds INTEGER NOT NULL DEFAULT 0,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (project_id, episode_no)
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_episodes_project_idx ON app_story_episodes (project_id, episode_no ASC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_story_assets (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'character',
+      name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'planned',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_assets_project_kind_idx ON app_story_assets (project_id, kind, updated_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_story_asset_variants (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES app_story_assets(id) ON DELETE CASCADE,
+      name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'planned',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_asset_variants_asset_idx ON app_story_asset_variants (asset_id, updated_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_story_shots (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+      episode_id TEXT NOT NULL REFERENCES app_story_episodes(id) ON DELETE CASCADE,
+      shot_no INTEGER NOT NULL DEFAULT 1,
+      title TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      image_prompt TEXT NOT NULL DEFAULT '',
+      video_prompt TEXT NOT NULL DEFAULT '',
+      duration_seconds INTEGER NOT NULL DEFAULT 5,
+      status TEXT NOT NULL DEFAULT 'draft',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (episode_id, shot_no)
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_shots_episode_idx ON app_story_shots (episode_id, shot_no ASC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_story_prompt_versions (
+      id TEXT PRIMARY KEY,
+      shot_id TEXT NOT NULL REFERENCES app_story_shots(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'video',
+      version_no INTEGER NOT NULL DEFAULT 1,
+      prompt TEXT NOT NULL DEFAULT '',
+      negative_prompt TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (shot_id, kind, version_no)
+    );
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_story_generation_refs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+      shot_id TEXT NOT NULL REFERENCES app_story_shots(id) ON DELETE CASCADE,
+      prompt_version_id TEXT REFERENCES app_story_prompt_versions(id) ON DELETE SET NULL,
+      generation_record_id TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'video',
+      status TEXT NOT NULL DEFAULT 'queued',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_generation_refs_shot_idx ON app_story_generation_refs (shot_id, created_at DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_story_canvas_links (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+      scope_type TEXT NOT NULL DEFAULT 'project',
+      scope_id TEXT NOT NULL DEFAULT '',
+      canvas_id TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (scope_type, scope_id, canvas_id)
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_canvas_links_project_idx ON app_story_canvas_links (project_id, scope_type, scope_id);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_support_messages (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -6579,6 +6711,232 @@ async function deleteWorkflowCanvasInDb({ id = "", userId = "" } = {}) {
   return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
 }
 
+function storyProjectFromRow(row = {}) {
+  return {
+    id: String(row.id || "").trim(),
+    ownerUserId: String(row.owner_user_id || "").trim(),
+    name: String(row.name || "").trim(),
+    description: String(row.description || ""),
+    status: String(row.status || "draft").trim(),
+    aspectRatio: String(row.aspect_ratio || "9:16").trim(),
+    episodeTarget: Math.max(1, Number(row.episode_target || 1) || 1),
+    settings: row.settings && typeof row.settings === "object" ? row.settings : {},
+    episodeCount: Math.max(0, Number(row.episode_count || 0) || 0),
+    scriptVersionCount: Math.max(0, Number(row.script_version_count || 0) || 0),
+    assetCount: Math.max(0, Number(row.asset_count || 0) || 0),
+    shotCount: Math.max(0, Number(row.shot_count || 0) || 0),
+    latestScriptAt: toIsoString(row.latest_script_at),
+    createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
+  };
+}
+
+function storyEpisodeFromRow(row = {}) {
+  return {
+    id: String(row.id || "").trim(),
+    projectId: String(row.project_id || "").trim(),
+    episodeNo: Math.max(1, Number(row.episode_no || 1) || 1),
+    title: String(row.title || "").trim(),
+    synopsis: String(row.synopsis || ""),
+    status: String(row.status || "draft").trim(),
+    durationSeconds: Math.max(0, Number(row.duration_seconds || 0) || 0),
+    metadata: row.metadata && typeof row.metadata === "object" ? row.metadata : {},
+    shotCount: Math.max(0, Number(row.shot_count || 0) || 0),
+    createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
+  };
+}
+
+function storyCanvasLinkFromRow(row = {}) {
+  return {
+    id: String(row.id || "").trim(),
+    projectId: String(row.project_id || "").trim(),
+    scopeType: String(row.scope_type || "project").trim(),
+    scopeId: String(row.scope_id || "").trim(),
+    canvasId: String(row.canvas_id || "").trim(),
+    createdAt: toIsoString(row.created_at),
+  };
+}
+
+const STORY_PROJECT_SELECT = `
+  SELECT p.*,
+         (SELECT COUNT(*) FROM app_story_episodes e WHERE e.project_id = p.id) AS episode_count,
+         (SELECT COUNT(*) FROM app_story_script_versions sv WHERE sv.project_id = p.id) AS script_version_count,
+         (SELECT COUNT(*) FROM app_story_assets a WHERE a.project_id = p.id) AS asset_count,
+         (SELECT COUNT(*) FROM app_story_shots s WHERE s.project_id = p.id) AS shot_count,
+         (SELECT MAX(sv.created_at) FROM app_story_script_versions sv WHERE sv.project_id = p.id) AS latest_script_at
+  FROM app_story_projects p
+`;
+
+async function listStoryProjectsFromDb(ownerUserId = "") {
+  if (!dbEnabled()) return null;
+  const ownerId = String(ownerUserId || "").trim();
+  if (!ownerId) return [];
+  await ensureSchema();
+  const { rows } = await query(
+    `${STORY_PROJECT_SELECT}
+     WHERE p.owner_user_id = $1
+     ORDER BY p.updated_at DESC, p.created_at DESC`,
+    [ownerId],
+  );
+  return rows.map(storyProjectFromRow);
+}
+
+async function getStoryProjectFromDb({ id = "", ownerUserId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const projectId = String(id || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!projectId || !ownerId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `${STORY_PROJECT_SELECT}
+     WHERE p.id = $1 AND p.owner_user_id = $2
+     LIMIT 1`,
+    [projectId, ownerId],
+  );
+  return rows[0] ? storyProjectFromRow(rows[0]) : null;
+}
+
+async function createStoryProjectInDb({ id = "", ownerUserId = "", name = "", description = "", status = "draft", aspectRatio = "9:16", episodeTarget = 1, settings = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const projectId = String(id || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!projectId || !ownerId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO app_story_projects(id, owner_user_id, name, description, status, aspect_ratio, episode_target, settings)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+      [projectId, ownerId, String(name || ""), String(description || ""), String(status || "draft"), String(aspectRatio || "9:16"), Math.max(1, Number(episodeTarget || 1) || 1), JSON.stringify(settings && typeof settings === "object" ? settings : {})],
+    );
+    await client.query(
+      `INSERT INTO app_story_canvas_links(id, project_id, scope_type, scope_id, canvas_id)
+       VALUES ($1, $2, 'project', $2, $3)
+       ON CONFLICT (scope_type, scope_id, canvas_id) DO NOTHING`,
+      [crypto.randomUUID(), projectId, `story-project-${projectId}`],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return getStoryProjectFromDb({ id: projectId, ownerUserId: ownerId });
+}
+
+async function updateStoryProjectInDb({ id = "", ownerUserId = "", name = "", description = "", status = "draft", aspectRatio = "9:16", episodeTarget = 1, settings = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const projectId = String(id || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!projectId || !ownerId) return null;
+  await ensureSchema();
+  const { rowCount } = await query(
+    `UPDATE app_story_projects
+     SET name = $3,
+         description = $4,
+         status = $5,
+         aspect_ratio = $6,
+         episode_target = $7,
+         settings = $8::jsonb,
+         updated_at = NOW()
+     WHERE id = $1 AND owner_user_id = $2`,
+    [projectId, ownerId, String(name || ""), String(description || ""), String(status || "draft"), String(aspectRatio || "9:16"), Math.max(1, Number(episodeTarget || 1) || 1), JSON.stringify(settings && typeof settings === "object" ? settings : {})],
+  );
+  return rowCount ? getStoryProjectFromDb({ id: projectId, ownerUserId: ownerId }) : null;
+}
+
+async function listStoryEpisodesFromDb({ projectId = "", ownerUserId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!parentId || !ownerId) return [];
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT e.*,
+            (SELECT COUNT(*) FROM app_story_shots s WHERE s.episode_id = e.id) AS shot_count
+     FROM app_story_episodes e
+     JOIN app_story_projects p ON p.id = e.project_id
+     WHERE e.project_id = $1 AND p.owner_user_id = $2
+     ORDER BY e.episode_no ASC, e.created_at ASC`,
+    [parentId, ownerId],
+  );
+  return rows.map(storyEpisodeFromRow);
+}
+
+async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "", episodeNo = 0, title = "", synopsis = "", status = "draft", durationSeconds = 0, metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const episodeId = String(id || "").trim();
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!episodeId || !parentId || !ownerId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  let row;
+  try {
+    await client.query("BEGIN");
+    const project = await client.query(
+      `SELECT id FROM app_story_projects WHERE id = $1 AND owner_user_id = $2 FOR UPDATE`,
+      [parentId, ownerId],
+    );
+    if (!project.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    let nextNo = Math.max(0, Number(episodeNo || 0) || 0);
+    if (!nextNo) {
+      const next = await client.query(
+        `SELECT COALESCE(MAX(episode_no), 0) + 1 AS next_no FROM app_story_episodes WHERE project_id = $1`,
+        [parentId],
+      );
+      nextNo = Math.max(1, Number(next.rows[0]?.next_no || 1) || 1);
+    }
+    const inserted = await client.query(
+      `INSERT INTO app_story_episodes(id, project_id, episode_no, title, synopsis, status, duration_seconds, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+       RETURNING *`,
+      [episodeId, parentId, nextNo, String(title || ""), String(synopsis || ""), String(status || "draft"), Math.max(0, Number(durationSeconds || 0) || 0), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {})],
+    );
+    row = inserted.rows[0];
+    await client.query(
+      `INSERT INTO app_story_canvas_links(id, project_id, scope_type, scope_id, canvas_id)
+       VALUES ($1, $2, 'episode', $3, $4)
+       ON CONFLICT (scope_type, scope_id, canvas_id) DO NOTHING`,
+      [crypto.randomUUID(), parentId, episodeId, `story-episode-${episodeId}`],
+    );
+    await client.query(
+      `UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`,
+      [parentId],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return row ? storyEpisodeFromRow(row) : null;
+}
+
+async function listStoryCanvasLinksFromDb({ projectId = "", ownerUserId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!parentId || !ownerId) return [];
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT cl.*
+     FROM app_story_canvas_links cl
+     JOIN app_story_projects p ON p.id = cl.project_id
+     WHERE cl.project_id = $1 AND p.owner_user_id = $2
+     ORDER BY cl.created_at ASC`,
+    [parentId, ownerId],
+  );
+  return rows.map(storyCanvasLinkFromRow);
+}
+
 async function findUserUnlockInDb({ userId = "", itemId = "", sceneId = "", sceneEntryId = "default" } = {}) {
   if (!dbEnabled()) return null;
   const cleanUserId = String(userId || "").trim();
@@ -8076,6 +8434,7 @@ const SCHEMA_MIGRATION_KEYS = Object.freeze([
   "2026-11-11-webhook-deliveries-v1",
   "2026-11-11-request-idempotency-v1",
   "2026-11-11-generation-submit-jobs-v1",
+  "2026-11-16-story-canvas-p0-v1",
 ]);
 const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
 const REQUIRED_SCHEMA_TABLES = Object.freeze([
@@ -8093,6 +8452,15 @@ const REQUIRED_SCHEMA_TABLES = Object.freeze([
   "app_webhook_deliveries",
   "app_request_idempotency",
   "app_generation_submit_jobs",
+  "app_story_projects",
+  "app_story_script_versions",
+  "app_story_episodes",
+  "app_story_assets",
+  "app_story_asset_variants",
+  "app_story_shots",
+  "app_story_prompt_versions",
+  "app_story_generation_refs",
+  "app_story_canvas_links",
 ]);
 
 async function schemaMigrationStatus() {
@@ -10705,6 +11073,13 @@ module.exports = {
   createWorkflowCanvasInDb,
   updateWorkflowCanvasInDb,
   deleteWorkflowCanvasInDb,
+  listStoryProjectsFromDb,
+  getStoryProjectFromDb,
+  createStoryProjectInDb,
+  updateStoryProjectInDb,
+  listStoryEpisodesFromDb,
+  createStoryEpisodeInDb,
+  listStoryCanvasLinksFromDb,
   findUserUnlockInDb,
   normalizeApiSubtokenRecord,
   listApiSubtokensFromDb,

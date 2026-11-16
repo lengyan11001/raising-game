@@ -1,3 +1,12 @@
+## 2026-11-16 Step BG: admin story production P0 isolated from Workflow canvas
+
+- Added a top-level admin-only `episodes` tab backed by `platform.story.js`. The panel is a separate `data-panel="episodes"` section and does not mount or modify the existing Workflow canvas.
+- P0 freezes contract `story-p0-v1` and adds nine PostgreSQL tables for projects, script versions, episodes, assets, asset variants, shots, prompt versions, generation refs, and canvas links. All `/api/story/*` handlers require an admin session; database failure returns `DATABASE_UNAVAILABLE` with no file fallback.
+- Created `2026-11-16-story-canvas-p0-v1` in the migration ledger and runtime schema readiness. Project and episode creation also create `story-project-<id>` / `story-episode-<id>` canvas references.
+- Built on production source `3e4106e8b00ff848dedba027cfd97f241407a34a`, not the older local `old-site` head. The previous dirty workspace is fully preserved in stash `backup dirty workspace before story P0 isolation 2026-11-16`; new P0 files were also backed up under `/tmp/raising-story-newfiles-20261116/`.
+- Pre-deploy verification: `npm run check:undef` passed; Node syntax and `git diff --check` passed; story P0, deploy-target, and side-navigation focused suite passed `25/25`. Two unrelated `platform-site-profile` assertions still fail because production source `3e4106e8` lacks later parameter-picker/test-route UI changes; this P0 does not alter those areas.
+- Deployment status is recorded below after the Old-only release and smoke verification.
+
 ## 2026-11-16 Step BF: Old release drop-in must override service WorkingDirectory
 
 - After fixing active-port role orientation, the next Old-only deploy reached the inactive `raising-game-demo.service` but the candidate loaded `/opt/raising-game-demo` instead of the immutable release. The service's existing `isolated-google-login.conf` sorts after `89-release-root.conf` and overrides its `WorkingDirectory`, so `/api/livez` had no release identity and the transaction rolled back safely.
