@@ -1,3 +1,10 @@
+## 2026-11-17 Step DQ: story script targeting schema migration repaired
+
+- Saving a new script version failed with `column "target_episode_id" of relation "app_story_script_versions" does not exist` because the existing P0 migration ledger was already marked complete while the deployed table predated the targeting columns. Runtime schema verification intentionally checks the ledger rather than mutating columns during requests.
+- Added schema version `2026-11-17-story-script-targeting-v1` with idempotent `target_episode_id`, `target_shot_id`, and `estimated_duration_seconds` columns plus the target index. The runtime readiness ledger now requires this version; bootstrap mode remains idempotent.
+- Verification passed: migration/story focused tests 30/30, `node --check db.js`, `node --check ops/run-db-migrations.js`, `npm run check:undef`, and `git diff --check`.
+- Source commit `7fc9a2a5`; platform release `472007351d73f5dcec84a35b59b464c8bb8732f7` deployed to Old through the rolling entrypoint. Active port is `4174`; `/api/health` and `/api/readyz` return 200. Production PostgreSQL confirms all three columns and migration `2026-11-17-story-script-targeting-v1` are present.
+
 ## 2026-11-17 Step DP: production DB outage diagnosed and story snapshot starvation fixed
 
 - The apparent data loss was PostgreSQL pool starvation, not deletion or a schema break. Production still contains 1,136 users, 31,910 user assets, 34,440 generation records, 1 story project, 1 episode, 10 shots, and 22 story assets.
