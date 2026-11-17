@@ -2611,6 +2611,10 @@ async function readAppDbFromTables(defaultDb = {}, options = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
   const includeUserAssets = options.includeUserAssets !== false;
+  const userAssetsUserId = String(options.userAssetsUserId || "").trim();
+  const accountUserId = String(options.accountUserId || "").trim();
+  const includeAllAccountData = options.includeAllAccountData === true || !accountUserId;
+  const scopedAccount = !includeAllAccountData;
   // A full application snapshot used to issue every table query through the
   // shared pool at once. Two callers could therefore consume all 20 pool slots
   // before either one finished, starving auth, notifications, and generation.
@@ -2619,16 +2623,60 @@ async function readAppDbFromTables(defaultDb = {}, options = {}) {
   const client = await getPool().connect();
   try {
     const readRows = async (sql, params = []) => (await client.query(sql, params)).rows;
-    const users = await readRows(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`);
-    const sessions = await readRows(`SELECT * FROM app_sessions ORDER BY created_at ASC`);
-    const walletOrders = await readRows(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`);
-    const referralWithdrawals = await readRows(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`);
-    const creditLedger = await readRows(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`);
-    const userAssets = includeUserAssets
-      ? await readRows(`SELECT * FROM app_user_assets ORDER BY created_at DESC`)
-      : [];
-    const userCharacters = await readRows(`SELECT * FROM app_user_characters ORDER BY created_at DESC`);
-    const userUnlocks = await readRows(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`);
+    // Authenticated requests only need the signed-in account's rows. Keep the
+    // legacy full snapshot behind an explicit opt-in for admin and system jobs.
+    // The scoped path is assembled by PostgreSQL in one round trip so a normal
+    // page request does not spend eight pool queries rebuilding account state.
+    let users;
+    let sessions;
+    let walletOrders;
+    let referralWithdrawals;
+    let creditLedger;
+    let userAssets;
+    let userCharacters;
+    let userUnlocks;
+    if (scopedAccount) {
+      const assetUserId = userAssetsUserId || accountUserId;
+      const scopedParams = [accountUserId];
+      const scopedAssetSql = includeUserAssets
+        ? (scopedParams.push(assetUserId), `COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_user_assets t WHERE t.user_id = $2), '[]'::jsonb)`)
+        : `'[]'::jsonb`;
+      const snapshotRows = await readRows(`
+        SELECT
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at ASC) FROM app_users t WHERE t.id = $1 AND t.deleted_at IS NULL), '[]'::jsonb) AS "users",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at ASC) FROM app_sessions t WHERE t.user_id = $1), '[]'::jsonb) AS "sessions",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_wallet_orders t WHERE t.user_id = $1), '[]'::jsonb) AS "walletOrders",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_referral_withdrawals t WHERE t.user_id = $1), '[]'::jsonb) AS "referralWithdrawals",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM (
+            SELECT * FROM app_credit_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1000
+          ) t), '[]'::jsonb) AS "creditLedger",
+          ${scopedAssetSql} AS "userAssets",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_user_characters t WHERE t.user_id = $1), '[]'::jsonb) AS "userCharacters",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_user_unlocks t WHERE t.user_id = $1), '[]'::jsonb) AS "userUnlocks"
+      `, scopedParams);
+      const snapshot = snapshotRows[0] || {};
+      users = snapshot.users || [];
+      sessions = snapshot.sessions || [];
+      walletOrders = snapshot.walletOrders || [];
+      referralWithdrawals = snapshot.referralWithdrawals || [];
+      creditLedger = snapshot.creditLedger || [];
+      userAssets = snapshot.userAssets || [];
+      userCharacters = snapshot.userCharacters || [];
+      userUnlocks = snapshot.userUnlocks || [];
+    } else {
+      users = await readRows(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`);
+      sessions = await readRows(`SELECT * FROM app_sessions ORDER BY created_at ASC`);
+      walletOrders = await readRows(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`);
+      referralWithdrawals = await readRows(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`);
+      creditLedger = await readRows(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`);
+      userAssets = !includeUserAssets
+        ? []
+        : userAssetsUserId
+          ? await readRows(`SELECT * FROM app_user_assets WHERE user_id = $1 ORDER BY created_at DESC`, [userAssetsUserId])
+          : await readRows(`SELECT * FROM app_user_assets ORDER BY created_at DESC`);
+      userCharacters = await readRows(`SELECT * FROM app_user_characters ORDER BY created_at DESC`);
+      userUnlocks = await readRows(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`);
+    }
     // Admin home items and support messages have dedicated paginated readers.
     // They were previously queried here and then discarded by readDb(), wasting
     // two sequential round trips and transferring payloads nobody consumed.
@@ -5135,6 +5183,21 @@ async function getUserAssetsForUserFromDb(userId = "") {
   const { rows } = await query(`
     SELECT *
     FROM app_user_assets
+    WHERE user_id = $1
+      AND deleted_at IS NULL
+    ORDER BY created_at DESC
+  `, [cleanUserId]);
+  return rows.map(recordFromPayloadRow);
+}
+
+async function getUserUnlocksForUserFromDb(userId = "") {
+  if (!dbEnabled()) return [];
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT *
+    FROM app_user_unlocks
     WHERE user_id = $1
       AND deleted_at IS NULL
     ORDER BY created_at DESC
@@ -12186,6 +12249,7 @@ module.exports = {
   getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,
   upsertVegaMediaLibraryEntryInDb,
   getUserAssetIdsByUrlsFromDb,
+  getUserUnlocksForUserFromDb,
   upsertUserCharacterInDb,
   listChatConversationsInDb,
   findChatConversationByCharacterInDb,

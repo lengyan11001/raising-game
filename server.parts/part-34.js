@@ -798,7 +798,7 @@ function referralWithdrawalView(record = {}, user = {}) {
 }
 
 async function handleUpdateReferralWallet(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { includeAllAccountData: true, includeUserAssets: false });
   if (!auth) return;
   const body = await readJson(req);
   const address = String(body.walletAddress || body.address || "").trim();
@@ -824,7 +824,7 @@ async function handleListReferralWithdrawals(req, res, url) {
 }
 
 async function handleCreateReferralWithdrawal(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { includeAllAccountData: true, includeUserAssets: false });
   if (!auth) return;
   const body = await readJson(req);
   const amount = Math.round(Number(body.amountUsd || body.amount || 0) * 100) / 100;

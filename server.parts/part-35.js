@@ -1072,9 +1072,12 @@ async function handleSpendCredits(req, res) {
 }
 
 async function handleListUnlocks(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
-  const unlocks = (auth.db.userUnlocks || [])
+  const records = dbEnabled()
+    ? await getUserUnlocksForUserFromDb(auth.user.id)
+    : (auth.db.userUnlocks || []);
+  const unlocks = records
     .filter((record) => record.userId === auth.user.id && !isSoftDeleted(record))
     .map(publicUserUnlock);
   return sendJson(res, 200, { ok: true, unlocks });
