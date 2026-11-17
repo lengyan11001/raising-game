@@ -1,3 +1,11 @@
+## 2026-11-17 Step DP: production DB outage diagnosed and story snapshot starvation fixed
+
+- The apparent data loss was PostgreSQL pool starvation, not deletion or a schema break. Production still contains 1,136 users, 31,910 user assets, 34,440 generation records, 1 story project, 1 episode, 10 shots, and 22 story assets.
+- Root cause: repeated full application snapshots execute `SELECT * FROM app_user_assets ORDER BY created_at DESC`; the table is about 62 MB. Profile windows showed each snapshot taking roughly 6–10 seconds, holding a pool slot long enough for concurrent story/admin traffic to exhaust both app instances' `PGPOOL_MAX=20` pools.
+- The incident began before the latest candidate deployment and did not involve a data mutation. Nginx/Postgres/app services were restored; both readiness endpoints returned 200 and the database accepted application connections.
+- Fixed all 26 story handlers in `server.parts/part-03.js` to use `requireAdmin(req, res, { loadDb: false })`. These handlers only need `auth.user.id`; none read `auth.db`. Updated story regression assertions to require the lightweight auth path.
+- Verification passed: story/prompt focused tests 26/26, `npm run check:undef`, `node --check`, and `git diff --check`. Source commit `af23d151`; platform release `c7e8df5a2e79685f183cce2b17c35751a14b3f14` deployed to Old through the required rolling entrypoint. Active port is `4175`; `/api/health` and `/api/readyz` return 200. Uncommitted `server.parts/part-45.js` remains unrelated and excluded.
+
 ## 2026-11-17 Step DO: creation action now follows project context
 
 - Corrected the semantic mistake in the compact header: `新增` is not a generic action copied into every view. The project-library view exposes `新增项目`; project detail exposes `新增剧集` instead. Both use the existing one-line header, with no extra toolbar or second header row.
