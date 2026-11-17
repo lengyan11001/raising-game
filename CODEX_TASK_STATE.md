@@ -5,6 +5,16 @@
 - The analyzer prompt requires set goals to be honored within about 10%, requires complete causal storytelling when an exact target is tight, and forbids falling back to a default 90-second episode. Analysis preview shows total duration plus each episode's duration and `durationBasis`.
 - Preserved story input state across rerenders so switching the scope/target fields does not clear user choices. Focused tests cover optional goals, dirty-state preservation, minute-to-second conversion, and prompt constraints.
 - Verification: changed-file syntax checks, `test/story-canvas-p1.test.js` 18/18, `npm run check:undef`, and `git diff --cached --check` all pass.
+- Source commit `55f7ef10` was pushed to `old-site`; release snapshot `0c287090` was pushed to `platform-release` and deployed through `scripts/deploy_local.sh --site old`. Rolling deploy switched Old to port 4174, health returned `{"ok":true}`, and public `platform.story.js` / `platform.css` contain the new optional-planning UI.
+
+## 2026-11-17 Step DJ: Generate parameter popup overlay visibility
+
+- User reported the Generate parameter popup can still be covered by asset thumbnails, especially on small screens. The fix only changes popup placement/layering; generation flow, selection persistence, regeneration, and backfill behavior are unchanged.
+- The picker is now portaled to `document.body`, positioned against `visualViewport` metrics, and placed below, above, or centered based on available space. It is clamped to the visible viewport, repositions on window/visual-viewport/document scroll and resize, and ignores scroll events originating inside its own scroll area.
+- Internal clicks are recognized after the panel leaves `advancedParameterShell`; selected model rows use `scrollIntoView({ block: "nearest" })`; mobile CSS stays `position: fixed` with `z-index: 4000` instead of reverting to an ancestor-clipped absolute panel.
+- Asset cache suffix is now `advanced-picker-overlay-20261117-1`. Changed files: `platform.create.parts/part-02.js`, `platform.css`, `platform.html`, `platform.js`, `platform.main.js`, focused tests, and this state file. The unrelated dirty server WIP `server.parts/part-45.js` was not modified.
+- Verification: focused picker/profile tests 65/65, workflow canvas tests 41/41, `npm run check:undef`, Node syntax checks, and `git diff --check` pass. Real headless Chrome/CDP viewport checks at 320x640, 390x700, 768x640, and a forced 320x300 center case all keep the panel fully on-screen, parented to `BODY`, and above 3500-z-index thumbnail cards. Full `npm test`: 1387 pass / 9 fail / 2 skipped; the failures are the known serializer baseline plus eight unrelated `part-45.js` WIP seedance-optimizer failures (`w3EscapeJsonControlCharacters` / story-grounding symbols), not the picker tests.
+- No deployment performed.
 
 ## 2026-11-17 Step DI: AI owns episode count and duration
 
