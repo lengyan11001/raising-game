@@ -1761,8 +1761,10 @@
             });
             changed = true;
           }
-        } catch (_) {
-          // Transient record lookups must not turn a running task into a failed task.
+        } catch (error) {
+          // Transient record lookups must not turn a running task into a failed task,
+          // but keep the failure visible so sync bugs are not silently swallowed.
+          console.warn("[story-video-sync]", ref.id || "", ref.generationRecordId || "", status || "", error?.message || error);
         }
       }));
     } finally {
