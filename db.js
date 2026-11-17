@@ -1689,7 +1689,8 @@ async function ensureSchemaInner({ client = null } = {}) {
       AND e.source_manuscript_id = '';
   `);
   await run(`ALTER TABLE app_story_episodes DROP CONSTRAINT IF EXISTS app_story_episodes_project_id_episode_no_key;`);
-  await run(`CREATE UNIQUE INDEX IF NOT EXISTS app_story_episodes_manuscript_episode_uidx ON app_story_episodes (project_id, source_manuscript_id, episode_no);`);
+  await run(`DROP INDEX IF EXISTS app_story_episodes_manuscript_episode_uidx;`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS app_story_episodes_version_episode_uidx ON app_story_episodes (project_id, source_script_version_id, episode_no) WHERE source_script_version_id <> '';`);
   await run(`
     WITH legacy_manuscripts AS (
       SELECT id,
@@ -7875,16 +7876,16 @@ async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", sourc
         scriptVersionId = scriptVersionId || String(source.rows[0].id || "");
       }
     }
-    if (manuscriptId) {
+    if (scriptVersionId) {
       await client.query(
         `DELETE FROM app_story_canvas_links
          WHERE project_id = $1 AND scope_type = 'episode'
-           AND scope_id IN (SELECT id FROM app_story_episodes WHERE project_id = $1 AND source_manuscript_id = $2)`,
-        [parentId, manuscriptId],
+           AND scope_id IN (SELECT id FROM app_story_episodes WHERE project_id = $1 AND source_script_version_id = $2)`,
+        [parentId, scriptVersionId],
       );
       await client.query(
-        `DELETE FROM app_story_episodes WHERE project_id = $1 AND source_manuscript_id = $2`,
-        [parentId, manuscriptId],
+        `DELETE FROM app_story_episodes WHERE project_id = $1 AND source_script_version_id = $2`,
+        [parentId, scriptVersionId],
       );
     }
     for (const episode of Array.isArray(episodes) ? episodes : []) {
@@ -7894,7 +7895,7 @@ async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", sourc
       const row = await client.query(
         `INSERT INTO app_story_episodes(id, project_id, source_script_version_id, source_manuscript_id, episode_no, title, synopsis, status, duration_seconds, metadata)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
-         ON CONFLICT (project_id, source_manuscript_id, episode_no) DO UPDATE
+         ON CONFLICT (project_id, source_script_version_id, episode_no) WHERE source_script_version_id <> '' DO UPDATE
          SET title = EXCLUDED.title,
              synopsis = EXCLUDED.synopsis,
              status = EXCLUDED.status,
@@ -9546,6 +9547,7 @@ const SCHEMA_MIGRATION_KEYS = Object.freeze([
   "2026-11-17-story-script-targeting-v1",
   "2026-11-17-story-manuscript-lineage-v1",
   "2026-11-17-story-legacy-manuscript-group-v1",
+  "2026-11-17-story-version-episode-ownership-v1",
 ]);
 const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
 const REQUIRED_SCHEMA_TABLES = Object.freeze([

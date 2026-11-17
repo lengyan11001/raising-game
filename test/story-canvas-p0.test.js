@@ -32,10 +32,12 @@ test("story P0 schema is registered in runtime, readiness, and migration ledger"
   assert.match(db, /"2026-11-17-story-script-targeting-v1"/);
   assert.match(db, /"2026-11-17-story-manuscript-lineage-v1"/);
   assert.match(db, /"2026-11-17-story-legacy-manuscript-group-v1"/);
+  assert.match(db, /"2026-11-17-story-version-episode-ownership-v1"/);
   assert.match(migrations, /version: "2026-11-16-story-canvas-p0-v1"/);
   assert.match(migrations, /version: "2026-11-17-story-script-targeting-v1"/);
   assert.match(migrations, /version: "2026-11-17-story-manuscript-lineage-v1"/);
   assert.match(migrations, /version: "2026-11-17-story-legacy-manuscript-group-v1"/);
+  assert.match(migrations, /version: "2026-11-17-story-version-episode-ownership-v1"/);
   assert.match(migrations, /const STORY_CANVAS_P0_DDL = Object\.freeze\(\[/);
   assert.match(migrations, /migration\.version === "2026-11-16-story-canvas-p0-v1"[\s\S]*STORY_CANVAS_P0_DDL/);
   assert.match(migrations, /const STORY_SCRIPT_TARGETING_DDL = Object\.freeze\(\[/);
@@ -44,9 +46,11 @@ test("story P0 schema is registered in runtime, readiness, and migration ledger"
   assert.match(migrations, /migration\.version === "2026-11-17-story-manuscript-lineage-v1"[\s\S]*STORY_MANUSCRIPT_LINEAGE_DDL/);
   assert.match(migrations, /const STORY_LEGACY_MANUSCRIPT_GROUP_DDL = Object\.freeze\(\[/);
   assert.match(migrations, /migration\.version === "2026-11-17-story-legacy-manuscript-group-v1"[\s\S]*STORY_LEGACY_MANUSCRIPT_GROUP_DDL/);
+  assert.match(migrations, /const STORY_VERSION_EPISODE_OWNERSHIP_DDL = Object\.freeze\(\[/);
+  assert.match(migrations, /migration\.version === "2026-11-17-story-version-episode-ownership-v1"[\s\S]*STORY_VERSION_EPISODE_OWNERSHIP_DDL/);
   assert.match(db, /DROP CONSTRAINT IF EXISTS app_story_script_versions_project_id_version_no_key/);
   assert.match(db, /app_story_script_versions_manuscript_version_uidx[\s\S]*project_id, manuscript_id, version_no/);
-  assert.match(migrations, /app_story_episodes_manuscript_episode_uidx[\s\S]*project_id, source_manuscript_id, episode_no/);
+  assert.match(migrations, /app_story_episodes_version_episode_uidx[\s\S]*project_id, source_script_version_id, episode_no/);
   assert.match(db, /PARTITION BY project_id, title[\s\S]*canonical_manuscript_id/);
 });
 

@@ -47,7 +47,7 @@ test("story P1 data functions stay PostgreSQL-only and enforce project ownership
     assert.match(db, new RegExp(`\\b${fn},`), `db export ${fn}`);
     assert.match(imports, new RegExp(`\\b${fn},`), `server import ${fn}`);
   }
-  assert.match(db, /async function importStoryAnalysisInDb[\s\S]*BEGIN[\s\S]*ON CONFLICT \(project_id, source_manuscript_id, episode_no\) DO UPDATE[\s\S]*COMMIT/);
+  assert.match(db, /async function importStoryAnalysisInDb[\s\S]*BEGIN[\s\S]*DELETE FROM app_story_episodes WHERE project_id = \$1 AND source_script_version_id = \$2[\s\S]*ON CONFLICT \(project_id, source_script_version_id, episode_no\)[\s\S]*DO UPDATE[\s\S]*COMMIT/);
   assert.match(db, /async function deleteStoryEpisodeFromDb[\s\S]*DELETE FROM app_story_episodes[\s\S]*DELETE FROM app_story_canvas_links/);
   assert.match(db, /async function listStoryScriptVersionsFromDb[\s\S]*p\.owner_user_id = \$2/);
   assert.doesNotMatch(handlerBody(read("server.parts/part-03.js"), "handleImportStoryAnalysis"), /writeFile|data\/.*\.json/i);
@@ -159,7 +159,10 @@ test("story creation keeps manuscripts and versions independent while retaining 
   assert.match(db, /ADD COLUMN IF NOT EXISTS target_episode_count/);
   assert.match(db, /ADD COLUMN IF NOT EXISTS source_script_version_id/);
   assert.match(db, /ADD COLUMN IF NOT EXISTS source_manuscript_id/);
-  assert.match(db, /ON CONFLICT \(project_id, source_manuscript_id, episode_no\) DO UPDATE/);
+  assert.match(db, /ON CONFLICT \(project_id, source_script_version_id, episode_no\)/);
+  assert.match(db, /app_story_episodes_version_episode_uidx/);
+  assert.match(story, /episodesByVersion/);
+  assert.match(story, /sourceScriptVersionId/);
   assert.match(db, /DROP CONSTRAINT IF EXISTS app_story_script_versions_project_id_version_no_key/);
   assert.match(db, /app_story_script_versions_manuscript_version_uidx/);
   assert.match(css, /\.story-manuscript-card \{/);

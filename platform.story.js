@@ -269,9 +269,24 @@
     for (const group of groups.values()) {
       group.versions.sort((a, b) => Number(b.versionNo || 0) - Number(a.versionNo || 0));
       group.latest = group.versions[0] || null;
-      group.episodes = episodes
-        .filter((episode) => String(episode.sourceManuscriptId || "") === group.id)
-        .sort((a, b) => Number(a.episodeNo || 0) - Number(b.episodeNo || 0));
+      group.episodesByVersion = new Map(group.versions.map((version) => [version.id, []]));
+      for (const episode of episodes) {
+        if (String(episode.sourceManuscriptId || "") !== group.id) continue;
+        const versionId = String(episode.sourceScriptVersionId || "");
+        if (!versionId && group.versions.length === 1) {
+          group.episodesByVersion.set(group.versions[0].id, [...(group.episodesByVersion.get(group.versions[0].id) || []), episode]);
+          continue;
+        }
+        if (!group.episodesByVersion.has(versionId)) group.episodesByVersion.set(versionId, []);
+        group.episodesByVersion.get(versionId).push(episode);
+      }
+      for (const items of group.episodesByVersion.values()) {
+        items.sort((a, b) => Number(a.episodeNo || 0) - Number(b.episodeNo || 0));
+      }
+      const selectedVersionId = group.id === storyState.selectedManuscriptId ? String(storyState.selectedScriptId || "") : "";
+      group.activeVersion = group.versions.find((version) => version.id === selectedVersionId) || group.latest;
+      group.episodes = group.episodesByVersion.get(group.activeVersion?.id) || [];
+      group.totalEpisodes = [...group.episodesByVersion.values()].reduce((total, items) => total + items.length, 0);
     }
     return [...groups.values()].sort((a, b) => String(b.latest?.createdAt || "").localeCompare(String(a.latest?.createdAt || "")));
   }
@@ -418,14 +433,14 @@
           <span class="story-manuscript-mark"><i data-lucide="file-text"></i></span>
           <span class="story-manuscript-copy">
             <strong>${storyEscape(latest.title || "未命名文稿")}</strong>
-            <small>${group.versions.length} 个版本 · ${group.episodes.length} 集 · ${storyEscape(storyDate(latest.createdAt))}</small>
+            <small>${group.versions.length} 个版本 · ${group.totalEpisodes} 集 · ${storyEscape(storyDate(latest.createdAt))}</small>
             <p>${storyEscape(preview || "暂无正文预览。")}</p>
           </span>
           <span class="story-manuscript-badges"><em>V${String(latest.versionNo || 1).padStart(2, "0")}</em><em>${targetEpisodes ? `${targetEpisodes} 集目标` : "AI 规划"}</em></span>
         </button>
         <div class="story-manuscript-actions">
           <button class="story-secondary-button" data-story-script-version-source="${storyEscape(active ? (storyState.selectedScriptId || latest.id || "") : (latest.id || ""))}" type="button" ${storyState.action ? "disabled" : ""}><i data-lucide="copy-plus"></i><span>存为新版本</span></button>
-          <button class="story-create-button" data-story-analyze-manuscript="${storyEscape(group.id)}" type="button" ${storyState.action || !latest.id ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${group.episodes.length ? "重新 AI 拆解" : "AI 拆解"}</span></button>
+          <button class="story-create-button" data-story-analyze-manuscript="${storyEscape(group.id)}" data-story-analyze-version="${storyEscape(active ? (storyState.selectedScriptId || latest.id || "") : (latest.id || ""))}" type="button" ${storyState.action || !latest.id ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${group.totalEpisodes ? "重新 AI 拆解" : "AI 拆解"}</span></button>
         </div>
         ${active ? `<div class="story-manuscript-versions"><div class="story-manuscript-versions-head"><strong>版本记录</strong><small>选中要拆解的版本</small></div>${versions}</div>` : ""}
       </article>`;
@@ -540,6 +555,7 @@
       const expanded = storyState.expandedManuscriptIds.includes(group.id) && !storyState.collapsedManuscriptIds.includes(group.id);
       const active = selectedManuscript?.id === group.id;
       const latest = group.latest || group.versions[0] || {};
+      const activeVersion = group.activeVersion || latest;
       const episodeNodes = group.episodes.map((episode) => {
         const selected = episode.id === selectedEpisode?.id;
         const episodeExpanded = storyState.expandedEpisodeIds.includes(episode.id) && !storyState.collapsedEpisodeIds.includes(episode.id);
@@ -569,7 +585,7 @@
           <div class="story-tree-row story-tree-manuscript-row">
             <button class="story-tree-script" type="button" data-story-select-manuscript="${storyEscape(group.id)}">
               <span class="story-tree-node-mark"><i data-lucide="file-text"></i></span>
-              <span class="story-tree-node-copy"><strong>${storyEscape(latest.title || "未命名文稿")}</strong><small>V${String(latest.versionNo || 1).padStart(2, "0")} · ${group.versions.length} 个版本 · ${group.episodes.length} 集</small></span>
+              <span class="story-tree-node-copy"><strong>${storyEscape(activeVersion.title || latest.title || "未命名文稿")}</strong><small>V${String(activeVersion.versionNo || 1).padStart(2, "0")} · ${group.versions.length} 个版本 · ${group.episodes.length} 集</small></span>
             </button>
             <button class="story-tree-disclosure" type="button" data-story-toggle-manuscript="${storyEscape(group.id)}" aria-label="${expanded ? "收起文稿分集" : "展开文稿分集"}" aria-expanded="${expanded}"><i data-lucide="${expanded ? "chevron-down" : "chevron-right"}"></i></button>
           </div>
@@ -2851,7 +2867,8 @@
       else if (event.target.closest("[data-story-toggle-manuscript]")) toggleStoryManuscript(event.target.closest("[data-story-toggle-manuscript]")?.dataset.storyToggleManuscript || "");
       else if (event.target.closest("[data-story-toggle-episode]")) toggleStoryEpisode(event.target.closest("[data-story-toggle-episode]")?.dataset.storyToggleEpisode || "");
       else if (event.target.closest("[data-story-analyze-manuscript]")) {
-        selectStoryManuscriptById(event.target.closest("[data-story-analyze-manuscript]")?.dataset.storyAnalyzeManuscript || "");
+        const analyzeButton = event.target.closest("[data-story-analyze-manuscript]");
+        selectStoryManuscriptById(analyzeButton?.dataset.storyAnalyzeManuscript || "", analyzeButton?.dataset.storyAnalyzeVersion || "");
         analyzeStoryDraft();
       }
       else if (event.target.classList?.contains("story-revision-backdrop") || event.target.closest("button[data-story-close-revision]")) closeStoryRevisionRequest();
