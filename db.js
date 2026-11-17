@@ -7764,17 +7764,17 @@ async function updateStoryGenerationRefInDb({ id = "", projectId = "", ownerUser
     `SELECT r.metadata
      FROM app_story_generation_refs r
      JOIN app_story_projects p ON p.id = r.project_id
-     WHERE r.id = $1 AND r.project_id = $2 AND p.owner_user_id = $3`,
+     WHERE r.id = $1::text AND r.project_id = $2::text AND p.owner_user_id = $3::text`,
     [refId, parentId, ownerId],
   );
   if (!current.rows.length) return null;
   const mergedMetadata = { ...(current.rows[0].metadata || {}), ...(metadata && typeof metadata === "object" ? metadata : {}) };
   const { rows } = await query(
     `UPDATE app_story_generation_refs
-     SET status = COALESCE(NULLIF($4, ''), status),
-         generation_record_id = COALESCE(NULLIF($5, ''), generation_record_id),
-         metadata = $6::jsonb
-     WHERE id = $1 AND project_id = $2
+     SET status = COALESCE(NULLIF($3::text, ''), status),
+         generation_record_id = COALESCE(NULLIF($4::text, ''), generation_record_id),
+         metadata = $5::jsonb
+     WHERE id = $1::text AND project_id = $2::text
      RETURNING *`,
     [refId, parentId, String(status || ""), String(generationRecordId || ""), JSON.stringify(mergedMetadata)],
   );
