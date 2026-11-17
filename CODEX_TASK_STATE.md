@@ -1,3 +1,23 @@
+## 2026-11-17 Step DX: deletion closure for every story creation level
+
+- Added matching delete entry points for every story creation level: project cards and project detail, current manuscript entry segment, episode tree rows, and shot tree rows.
+- Added admin-only `DELETE /api/story/projects/:projectId` and `DELETE /api/story/projects/:projectId/scripts/:scriptVersionId` routes.
+- Project deletion cascades through project-owned scripts, episodes, shots, assets, variants, prompts, generation references, and canvas links. Script-entry deletion removes only episodes produced by that entry segment and their dependent shots/prompts/generation references, leaving other entry segments intact.
+- All destructive actions require a confirmation that names the target and explains the cascade. The unrelated dirty `server.parts/part-45.js` remains excluded.
+- Verification: syntax checks, `test/story-canvas-p1.test.js` 20/20, `test/story-canvas-p0.test.js` 4/4, `npm run check:undef`, and `git diff --check` pass.
+- No commit or deployment performed; requires user review before release.
+
+## 2026-11-17 Step DW: restore manuscript list + full-text reader
+
+- Restored the manuscript workspace to a left-list/right-reader layout instead of full-width stacked cards.
+- Left column now lists manuscripts and their V01/V02/V03 segments; selecting a segment updates the right-side full original text, episode range, character/paragraph counts, target settings, and analysis status.
+- Right reader keeps the manuscript continuation and AI segmentation actions available without hiding the source text.
+- The add control in the manuscript header is now a compact plus-only button at the far right.
+- Added focused regression assertions for the two-column workspace, full-text reader, and compact add control.
+- Verification: `node --check platform.story.js`, focused story tests `19/19`, `npm run check:undef`, and `git diff --check` pass.
+- Static visual preview reviewed at `/tmp/story-layout-preview-2.png`; no production deployment performed.
+- Do not include unrelated dirty `server.parts/part-45.js` in any commit or release.
+
 ## 2026-11-17 Step DV: staged manuscript entry interaction closure
 
 - Story creation now supports `新增独立剧本` and `延续已有剧本`; continuation segments append to one manuscript, start empty, and continue episode numbering after the manuscript maximum.

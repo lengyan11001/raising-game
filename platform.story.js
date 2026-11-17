@@ -155,17 +155,20 @@
       return;
     }
     host.innerHTML = storyState.projects.map((project) => `
-      <button class="story-project-card${project.id === storyState.selectedId ? " is-active" : ""}" data-story-project-id="${storyEscape(project.id)}" type="button">
-        ${storyProjectPreview(project)}
-        <span class="story-project-card-body">
-          <span class="story-project-card-title-row">
-            <strong>${storyEscape(project.name)}</strong>
-            <em>${storyEscape(project.status)}</em>
+      <article class="story-project-card${project.id === storyState.selectedId ? " is-active" : ""}">
+        <button class="story-project-open" data-story-project-id="${storyEscape(project.id)}" type="button">
+          ${storyProjectPreview(project)}
+          <span class="story-project-card-body">
+            <span class="story-project-card-title-row">
+              <strong>${storyEscape(project.name)}</strong>
+              <em>${storyEscape(project.status)}</em>
+            </span>
+            <span class="story-project-card-meta">${Number(project.assetCount || 0)} 资产 · ${Number(project.shotCount || 0)} 镜头 · ${storyEscape(project.aspectRatio || "9:16")}</span>
+            <small>${storyEscape(storyDate(project.updatedAt))}</small>
           </span>
-          <span class="story-project-card-meta">${Number(project.assetCount || 0)} 资产 · ${Number(project.shotCount || 0)} 镜头 · ${storyEscape(project.aspectRatio || "9:16")}</span>
-          <small>${storyEscape(storyDate(project.updatedAt))}</small>
-        </span>
-      </button>
+        </button>
+        <button class="story-project-delete" type="button" data-story-delete-project="${storyEscape(project.id)}" title="删除项目及项目内全部数据" aria-label="删除项目 ${storyEscape(project.name)}"><i data-lucide="trash-2"></i></button>
+      </article>
     `).join("");
     storyRefreshIcons();
   }
@@ -201,7 +204,8 @@
         </div>`;
       actions.innerHTML = `
         <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>资产库</span></button>
-        <button class="story-icon-button" type="button" data-story-refresh-detail title="刷新项目" aria-label="刷新项目"><i data-lucide="refresh-cw"></i></button>`;
+        <button class="story-icon-button" type="button" data-story-refresh-detail title="刷新项目" aria-label="刷新项目"><i data-lucide="refresh-cw"></i></button>
+        <button class="story-icon-button is-danger" type="button" data-story-delete-project="${storyEscape(project.id)}" title="删除项目及项目内全部数据" aria-label="删除项目 ${storyEscape(project.name)}"><i data-lucide="trash-2"></i></button>`;
     } else {
       title.innerHTML = `
         <span class="story-kicker"><i data-lucide="clapperboard"></i> STORY WORKBENCH · ADMIN</span>
@@ -460,15 +464,13 @@
   function renderStoryManuscriptCard(group = {}) {
     const active = selectedStoryManuscript()?.id === group.id;
     const latest = group.latest || {};
-    const targetEpisodes = Number(latest.targetEpisodeCount || 0);
-    const preview = String(latest.content || "").replace(/\s+/g, " ").trim().slice(0, 180);
     const versions = group.versions.map((version) => {
       const stats = storyScriptTextStats(version);
       return `
       <button class="story-script-version${version.id === storyState.selectedScriptId ? " is-active" : ""}" data-story-script-id="${storyEscape(version.id)}" type="button">
         <span>V${String(version.versionNo || 1).padStart(2, "0")}</span>
         <strong>${storyEscape(storyScriptEpisodeRange(version))} · ${stats.characters.toLocaleString("zh-CN")} 字</strong>
-        <small>${storyEscape(storyDate(version.createdAt))} · ${version.targetEpisodeCount ? `目标 ${version.targetEpisodeCount} 集` : "集数由 AI 规划"}</small>
+        <small>${storyEscape(storyDate(version.createdAt))} · ${version.targetEpisodeCount ? `目标 ${version.targetEpisodeCount} 集` : "AI 规划集数"}</small>
       </button>`;
     }).join("");
     return `
@@ -477,30 +479,74 @@
           <span class="story-manuscript-mark"><i data-lucide="file-text"></i></span>
           <span class="story-manuscript-copy">
             <strong>${storyEscape(latest.title || "未命名剧本")}</strong>
-            <small>${group.versions.length} 段录入 · ${group.totalEpisodes} 集 · 下次 E${String(group.nextEpisodeNo || 1).padStart(2, "0")} 起 · ${storyEscape(storyDate(latest.createdAt))}</small>
-            <p>${storyEscape(preview || "暂无正文预览。")}</p>
+            <small>${group.versions.length} 段录入 · ${group.totalEpisodes} 集 · 下次 E${String(group.nextEpisodeNo || 1).padStart(2, "0")} 起</small>
           </span>
-          <span class="story-manuscript-badges"><em>V${String(latest.versionNo || 1).padStart(2, "0")}</em><em>${targetEpisodes ? `${targetEpisodes} 集目标` : "AI 规划"}</em></span>
+          <span class="story-manuscript-badges"><em>V${String(latest.versionNo || 1).padStart(2, "0")}</em></span>
         </button>
-        <div class="story-manuscript-actions">
-          <button class="story-secondary-button" data-story-script-version-source="${storyEscape(active ? (storyState.selectedScriptId || latest.id || "") : (latest.id || ""))}" type="button" ${storyState.action ? "disabled" : ""}><i data-lucide="copy-plus"></i><span>续写本剧本</span></button>
-          <button class="story-create-button" data-story-analyze-manuscript="${storyEscape(group.id)}" data-story-analyze-version="${storyEscape(active ? (storyState.selectedScriptId || latest.id || "") : (latest.id || ""))}" type="button" ${storyState.action || !latest.id ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${group.totalEpisodes ? "重新 AI 拆解本段" : "AI 拆解"}</span></button>
-        </div>
-        ${active ? `<div class="story-manuscript-versions"><div class="story-manuscript-versions-head"><strong>录入段</strong><small>每段只粘贴本阶段新正文</small></div>${versions}</div>` : ""}
+        ${active ? `<div class="story-manuscript-versions"><div class="story-manuscript-versions-head"><strong>录入段</strong><small>点选后在右侧查看全文</small></div>${versions}</div>` : ""}
       </article>`;
+  }
+
+  function renderStoryManuscriptReader(script = null) {
+    const group = script ? storyManuscriptForScript(script) : selectedStoryManuscript();
+    if (!script) {
+      return `
+        <div class="story-script-editor story-manuscript-reader story-manuscript-reader-empty">
+          <i data-lucide="file-text"></i>
+          <strong>尚未保存剧本</strong>
+          <span>点击右上角加号，录入第一段剧本正文。</span>
+        </div>`;
+    }
+    const stats = storyScriptTextStats(script);
+    return `
+      <div class="story-script-editor story-manuscript-reader">
+        <div class="story-manuscript-reader-head">
+          <div>
+            <p class="eyebrow">CURRENT SEGMENT</p>
+            <h4>${storyEscape(script.title || "未命名剧本")}</h4>
+            <small>当前录入段 · 第 ${String(script.versionNo || 1).padStart(2, "0")} 段 · ${storyEscape(storyDate(script.createdAt))}</small>
+          </div>
+          <div class="story-manuscript-reader-badges">
+            <span>${storyEscape(storyScriptEpisodeRange(script))}</span>
+            <span>${stats.characters.toLocaleString("zh-CN")} 字</span>
+            <span>${stats.paragraphs} 段</span>
+          </div>
+        </div>
+        <label class="story-script-content">本段正文<textarea id="storyScriptContent" rows="18" readonly aria-label="当前剧本正文">${storyEscape(script.content || "")}</textarea></label>
+        <div class="story-manuscript-reader-meta">
+          <span><b>目标集数</b>${Number(script.targetEpisodeCount || 0) ? `${Number(script.targetEpisodeCount)} 集` : "AI 规划"}</span>
+          <span><b>目标时长</b>${script.estimatedDurationSeconds ? storyDurationLabel(script.estimatedDurationSeconds) : "AI 规划"}</span>
+          <span><b>已拆集</b>${storyEscape(storyScriptEpisodeRange(script))}</span>
+        </div>
+        <div class="story-script-actions">
+          <p class="story-message" id="storyManuscriptMessage">${storyEscape(storyState.actionMessage)}</p>
+          <div>
+            <button class="story-icon-button is-danger" data-story-delete-script="${storyEscape(script.id)}" data-story-delete-script-title="${storyEscape(script.title || "未命名剧本")}" type="button" ${storyState.action ? "disabled" : ""} title="删除当前录入段" aria-label="删除当前录入段"><i data-lucide="trash-2"></i></button>
+            <button class="story-secondary-button" data-story-script-version-source="${storyEscape(script.id)}" type="button" ${storyState.action ? "disabled" : ""}><i data-lucide="copy-plus"></i><span>续写本剧本</span></button>
+            <button class="story-create-button" data-story-analyze-manuscript="${storyEscape(group?.id || storyScriptManuscriptId(script))}" data-story-analyze-version="${storyEscape(script.id)}" type="button" ${storyState.action ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${group?.totalEpisodes ? "重新 AI 拆解本段" : "AI 拆解本段"}</span></button>
+          </div>
+        </div>
+      </div>`;
   }
 
   function renderStoryScriptSection() {
     const groups = storyManuscriptGroups();
+    const script = selectedStoryScript();
     return `
       <section class="story-section story-script-section">
         <div class="story-section-head story-manuscript-head">
           <div><p class="eyebrow">MANUSCRIPT</p><h3>我的剧本</h3></div>
           <button class="story-create-button story-add-manuscript" data-story-script-create type="button" title="新增剧本" aria-label="新增剧本"><i data-lucide="plus"></i><span>新增剧本</span></button>
         </div>
-        <div class="story-manuscript-list">
-          ${groups.length ? groups.map(renderStoryManuscriptCard).join("") : `
-            <button class="story-manuscript-empty" data-story-script-create type="button"><i data-lucide="plus"></i><strong>新增第一份剧本</strong><span>输入标题和第一段原文后保存，再从下方执行 AI 拆解。</span></button>`}
+        <div class="story-script-layout story-manuscript-workspace">
+          <aside class="story-script-versions story-manuscript-sidebar" aria-label="剧本列表">
+            <div class="story-script-versions-head"><strong>剧本与录入段</strong><small>${groups.length} 部剧本 · ${storyState.scripts.length} 段正文</small></div>
+            <div class="story-manuscript-list">
+              ${groups.length ? groups.map(renderStoryManuscriptCard).join("") : `
+                <button class="story-manuscript-empty" data-story-script-create type="button"><i data-lucide="plus"></i><strong>新增第一份剧本</strong><span>保存后在这里按剧本和录入段查看。</span></button>`}
+            </div>
+          </aside>
+          ${renderStoryManuscriptReader(script)}
         </div>
         <p class="story-message" id="storyScriptMessage">${storyEscape(storyState.actionMessage)}</p>
       </section>`;
@@ -615,13 +661,19 @@
                 <span class="story-tree-node-mark">E${String(episode.episodeNo).padStart(2, "0")}</span>
                 <span class="story-tree-node-copy"><strong>${storyEscape(episode.title || `第 ${episode.episodeNo} 集`)}</strong><small>${storyEscape(storyEpisodeStatusLabel(episode.status))} · ${Number(episode.shotCount || 0)} 镜 · ${storyDurationLabel(episode.durationSeconds)}</small></span>
               </button>
-              <button class="story-tree-disclosure" type="button" data-story-toggle-episode="${storyEscape(episode.id)}" aria-label="${episodeExpanded ? "收起分镜" : "展开分镜"}" aria-expanded="${episodeExpanded}"><i data-lucide="${episodeExpanded ? "chevron-down" : "chevron-right"}"></i></button>
+              <div class="story-tree-row-actions">
+                <button class="story-tree-delete" type="button" data-story-delete-episode="${storyEscape(episode.id)}" title="删除本集及分镜" aria-label="删除第 ${Number(episode.episodeNo || 0)} 集"><i data-lucide="trash-2"></i></button>
+                <button class="story-tree-disclosure" type="button" data-story-toggle-episode="${storyEscape(episode.id)}" aria-label="${episodeExpanded ? "收起分镜" : "展开分镜"}" aria-expanded="${episodeExpanded}"><i data-lucide="${episodeExpanded ? "chevron-down" : "chevron-right"}"></i></button>
+              </div>
             </div>
             ${episodeExpanded ? `<div class="story-tree-shots">
               ${shots.length ? shots.map((shot) => `
-                <button class="story-tree-shot ${shot.id === storyState.selectedShotId ? "is-active" : ""}" type="button" data-story-open-shot="${storyEscape(shot.id)}">
-                  <b>S${String(shot.shotNo).padStart(2, "0")}</b><span>${storyEscape(shot.title || `镜头 ${shot.shotNo}`)}</span><em>${storyShotAssetsConfirmed(shot) ? "已确认" : "待确认"}</em>
-                </button>`).join("") : `<div class="story-tree-loading">${loadingShots ? "正在读取分镜…" : shotsLoaded ? "此集暂无分镜。" : "展开后读取分镜。"}</div>`}
+                <div class="story-tree-shot-row">
+                  <button class="story-tree-shot ${shot.id === storyState.selectedShotId ? "is-active" : ""}" type="button" data-story-open-shot="${storyEscape(shot.id)}">
+                    <b>S${String(shot.shotNo).padStart(2, "0")}</b><span>${storyEscape(shot.title || `镜头 ${shot.shotNo}`)}</span><em>${storyShotAssetsConfirmed(shot) ? "已确认" : "待确认"}</em>
+                  </button>
+                  <button class="story-tree-delete" type="button" data-story-delete-shot="${storyEscape(shot.id)}" title="删除分镜" aria-label="删除分镜 ${String(shot.shotNo || "")}"><i data-lucide="trash-2"></i></button>
+                </div>`).join("") : `<div class="story-tree-loading">${loadingShots ? "正在读取分镜…" : shotsLoaded ? "此集暂无分镜。" : "展开后读取分镜。"}</div>`}
             </div>` : ""}
           </div>`;
       };
@@ -1551,6 +1603,59 @@
     }
   }
 
+  async function deleteStoryProject(projectId = "") {
+    const id = String(projectId || "").trim();
+    if (!id || storyState.action) return;
+    const project = storyState.detail?.project || storyState.projects.find((item) => item.id === id) || {};
+    const name = project.name || "此项目";
+    const confirmed = window.confirm(`删除「${name}」？\n\n项目内的剧本、录入段、分集、分镜、资产、提示词和生成关联都会一起删除，且无法恢复。`);
+    if (!confirmed) return;
+    storyState.action = "delete-project";
+    storyState.actionMessage = "正在删除项目及项目内全部数据…";
+    renderStoryProjectList();
+    renderStoryDetail();
+    try {
+      await requestJson(`/api/story/projects/${encodeURIComponent(id)}`, { method: "DELETE" });
+      storyState.projects = storyState.projects.filter((item) => item.id !== id);
+      storyState.selectedId = "";
+      storyState.detail = null;
+      storyState.view = "library";
+      storyState.action = "";
+      await loadStoryProjects("");
+      storyState.message = `项目「${name}」已删除。`;
+      renderStoryProjectList();
+    } catch (error) {
+      storyState.action = "";
+      storyState.message = error.message || String(error);
+      renderStoryProjectList();
+      renderStoryDetail();
+    }
+  }
+
+  async function deleteStoryScriptVersion(scriptVersionId = "", title = "") {
+    const projectId = storyState.selectedId;
+    if (!projectId || !scriptVersionId || storyState.action) return;
+    const confirmed = window.confirm(`删除录入段「${title || "未命名剧本"}」？\n\n由这个录入段拆出的分集、分镜和提示词也会一起删除。其他录入段不受影响。`);
+    if (!confirmed) return;
+    storyState.action = "delete-script";
+    storyState.actionMessage = "正在删除录入段及其分集…";
+    renderStoryDetail();
+    try {
+      await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/scripts/${encodeURIComponent(scriptVersionId)}`, { method: "DELETE" });
+      storyState.action = "";
+      storyState.selectedScriptId = "";
+      storyState.analysis = null;
+      storyState.analysisScriptId = "";
+      await loadStoryDetail(projectId);
+      storyState.actionMessage = "录入段及其分集已删除。";
+      renderStoryDetail();
+    } catch (error) {
+      storyState.action = "";
+      storyState.actionMessage = error.message || String(error);
+      renderStoryDetail();
+    }
+  }
+
   async function createStoryEpisode(event) {
     event.preventDefault();
     const id = storyState.selectedId;
@@ -1905,6 +2010,8 @@
     const projectId = storyState.selectedId;
     const episodeId = storyState.selectedEpisodeId;
     if (!projectId || !episodeId || !shotId || storyState.action) return;
+    const shot = storyState.shots.find((item) => item.id === shotId) || {};
+    if (!window.confirm(`删除分镜 S${String(shot.shotNo || "").padStart(2, "0")}「${shot.title || "未命名镜头"}」？\n\n本镜的提示词和生成关联会一起删除。`)) return;
     storyState.action = "delete-shot";
     storyState.actionMessage = "正在删除镜头…";
     try {
@@ -2919,7 +3026,8 @@
     const projectId = storyState.selectedId;
     const id = String(episodeId || "").trim();
     if (!projectId || !id || storyState.action) return;
-    if (!window.confirm("删除这一集？已关联的单集画布引用也会移除。")) return;
+    const episode = (storyState.detail?.episodes || []).find((item) => item.id === id) || {};
+    if (!window.confirm(`删除 E${String(episode.episodeNo || "").padStart(2, "0")}「${episode.title || "未命名分集"}」？\n\n本集的分镜、提示词和生成关联会一起删除。`)) return;
     storyState.action = "delete";
     storyState.actionMessage = "正在删除剧集…";
     renderStoryDetail();
@@ -2963,6 +3071,7 @@
       if (event.target.closest("#storyRefreshProjects")) loadStoryProjects(storyState.view === "detail" ? storyState.selectedId : "");
       else if (event.target.closest("[data-story-refresh-detail]")) loadStoryProjects(storyState.selectedId);
       else if (event.target.closest("[data-story-open-asset-library]")) openStoryAssetLibrary();
+      else if (event.target.closest("[data-story-delete-project]")) deleteStoryProject(event.target.closest("[data-story-delete-project]")?.dataset.storyDeleteProject || "");
       else if (event.target.closest("[data-story-back]")) openStoryLibrary();
     });
     storyEl("storyProjectList")?.addEventListener("click", (event) => {
@@ -2971,11 +3080,21 @@
         setStoryCreateOpen(true);
         return;
       }
+      const deleteProject = event.target.closest("[data-story-delete-project]");
+      if (deleteProject) {
+        deleteStoryProject(deleteProject.dataset.storyDeleteProject || "");
+        return;
+      }
       const button = event.target.closest("[data-story-project-id]");
       if (button) loadStoryDetail(button.dataset.storyProjectId || "");
     });
     storyEl("storyProjectDetail")?.addEventListener("click", (event) => {
       if (event.target.classList?.contains("story-script-modal-backdrop") || event.target.closest("button[data-story-close-script-modal]")) closeStoryScriptCreate();
+      else if (event.target.closest("[data-story-delete-project]")) deleteStoryProject(event.target.closest("[data-story-delete-project]")?.dataset.storyDeleteProject || "");
+      else if (event.target.closest("[data-story-delete-script]")) deleteStoryScriptVersion(
+        event.target.closest("[data-story-delete-script]")?.dataset.storyDeleteScript || "",
+        event.target.closest("[data-story-delete-script]")?.dataset.storyDeleteScriptTitle || "",
+      );
       else if (event.target.closest("[data-story-script-mode]")) {
         const mode = event.target.closest("[data-story-script-mode]")?.dataset.storyScriptMode === "continue" ? "continue" : "new";
         storyState.scriptCreateMode = mode;

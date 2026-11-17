@@ -7315,6 +7315,54 @@ async function createStoryScriptVersionInDb({ id = "", projectId = "", ownerUser
   return row ? storyScriptVersionFromRow(row) : null;
 }
 
+async function deleteStoryScriptVersionFromDb({ projectId = "", ownerUserId = "", scriptVersionId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const targetId = String(scriptVersionId || "").trim();
+  if (!parentId || !ownerId || !targetId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  let row;
+  try {
+    await client.query("BEGIN");
+    const project = await client.query(
+      `SELECT id FROM app_story_projects WHERE id = $1 AND owner_user_id = $2 FOR UPDATE`,
+      [parentId, ownerId],
+    );
+    if (!project.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const deletedEpisodes = await client.query(
+      `DELETE FROM app_story_episodes
+       WHERE project_id = $1 AND source_script_version_id = $2
+       RETURNING id`,
+      [parentId, targetId],
+    );
+    if (deletedEpisodes.rows.length) {
+      await client.query(
+        `DELETE FROM app_story_canvas_links
+         WHERE project_id = $1 AND scope_type = 'episode' AND scope_id = ANY($2::text[])`,
+        [parentId, deletedEpisodes.rows.map((item) => item.id)],
+      );
+    }
+    const deleted = await client.query(
+      `DELETE FROM app_story_script_versions WHERE id = $1 AND project_id = $2 RETURNING *`,
+      [targetId, parentId],
+    );
+    row = deleted.rows[0];
+    if (row) await client.query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return row ? storyScriptVersionFromRow(row) : null;
+}
+
 async function listStoryAssetsFromDb({ projectId = "", ownerUserId = "", kind = "" } = {}) {
   if (!dbEnabled()) return null;
   const parentId = String(projectId || "").trim();
@@ -8031,6 +8079,19 @@ async function deleteStoryEpisodeFromDb({ projectId = "", ownerUserId = "", epis
     client.release();
   }
   return row ? storyEpisodeFromRow(row) : null;
+}
+
+async function deleteStoryProjectFromDb({ projectId = "", ownerUserId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const targetId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!targetId || !ownerId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `DELETE FROM app_story_projects WHERE id = $1 AND owner_user_id = $2 RETURNING *`,
+    [targetId, ownerId],
+  );
+  return rows[0] ? storyProjectFromRow(rows[0]) : null;
 }
 
 async function listStoryCanvasLinksFromDb({ projectId = "", ownerUserId = "" } = {}) {
@@ -12204,6 +12265,7 @@ module.exports = {
   replaceStoryShotsInDb,
   listStoryScriptVersionsFromDb,
   createStoryScriptVersionInDb,
+  deleteStoryScriptVersionFromDb,
   listStoryAssetsFromDb,
   listStoryAssetVariantsFromDb,
   upsertStoryAssetPlanInDb,
@@ -12218,6 +12280,7 @@ module.exports = {
   updateStoryGenerationRefInDb,
   importStoryAnalysisInDb,
   deleteStoryEpisodeFromDb,
+  deleteStoryProjectFromDb,
   listStoryCanvasLinksFromDb,
   findUserUnlockInDb,
   normalizeApiSubtokenRecord,

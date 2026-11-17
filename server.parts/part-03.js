@@ -859,6 +859,16 @@ async function handleUpdateStoryProject(req, res, projectId = "") {
   return sendJson(res, 200, { ok: true, project: storyProjectClientView(project) });
 }
 
+async function handleDeleteStoryProject(req, res, projectId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const project = await deleteStoryProjectFromDb({ projectId, ownerUserId: auth.user.id });
+  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  return sendJson(res, 200, { ok: true, deletedProjectId: project.id });
+}
+
 const STORY_ANALYZER_SYSTEM_PROMPT = `你是专业中文影视编剧与制片拆解助手。你的任务是把用户提供的剧本或小说原文，整理成可制作的剧集开发结果。
 只输出一个合法 JSON 对象，不要 Markdown，不要代码围栏，不要解释。所有叙事字段使用中文。
 返回结构必须为：
@@ -1166,6 +1176,16 @@ async function handleCreateStoryScript(req, res, projectId = "") {
   });
   if (!script) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "文稿保存失败。" });
   return sendJson(res, 201, { ok: true, script });
+}
+
+async function handleDeleteStoryScript(req, res, projectId = "", scriptVersionId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const script = await deleteStoryScriptVersionFromDb({ projectId, ownerUserId: auth.user.id, scriptVersionId });
+  if (script === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!script) return sendJson(res, 404, { ok: false, code: "STORY_SCRIPT_NOT_FOUND", message: "录入段不存在。" });
+  return sendJson(res, 200, { ok: true, deletedScriptVersionId: script.id });
 }
 
 async function handleAnalyzeStoryProject(req, res, projectId = "") {

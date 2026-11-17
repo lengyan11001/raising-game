@@ -79,6 +79,19 @@ test("story P1 data functions stay PostgreSQL-only and enforce project ownership
   assert.doesNotMatch(handlerBody(read("server.parts/part-03.js"), "handleImportStoryAnalysis"), /writeFile|data\/.*\.json/i);
 });
 
+test("story deletion has protected project and script routes with hierarchy cleanup", () => {
+  const handlers = read("server.parts/part-03.js");
+  const routes = read("server.parts/part-42.js");
+  const db = read("db.js");
+  for (const name of ["handleDeleteStoryProject", "handleDeleteStoryScript"]) {
+    assert.match(handlerBody(handlers, name), /requireAdmin\(req, res, \{ loadDb: false \}\)/, `${name} must require admin`);
+  }
+  assert.match(routes, /storyProjectScriptMatch[\s\S]*req\.method === "DELETE"[\s\S]*handleDeleteStoryScript/);
+  assert.match(routes, /storyProjectMatch[\s\S]*req\.method === "DELETE"[\s\S]*handleDeleteStoryProject/);
+  assert.match(db, /async function deleteStoryProjectFromDb[\s\S]*DELETE FROM app_story_projects WHERE id = \$1 AND owner_user_id = \$2/);
+  assert.match(db, /async function deleteStoryScriptVersionFromDb[\s\S]*DELETE FROM app_story_episodes[\s\S]*source_script_version_id = \$2[\s\S]*DELETE FROM app_story_script_versions/);
+});
+
 test("story P1 frontend implements script version, analysis preview, import, and episode deletion", () => {
   const html = read("platform.html");
   const story = read("platform.story.js");
@@ -160,6 +173,11 @@ test("story creation keeps manuscripts and versions independent while retaining 
   assert.match(story, /function selectStoryScriptVersion\(/);
   assert.match(story, /event\.target\.closest\("\[data-story-script-id\]"\)/);
   assert.match(story, /function renderStoryManuscriptCard\(/);
+  assert.match(story, /function renderStoryManuscriptReader\(/);
+  assert.match(story, /class="story-script-layout story-manuscript-workspace"/);
+  assert.match(story, /readonly aria-label="当前剧本正文"/);
+  assert.match(css, /\.story-manuscript-reader \{/);
+  assert.match(css, /\.story-manuscript-sidebar \.story-manuscript-list \{/);
   assert.match(story, /function storyManuscriptGroups\(/);
   assert.match(story, /collapsedManuscriptIds: \[\]/);
   assert.match(story, /collapsedEpisodeIds: \[\]/);
@@ -302,6 +320,12 @@ test("story episodes and durations are AI-planned unless the user explicitly ove
   assert.match(story, /data-story-add-episode[^>]*>[\s\S]*<span>新增分集<\/span>/);
   assert.doesNotMatch(story, /isDetail\)[\s\S]{0,500}data-story-create-open/);
   assert.match(story, /id="storyCreateProjectToggle"[\s\S]*<span>新增项目<\/span>/);
+  assert.match(story, /data-story-delete-project=/);
+  assert.match(story, /data-story-delete-script=/);
+  assert.match(story, /data-story-delete-episode=/);
+  assert.match(story, /data-story-delete-shot=/);
+  assert.match(story, /function deleteStoryProject\(/);
+  assert.match(story, /function deleteStoryScriptVersion\(/);
   assert.match(story, /document\.querySelector\("\.story-library-head"\)\?\.addEventListener\("click"/);
   assert.match(story, /function openStoryEpisodeCreate\(\)/);
   assert.match(story, /\[data-story-add-episode\][\s\S]*openStoryEpisodeCreate\(\)/);
