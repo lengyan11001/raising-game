@@ -5,7 +5,8 @@
 - Project deletion cascades through project-owned scripts, episodes, shots, assets, variants, prompts, generation references, and canvas links. Script-entry deletion removes only episodes produced by that entry segment and their dependent shots/prompts/generation references, leaving other entry segments intact.
 - All destructive actions require a confirmation that names the target and explains the cascade. The unrelated dirty `server.parts/part-45.js` remains excluded.
 - Verification: syntax checks, `test/story-canvas-p1.test.js` 20/20, `test/story-canvas-p0.test.js` 4/4, `npm run check:undef`, and `git diff --check` pass.
-- No commit or deployment performed; requires user review before release.
+- Source commit `fcbaf9e4` was built as platform release `acd72972f3c413e5fec02dc92e1573daac8bc2d3`, pushed to `platform-release`, and rolled out Old-only through `scripts/deploy_local.sh --site old`.
+- Deployment switched traffic `4175 -> 4174`; 1% and 5% canaries passed. Post-deploy checks returned `200` for `/api/health`, `/api/livez`, `/api/readyz`, `/`, and `/platform.html`; served `platform.story.js` hash matches local.
 
 ## 2026-11-17 Step DW: restore manuscript list + full-text reader
 
