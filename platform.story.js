@@ -1571,6 +1571,13 @@
     const id = String(episodeId || "");
     if (!id) return;
     const sameEpisode = storyState.selectedEpisodeId === id;
+    const episodeExpanded = storyState.expandedEpisodeIds.includes(id) && !storyState.collapsedEpisodeIds.includes(id);
+    if (sameEpisode && episodeExpanded) {
+      storyState.expandedEpisodeIds = storyState.expandedEpisodeIds.filter((item) => item !== id);
+      if (!storyState.collapsedEpisodeIds.includes(id)) storyState.collapsedEpisodeIds.push(id);
+      renderStoryDetail();
+      return;
+    }
     const episode = (storyState.detail?.episodes || []).find((item) => item.id === id);
     const manuscriptId = String(episode?.sourceManuscriptId || "");
     if (manuscriptId) {
@@ -1578,6 +1585,8 @@
       storyState.collapsedManuscriptIds = storyState.collapsedManuscriptIds.filter((item) => item !== manuscriptId);
       if (!storyState.expandedManuscriptIds.includes(manuscriptId)) storyState.expandedManuscriptIds.push(manuscriptId);
     }
+    storyState.collapsedEpisodeIds = storyState.collapsedEpisodeIds.filter((item) => item !== id);
+    if (!storyState.expandedEpisodeIds.includes(id)) storyState.expandedEpisodeIds.push(id);
     storyState.selectedEpisodeId = id;
     storyState.episodeTab = storyEpisodeTabId(view);
     if (!sameEpisode) {
@@ -2826,7 +2835,17 @@
         if (selectStoryScriptVersion(event.target.closest("[data-story-script-id]")?.dataset.storyScriptId || "")) renderStoryDetail();
       }
       else if (event.target.closest("[data-story-select-manuscript]")) {
-        selectStoryManuscriptById(event.target.closest("[data-story-select-manuscript]")?.dataset.storySelectManuscript || "");
+        const manuscriptId = event.target.closest("[data-story-select-manuscript]")?.dataset.storySelectManuscript || "";
+        const sameManuscript = storyState.selectedManuscriptId === manuscriptId;
+        const manuscriptExpanded = storyState.expandedManuscriptIds.includes(manuscriptId) && !storyState.collapsedManuscriptIds.includes(manuscriptId);
+        selectStoryManuscriptById(manuscriptId);
+        if (sameManuscript && manuscriptExpanded) {
+          storyState.expandedManuscriptIds = storyState.expandedManuscriptIds.filter((item) => item !== manuscriptId);
+          if (!storyState.collapsedManuscriptIds.includes(manuscriptId)) storyState.collapsedManuscriptIds.push(manuscriptId);
+        } else {
+          storyState.collapsedManuscriptIds = storyState.collapsedManuscriptIds.filter((item) => item !== manuscriptId);
+          if (!storyState.expandedManuscriptIds.includes(manuscriptId)) storyState.expandedManuscriptIds.push(manuscriptId);
+        }
         renderStoryDetail();
       }
       else if (event.target.closest("[data-story-toggle-manuscript]")) toggleStoryManuscript(event.target.closest("[data-story-toggle-manuscript]")?.dataset.storyToggleManuscript || "");

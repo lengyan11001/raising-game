@@ -1,3 +1,9 @@
+## 2026-11-17 Step DT: tree node click toggles branch
+
+- Story-tree node bodies now behave as disclosures: clicking a selected manuscript or open episode collapses it, and clicking it again expands it. The separate chevron controls remain available.
+- Opening an episode node expands that episode's branch; opening a manuscript node expands that manuscript branch.
+- Focused verification: `node --test test/story-canvas-p1.test.js` passes 18/18, `node --check platform.story.js`, `npm run check:undef`, and `git diff --check` pass.
+
 ## 2026-11-17 Step DS: legacy manuscript grouping and stable tree disclosure
 
 - Added migration `2026-11-17-story-legacy-manuscript-group-v1`. It repairs production rows created before manuscript lineage only when `manuscript_id = id`, groups them by `(project_id, title)`, keeps the oldest version as the canonical manuscript, and updates episode ownership to that canonical ID. New manuscripts with independent IDs are untouched.
