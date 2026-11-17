@@ -115,7 +115,7 @@ function loadStoryPromptOptimizer() {
     [
       "let upstreamImpl = null;",
       "const promptOptimizerUpstreamRequest = async (body, options) => {",
-      "  calls.push({ model: body.model, optimizerModel: options.optimizerModel.id, context: options.requestContext });",
+      "  calls.push({ model: body.model, optimizerModel: options.optimizerModel.id, context: options.requestContext, body: JSON.parse(JSON.stringify(body)) });",
       "  if (!upstreamImpl) throw new Error('test upstream is not configured');",
       "  return upstreamImpl(body, options);",
       "};",
@@ -123,7 +123,7 @@ function loadStoryPromptOptimizer() {
       "const seedancePromptOptimizerIsProvider = (provider) => /^seedance/.test(String(provider || ''));",
       "const promptOptimizerRequestForPayload = (payload) => ({ originalPrompt: String(payload.prompt || '').trim(), duration: payload.duration, language: 'zh', body: { messages: [{ role: 'user', content: payload.prompt }] } });",
       "const w3PromptOptimizerText = (raw) => String(raw?.choices?.[0]?.message?.content || '');",
-      "const w3ParseOptimizerJson = () => null;",
+      "const w3ParseOptimizerJson = (text) => { try { return JSON.parse(text); } catch { return null; } };",
       "const w3OptimizerReadablePrompt = (text) => text;",
       "const w3PromptIsMostlyChinese = () => true;",
       "const seedancePromptOptimizerRepairContent = (text) => text;",
@@ -131,6 +131,8 @@ function loadStoryPromptOptimizer() {
       "const w3TruncatePrompt = (text) => text;",
       "const w3NormalizeConstraintStack = (text) => text;",
       "const w3NormalizeWanPromptFormatting = (text) => text;",
+      extractFunction(serverPart49, "papayaPromptCompatibilityText"),
+      extractFunction(serverPart49, "restorePapayaPromptCompatibilityText"),
       extractFunction(serverPart49, "scaleStoryPromptForProvider"),
       extractFunction(serverPart49, "optimizeStoryShotPrompt"),
       "return { optimizeStoryShotPrompt, calls, setUpstream(fn) { upstreamImpl = fn; } };",
@@ -144,35 +146,59 @@ function loadStoryPromptOptimizer() {
   return fn;
 }
 
-test("story shot prompt optimization falls back to Qwen only for Papaya security blocks", async () => {
+test("Papaya false-positive location terms are normalized for the request and restored in the result", async () => {
   const helpers = loadStoryPromptOptimizer();
-  helpers.setUpstream(async () => {
-    if (helpers.calls.length === 1) {
-      throw Object.assign(new Error("Prompt optimizer upstream failed."), {
-        statusCode: 503,
-        code: "PROMPT_OPTIMIZER_UPSTREAM_UNAVAILABLE",
-        upstreamCode: "PAPAYA_CONTENT_BLOCKED",
-        cause: { code: "PAPAYA_CONTENT_BLOCKED" },
-      });
-    }
-    return { choices: [{ message: { content: "学校办公室里，负责人把文件推到桌面中央，镜头缓慢推进。" } }] };
-  });
+  helpers.setUpstream(async () => ({
+    choices: [{
+      message: {
+        content: JSON.stringify({
+          optimizedPrompt: "校内行政楼走廊内，白洁攥紧文件夹走向校长办公室，暖色顶光勾勒出人物轮廓。",
+          notes: [],
+          referencePlan: [],
+        }),
+      },
+    }],
+  }));
 
   const result = await helpers.optimizeStoryShotPrompt({
-    prompt: "学校办公室里，负责人把文件推到桌面中央，镜头缓慢推进。",
+    prompt: "教育局走廊内，白洁攥紧文件夹走向校长室。",
     provider: "seedance-nsfw",
     providerLabel: "Seedance 2.5",
     duration: 9,
     optimizerModelId: "carrothub-papaya-1.0",
   });
 
-  assert.equal(helpers.calls.length, 2);
+  assert.equal(helpers.calls.length, 1);
   assert.equal(helpers.calls[0].model, "carrothub-papaya-1.0");
-  assert.equal(helpers.calls[1].model, "qwen3.7-flash");
-  assert.equal(helpers.calls[1].context.fallbackFrom, "carrothub-papaya-1.0");
-  assert.equal(result.model, "qwen3.7-flash");
-  assert.equal(result.fallbackFrom, "carrothub-papaya-1.0");
-  assert.equal(result.fallbackReason, "papaya_content_blocked");
+  assert.doesNotMatch(helpers.calls[0].body.messages[0].content, /教育局/);
+  assert.match(helpers.calls[0].body.messages[0].content, /校内行政楼/);
+  assert.match(result.optimizedPrompt, /教育局走廊/);
+  assert.doesNotMatch(result.optimizedPrompt, /校内行政楼/);
+  assert.equal(result.model, "carrothub-papaya-1.0");
+  assert.equal(result.fallbackFrom, undefined);
+});
+
+test("Papaya security blocks are surfaced without switching models", async () => {
+  const helpers = loadStoryPromptOptimizer();
+  helpers.setUpstream(async () => {
+    throw Object.assign(new Error("Content blocked by security check (political_cn_entity,political_cn_entity)"), {
+      statusCode: 451,
+      code: "PAPAYA_CONTENT_BLOCKED",
+      cause: { code: "PAPAYA_CONTENT_BLOCKED" },
+    });
+  });
+
+  await assert.rejects(() => helpers.optimizeStoryShotPrompt({
+    prompt: "教育局走廊内，白洁走向校长室。",
+    provider: "seedance-nsfw",
+    providerLabel: "Seedance 2.5",
+    duration: 9,
+    optimizerModelId: "carrothub-papaya-1.0",
+  }), /Content blocked by security check/);
+
+  assert.equal(helpers.calls.length, 1);
+  assert.equal(helpers.calls[0].model, "carrothub-papaya-1.0");
+  assert.equal(helpers.calls[0].optimizerModel, "carrothub-papaya-1.0");
 });
 
 test("story shot prompt optimization does not hide non-security upstream failures", async () => {

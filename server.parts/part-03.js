@@ -1708,7 +1708,6 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
   }
   const updatedShots = [];
   const failures = [];
-  const optimizerFallbacks = [];
   const promptShots = targetShotId
     ? shots.filter((shot) => shot.id === targetShotId)
     : [...shots].sort((a, b) => a.shotNo - b.shotNo);
@@ -1723,15 +1722,6 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
         resolution,
         optimizerModelId,
       });
-      if (optimized.fallbackFrom) {
-        optimizerFallbacks.push({
-          shotId: shot.id,
-          shotNo: shot.shotNo,
-          from: optimized.fallbackFrom,
-          to: optimized.model,
-          reason: optimized.fallbackReason || "",
-        });
-      }
       const saved = await createStoryPromptVersionInDb({
         id: randomId("prompt"),
         projectId,
@@ -1746,8 +1736,6 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
           providerLabel: provider.label,
           optimizerModel: optimized.model,
           optimizerMode: optimized.mode,
-          optimizerFallbackFrom: optimized.fallbackFrom || "",
-          optimizerFallbackReason: optimized.fallbackReason || "",
           resolution,
           assetIds: assets.filter((asset) => storyShotUsesAsset(asset, shot)).map((asset) => asset.id),
           optimizedAt: new Date().toISOString(),
@@ -1756,7 +1744,14 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
       if (!saved?.shot) throw Object.assign(new Error("提示词已优化，但写入镜头失败。"), { code: "STORY_PROMPT_SAVE_FAILED" });
       updatedShots.push(saved.shot);
     } catch (error) {
-      failures.push({ shotId: shot.id, shotNo: shot.shotNo, code: error.code || "STORY_PROMPT_FAILED", message: error.message || String(error) });
+      failures.push({
+        shotId: shot.id,
+        shotNo: shot.shotNo,
+        code: error.code || "STORY_PROMPT_FAILED",
+        upstreamCode: error.upstreamCode || error.cause?.code || "",
+        upstreamStatus: Number(error.upstreamStatus || error.cause?.statusCode || 0) || 0,
+        message: error.cause?.message || error.message || String(error),
+      });
     }
   }
   if (!updatedShots.length) {
@@ -1777,7 +1772,6 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
     shots: updatedShots,
     assets,
     failures,
-    optimizerFallbacks,
   });
 }
 

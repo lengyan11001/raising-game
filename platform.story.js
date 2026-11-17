@@ -2214,7 +2214,6 @@
     renderStoryDetail();
     const updatedShots = [];
     const failures = [];
-    const optimizerFallbacks = [];
     let modelLabel = videoModel;
     try {
       for (let index = 0; index < shots.length; index += 1) {
@@ -2233,7 +2232,6 @@
             storyState.shots = storyState.shots.map((item) => item.id === savedShot.id ? { ...item, ...savedShot } : item);
           }
           if (Array.isArray(payload.failures)) failures.push(...payload.failures);
-          if (Array.isArray(payload.optimizerFallbacks)) optimizerFallbacks.push(...payload.optimizerFallbacks);
         } catch (error) {
           failures.push({ shotId: shot.id, shotNo: shot.shotNo, message: error.message || String(error) });
         }
@@ -2247,11 +2245,8 @@
       const failureText = failures.length
         ? `，失败 ${failures.length} 个：${failures.slice(0, 3).map((item) => `S${item.shotNo} ${item.message}`).join("；")}`
         : "";
-      const fallbackText = optimizerFallbacks.length
-        ? "；Papaya 内容安全拦截，已自动切换 Qwen3.7 Flash 完成"
-        : "";
       storyState.actionMessage = successCount
-        ? `已按 ${modelLabel} 生成并冻结 ${successCount} 个镜头的最终提示词${fallbackText}${failureText}。`
+        ? `已按 ${modelLabel} 生成并冻结 ${successCount} 个镜头的最终提示词${failureText}。`
         : (failures[0]?.message || "全部镜头提示词优化失败，请重试。");
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
