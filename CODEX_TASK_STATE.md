@@ -20,9 +20,9 @@
 ## 2026-11-17 Step DL: Story detail header merged into the global top row
 
 - User rejected the previous compact toolbar because it still sat below the large global `STORY WORKBENCH / 剧集 / description` header. The detail view now reuses the global header itself: `← 剧集`, project name, inline script/episode/asset/shot/aspect counts, and the asset-library action all occupy that single row.
-- Removed the inner detail toolbar entirely, so the detail card starts with the workspace tabs. Detail mode also reduces the story shell's top padding from 28px to 14px; the normal project-library header is restored when returning to the library.
+- Removed the inner detail toolbar entirely, so the detail card starts with the workspace tabs. A follow-up removed the remaining top gap: detail mode now starts at the main-content top (`head y=60`), the header is 34px high, and tabs begin at `y=121`; the normal project-library header is restored when returning to the library.
 - Because the global header is now rerendered by view, refresh-project and create-project click handling moved to the delegated story click handler. All other story interactions remain unchanged.
-- Verification: `node --check platform.story.js`, `npm run check:undef`, `git diff --check`, and `node --test test/story-canvas-p1.test.js` (18/18) pass.
+- Verification: `node --check platform.story.js`, `npm run check:undef`, `git diff --check`, and `node --test test/story-canvas-p1.test.js` (18/18) pass. Source commit `ef47da3c`; platform release `5e24247f` deployed to `123vips.com` through `scripts/deploy_local.sh --site old`; `/api/health` returned `{"ok":true}`. Production visual check confirmed one compact header row with no second project toolbar.
 
 ## 2026-11-17 Step DK: Compact story planning toolbar and AI-owned shot count
 
