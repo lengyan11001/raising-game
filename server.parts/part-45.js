@@ -749,7 +749,7 @@ async function promptOptimizerPapayaRequest(body = {}, options = {}) {
 }
 
 async function handleAdvancedPromptOptimize(req, res) {
-  const auth = await requireUser(req, res);
+  const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
   let body = {};
   try {

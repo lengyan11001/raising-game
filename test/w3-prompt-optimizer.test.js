@@ -154,7 +154,7 @@ test("optimizer route is authenticated in front of generate and uses Papaya", ()
   assert.ok(optimize > 0 && optimize < generate);
   assert.match(route, /handleAdvancedPromptOptimize\(req, res\)/);
   assert.match(server, /carrothub-papaya-1\.0/);
-  assert.match(server, /const auth = await requireUser\(req, res\);\s*if \(!auth\) return;/);
+  assert.match(server, /async function handleAdvancedPromptOptimize[\s\S]*?const auth = await requireUser\(req, res, \{ loadDb: false \}\);/);
   assert.match(server, /promptOptimizerUpstreamRequest\(requestAttempt\.body/);
   assert.match(server, /PROMPT_OPTIMIZER_MODELS/);
   assert.match(server, /PROMPT_OPTIMIZER_MODEL_UNSUPPORTED/);
