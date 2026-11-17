@@ -1,3 +1,12 @@
+## 2026-11-17 Step DN: compact story header actions restored and deployed
+
+- The compact detail header now includes `新增` before `资产库` and refresh, keeping all project actions on the existing one-line header without adding another toolbar.
+- Root cause of the dead `资产库` button: it was moved outside `#storyProjectDetail`, while its click handler was still bound only to that container. A persistent listener on `.story-library-head` now handles create, asset library, refresh, and back actions.
+- `新增` from detail returns to the project library and opens the create form; it does not restore the removed large header or add a second row.
+- Source commit `5438b683` is pushed to `old-site`; release snapshot `d2a6c420` is pushed to `platform-release` and deployed through `scripts/deploy_local.sh --site old`. Production active port is `4175`; `/api/health` returned `{"ok":true}`.
+- Production browser verification: the one-line header shows `← 剧集 白洁 1文稿 1集 22资产 10分镜 9:16` plus `新增 / 资产库 / 刷新`; clicking `资产库` opens the filtered asset-library modal; clicking `新增` opens the create form without adding header rows.
+- Verification passed: `npm run check:undef`, focused story canvas suite 18/18, `git diff --check`, release build, and rolling deployment. Uncommitted `server.parts/part-45.js` remains unrelated and was not included.
+
 ## 2026-11-17 Step DM: mobile Google login click feedback verified
 
 - Google Identity Services' iframe button now invokes `beginGoogleLoginFeedback`: it immediately shows `Opening Google authorization...`, marks the login control busy, and starts a 15-second watchdog.

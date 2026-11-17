@@ -235,8 +235,10 @@ test("story episodes and durations are AI-planned unless the user explicitly ove
   assert.match(story, /classList\.toggle\("is-detail"/);
   assert.match(story, /class="story-project-inline-head"/);
   assert.match(story, /class="story-project-inline-stats"/);
-  assert.match(story, /data-story-create-open title="新建剧集项目"[\s\S]*<span>新增<\/span>/);
+  assert.match(story, /data-story-add-episode title="新增剧集"[\s\S]*<span>新增剧集<\/span>/);
   assert.match(story, /document\.querySelector\("\.story-library-head"\)\?\.addEventListener\("click"/);
+  assert.match(story, /function openStoryEpisodeCreate\(\)/);
+  assert.match(story, /\[data-story-add-episode\][\s\S]*openStoryEpisodeCreate\(\)/);
   assert.match(story, /\[data-story-open-asset-library\][\s\S]*openStoryAssetLibrary\(\)/);
   assert.match(story, /body: \{ scriptVersionId: script\.id, targetEpisodes, targetDurationSeconds \}/);
   assert.match(story, /analysisTargetEpisodesDirty = true/);
