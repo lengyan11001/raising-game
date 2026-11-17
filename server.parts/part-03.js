@@ -1534,6 +1534,10 @@ async function handleCreateStoryAssetVariant(req, res, projectId = "", assetId =
   if (generatedRecord) {
     metadata.imageUrl = String(generatedRecord.imageResultUrl || generatedRecord.imageUrl || generatedRecord.cdnImageUrl || metadata.imageUrl || "");
     metadata.generationStatus = String(generatedRecord.status || "");
+    metadata.resultAssetId = String(generatedRecord.resultAssetId || metadata.resultAssetId || "");
+    metadata.resultAssetIds = Array.isArray(generatedRecord.resultAssetIds)
+      ? generatedRecord.resultAssetIds.map(String).filter(Boolean)
+      : (Array.isArray(metadata.resultAssetIds) ? metadata.resultAssetIds.map(String).filter(Boolean) : []);
   }
   const variant = await createStoryAssetVariantInDb({
     id: randomId("asset-variant"),

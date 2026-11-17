@@ -1196,6 +1196,8 @@ function publicGenerationRecord(record = {}, options = {}) {
       syntheticReferenceUrl: String(record.syntheticReferenceUrl || ""),
       userAssetId: String(record.userAssetId || ""),
       userAssetIds: Array.isArray(record.userAssetIds) ? record.userAssetIds.map(String) : [],
+      resultAssetId: String(record.resultAssetId || ""),
+      resultAssetIds: Array.isArray(record.resultAssetIds) ? record.resultAssetIds.map(String) : [],
       referenceAssetUri: String(record.referenceAssetUri || ""),
     }),
     mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
