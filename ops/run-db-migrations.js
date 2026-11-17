@@ -47,6 +47,11 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-17-story-version-episode-ownership-v1",
+    description: "Scope imported story episodes to their source script version",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",
@@ -346,6 +351,13 @@ const STORY_LEGACY_MANUSCRIPT_GROUP_DDL = Object.freeze([
      AND e.source_manuscript_id <> sv.manuscript_id;`,
 ]);
 
+const STORY_VERSION_EPISODE_OWNERSHIP_DDL = Object.freeze([
+  `DROP INDEX IF EXISTS app_story_episodes_manuscript_episode_uidx;`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS app_story_episodes_version_episode_uidx
+     ON app_story_episodes (project_id, source_script_version_id, episode_no)
+     WHERE source_script_version_id <> '';`,
+]);
+
 async function runStatements(client, statements) {
   for (const statement of statements) await client.query(statement);
 }
@@ -524,6 +536,8 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
         await runStatements(schemaLockClient, STORY_MANUSCRIPT_LINEAGE_DDL);
       } else if (migration.version === "2026-11-17-story-legacy-manuscript-group-v1") {
         await runStatements(schemaLockClient, STORY_LEGACY_MANUSCRIPT_GROUP_DDL);
+      } else if (migration.version === "2026-11-17-story-version-episode-ownership-v1") {
+        await runStatements(schemaLockClient, STORY_VERSION_EPISODE_OWNERSHIP_DDL);
       } else {
         throw new Error(`Unknown schema migration: ${migration.version}`);
       }

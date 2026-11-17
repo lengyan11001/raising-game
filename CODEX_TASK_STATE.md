@@ -1,3 +1,10 @@
+## 2026-11-17 Step DU: story episodes scoped to script versions
+
+- Replaced manuscript-scoped episode ownership with script-version ownership. Re-importing V3 now deletes/replaces only V3 episodes; V1 and V2 episode sets remain intact even when they share `manuscript_id`.
+- Added migration `2026-11-17-story-version-episode-ownership-v1`, runtime index repair, and version-scoped import `ON CONFLICT` handling.
+- The story tree now indexes episodes by `sourceScriptVersionId`; selecting V1 renders only V1 episodes, while V3 renders only V3 episodes. The manuscript card and AI-analysis button preserve the selected version instead of silently switching to the latest version.
+- Verification: story/migration focused suite passes 30/30, syntax checks pass, `npm run check:undef` passes, and `git diff --check` passes.
+
 ## 2026-11-17 Step DT: tree node click toggles branch
 
 - Story-tree node bodies now behave as disclosures: clicking a selected manuscript or open episode collapses it, and clicking it again expands it. The separate chevron controls remain available.
