@@ -15549,7 +15549,6 @@ body.app-keyboard-open {
 .story-field select,
 .story-field textarea,
 .story-episode-form input,
-.story-episode-form select,
 .story-episode-form textarea { width: 100%; min-width: 0; padding: 10px 11px; color: #f5eff6; background: #19171c; border: 1px solid rgba(255, 255, 255, .1); border-radius: 8px; font: inherit; font-size: 12px; outline: none; transition: border-color 160ms ease, box-shadow 160ms ease; }
 .story-field input::placeholder,
 .story-field textarea::placeholder,
@@ -15559,7 +15558,6 @@ body.app-keyboard-open {
 .story-field select:focus,
 .story-field textarea:focus,
 .story-episode-form input:focus,
-.story-episode-form select:focus,
 .story-episode-form textarea:focus { border-color: rgba(255, 79, 163, .68); box-shadow: 0 0 0 3px rgba(255, 79, 163, .1); }
 .story-field textarea,
 .story-episode-form textarea { resize: vertical; }
@@ -15846,16 +15844,6 @@ body.app-keyboard-open {
 .story-tree-root, .story-tree-branch, .story-tree-node, .story-tree-shots { display: grid; gap: 5px; }
 .story-tree-root { margin-top: 10px; }
 .story-tree-branch { position: relative; margin-left: 13px; padding-left: 12px; border-left: 1px solid rgba(255, 79, 163, .2); }
-.story-tree-segment { display: grid; gap: 5px; padding: 4px 0 7px; }
-.story-tree-segment + .story-tree-segment { border-top: 1px dashed rgba(255, 255, 255, .065); }
-.story-tree-segment-head { display: flex; width: 100%; align-items: center; gap: 6px; min-width: 0; padding: 4px 5px; color: #7f7583; background: transparent; border: 0; border-radius: 6px; text-align: left; }
-.story-tree-segment-head:hover { background: rgba(255, 79, 163, .055); }
-.story-tree-segment-head.is-active { background: rgba(255, 79, 163, .085); box-shadow: inset 2px 0 0 rgba(255, 79, 163, .6); }
-.story-tree-segment-head span { flex: 0 0 auto; color: #ff9fc6; font: 750 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.story-tree-segment-head strong { overflow: hidden; color: #b7acbc; font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.story-tree-segment-head small { margin-left: auto; overflow: hidden; color: #716776; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
-.story-tree-segment-head em { flex: 0 0 auto; color: #ff9fc6; font-size: 7px; font-style: normal; font-weight: 720; white-space: nowrap; }
-.story-tree-segment-episodes { display: grid; gap: 5px; padding-left: 7px; }
 .story-tree-script, .story-tree-episode, .story-tree-shot { width: 100%; color: inherit; text-align: left; border: 0; cursor: pointer; }
 .story-tree-script.is-static { cursor: default; }
 .story-tree-script, .story-tree-episode { display: flex; align-items: center; gap: 8px; padding: 8px; background: #1b181d; border: 1px solid transparent; border-radius: 8px; }
@@ -15913,16 +15901,10 @@ body.app-keyboard-open {
 .story-script-modal-note { margin: 0; color: #948999; font-size: 9px; line-height: 1.55; }
 .story-script-modal > label { display: grid; gap: 5px; color: #b9afbd; font-size: 10px; font-weight: 720; }
 .story-script-modal input,
-.story-script-modal select,
 .story-script-modal textarea { width: 100%; padding: 9px 10px; color: #f5eff6; background: #100e12; border: 1px solid rgba(255, 255, 255, .12); border-radius: 7px; font: inherit; font-size: 11px; outline: none; }
 .story-script-modal textarea { min-height: 210px; max-height: 42vh; resize: vertical; line-height: 1.65; }
 .story-script-modal input:focus,
-.story-script-modal select:focus,
 .story-script-modal textarea:focus { border-color: rgba(255, 79, 163, .68); box-shadow: 0 0 0 3px rgba(255, 79, 163, .1); }
-.story-script-entry-modes { display: flex; flex-wrap: wrap; gap: 7px; }
-.story-script-entry-modes .story-secondary-button.is-active { color: #21141a; background: var(--story-pink); border-color: var(--story-pink); }
-.story-script-entry-result { margin: 0; padding: 8px 10px; color: #a99eae; background: rgba(255, 79, 163, .055); border: 1px solid rgba(255, 79, 163, .16); border-radius: 7px; font-size: 9px; line-height: 1.55; }
-.story-script-entry-result b { color: #ffb2d2; }
 .story-script-modal-planning { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
 .story-script-modal-planning label { display: grid; grid-template-columns: auto 96px; align-items: center; gap: 3px 7px; color: #a99eae; font-size: 9px; }
 .story-script-modal-planning em { grid-column: 1; color: #746c78; font-size: 8px; font-style: normal; }
@@ -16069,8 +16051,7 @@ body.app-keyboard-open {
 .story-library-preview-variant button { min-height: 27px; padding: 0 8px; color: #c9f4df; background: rgba(72, 185, 133, .1); border: 1px solid rgba(72, 185, 133, .28); border-radius: 5px; font-size: 8px; font-weight: 720; }
 .story-episode-form { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(240px, 1.5fr) auto; gap: 10px; align-items: end; margin-top: 13px; padding-top: 13px; border-top: 1px dashed var(--story-line); }
 .story-episode-form label { display: grid; gap: 6px; color: #9c939f; font-size: 10px; font-weight: 680; }
-.story-episode-form .story-field-wide { grid-column: 1 / -1; }
-.story-episode-form .story-create-button { min-width: 104px; justify-self: end; }
+.story-episode-form .story-create-button { min-width: 104px; }
 .story-empty { display: grid; min-height: 420px; place-items: center; align-content: center; gap: 8px; color: #918894; text-align: center; line-height: 1.55; }
 .story-empty svg { width: 38px; height: 38px; color: var(--story-pink); }
 .story-empty h3,

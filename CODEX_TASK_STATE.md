@@ -1,12 +1,10 @@
-## 2026-11-17 Step DV: staged manuscript entry interaction closure
+## 2026-11-17 Step DV: authenticated account snapshots scoped to current user
 
-- Story creation now supports `新增独立剧本` and `延续已有剧本`; continuation segments append to one manuscript, start empty, and continue episode numbering after the manuscript maximum.
-- Episodes are owned by both `sourceManuscriptId` and `sourceScriptVersionId`; imports replace only the selected segment, while manual episode creation requires a manuscript and segment and rejects duplicate episode numbers within that manuscript.
-- `录入剧本` presents manuscripts, their V01/V02 segments, episode ranges, word counts, analysis controls, and a preview-before-write flow. `剧本结构` shows manuscript -> segment -> episode -> shot branches and owns `新增分集`.
-- Segment headers in `剧本结构` open that exact segment back in the analysis area; opening an old episode selects its source script version instead of silently switching to the latest version.
-- Focused verification: syntax checks, `test/story-canvas-p1.test.js`, `test/story-canvas-p0.test.js`, and `test/migration-runner.test.js` pass 31/31; `check:undef` and `git diff --check` pass.
-- Full suite: 1390 pass, 9 unrelated failures in generation serializer and W3 optimizer tests, 2 skipped. Do not include unrelated dirty `server.parts/part-45.js` in commits or releases.
-- No commit or deployment yet; show the diff and expected interaction to the user before release.
+- Added `accountUserId` and `includeAllAccountData` to the database snapshot reader. Normal authenticated requests now read only the signed-in account's users, sessions, wallet orders, referral withdrawals, credit ledger, characters, unlocks, and assets instead of materializing all users and full account history on every request.
+- Admin flows still use the existing `includeAllUserAssets` full-read path. Referral summary, membership activation, referral wallet, and withdrawal creation explicitly opt into `includeAllAccountData: true` with `includeUserAssets: false` because they require cross-user commission summaries.
+- Existing `(user_id, created_at DESC)` indexes cover the scoped reads. No schema migration is required.
+- Verification on production source baseline `e46f6d04`: focused DB scope/auth/deploy tests pass `53/53`; `npm run check:undef` passes; `git diff --check` passes. Full suite reaches `1400 pass / 1 fail / 2 skipped`; the sole failure is the pre-existing `full serializer keeps its original field order...` test and reproduces on a clean detached `e46f6d04` checkout.
+- Next: commit this source change, build a platform release snapshot, deploy candidate-only to the idle Old instance, and validate before any explicit promotion. Live remains untouched.
 
 ## 2026-11-17 Step DU: story episodes scoped to script versions
 
