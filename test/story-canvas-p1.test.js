@@ -157,6 +157,10 @@ test("story creation targets an episode and shot and opens a dedicated shot work
   assert.match(openShot, /await loadStoryEpisodeShots\(\)/);
   assert.match(openShot, /storyState\.episodeTab = "production"/);
   assert.doesNotMatch(openShot, /scrollIntoView|data-story-shot-card|advanced\/generate|generateStoryShotVideo/);
+  assert.match(story, /class="story-tree-script is-static"/);
+  assert.match(story, /锁定大纲，AI 拆分镜/);
+  assert.match(css, /\.story-tree-script\.is-static \{ cursor: default; \}/);
+  assert.match(css, /\.story-tree-episode:hover, \.story-tree-script\.is-active/);
   assert.match(css, /\.story-shot-workspace-grid \{[^}]*grid-template-columns/);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.story-shot-workspace-grid \{ grid-template-columns: 1fr;/);
 });
@@ -304,7 +308,7 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /历史失败 \$\{failedCount\} 次，已收起/);
   assert.match(story, /已完成 \$\{index\} \/ \$\{assets\.length\}，剩余/);
   assert.match(story, /资产定稿后才会解锁视频提示词/);
-  assert.match(story, /下一步：AI 提取本集资产/);
+  assert.match(story, /AI 提取本集资产/);
   assert.match(story, /下一步：选模型并生成提示词/);
   assert.match(story, /按所选模型生成全部提示词/);
   assert.match(story, /本集提示词已按 \$\{selectedVideoModel\?\.label \|\| videoModel\} 优化并冻结/);
