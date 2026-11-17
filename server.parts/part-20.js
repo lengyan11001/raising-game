@@ -1391,7 +1391,15 @@ function adminGenerationRecordView(record = {}, userMap = new Map()) {
   };
 }
 
-const ADMIN_GENERATION_MEDIA_TTL_MS = 30 * 60 * 1000;
+const ADMIN_GENERATION_MEDIA_TTL_MS = 2 * 60 * 60 * 1000;
+const ADMIN_GENERATION_MEDIA_TOKEN_BUCKET_MS = 30 * 60 * 1000;
+
+function adminGenerationMediaTokenExpiry(now = Date.now()) {
+  const timestamp = Number(now);
+  const safeNow = Number.isFinite(timestamp) && timestamp > 0 ? timestamp : Date.now();
+  return Math.floor(safeNow / ADMIN_GENERATION_MEDIA_TOKEN_BUCKET_MS) * ADMIN_GENERATION_MEDIA_TOKEN_BUCKET_MS
+    + ADMIN_GENERATION_MEDIA_TTL_MS;
+}
 
 function signAdminGenerationMediaPayload(encodedPayload = "") {
   return crypto.createHmac("sha256", unlockStreamSecret()).update(`admin-generation-media:${encodedPayload}`).digest("base64url");
@@ -1401,7 +1409,7 @@ function makeAdminGenerationMediaToken(taskId = "") {
   const payload = base64UrlJson({
     kind: "admin-generation-media",
     taskId: String(taskId || ""),
-    exp: Date.now() + ADMIN_GENERATION_MEDIA_TTL_MS,
+    exp: adminGenerationMediaTokenExpiry(),
   });
   return `${payload}.${signAdminGenerationMediaPayload(payload)}`;
 }

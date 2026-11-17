@@ -12,7 +12,7 @@ function makeAdminGenerationReferenceMediaToken(taskId = "", referenceIndex = 0)
     kind: "admin-generation-reference-media",
     taskId: String(taskId || ""),
     referenceIndex: Number(referenceIndex),
-    exp: Date.now() + ADMIN_GENERATION_MEDIA_TTL_MS,
+    exp: adminGenerationMediaTokenExpiry(),
   });
   return `${payload}.${signAdminGenerationReferenceMediaPayload(payload)}`;
 }

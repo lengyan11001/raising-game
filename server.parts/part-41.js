@@ -236,6 +236,21 @@ async function handleAdminGenerationRecordMedia(req, res, taskId) {
   const mime = target.mime || (isImageGenerationRecord(record) ? imageMimeFromKnownPath(target.url || localPath) || "image/png" : videoMimeFromKnownPath(target.url || localPath) || "video/mp4");
   const dispositionName = (target.fileName || path.basename(localPath || "generation")).replace(/[^a-z0-9._-]/gi, "-") || "generation";
   const headers = { "content-disposition": `inline; filename="${dispositionName}"` };
+  if (wantsThumbnail && isImageGenerationRecord(record)) {
+    const storage = objectStorageDownloadKey(target);
+    const thumbnailUrl = storage.provider === "oss" && storage.key
+      ? makeOssSignedImageCdnUrl({ key: storage.key, process: "thumbnail", config: OSS })
+      : "";
+    if (thumbnailUrl) {
+      res.writeHead(302, {
+        location: thumbnailUrl,
+        "cache-control": "private, max-age=3600",
+        vary: "Accept",
+      });
+      res.end();
+      return;
+    }
+  }
   if (localPath) {
     const normalizedPath = path.normalize(localPath);
     const relative = path.relative(ROOT, normalizedPath);

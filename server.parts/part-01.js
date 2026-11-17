@@ -154,6 +154,7 @@ const {
   deleteObject: deleteOssObject,
   signedDownloadUrl: makeOssSignedDownloadUrl,
   signedCdnUrl: makeOssSignedCdnUrl,
+  signedCdnImageUrl: makeOssSignedImageCdnUrl,
   headObject: headOssObject,
   downloadObject: downloadOssObject,
 } = require("./oss-storage");
