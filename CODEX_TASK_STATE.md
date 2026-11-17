@@ -1,3 +1,15 @@
+## 2026-11-17 Step CC: deployment hook fix and scoped-media release promoted
+
+- Confirmed current Old production traffic was on `4174` release `50b595e7e18f183c91c4cd2ea9fc68a604f2b153`; candidate `4175` was healthy on `055f36f6fda347542261d76e846f5b7b69d48d3a`, PID `1029202`, `NRestarts=0`.
+- The first explicit promotion was safely refused before traffic moved. The rolling migration hook failed because it executed `node ops/run-db-migrations.js` from the immutable release directory, which has no local `node_modules` (`Cannot find module .../node_modules/pg`).
+- Fixed `scripts/deploy_site.py` so all rolling migration dry-run/apply/check calls set `NODE_PATH=/opt/raising-game-demo/node_modules`. Added a regression assertion in `test/deploy-targets.test.js`; focused deployment target test passed `20/20`, `py_compile`, and `git diff --check` passed. Tooling commit: `46de8c3e`.
+- Verified the corrected migration hook directly on production: dry-run `pending=0`, apply `applied=none`, final dry-run `pending=0`, completed `10`.
+- Promoted through the required entrypoint: `scripts/deploy_local.sh --site old --promote-candidate`. Canary observations passed at `1%` and `5%` (23 polls each), then cutover completed with `ROLLING_DEPLOY_OK`.
+- Current production: public traffic is on `4175`, release `055f36f6`, PID `1031314`, `NRestarts=0`; `4174` remains active as hot backup on release `50b595e7`, PID `1022812`, `NRestarts=0`.
+- Post-cutover verification: all internal and public health endpoints returned 200; no Nginx 5xx/499 and no application fatal/timeout/pool errors since `21:57`; disk `46%`, load `~0.31`, about `5.6G` available memory; no pending migrations.
+- Evidence: `/tmp/auth-scope-promote-retry.log`, `/tmp/auth-scope-candidate-apply-retry.log`.
+- Next performance gate: `readDb()` still materializes all users, sessions, wallet orders, characters, and unlocks for every snapshot. The next optimization should convert page/API paths to user-scoped paginated queries rather than trying to mask latency with more processes or a larger single node.
+
 ## 2026-11-17 Step CB: deployment/post-cutover diagnosis and bounded auth media scope
 
 - Investigated the user-visible deployment interruption and frontend slowdown without changing production during diagnosis.
