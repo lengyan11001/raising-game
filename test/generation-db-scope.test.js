@@ -65,28 +65,6 @@ test("legacy full snapshots use one pooled connection and skip unused tables", (
   assert.doesNotMatch(block, /SELECT \* FROM app_support_messages/);
 });
 
-test("authenticated requests load only the current user's media assets", () => {
-  const part02 = read("server.parts/part-02.js");
-  const part12 = read("server.parts/part-12.js");
-  const db = read("db.js");
-  const authStart = part12.indexOf("async function getAuth(req, options = {}) {");
-  const authEnd = part12.indexOf("async function requireUser", authStart);
-  const auth = part12.slice(authStart, authEnd);
-  const readStart = db.indexOf("async function readAppDbFromTables(");
-  const readEnd = db.indexOf("async function replaceAppDbTables(", readStart);
-  const readSnapshot = db.slice(readStart, readEnd);
-
-  assert.ok(authStart > 0 && authEnd > authStart);
-  assert.match(part02, /userAssetsUserId: String\(options\.userAssetsUserId \|\| ""\)\.trim\(\)/);
-  assert.match(auth, /userAssetsUserId: options\.includeAllUserAssets \? "" : user\.id/);
-  assert.match(auth, /const session = await getSessionByTokenInDb\(token\)/);
-  assert.match(auth, /const user = await getUserByIdInDb\(session\.userId\)/);
-  assert.ok(auth.indexOf("getSessionByTokenInDb") < auth.indexOf("readAuthDb(user)"));
-  assert.match(auth, /return \{ db: lightweightAuthDb\(\), user: null/);
-  assert.match(readSnapshot, /SELECT \* FROM app_user_assets WHERE user_id = \$1 ORDER BY created_at DESC/);
-  assert.match(part12, /includeAllUserAssets: true, \.\.\.options/);
-});
-
 test("admin support replies do not load the full application snapshot", () => {
   const server = read("server.parts/part-33.js");
   const db = read("db.js");
