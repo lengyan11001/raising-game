@@ -16,6 +16,10 @@ const ALLOWED_OSS_REGIONS = new Set([
   "oss-us-west-1",
   "oss-us-east-1",
 ]);
+const OSS_IMAGE_PROCESS_PRESETS = Object.freeze({
+  thumbnail: "image/resize,m_lfit,w_480,h_480/format,webp/quality,q_78",
+  preview: "image/resize,m_lfit,w_960,h_960/format,webp/quality,q_82",
+});
 
 function positiveInt(value, fallback, min = 1) {
   const parsed = Number(value);
@@ -526,6 +530,45 @@ function signedCdnUrl(options = {}) {
   return cdn.toString();
 }
 
+function signedCdnImageUrl({ key, process = "thumbnail", expiresSeconds, now = Date.now(), config = ossConfig() }) {
+  if (!ossConfigured(config) || !key) return "";
+  const requestedProcess = String(process || "").trim();
+  const resolvedProcess = OSS_IMAGE_PROCESS_PRESETS[requestedProcess]
+    || Object.values(OSS_IMAGE_PROCESS_PRESETS).find((value) => value === requestedProcess)
+    || "";
+  if (!resolvedProcess) return "";
+
+  const maxExpiresSeconds = Math.max(3600, Number(config.upstreamSignedUrlTtlSeconds) || 43200);
+  const expires = Math.max(60, Math.min(maxExpiresSeconds, Number(expiresSeconds) || config.signedUrlTtlSeconds));
+  const bucketSeconds = Math.max(1, Math.min(expires, Number(config.signedUrlBucketSeconds) || 300));
+  const bucketMs = bucketSeconds * 1000;
+  const requestedNow = Number(now);
+  const nowMs = Number.isFinite(requestedNow) && requestedNow > 0 ? requestedNow : Date.now();
+  const expiresAt = Math.floor((Math.floor(nowMs / bucketMs) * bucketMs + expires * 1000) / 1000);
+
+  // OSS V1 requires x-oss-process to stay unescaped in CanonicalizedResource
+  // while the actual query string is RFC3986 encoded. Use a dedicated signer
+  // here instead of changing canonicalOssQuery(), which also signs uploads.
+  const resource = `/${encodeRfc3986(config.bucket)}/${encodeKeyPath(key)}`;
+  const canonicalResource = `${resource}?x-oss-process=${resolvedProcess}`;
+  const stringToSign = `GET\n\n\n${expiresAt}\n${canonicalResource}`;
+  const signature = crypto.createHmac("sha1", config.accessKeySecret).update(stringToSign).digest("base64");
+  const signedQuery = canonicalOssQuery({
+    "x-oss-process": resolvedProcess,
+    Expires: String(expiresAt),
+    OSSAccessKeyId: config.accessKeyId,
+    Signature: signature,
+  });
+  const originUrl = `${objectUrl(config, key)}?${signedQuery}`;
+  if (!config.cdnBaseUrl) return originUrl;
+  const signed = new URL(originUrl);
+  const cdn = new URL(trimSlash(config.cdnBaseUrl));
+  const basePath = cdn.pathname.replace(/\/+$/, "");
+  cdn.pathname = `${basePath}/${encodeKeyPath(key)}`;
+  cdn.search = signed.search;
+  return cdn.toString();
+}
+
 async function headObject({ key, config = ossConfig() }) {
   const request = signedRequestOptions({ method: "HEAD", key, config });
   const response = await fetch(request.url, {
@@ -623,6 +666,7 @@ module.exports = {
   uploadMultipart,
   signedDownloadUrl,
   signedCdnUrl,
+  signedCdnImageUrl,
   publicUrlForKey,
   headObject,
   downloadObject,

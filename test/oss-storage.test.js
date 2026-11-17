@@ -13,6 +13,7 @@ const {
   publicUrlForKey,
   signedDownloadUrl,
   signedCdnUrl,
+  signedCdnImageUrl,
   signedRequestOptions,
   canonicalOssQuery,
 } = require("../oss-storage");
@@ -152,6 +153,33 @@ test("OSS public and signed URLs use the configured CDN and endpoint", () => {
   assert.equal(inline.hostname, "assets-cdn.123vips.com");
   assert.equal(inline.searchParams.has("response-content-disposition"), false);
   assert.ok(inline.searchParams.get("Signature"));
+});
+
+test("OSS image delivery signs a server-side thumbnail transform", () => {
+  const config = ossConfig(ossEnv());
+  const now = 1_800_000_000_000;
+  const thumbnail = new URL(signedCdnImageUrl({
+    key: "generated/images/demo.png",
+    process: "thumbnail",
+    now,
+    config,
+  }));
+  assert.equal(thumbnail.hostname, "assets-cdn.123vips.com");
+  assert.equal(thumbnail.pathname, "/generated/images/demo.png");
+  assert.equal(thumbnail.searchParams.get("x-oss-process"), "image/resize,m_lfit,w_480,h_480/format,webp/quality,q_78");
+  assert.ok(thumbnail.searchParams.get("Signature"));
+  assert.equal(thumbnail.toString(), signedCdnImageUrl({
+    key: "generated/images/demo.png",
+    process: "thumbnail",
+    now: now + 299_000,
+    config,
+  }));
+  assert.equal(signedCdnImageUrl({
+    key: "generated/images/demo.png",
+    process: "image/resize,w_9999",
+    now,
+    config,
+  }), "");
 });
 
 test("private OSS origin URLs are converted to signed CDN delivery URLs", () => {

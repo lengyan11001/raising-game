@@ -537,11 +537,11 @@
           <p>${storyEscape(asset.description || "AI 尚未补全视觉描述。")}</p>
           ${asset.metadata?.continuity ? `<small>连续性：${storyEscape(asset.metadata.continuity)}</small>` : ""}
           <details><summary>查看设计图提示词</summary><p>${storyEscape(asset.metadata?.imagePrompt || asset.description || "无")}</p></details>
-          ${approved && storyAssetVariantImageUrl(approved) ? `<img class="story-production-asset-image" src="${storyEscape(storyAssetVariantImageUrl(approved))}" alt="${storyEscape(asset.name)} 定稿设计图" loading="lazy" />` : ""}
+          ${approved && storyAssetVariantImageUrl(approved) ? `<img class="story-production-asset-image" src="${storyEscape(storyAssetVariantThumbnailUrl(approved))}" alt="${storyEscape(asset.name)} 定稿设计图缩略图" loading="lazy" decoding="async" />` : ""}
           <div class="story-asset-variant-list">
             ${visibleVariants.length ? visibleVariants.map((variant) => `
               <div class="story-asset-variant ${variant.status === "approved" ? "is-approved" : ""}">
-                ${storyAssetVariantImageUrl(variant) ? `<img src="${storyEscape(storyAssetVariantImageUrl(variant))}" alt="${storyEscape(asset.name)} 设计变体" loading="lazy" />` : `<span>${storyEscape(storyVariantStatusLabel(variant.status))}</span>`}
+                ${storyAssetVariantImageUrl(variant) ? `<img src="${storyEscape(storyAssetVariantThumbnailUrl(variant))}" alt="${storyEscape(asset.name)} 设计变体缩略图" loading="lazy" decoding="async" />` : `<span>${storyEscape(storyVariantStatusLabel(variant.status))}</span>`}
                 <small>${storyEscape(storyVariantStatusLabel(variant.status))}</small>
                 ${storyAssetVariantImageUrl(variant) && variant.status !== "approved" ? `<button type="button" data-story-approve-variant="${storyEscape(variant.id)}" data-story-asset-id="${storyEscape(asset.id)}">设为定稿</button>` : ""}
               </div>`).join("") : `<span class="story-asset-empty">还没有设计图。</span>`}
@@ -685,7 +685,7 @@
       const approved = storyAssetHasApprovedImage(asset);
       const generated = storyAssetHasGeneratedImage(asset);
       const displayVariant = storyDisplayAssetVariant(asset);
-      const imageUrl = storyAssetVariantImageUrl(displayVariant || {});
+      const imageUrl = storyAssetVariantThumbnailUrl(displayVariant || {});
       const reusableVariants = storyReusableAssetVariants(asset);
       const prompt = asset.metadata?.imagePrompt || asset.description || "AI 尚未补写图片提示词。";
       return `
@@ -695,7 +695,7 @@
             <em>${approved ? "已定稿" : displayVariant ? storyEscape(storyVariantStatusLabel(displayVariant.status)) : "未出图"}</em>
           </div>
           <div class="story-shot-workspace-asset-visual">
-            ${imageUrl ? `<img src="${storyEscape(imageUrl)}" alt="${storyEscape(asset.name)} 已生成设计图" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-story-media-image /><span class="story-media-fallback" data-story-media-fallback hidden>图片加载失败，可重新生成</span>` : `<span class="story-shot-workspace-asset-empty-image">${generated ? "图片地址刷新中" : "尚未生成设计图"}</span>`}
+            ${imageUrl ? `<img src="${storyEscape(imageUrl)}" alt="${storyEscape(asset.name)} 已生成设计图缩略图" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-story-media-image /><span class="story-media-fallback" data-story-media-fallback hidden>图片加载失败，可重新生成</span>` : `<span class="story-shot-workspace-asset-empty-image">${generated ? "图片地址刷新中" : "尚未生成设计图"}</span>`}
           </div>
           <label class="story-shot-asset-prompt"><span>AI 建议图片提示词</span><p>${storyEscape(prompt)}</p></label>
           <div class="story-shot-workspace-asset-actions">
@@ -849,9 +849,10 @@
             <div class="story-library-preview-meta"><div>${previewShots.length ? previewShots.map((label) => `<span>${storyEscape(label)}</span>`).join("") : "<span>未绑定分镜</span>"}</div><p>${storyEscape(previewAsset.metadata?.imagePrompt || previewAsset.description || "暂无图片提示词")}</p></div>
             <div class="story-library-preview-variants">${previewVariants.length ? previewVariants.map((variant) => {
               const imageUrl = storyAssetVariantImageUrl(variant);
+              const thumbnailUrl = storyAssetVariantThumbnailUrl(variant);
               const pending = ["generating", "queued", "pending"].includes(variant.status);
               return `<div class="story-library-preview-variant ${variant.status === "approved" ? "is-approved" : ""}">
-                ${imageUrl ? `<a href="${storyEscape(imageUrl)}" target="_blank" rel="noopener"><img src="${storyEscape(imageUrl)}" alt="${storyEscape(previewAsset.name)} 设计图" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-story-media-image /></a><span class="story-media-fallback" data-story-media-fallback hidden>图片加载失败，请重新生成</span>` : `<span class="story-library-cover-empty">${pending ? storyEscape(storyVariantStatusLabel(variant.status)) : "图片地址刷新中"}</span>`}
+                ${imageUrl ? `<a href="${storyEscape(imageUrl)}" target="_blank" rel="noopener"><img src="${storyEscape(thumbnailUrl)}" alt="${storyEscape(previewAsset.name)} 设计图缩略图" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-story-media-image /></a><span class="story-media-fallback" data-story-media-fallback hidden>图片加载失败，请重新生成</span>` : `<span class="story-library-cover-empty">${pending ? storyEscape(storyVariantStatusLabel(variant.status)) : "图片地址刷新中"}</span>`}
                 <footer><small>${storyEscape(storyVariantStatusLabel(variant.status))}</small>${imageUrl && variant.status !== "approved" ? `<button type="button" data-story-approve-variant="${storyEscape(variant.id)}" data-story-asset-id="${storyEscape(previewAsset.id)}" ${storyState.action ? "disabled" : ""}>${storyState.action === "approve-asset" ? "正在定稿…" : "设为定稿"}</button>` : ""}</footer>
               </div>`;
             }).join("") : `<div class="story-library-variant-empty"><i data-lucide="image-off"></i><span>尚未生成设计图</span></div>`}</div>

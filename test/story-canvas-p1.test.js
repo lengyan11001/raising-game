@@ -344,6 +344,7 @@ test("shot assets generate, regenerate, approve, and reuse materials in place", 
 
   const workspace = story.slice(story.indexOf("function renderStoryShotWorkspace("), story.indexOf("function storyShotFilterKey("));
   assert.match(workspace, /storyDisplayAssetVariant\(asset\)/);
+  assert.match(workspace, /storyAssetVariantThumbnailUrl\(displayVariant \|\| \{\}\)/);
   assert.match(workspace, /data-story-media-image/);
   assert.match(workspace, /data-story-generate-asset=/);
   assert.match(workspace, /generated \? "重新生成" : "生成图片"/);
@@ -357,6 +358,8 @@ test("shot assets generate, regenerate, approve, and reuse materials in place", 
   const library = story.slice(story.indexOf("function renderStoryAssetLibraryModal("), story.indexOf("function storyShotPromptMatchesModel("));
   assert.match(library, /assetLibraryPreviewAssetId/);
   assert.match(library, /storyAssetVariantThumbnailUrl\(cover \|\| \{\}\)/);
+  assert.match(library, /const thumbnailUrl = storyAssetVariantThumbnailUrl\(variant\)/);
+  assert.match(library, /<img src="\$\{storyEscape\(thumbnailUrl\)\}"/);
   assert.match(library, /data-story-library-preview-asset/);
   assert.match(library, /story-library-preview/);
   assert.match(library, /data-story-media-fallback/);
@@ -372,6 +375,7 @@ test("shot assets generate, regenerate, approve, and reuse materials in place", 
   assert.match(handlers, /async function handleUseStoryAssetVariant\(/);
   assert.match(routes, /storyAssetVariantUseMatch[\s\S]*handleUseStoryAssetVariant/);
   assert.match(css, /\.story-shot-workspace-asset-visual \{/);
+  assert.match(css, /\.story-shot-workspace-asset-visual \{[^}]*width: 82px[^}]*max-height: 108px/);
   assert.match(css, /\.story-shot-asset-reuse \{/);
   assert.match(css, /\.story-library-message \{/);
   assert.match(css, /\.story-library-asset-cover \{/);
@@ -383,6 +387,8 @@ test("generation record media supports cached image thumbnails", () => {
   assert.match(handlers, /async function generationRecordThumbnailFile\(/);
   assert.match(handlers, /scale='min\(480,iw\)':-2/);
   assert.match(handlers, /wantsThumbnail && isImageGenerationRecord\(record\)/);
+  assert.match(handlers, /makeOssSignedImageCdnUrl\(\{ key: storage\.key, process: "thumbnail", config: OSS \}\)/);
+  assert.match(handlers, /location: thumbnailUrl/);
   assert.match(handlers, /max-age=86400, immutable/);
 });
 
@@ -395,7 +401,8 @@ test("story asset images use refreshed authenticated media URLs instead of persi
   assert.match(handlers, /已定稿参考图记录：\$\{String\(variant\.metadata\.generationRecordId\)\.trim\(\)\}/);
   assert.doesNotMatch(handlers, /已定稿参考图：\$\{variant\.metadata\.imageUrl\}/);
   assert.match(story, /function storyAssetVariantImageUrl\(variant = \{\}\)[\s\S]*variant\.mediaUrl[\s\S]*metadata\?\.mediaUrl/);
-  assert.match(story, /src="\$\{storyEscape\(storyAssetVariantImageUrl\(variant\)\)\}"/);
+  assert.match(story, /src="\$\{storyEscape\(storyAssetVariantThumbnailUrl\(variant\)\)\}"/);
+  assert.match(story, /<a href="\$\{storyEscape\(imageUrl\)\}"[\s\S]*?<img src="\$\{storyEscape\(thumbnailUrl\)\}"/);
   assert.match(generation, /function generationRecordInlineMediaUrl\(target = \{\}\)/);
   assert.match(generation, /makeOssSignedCdnUrl\(\{[\s\S]*download: false/);
   assert.match(generation, /proxyRemoteMedia\(req, res, inlineUrl/);
