@@ -4647,3 +4647,11 @@ CODEX_TASK_STATE.md
 - Targeted tests passed: `test/session-login-race.test.js`, `test/request-json-errors.test.js`, `test/story-prompt-optimizer-fallback.test.js`, `test/story-canvas-p0.test.js`, `test/story-canvas-p1.test.js`.
 - `npm run check:undef`, syntax checks, and `git diff --check` passed.
 - `test/w3-prompt-optimizer.test.js` passes when run against the committed `server.parts/part-45.js`; the unrelated uncommitted `part-45.js` WIP remains excluded from staging, release build, and deployment.
+
+## 2026-11-17 Step DC: Story video assets and completed-job rehydration
+
+- Root causes reproduced: `generateStoryShotVideo()` submitted only the optimized prompt and omitted every approved image asset parameter; after submission the foreground waited on the generation record instead of persisting a backend record, so an interrupted/reloaded page kept showing an old “running” generation ref even after the backend had completed.
+- Approved story asset variants now retain generated `resultAssetId`/`resultAssetIds`. Video generation resolves those IDs (or image URLs as a last-resort fallback) and sends model-shaped media parameters to `/api/advanced/generate`; no approved media now blocks submission instead of generating text-only video.
+- Story generation refs are persisted immediately after submission. A visibility-aware client sync checks pending refs against `/api/generation-records/:id`, writes `succeeded` plus `metadata.videoUrl` (or `failed` with the backend error), and re-renders the shot; the UI no longer blocks on a foreground polling loop.
+- Verification: `node --check platform.story.js`, `npm run check:undef`, `git diff --check`, `test/story-canvas-p0.test.js` + `test/story-canvas-p1.test.js` (21/21), and session/login, request-error, and Papaya fallback suites (8/8) pass.
+- The pre-existing uncommitted `server.parts/part-45.js` WIP remains explicitly excluded from staging, snapshot, deployment, and this change.

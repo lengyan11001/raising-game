@@ -44,6 +44,8 @@
     analysisScriptId: "",
     action: "",
     actionMessage: "",
+    syncingGenerationRefs: false,
+    videoSyncTimer: null,
   };
   let storyLibrarySearchTimer = null;
 
@@ -712,7 +714,7 @@
       return `
         <article class="story-shot-video-result">
           <div><strong>${storyEscape(ref.metadata?.modelLabel || ref.metadata?.model || selectedVideoModel.label)}</strong><span>${storyEscape(storyVariantStatusLabel(status))}</span></div>
-          ${videoUrl ? `<video controls preload="metadata" src="${storyEscape(videoUrl)}"></video><a href="${storyEscape(videoUrl)}" target="_blank" rel="noopener">打开视频</a>` : `<p>${ref.status === "failed" ? storyEscape(ref.metadata?.error || "生成失败") : "任务处理中，完成后会显示视频预览。"}</p>`}
+          ${videoUrl ? `<video controls preload="metadata" src="${storyEscape(videoUrl)}"></video><a href="${storyEscape(videoUrl)}" target="_blank" rel="noopener">打开视频</a>` : `<p>${ref.status === "failed" ? storyEscape(ref.metadata?.error || "生成失败") : ["succeeded", "success", "completed", "complete"].includes(String(ref.status || ref.metadata?.generationStatus || "").toLowerCase()) ? "后台已完成，正在同步视频地址…" : "后台任务处理中，完成后会自动显示视频预览。"}</p>`}
           ${ref.generationRecordId ? `<small>记录 ${storyEscape(ref.generationRecordId)}</small>` : ""}
           ${ref.metadata?.prompt ? `<details><summary>本次视频提示词</summary><pre>${storyEscape(ref.metadata.prompt)}</pre></details>` : ""}
         </article>`;
@@ -1151,6 +1153,11 @@
       storyState.actionMessage = "";
       storyState.loading = false;
       renderStoryDetail();
+      if (!document.hidden) {
+        void syncStoryVideoGenerationRefs(id).finally(() => {
+          if (storyState.selectedId === id) scheduleStoryVideoGenerationSync(15000);
+        });
+      }
     } catch (error) {
       storyState.loading = false;
       storyState.detail = null;
@@ -1512,6 +1519,34 @@
     ].map((value) => String(value || "").trim()).find(Boolean) || "";
   }
 
+  function storyGenerationMediaAssetIds(record = {}) {
+    const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+    return mediaAssets.flatMap((asset) => {
+      if (!asset || typeof asset !== "object") return [];
+      return [
+        asset.userAssetId,
+        asset.assetId,
+        asset.mediaAssetId,
+        asset.id,
+        ...(Array.isArray(asset.userAssetIds) ? asset.userAssetIds : []),
+      ].map((value) => String(value || "").trim()).filter(Boolean);
+    });
+  }
+
+  function storyGenerationResultAssetIds(record = {}) {
+    return [...new Set([
+      record.resultAssetId,
+      ...(Array.isArray(record.resultAssetIds) ? record.resultAssetIds : []),
+      record.userAssetId,
+      ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
+      ...storyGenerationMediaAssetIds(record),
+    ].map((value) => String(value || "").trim()).filter(Boolean))];
+  }
+
+  function storyGenerationResultAssetId(record = {}) {
+    return storyGenerationResultAssetIds(record)[0] || "";
+  }
+
   function storyGenerationVideoUrl(record = {}) {
     const arrays = [record.resultVideoUrls, record.videoUrls, record.outputUrls]
       .filter(Array.isArray)
@@ -1562,6 +1597,178 @@
     throw new Error("视频生成超时，请稍后在当前分镜刷新查看结果。");
   }
 
+  function storyVideoRefPending(ref = {}) {
+    const status = String(ref.status || ref.metadata?.generationStatus || "queued").toLowerCase();
+    return Boolean(ref.generationRecordId)
+      && ref.kind === "video"
+      && !["failed", "error", "canceled", "cancelled"].includes(status)
+      && !storyGenerationRefVideoUrl(ref);
+  }
+
+  function storyIsVegaVideoModel(model = {}) {
+    return String(model.family || "") === "vega" || /vega/i.test(String(model.id || ""));
+  }
+
+  function storyIsSeedanceVideoModel(model = {}) {
+    return !storyIsVegaVideoModel(model)
+      && (String(model.family || "") === "seedance" || /seedance/i.test(String(model.id || "")));
+  }
+
+  function storyVideoReferenceLimit(model = {}) {
+    if (storyIsVegaVideoModel(model)) return 30;
+    if (String(model.family || "") === "wan" || /wan/i.test(String(model.id || ""))) return 10;
+    return 9;
+  }
+
+  function storyAssetVariantReferenceIds(variant = {}) {
+    const metadata = variant.metadata && typeof variant.metadata === "object" ? variant.metadata : {};
+    return [...new Set([
+      metadata.resultAssetId,
+      ...(Array.isArray(metadata.resultAssetIds) ? metadata.resultAssetIds : []),
+      metadata.userAssetId,
+      ...(Array.isArray(metadata.userAssetIds) ? metadata.userAssetIds : []),
+      metadata.assetId,
+      metadata.mediaAssetId,
+    ].map((value) => String(value || "").trim()).filter(Boolean))];
+  }
+
+  async function storyApprovedAssetReferences(episode = {}, shot = {}) {
+    const assets = storyShotAssets(episode, shot);
+    const references = [];
+    for (const asset of assets) {
+      const variant = storyApprovedAssetVariant(asset);
+      if (!variant || variant.status !== "approved") continue;
+      let assetIds = storyAssetVariantReferenceIds(variant);
+      if (!assetIds.length && variant.metadata?.generationRecordId) {
+        try {
+          const payload = await requestJson(`/api/generation-records/${encodeURIComponent(variant.metadata.generationRecordId)}`);
+          assetIds = storyGenerationResultAssetIds(payload.record || payload.generation || {});
+        } catch (_) {
+          assetIds = [];
+        }
+      }
+      const url = storyAssetVariantImageUrl(variant);
+      (assetIds.length ? assetIds : [""]).forEach((assetId, index) => {
+        references.push({
+          assetId,
+          url: index === 0 ? url : "",
+          assetName: String(asset.name || ""),
+        });
+      });
+    }
+    const seen = new Set();
+    return references.filter((reference) => {
+      const key = reference.assetId ? `id:${reference.assetId}` : `url:${reference.url}`;
+      if ((!reference.assetId && !reference.url) || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function storyVideoMediaParams(model = {}, references = []) {
+    const limited = references.slice(0, storyVideoReferenceLimit(model));
+    if (!limited.length) return {};
+    const mediaEntry = (reference) => ({
+      ...(reference.assetId ? { assetId: reference.assetId } : {}),
+      ...(reference.url ? { url: reference.url } : {}),
+    });
+    if (storyIsSeedanceVideoModel(model) && limited.length > 1) {
+      return {
+        seedanceMode: "reference_images",
+        referenceImages: limited.map(mediaEntry),
+      };
+    }
+    const [first, ...rest] = limited;
+    const params = {
+      ...(first.assetId ? { firstFrameAssetId: first.assetId } : {}),
+      ...(first.url ? { firstFrameUrl: first.url } : {}),
+    };
+    if (rest.length) {
+      params.referenceImageAssetIds = rest.map((reference) => reference.assetId).filter(Boolean);
+      params.referenceImages = rest.map(mediaEntry);
+    }
+    return params;
+  }
+
+  async function updateStoryVideoGenerationRef(projectId = "", ref = {}, patch = {}) {
+    if (!projectId || !ref?.id) return ref;
+    const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/generation-refs/${encodeURIComponent(ref.id)}`, {
+      method: "PUT",
+      body: {
+        generationRecordId: ref.generationRecordId || "",
+        ...patch,
+      },
+    });
+    const updated = payload.generationRef || ref;
+    if (storyState.selectedId === projectId && Array.isArray(storyState.detail?.generationRefs)) {
+      storyState.detail.generationRefs = storyState.detail.generationRefs.map((item) => item.id === updated.id ? updated : item);
+    }
+    return updated;
+  }
+
+  async function syncStoryVideoGenerationRefs(projectId = "") {
+    const id = String(projectId || storyState.selectedId || "").trim();
+    if (!id || storyState.syncingGenerationRefs || storyState.selectedId !== id) return false;
+    const refs = (Array.isArray(storyState.detail?.generationRefs) ? storyState.detail.generationRefs : [])
+      .filter(storyVideoRefPending);
+    if (!refs.length) return false;
+    storyState.syncingGenerationRefs = true;
+    let changed = false;
+    try {
+      await Promise.all(refs.map(async (ref) => {
+        try {
+          const payload = await requestJson(`/api/generation-records/${encodeURIComponent(ref.generationRecordId)}`);
+          const record = payload.record || payload.generation || {};
+          const status = String(record.status || "").toLowerCase();
+          const videoUrl = storyGenerationVideoUrl(record);
+          if (videoUrl) {
+            await updateStoryVideoGenerationRef(id, ref, {
+              status: "succeeded",
+              metadata: {
+                videoUrl,
+                posterUrl: record.posterUrl || record.coverUrl || "",
+                generationStatus: record.status || "succeeded",
+                syncedAt: new Date().toISOString(),
+              },
+            });
+            changed = true;
+            return;
+          }
+          if (["failed", "error", "canceled", "cancelled"].includes(status)) {
+            await updateStoryVideoGenerationRef(id, ref, {
+              status: "failed",
+              metadata: {
+                error: record.error || record.message || "视频生成失败。",
+                generationStatus: record.status || status,
+                syncedAt: new Date().toISOString(),
+              },
+            });
+            changed = true;
+          }
+        } catch (_) {
+          // Transient record lookups must not turn a running task into a failed task.
+        }
+      }));
+    } finally {
+      storyState.syncingGenerationRefs = false;
+    }
+    if (changed && storyState.selectedId === id) renderStoryDetail();
+    return changed;
+  }
+
+  function scheduleStoryVideoGenerationSync(delay = 15000) {
+    clearTimeout(storyState.videoSyncTimer);
+    storyState.videoSyncTimer = null;
+    if (document.hidden || !storyState.selectedId) return;
+    const refs = (Array.isArray(storyState.detail?.generationRefs) ? storyState.detail.generationRefs : []).filter(storyVideoRefPending);
+    if (!refs.length) return;
+    const projectId = storyState.selectedId;
+    storyState.videoSyncTimer = setTimeout(async () => {
+      await syncStoryVideoGenerationRefs(projectId);
+      if (storyState.selectedId === projectId) scheduleStoryVideoGenerationSync(15000);
+    }, Math.max(0, Number(delay) || 0));
+  }
+
   async function createStoryAssetImageVariant(asset = {}) {
     const projectId = storyState.selectedId;
     const episodeId = storyState.selectedEpisodeId;
@@ -1598,17 +1805,26 @@
     });
     const variant = created.variant;
     try {
-      let imageUrl = storyGenerationImageUrl(payload.record || {}) || storyAssetVariantImageUrl(variant);
+      let generationRecord = payload.record || {};
+      let imageUrl = storyGenerationImageUrl(generationRecord) || storyAssetVariantImageUrl(variant);
       let generationStatus = "ready";
       if (!imageUrl) {
-        const record = await pollStoryGenerationRecord(taskId);
-        imageUrl = storyGenerationImageUrl(record);
-        generationStatus = String(record.status || "ready");
+        generationRecord = await pollStoryGenerationRecord(taskId);
+        imageUrl = storyGenerationImageUrl(generationRecord);
+        generationStatus = String(generationRecord.status || "ready");
       }
       if (imageUrl && variant?.id) {
         const updated = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(asset.id)}/variants/${encodeURIComponent(variant.id)}`, {
           method: "PUT",
-          body: { status: "ready", metadata: { imageUrl, generationStatus } },
+          body: {
+            status: "ready",
+            metadata: {
+              imageUrl,
+              generationStatus,
+              resultAssetId: storyGenerationResultAssetId(generationRecord),
+              resultAssetIds: storyGenerationResultAssetIds(generationRecord),
+            },
+          },
         });
         storyState.assetVariants = [updated.variant, ...storyState.assetVariants.filter((item) => item.id !== updated.variant.id)];
       }
@@ -1799,10 +2015,15 @@
     storyState.videoDuration = duration;
     storyState.action = "generate-video";
     storyState.selectedShotId = shot.id;
-    storyState.actionMessage = `${model.label} 正在生成 S${String(shot.shotNo).padStart(2, "0")} 视频…`;
+    storyState.actionMessage = `正在绑定 S${String(shot.shotNo).padStart(2, "0")} 的定稿素材并提交视频任务…`;
     renderStoryDetail();
     let generationRef = null;
     try {
+      const mediaReferences = await storyApprovedAssetReferences(episode, shot);
+      const mediaParams = storyVideoMediaParams(model, mediaReferences);
+      if (!Object.keys(mediaParams).length) {
+        throw new Error("没有解析到可用的定稿素材 ID 或图片地址，已阻止无素材生成。请重新定稿此镜资产后再试。");
+      }
       const payload = await requestJson("/api/advanced/generate", {
         method: "POST",
         body: {
@@ -1817,43 +2038,41 @@
             episodeId: episode.id,
             shotId: shot.id,
             shotNo: shot.shotNo,
+            ...mediaParams,
           },
         },
       });
       const taskId = payload.taskId || payload.task?.taskId || payload.task?.id || payload.record?.taskId || payload.record?.id || "";
       if (!taskId) throw new Error("视频任务没有返回 taskId。");
+      const referenceAssetIds = [
+        mediaParams.firstFrameAssetId,
+        ...(Array.isArray(mediaParams.referenceImageAssetIds) ? mediaParams.referenceImageAssetIds : []),
+        ...(Array.isArray(mediaParams.referenceImages) ? mediaParams.referenceImages.map((item) => item?.assetId || "") : []),
+      ].map((value) => String(value || "").trim()).filter((value, index, list) => value && list.indexOf(value) === index);
       const created = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shot.id)}/generation-refs`, {
         method: "POST",
         body: {
           generationRecordId: taskId,
           kind: "video",
           status: "queued",
-          metadata: { model: model.id, modelLabel: model.label, resolution: storyState.promptResolution, duration, prompt, episodeId: episode.id, shotNo: shot.shotNo },
+          metadata: {
+            model: model.id,
+            modelLabel: model.label,
+            resolution: storyState.promptResolution,
+            duration,
+            prompt,
+            episodeId: episode.id,
+            shotNo: shot.shotNo,
+            referenceAssetIds,
+            referenceImageCount: mediaReferences.length,
+            mediaMode: mediaParams.seedanceMode || (mediaParams.firstFrameAssetId ? "first_frame_with_references" : "reference_images"),
+          },
         },
       });
       generationRef = created.generationRef || null;
       storyState.detail.generationRefs = [generationRef, ...(storyState.detail.generationRefs || []).filter((item) => item?.id !== generationRef?.id)].filter(Boolean);
-      let record = payload.record || {};
-      let videoUrl = storyGenerationVideoUrl(record);
-      if (!videoUrl) {
-        record = await pollStoryVideoGenerationRecord(taskId);
-        videoUrl = storyGenerationVideoUrl(record) || String(record.resolvedVideoUrl || "").trim();
-      }
-      if (!videoUrl) throw new Error("视频已完成，但没有返回可播放地址。");
-      if (generationRef?.id) {
-        const updated = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/generation-refs/${encodeURIComponent(generationRef.id)}`, {
-          method: "PUT",
-          body: {
-            status: "succeeded",
-            generationRecordId: taskId,
-            metadata: { videoUrl, posterUrl: record.posterUrl || record.coverUrl || "", generationStatus: record.status || "succeeded" },
-          },
-        });
-        generationRef = updated.generationRef || generationRef;
-        storyState.detail.generationRefs = (storyState.detail.generationRefs || []).map((item) => item.id === generationRef.id ? generationRef : item);
-      }
-      await loadStoryDetail(projectId);
-      storyState.actionMessage = `S${String(shot.shotNo).padStart(2, "0")} 视频已生成。`;
+      storyState.actionMessage = `S${String(shot.shotNo).padStart(2, "0")} 视频任务已提交后台，已绑定 ${mediaReferences.length} 张定稿素材，可继续操作；完成后会自动回填。`;
+      scheduleStoryVideoGenerationSync(1200);
     } catch (error) {
       if (generationRef?.id) {
         await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/generation-refs/${encodeURIComponent(generationRef.id)}`, {
@@ -2133,6 +2352,16 @@
   function initStoryPanel() {
     if (storyState.initialized) return;
     storyState.initialized = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        clearTimeout(storyState.videoSyncTimer);
+        storyState.videoSyncTimer = null;
+        return;
+      }
+      if (storyState.selectedId && storyState.detail) {
+        void syncStoryVideoGenerationRefs(storyState.selectedId).finally(() => scheduleStoryVideoGenerationSync(15000));
+      }
+    });
     storyEl("storyProjectForm")?.addEventListener("submit", createStoryProject);
     storyEl("storyRefreshProjects")?.addEventListener("click", () => loadStoryProjects(storyState.view === "detail" ? storyState.selectedId : ""));
     storyEl("storyCreateProjectToggle")?.addEventListener("click", () => setStoryCreateOpen(!storyState.createOpen));

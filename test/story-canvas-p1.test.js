@@ -414,3 +414,33 @@ test("story asset replanning removes stale episode scope and invalidates frozen 
   assert.match(handlers, /if \(Array\.isArray\(metadata\.episodeIds\)\) return metadata\.episodeIds\.map\(String\)\.includes\(episodeId\)/);
   assert.match(story, /function storyAssetBelongsToEpisode[\s\S]*if \(episodeIds\.length\) return episodeIds\.includes\(episodeId\)/);
 });
+
+test("story video jobs bind approved asset IDs and sync completed backend records", () => {
+  const story = read("platform.story.js");
+  const handlers = read("server.parts/part-03.js");
+  const generation = read("server.parts/part-20.js");
+
+  assert.match(story, /function storyGenerationResultAssetId\(record = \{\}\)/);
+  assert.match(story, /function storyGenerationResultAssetIds\(record = \{\}\)/);
+  assert.match(story, /async function storyApprovedAssetReferences\(episode = \{\}, shot = \{\}\)/);
+  assert.match(story, /function storyVideoMediaParams\(model = \{\}, references = \[\]\)/);
+  assert.match(story, /storyIsSeedanceVideoModel\(model\) && limited\.length > 1[\s\S]*seedanceMode: "reference_images"/);
+  assert.match(story, /firstFrameAssetId: first\.assetId/);
+  assert.match(story, /referenceImageAssetIds = rest\.map\(\(reference\) => reference\.assetId\)/);
+  assert.match(story, /referenceImages = rest\.map\(mediaEntry\)/);
+  assert.match(story, /storyApprovedAssetReferences\(episode, shot\)/);
+  assert.match(story, /if \(!Object\.keys\(mediaParams\)\.length\)[\s\S]*已阻止无素材生成/);
+  assert.doesNotMatch(story, /await pollStoryVideoGenerationRecord\(taskId\)[\s\S]*loadStoryDetail\(projectId\)[\s\S]*视频已生成/);
+
+  assert.match(story, /async function syncStoryVideoGenerationRefs\(projectId = ""\)/);
+  assert.match(story, /status: "succeeded"[\s\S]*videoUrl\b/);
+  assert.match(story, /status: "failed"[\s\S]*record\.error \|\| record\.message/);
+  assert.match(story, /syncStoryVideoGenerationRefs\(id\)/);
+  assert.match(story, /addEventListener\("visibilitychange"/);
+  assert.match(story, /scheduleStoryVideoGenerationSync\(15000\)/);
+
+  assert.match(handlers, /metadata\.resultAssetId = String\(generatedRecord\.resultAssetId/);
+  assert.match(handlers, /metadata\.resultAssetIds = Array\.isArray\(generatedRecord\.resultAssetIds\)/);
+  assert.match(generation, /resultAssetId: String\(record\.resultAssetId \|\| ""\)/);
+  assert.match(generation, /resultAssetIds: Array\.isArray\(record\.resultAssetIds\)/);
+});
