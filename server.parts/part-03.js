@@ -1602,12 +1602,17 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
   if (!Array.isArray(shots) || !shots.length) {
     return sendJson(res, 409, { ok: false, code: "STORY_PROMPTS_REQUIRE_SHOTS", message: "请先生成本集分镜。" });
   }
-  const assets = (allAssets || []).filter((asset) => storyAssetBelongsToEpisode(asset, episode));
-  if (!assets.length) {
+  const episodeAssets = (allAssets || []).filter((asset) => storyAssetBelongsToEpisode(asset, episode));
+  if (!episodeAssets.length) {
     return sendJson(res, 409, { ok: false, code: "STORY_PROMPTS_REQUIRE_ASSETS", message: "请先让 AI 提取本集资产并生成设计稿。" });
   }
   if (targetShotId && !shots.some((shot) => shot.id === targetShotId)) {
     return sendJson(res, 404, { ok: false, code: "STORY_SHOT_NOT_FOUND", message: "要优化的镜头不存在。" });
+  }
+  const targetShot = targetShotId ? shots.find((shot) => shot.id === targetShotId) : null;
+  const assets = targetShot ? episodeAssets.filter((asset) => storyShotUsesAsset(asset, targetShot)) : episodeAssets;
+  if (!assets.length) {
+    return sendJson(res, 409, { ok: false, code: "STORY_PROMPTS_REQUIRE_SHOT_ASSETS", message: "此镜还没有绑定资产，请先让 AI 提取本镜资产。" });
   }
   const unapproved = assets.filter((asset) => !storyAssetDesignReady(asset, variants || []));
   if (unapproved.length) {

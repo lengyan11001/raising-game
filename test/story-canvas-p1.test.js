@@ -82,20 +82,39 @@ test("story P1 UI has bounded responsive script and analysis surfaces", () => {
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.story-analysis-tags,[\s\S]*\.story-asset-grid \{ grid-template-columns: 1fr; \}/);
 });
 
-test("story P1 separates script, episodes, assets, and production guidance into tabs", () => {
+test("story P1 uses a script-episode-shot tree with confirmation-gated assets", () => {
   const story = read("platform.story.js");
   const css = read("platform.css");
   assert.match(story, /const STORY_DETAIL_TABS = \[/);
-  for (const tab of ["script", "episodes", "assets", "production"]) {
+  for (const tab of ["script", "episodes", "production"]) {
     assert.match(story, new RegExp(`id: "${tab}"`));
     assert.match(story, new RegExp(`data-story-tab-panel="${tab}"`));
   }
+  assert.doesNotMatch(story, /\{ id: "assets", label: "资产库"/);
+  assert.match(story, /function renderStoryStructureTree\(/);
+  assert.match(story, /function renderStoryShotProduction\(/);
+  assert.match(story, /function renderStoryAssetLibraryModal\(/);
+  assert.match(story, /data-story-open-asset-library/);
+  assert.match(story, /data-story-library-episode/);
+  assert.match(story, /data-story-library-shot/);
+  assert.match(story, /loadStoryAssetLibraryEpisode\(event\.target\.value/);
+  assert.match(story, /function storyShotAssetsConfirmed[\s\S]*assetsConfirmedAt/);
+  assert.match(story, /data-story-confirm-shot-assets/);
+  assert.match(story, /data-story-generate-shot-assets/);
+  assert.match(story, /data-story-plan-shot-prompt/);
+  assert.match(story, /function planStoryEpisodePrompts\(targetShotId = ""\)/);
+  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: shot\.id \}/);
+  const openLibrary = story.slice(story.indexOf("async function openStoryAssetLibrary("), story.indexOf("function closeStoryAssetLibrary("));
+  assert.doesNotMatch(openLibrary, /advanced\/generate|createStoryAssetImageVariant|\/variants/);
   assert.match(story, /data-story-tab="\$\{tab\.id\}"/);
   assert.match(story, /function setStoryDetailTab\(/);
   assert.match(story, /setStoryDetailTab\(event\.target\.closest\("\[data-story-tab\]"\)/);
   assert.match(story, /storyState\.detailTab = "episodes"/);
   assert.match(css, /\.story-detail-tabs \{[^}]*display: flex/);
   assert.match(css, /\.story-tab-panel\[hidden\] \{ display: none; \}/);
+  assert.match(css, /\.story-tree-layout \{/);
+  assert.match(css, /\.story-shot-production-card \{/);
+  assert.match(css, /\.story-asset-library-modal \{/);
 });
 
 test("story analyzer requests production-length episode outlines", () => {
@@ -201,6 +220,8 @@ test("story production pipeline gates approved assets before model-optimized pro
   }
   assert.match(handlers, /STORY_ASSETS_NOT_APPROVED/);
   assert.match(handlers, /function storyAssetDesignReady[\s\S]*storyApprovedVariantHasImage/);
+  assert.match(handlers, /const episodeAssets = \(allAssets \|\| \[\]\)\.filter\(\(asset\) => storyAssetBelongsToEpisode\(asset, episode\)\)/);
+  assert.match(handlers, /const assets = targetShot \? episodeAssets\.filter\(\(asset\) => storyShotUsesAsset\(asset, targetShot\)\) : episodeAssets/);
   assert.match(handlers, /const unapproved = assets\.filter\(\(asset\) => !storyAssetDesignReady\(asset, variants \|\| \[\]\)\)/);
   assert.match(handlers, /if \(unapproved\.length\)[\s\S]*STORY_ASSETS_NOT_APPROVED/);
   assert.match(handlers, /provider\.promptOptimizer[\s\S]*STORY_VIDEO_MODEL_OPTIMIZER_UNAVAILABLE/);
@@ -243,12 +264,17 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /下一步：选模型并生成提示词/);
   assert.match(story, /按所选模型生成全部提示词/);
   assert.match(story, /本集提示词已按 \$\{selectedVideoModel\?\.label \|\| videoModel\} 优化并冻结/);
+  assert.match(story, /function storyShotPromptMatchesModel[\s\S]*videoPromptMeta[\s\S]*meta\.provider[\s\S]*meta\.resolution/);
+  assert.match(story, /const promptsOutdated = promptReadyCount > 0 && !promptsReady/);
+  assert.match(story, /模型已变，需刷新/);
+  assert.match(story, /刷新过期提示词/);
+  assert.match(story, /旧提示词不会作为最终版本使用/);
   assert.match(story, /\/assets\/plan/);
   assert.match(story, /\/variants\/\$\{encodeURIComponent\(variantId\)\}\/approve/);
   assert.match(story, /\/prompts\/plan/);
   assert.match(story, /for \(let index = 0; index < shots\.length; index \+= 1\)/);
   assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: shot\.id \}/);
-  assert.match(story, /shot\.videoPrompt \?[\s\S]*已优化[\s\S]*待优化/);
+  assert.match(story, /promptMatchesModel \? "已按当前模型优化"[\s\S]*模型已变，需刷新[\s\S]*待优化/);
   assert.match(story, /cdnImageUrl/);
   assert.match(story, /createKind: "story-asset"[\s\S]*storyAssetId: asset\.id/);
   assert.doesNotMatch(story, /createKind: "story-asset"[\s\S]{0,120}assetId: asset\.id/);
@@ -257,6 +283,7 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(css, /\.story-production-assets \{/);
   assert.match(css, /\.story-asset-variant-list \{/);
   assert.match(css, /\.story-workflow-guide \{/);
+  assert.match(css, /\.story-prompt-shot\.is-stale \{/);
   assert.match(css, /\.story-shot-action-buttons \{/);
 });
 
@@ -286,5 +313,5 @@ test("story asset replanning removes stale episode scope and invalidates frozen 
   assert.match(db, /filter\(\(id\) => id && id !== scopedEpisodeId\)/);
   assert.match(db, /if \(definitionChanged\)[\s\S]*delete metadata\.approvedVariantId/);
   assert.match(handlers, /if \(Array\.isArray\(metadata\.episodeIds\)\) return metadata\.episodeIds\.map\(String\)\.includes\(episodeId\)/);
-  assert.match(story, /if \(Array\.isArray\(asset\.metadata\?\.episodeIds\)\) return asset\.metadata\.episodeIds\.map\(String\)\.includes\(episodeId\)/);
+  assert.match(story, /function storyAssetBelongsToEpisode[\s\S]*if \(episodeIds\.length\) return episodeIds\.includes\(episodeId\)/);
 });
