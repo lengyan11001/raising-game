@@ -4617,4 +4617,6 @@ CODEX_TASK_STATE.md
 - Shots remain the only tree children used to enter the dedicated shot workspace; all requested asset and video work stays in that shot-specific right-side workspace.
 - Removed the obsolete empty-workspace `回到剧本` button and the obsolete mobile back-button layout rule.
 - Verification: both story canvas suites pass `18/18`; `node --check platform.story.js`, `npm run check:undef`, and `git diff --check` pass. The unrelated `server.parts/part-45.js` change remains preserved and excluded.
-- Source commit and Old deployment are pending.
+- Source commit `9414e619056ed6ce3d0783ec54926167acbe0700`; platform release `91be94d0c788951895057b5f5a2c78394c436848`; `old-site` and `platform-release` were pushed.
+- Old-only rolling deployment completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=91be94d0...`. Public `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; livez/readyz report release `91be94d0c788951895057b5f5a2c78394c436848`.
+- Browser acceptance after a hard reload passed: the script tree root is static text rather than a button; clicking `E01` opens only the episode editor and does not show `返回分集`, stage tabs, or an in-panel shot roster; clicking `S01` opens the dedicated shot workspace with required assets and video generation controls.
