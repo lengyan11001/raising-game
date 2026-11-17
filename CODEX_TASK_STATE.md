@@ -1,3 +1,12 @@
+## 2026-11-17 Step DM: mobile Google login click feedback verified
+
+- Google Identity Services' iframe button now invokes `beginGoogleLoginFeedback`: it immediately shows `Opening Google authorization...`, marks the login control busy, and starts a 15-second watchdog.
+- If no Google authorization window appears, the watchdog clears busy state and shows `Google authorization did not open. Please try again.` The message area is an `aria-live` status region and is cleared whenever the login form is reset.
+- Source commit `d1c55201` is pushed to `old-site`; release snapshot `7dbb1fb6` is on `platform-release` and deployed to `123vips.com`. Active production port is `4174`; `/api/health` returned `{"ok":true}`.
+- Production mobile verification at 320x700, 390x844, and 430x900: GSI button click immediately displayed the opening status; the 390px test advanced to the no-response status after 15 seconds; modal content and status stayed visible without clipping. Viewport overrides were reset afterward.
+- Verification passed: syntax checks for `platform.google.js`, `platform.create.parts/part-06.js`, and `platform.copy.js`; `npm run check:undef`; `git diff --check`; focused regression suite 137/137 across mobile tool UX, workflow canvases, email auth, platform refresh performance, site profile, and advanced custom UI.
+- Uncommitted `server.parts/part-45.js` remains unrelated WIP and was not included in the source commit or deployment.
+
 ## 2026-11-17 Step DL: login stale-shell diagnosis and password visibility
 
 - One user's broken login screenshot does not match fresh production HTML. Production currently has separate Email code / Password tabs and `passwordLoginPanel` hidden by default, so the screenshot is a stale cached shell rather than the current renderer.
