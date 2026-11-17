@@ -4848,3 +4848,11 @@ CODEX_TASK_STATE.md
 - Source commit `134bb9c9e1c0130948c57158be6ca85d1c3acc2d`; platform release `ffe0f684d2b88e56e6eb67099ed0061ce5c21f34`; pushed only `old-site` and `platform-release`.
 - Old-only deployment completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=ffe0f684...`. Public `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; release markers report `ffe0f684...`.
 - Online shot acceptance on project `白洁`, episode E01, shot S01: both asset images render at `80x108`; image requests include `thumb=1`, return `302` to `assets-cdn.123vips.com` with an OSS resize/WebP transform, and one measured thumbnail completed as `image/webp` at `7,452` bytes (`361x480`). Existing WIP files `CODEX_TASK_STATE.md` and `server.parts/part-45.js` remain outside the committed release.
+
+## 2026-11-17 Step DF: Staged manuscript deployment
+
+- Source commit `2e41d6b3cf1c9e20c5aa85383af1e9ba5d45c444`; platform release `bff17f27d0f2583d0f8f1f564f5372246c5b5e7d`; pushed only `old-site` and `platform-release`; remote `live-release` remains untouched.
+- Old-only deployment through `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=bff17f27...`.
+- Public `/api/health`, `/api/livez`, and `/api/readyz` all return HTTP `200`; livez/readyz report clean release `bff17f27d0f2583d0f8f1f564f5372246c5b5e7d`.
+- Deployed `platform.story.js` contains the staged manuscript controls `data-story-open-script-segment`, `延续已有剧本`, and `新增分集`.
+- The unrelated existing `server.parts/part-45.js` working-tree change remains preserved and was not committed or deployed.
