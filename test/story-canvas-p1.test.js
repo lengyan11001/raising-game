@@ -86,10 +86,12 @@ test("story P1 uses a script-episode-shot tree with confirmation-gated assets", 
   const story = read("platform.story.js");
   const css = read("platform.css");
   assert.match(story, /const STORY_DETAIL_TABS = \[/);
-  for (const tab of ["script", "episodes", "production"]) {
+  for (const tab of ["script", "episodes"]) {
     assert.match(story, new RegExp(`id: "${tab}"`));
     assert.match(story, new RegExp(`data-story-tab-panel="${tab}"`));
   }
+  assert.doesNotMatch(story, /id: "production"/);
+  assert.doesNotMatch(story, /data-story-tab-panel="production"/);
   assert.doesNotMatch(story, /\{ id: "assets", label: "资产库"/);
   assert.match(story, /function renderStoryStructureTree\(/);
   assert.match(story, /function renderStoryShotProduction\(/);
@@ -115,6 +117,48 @@ test("story P1 uses a script-episode-shot tree with confirmation-gated assets", 
   assert.match(css, /\.story-tree-layout \{/);
   assert.match(css, /\.story-shot-production-card \{/);
   assert.match(css, /\.story-asset-library-modal \{/);
+});
+
+test("story creation targets an episode and shot and opens a dedicated shot workspace", () => {
+  const story = read("platform.story.js");
+  const css = read("platform.css");
+  const db = read("db.js");
+  const handlers = read("server.parts/part-03.js");
+  const routes = read("server.parts/part-42.js");
+  assert.match(story, /id="storyScriptTargetEpisode" data-story-script-target-episode/);
+  assert.match(story, /id="storyScriptTargetShot" data-story-script-target-shot/);
+  assert.match(story, /placeholder="留空由 AI 规划"/);
+  assert.match(story, /body: \{ title, content, targetEpisodeId, targetShotId, estimatedDurationSeconds \}/);
+  const saveScript = story.slice(story.indexOf("async function saveStoryScriptDraft("), story.indexOf("async function analyzeStoryDraft("));
+  assert.match(saveScript, /targetEpisodeSelect \? targetEpisodeSelect\.value/);
+  assert.match(saveScript, /targetShotSelect \? targetShotSelect\.value/);
+  assert.doesNotMatch(saveScript, /targetEpisodeSelect\?\.value \|\| storyState\.scriptTargetEpisodeId/);
+  assert.match(story, /\/episodes\/\$\{encodeURIComponent\(episodeId\)\}\/shots/);
+  assert.match(db, /ADD COLUMN IF NOT EXISTS target_episode_id/);
+  assert.match(db, /ADD COLUMN IF NOT EXISTS target_shot_id/);
+  assert.match(db, /ADD COLUMN IF NOT EXISTS estimated_duration_seconds/);
+  assert.match(handlerBody(handlers, "handleCreateStoryScript"), /targetEpisodeId[\s\S]*targetShotId[\s\S]*estimatedDurationSeconds/);
+  assert.match(handlers, /async function analyzeStoryScript\(\{ project = \{\}, script = \{\}, targetEpisodes = 0, targetEpisode = null, targetShot = null \}/);
+  assert.match(handlers, /目标分集：\$\{targetEpisodeLabel\}/);
+  assert.match(handlers, /目标分镜：\$\{targetShotLabel\}/);
+  assert.match(handlers, /预计时长：约 \$\{estimatedDurationSeconds\} 秒/);
+  assert.match(handlerBody(handlers, "handleAnalyzeStoryProject"), /script\.targetEpisodeId[\s\S]*script\.targetShotId[\s\S]*targetEpisode, targetShot/);
+  assert.match(routes, /storyShotGenerationRefsMatch[\s\S]*handleCreateStoryGenerationRef/);
+  assert.match(routes, /storyGenerationRefMatch[\s\S]*handleUpdateStoryGenerationRef/);
+
+  const workspace = story.slice(story.indexOf("function renderStoryShotWorkspace("), story.indexOf("function storyShotFilterKey("));
+  assert.match(workspace, /本镜所需资产/);
+  assert.match(workspace, /生成视频/);
+  assert.match(workspace, /data-story-generate-shot-video/);
+  assert.match(workspace, /data-story-open-asset-library/);
+  assert.doesNotMatch(workspace, /返回分集|剧情大纲|分镜清单/);
+
+  const openShot = story.slice(story.indexOf("async function openStoryShot("), story.indexOf("async function generateStoryEpisodeShots("));
+  assert.match(openShot, /await loadStoryEpisodeShots\(\)/);
+  assert.match(openShot, /storyState\.episodeTab = "production"/);
+  assert.doesNotMatch(openShot, /scrollIntoView|data-story-shot-card|advanced\/generate|generateStoryShotVideo/);
+  assert.match(css, /\.story-shot-workspace-grid \{[^}]*grid-template-columns/);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.story-shot-workspace-grid \{ grid-template-columns: 1fr;/);
 });
 
 test("story analyzer requests production-length episode outlines", () => {

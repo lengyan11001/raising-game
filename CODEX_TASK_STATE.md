@@ -4595,3 +4595,14 @@ CODEX_TASK_STATE.md
 - Source commit `a2bc241c0b36570b464d3fe817454cc45bbdc615`; platform release `46d74138dbbb4347da6aa6e1722d2a20a740b2df`; only `platform-release` was pushed. Remote `live-release` remains untouched.
 - Old-only deployment through `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=46d74138...`. Public `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; livez/readyz report release `46d74138dbbb4347da6aa6e1722d2a20a740b2df`. Public `platform.story.js` contains the new story-tree, per-shot confirmation, and asset-library filters.
 - The unrelated existing `server.parts/part-45.js` working-tree change remains preserved and was not committed or deployed.
+
+## 2026-11-17 Step DA: Target-aware script creation and dedicated shot workspace
+
+- Reworked story creation so every saved script version records an optional target episode, a target shot constrained to that episode, and an optional estimated duration. A blank duration is sent as `0` and the analyzer prompt explicitly lets AI plan it.
+- Added PostgreSQL-backed `target_episode_id`, `target_shot_id`, and `estimated_duration_seconds` columns plus an ownership-safe target index; script creation validates that the selected shot belongs to the selected episode.
+- AI script analysis now receives the target episode and shot labels and instructs the model to keep the result inside that episode, preserve shot continuity, and respect the requested duration when supplied.
+- Reduced the story detail tabs to `创建文稿` and `分集分镜树`. Selecting a shot in the tree opens a dedicated right-side workspace containing only shot context, required assets and asset prompts, model-optimized video prompt controls, and video generation results; the old `返回分集`, `剧情大纲`, and `分镜清单` blocks are absent from this workspace.
+- Added PostgreSQL generation-reference create/update APIs and UI result records for story-shot video generations. The workspace gates asset-image generation on shot-list confirmation and gates video generation on approved assets plus a prompt optimized for the currently selected model/resolution.
+- Fixed clearing a target episode or shot: saving now reads the select's actual value instead of falling back to stale state and restoring the previous target.
+- Verification: story P0/P1 tests pass `18/18`; syntax checks, `npm run check:undef`, and `git diff --check` pass. Full `npm test` reports `1375 pass / 9 fail / 1 skipped`; all nine failures are the pre-existing `server.parts/part-45.js` optimizer work-in-progress missing helper definitions, which remains preserved and excluded from this change.
+- Deployment: not deployed in this step. The unrelated existing `server.parts/part-45.js` working-tree change remains preserved and must be excluded from any release commit.

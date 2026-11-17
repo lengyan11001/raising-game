@@ -1643,7 +1643,11 @@ async function ensureSchemaInner({ client = null } = {}) {
       UNIQUE (project_id, version_no)
     );
   `);
+  await run(`ALTER TABLE app_story_script_versions ADD COLUMN IF NOT EXISTS target_episode_id TEXT NOT NULL DEFAULT '';`);
+  await run(`ALTER TABLE app_story_script_versions ADD COLUMN IF NOT EXISTS target_shot_id TEXT NOT NULL DEFAULT '';`);
+  await run(`ALTER TABLE app_story_script_versions ADD COLUMN IF NOT EXISTS estimated_duration_seconds INTEGER NOT NULL DEFAULT 0;`);
   await run(`CREATE INDEX IF NOT EXISTS app_story_script_versions_project_idx ON app_story_script_versions (project_id, version_no DESC);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_script_versions_target_idx ON app_story_script_versions (project_id, target_episode_id, target_shot_id);`);
   await run(`
     CREATE TABLE IF NOT EXISTS app_story_episodes (
       id TEXT PRIMARY KEY,
@@ -6773,6 +6777,9 @@ function storyScriptVersionFromRow(row = {}) {
     title: String(row.title || "").trim(),
     content: String(row.content || ""),
     status: String(row.status || "draft").trim(),
+    targetEpisodeId: String(row.target_episode_id || "").trim(),
+    targetShotId: String(row.target_shot_id || "").trim(),
+    estimatedDurationSeconds: Math.max(0, Number(row.estimated_duration_seconds || 0) || 0),
     createdBy: String(row.created_by || "").trim(),
     frozenAt: toIsoString(row.frozen_at),
     createdAt: toIsoString(row.created_at),
@@ -6817,6 +6824,20 @@ function storyPromptVersionFromRow(row = {}) {
     negativePrompt: String(row.negative_prompt || ""),
     status: String(row.status || "draft").trim(),
     createdBy: String(row.created_by || "").trim(),
+    createdAt: toIsoString(row.created_at),
+  };
+}
+
+function storyGenerationRefFromRow(row = {}) {
+  return {
+    id: String(row.id || "").trim(),
+    projectId: String(row.project_id || "").trim(),
+    shotId: String(row.shot_id || "").trim(),
+    promptVersionId: String(row.prompt_version_id || "").trim(),
+    generationRecordId: String(row.generation_record_id || "").trim(),
+    kind: String(row.kind || "video").trim(),
+    status: String(row.status || "queued").trim(),
+    metadata: row.metadata && typeof row.metadata === "object" ? row.metadata : {},
     createdAt: toIsoString(row.created_at),
   };
 }
@@ -7187,7 +7208,7 @@ async function listStoryScriptVersionsFromDb({ projectId = "", ownerUserId = "" 
   return rows.map(storyScriptVersionFromRow);
 }
 
-async function createStoryScriptVersionInDb({ id = "", projectId = "", ownerUserId = "", title = "", content = "", status = "draft", createdBy = "" } = {}) {
+async function createStoryScriptVersionInDb({ id = "", projectId = "", ownerUserId = "", title = "", content = "", status = "draft", targetEpisodeId = "", targetShotId = "", estimatedDurationSeconds = 0, createdBy = "" } = {}) {
   if (!dbEnabled()) return null;
   const scriptId = String(id || "").trim();
   const parentId = String(projectId || "").trim();
@@ -7212,10 +7233,10 @@ async function createStoryScriptVersionInDb({ id = "", projectId = "", ownerUser
     );
     const versionNo = Math.max(1, Number(next.rows[0]?.next_no || 1) || 1);
     const inserted = await client.query(
-      `INSERT INTO app_story_script_versions(id, project_id, version_no, title, content, status, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO app_story_script_versions(id, project_id, version_no, title, content, status, target_episode_id, target_shot_id, estimated_duration_seconds, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
-      [scriptId, parentId, versionNo, String(title || ""), String(content || ""), String(status || "draft"), String(createdBy || "")],
+      [scriptId, parentId, versionNo, String(title || ""), String(content || ""), String(status || "draft"), String(targetEpisodeId || ""), String(targetShotId || ""), Math.max(0, Number(estimatedDurationSeconds || 0) || 0), String(createdBy || "")],
     );
     row = inserted.rows[0];
     await client.query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
@@ -7597,6 +7618,82 @@ async function createStoryPromptVersionInDb({ id = "", projectId = "", episodeId
   } finally {
     client.release();
   }
+}
+
+async function listStoryGenerationRefsFromDb({ projectId = "", ownerUserId = "", shotId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!parentId || !ownerId) return [];
+  await ensureSchema();
+  const params = [parentId, ownerId];
+  let shotSql = "";
+  if (String(shotId || "").trim()) {
+    params.push(String(shotId).trim());
+    shotSql = ` AND r.shot_id = $${params.length}`;
+  }
+  const { rows } = await query(
+    `SELECT r.*
+     FROM app_story_generation_refs r
+     JOIN app_story_projects p ON p.id = r.project_id
+     WHERE r.project_id = $1 AND p.owner_user_id = $2${shotSql}
+     ORDER BY r.created_at DESC`,
+    params,
+  );
+  return rows.map(storyGenerationRefFromRow);
+}
+
+async function createStoryGenerationRefInDb({ id = "", projectId = "", ownerUserId = "", shotId = "", promptVersionId = "", generationRecordId = "", kind = "video", status = "queued", metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const refId = String(id || "").trim();
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const targetShotId = String(shotId || "").trim();
+  if (!refId || !parentId || !ownerId || !targetShotId) return null;
+  await ensureSchema();
+  const shot = await query(
+    `SELECT s.id FROM app_story_shots s
+     JOIN app_story_projects p ON p.id = s.project_id
+     WHERE s.id = $1 AND s.project_id = $2 AND p.owner_user_id = $3`,
+    [targetShotId, parentId, ownerId],
+  );
+  if (!shot.rows.length) return null;
+  const { rows } = await query(
+    `INSERT INTO app_story_generation_refs(id, project_id, shot_id, prompt_version_id, generation_record_id, kind, status, metadata)
+     VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8::jsonb)
+     RETURNING *`,
+    [refId, parentId, targetShotId, String(promptVersionId || ""), String(generationRecordId || ""), String(kind || "video"), String(status || "queued"), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {})],
+  );
+  await query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
+  return rows[0] ? storyGenerationRefFromRow(rows[0]) : null;
+}
+
+async function updateStoryGenerationRefInDb({ id = "", projectId = "", ownerUserId = "", status = "", generationRecordId = "", metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const refId = String(id || "").trim();
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!refId || !parentId || !ownerId) return null;
+  await ensureSchema();
+  const current = await query(
+    `SELECT r.metadata
+     FROM app_story_generation_refs r
+     JOIN app_story_projects p ON p.id = r.project_id
+     WHERE r.id = $1 AND r.project_id = $2 AND p.owner_user_id = $3`,
+    [refId, parentId, ownerId],
+  );
+  if (!current.rows.length) return null;
+  const mergedMetadata = { ...(current.rows[0].metadata || {}), ...(metadata && typeof metadata === "object" ? metadata : {}) };
+  const { rows } = await query(
+    `UPDATE app_story_generation_refs
+     SET status = COALESCE(NULLIF($4, ''), status),
+         generation_record_id = COALESCE(NULLIF($5, ''), generation_record_id),
+         metadata = $6::jsonb
+     WHERE id = $1 AND project_id = $2
+     RETURNING *`,
+    [refId, parentId, String(status || ""), String(generationRecordId || ""), JSON.stringify(mergedMetadata)],
+  );
+  return rows[0] ? storyGenerationRefFromRow(rows[0]) : null;
 }
 
 async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", episodes = [], assets = [], summary = "", totalEpisodeSuggestion = 0 } = {}) {
@@ -11930,6 +12027,9 @@ module.exports = {
   approveStoryAssetVariantInDb,
   listStoryPromptVersionsFromDb,
   createStoryPromptVersionInDb,
+  listStoryGenerationRefsFromDb,
+  createStoryGenerationRefInDb,
+  updateStoryGenerationRefInDb,
   importStoryAnalysisInDb,
   deleteStoryEpisodeFromDb,
   listStoryCanvasLinksFromDb,

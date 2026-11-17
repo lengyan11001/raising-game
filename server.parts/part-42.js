@@ -812,6 +812,16 @@ async function handleRequest(req, res) {
       return await handleDeleteStoryShot(req, res, decodeURIComponent(storyShotMatch[1]), decodeURIComponent(storyShotMatch[2]), decodeURIComponent(storyShotMatch[3]));
     }
 
+    const storyShotGenerationRefsMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/shots\/([^/]+)\/generation-refs\/?$/);
+    if (req.method === "POST" && storyShotGenerationRefsMatch) {
+      return await handleCreateStoryGenerationRef(req, res, decodeURIComponent(storyShotGenerationRefsMatch[1]), decodeURIComponent(storyShotGenerationRefsMatch[2]));
+    }
+
+    const storyGenerationRefMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/generation-refs\/([^/]+)\/?$/);
+    if (req.method === "PUT" && storyGenerationRefMatch) {
+      return await handleUpdateStoryGenerationRef(req, res, decodeURIComponent(storyGenerationRefMatch[1]), decodeURIComponent(storyGenerationRefMatch[2]));
+    }
+
     const storyProjectMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/?$/);
     if (req.method === "GET" && storyProjectMatch) {
       return await handleGetStoryProject(req, res, decodeURIComponent(storyProjectMatch[1]));
