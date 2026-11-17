@@ -51,7 +51,7 @@ test("story APIs are admin-session gated and use PostgreSQL data functions", () 
     assert.notEqual(start, -1, `${handler} missing`);
     const end = handlers.indexOf("\n}\n", start);
     const body = handlers.slice(start, end);
-    assert.match(body, /requireAdmin\(req, res\)/, `${handler} must require admin`);
+    assert.match(body, /requireAdmin\(req, res, \{ loadDb: false \}\)/, `${handler} must require admin without loading the full app snapshot`);
   }
   const createEpisodeStart = handlers.indexOf("async function handleCreateStoryEpisode(");
   const createEpisodeBody = handlers.slice(createEpisodeStart, handlers.indexOf("\n}\n", createEpisodeStart));
