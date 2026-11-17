@@ -32,6 +32,8 @@
     assetLibraryShotKey: "",
     assetLibraryQuery: "",
     assetLibraryShots: [],
+    assetLibraryExpandedAssetId: "",
+    assetLibraryMessage: "",
     imageModel: "qwen-image3",
     videoModel: "seedance-nsfw",
     videoDuration: 5,
@@ -448,10 +450,16 @@
     return storyState.assetVariants.filter((variant) => variant.assetId === assetId);
   }
 
+  function storyAssetVariantById(variantId = "") {
+    const id = String(variantId || "");
+    return storyState.assetVariants.find((variant) => variant.id === id) || null;
+  }
+
   function storyApprovedAssetVariant(asset = {}) {
     const approvedId = String(asset.metadata?.approvedVariantId || "");
     const variants = storyAssetVariants(asset.id);
-    return variants.find((variant) => variant.id === approvedId && variant.status === "approved")
+    return storyAssetVariantById(approvedId)?.status === "approved" ? storyAssetVariantById(approvedId)
+      : variants.find((variant) => variant.id === approvedId && variant.status === "approved")
       || variants.find((variant) => variant.status === "approved")
       || null;
   }
@@ -461,7 +469,8 @@
   }
 
   function storyAssetHasGeneratedImage(asset = {}) {
-    return storyAssetVariants(asset.id).some((variant) => variant.status !== "failed" && Boolean(storyAssetVariantImageUrl(variant)));
+    return storyAssetVariants(asset.id).some((variant) => variant.status !== "failed" && Boolean(storyAssetVariantImageUrl(variant)))
+      || Boolean(storyApprovedAssetVariant(asset) && storyAssetVariantImageUrl(storyApprovedAssetVariant(asset)));
   }
 
   function storyAssetHasApprovedImage(asset = {}) {
@@ -471,6 +480,23 @@
 
   function storyAssetsNeedingImage(assets = []) {
     return assets.filter((asset) => !storyAssetHasApprovedImage(asset) && !storyAssetHasGeneratedImage(asset));
+  }
+
+  function storyDisplayAssetVariant(asset = {}) {
+    const approved = storyApprovedAssetVariant(asset);
+    const variants = storyAssetVariants(asset.id)
+      .filter((variant) => variant.status !== "failed" && storyAssetVariantImageUrl(variant))
+      .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+    return [...new Map([approved, ...variants].filter(Boolean).map((variant) => [variant.id, variant])).values()]
+      .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0] || null;
+  }
+
+  function storyReusableAssetVariants(asset = {}) {
+    return storyState.assetVariants.filter((variant) => {
+      if (variant.status !== "approved" || variant.assetId === asset.id) return false;
+      const sourceAsset = storyState.assets.find((item) => item.id === variant.assetId);
+      return sourceAsset && sourceAsset.kind === asset.kind;
+    }).sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
   }
 
   function storyAssetKindLabel(kind = "") {
@@ -615,7 +641,7 @@
         <div class="story-workflow-guide ${promptsReady ? "is-ready" : confirmedCount === storyState.shots.length && storyState.shots.length ? "is-warning" : ""}">
           <span><b>确认门禁</b>AI 提取资产清单 → 逐镜检查图片提示词 → 确认清单 → 出图并定稿 → 生成视频提示词</span>
           <strong>${confirmedCount} / ${storyState.shots.length} 镜已确认</strong>
-          <p>资产图只在“资产库”弹窗中审核，主工作区不再铺设大量图片。当前 ${approvedCount} / ${assets.length} 个本集资产已定稿。</p>
+          <p>资产图在分镜卡片内直接生成、重生成和定稿；资产库只用于查看全项目记录。当前 ${approvedCount} / ${assets.length} 个本集资产已定稿。</p>
         </div>
         <div class="story-shot-production-toolbar">
           <div><strong>视频模型</strong><label>模型<select data-story-video-model>${videoModels.map((model) => `<option value="${storyEscape(model.id)}" ${model.id === videoModel ? "selected" : ""}>${storyEscape(model.label)}${model.promptOptimizer ? "" : "（无独立规则）"}</option>`).join("")}</select></label><label>优化模型<select data-story-optimizer-model>${optimizerModels.map((model) => `<option value="${storyEscape(model.id)}" ${model.id === optimizerModel ? "selected" : ""}>${storyEscape(model.label)}</option>`).join("")}</select></label><label>分辨率<select data-story-prompt-resolution>${["480p", "720p", "1080p", "4K"].map((item) => `<option value="${item}" ${item === resolution ? "selected" : ""}>${item}</option>`).join("")}</select></label></div>
@@ -650,14 +676,28 @@
     const assetRows = assets.length ? assets.map((asset) => {
       const approved = storyAssetHasApprovedImage(asset);
       const generated = storyAssetHasGeneratedImage(asset);
+      const displayVariant = storyDisplayAssetVariant(asset);
+      const imageUrl = storyAssetVariantImageUrl(displayVariant || {});
+      const reusableVariants = storyReusableAssetVariants(asset);
+      const prompt = asset.metadata?.imagePrompt || asset.description || "AI 尚未补写图片提示词。";
       return `
         <article class="story-shot-workspace-asset ${approved ? "is-approved" : ""}">
           <div class="story-shot-workspace-asset-head">
             <div><span>${storyEscape(storyAssetKindLabel(asset.kind))}</span><strong>${storyEscape(asset.name)}</strong></div>
-            <em>${approved ? "已定稿" : generated ? "待审核" : "未出图"}</em>
+            <em>${approved ? "已定稿" : displayVariant ? storyEscape(storyVariantStatusLabel(displayVariant.status)) : "未出图"}</em>
           </div>
-          <details><summary>图片提示词</summary><p>${storyEscape(asset.metadata?.imagePrompt || asset.description || "AI 尚未补写图片提示词。")}</p></details>
-          <button type="button" data-story-generate-asset="${storyEscape(asset.id)}" data-story-generate-asset-shot="${storyEscape(shot.id)}" ${confirmed && !generated && !storyState.action ? "" : "disabled"}>${generated ? "已生成设计图" : confirmed ? "生成此资产" : "先确认资产清单"}</button>
+          <div class="story-shot-workspace-asset-visual">
+            ${imageUrl ? `<img src="${storyEscape(imageUrl)}" alt="${storyEscape(asset.name)} 已生成设计图" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-story-media-image /><span class="story-media-fallback" data-story-media-fallback hidden>图片加载失败，可重新生成</span>` : `<span class="story-shot-workspace-asset-empty-image">${generated ? "图片地址刷新中" : "尚未生成设计图"}</span>`}
+          </div>
+          <label class="story-shot-asset-prompt"><span>AI 建议图片提示词</span><p>${storyEscape(prompt)}</p></label>
+          <div class="story-shot-workspace-asset-actions">
+            <button type="button" data-story-generate-asset="${storyEscape(asset.id)}" data-story-generate-asset-shot="${storyEscape(shot.id)}" ${confirmed && !storyState.action ? "" : "disabled"}>${storyState.generatingAssetId === asset.id ? "生成中…" : generated ? "重新生成" : "生成图片"}</button>
+            ${displayVariant && displayVariant.status !== "approved" ? `<button class="is-approve" type="button" data-story-approve-variant="${storyEscape(displayVariant.id)}" data-story-asset-id="${storyEscape(asset.id)}" ${storyState.action ? "disabled" : ""}>${storyState.action === "approve-asset" ? "正在定稿…" : "设为定稿"}</button>` : ""}
+          </div>
+          ${reusableVariants.length ? `<div class="story-shot-asset-reuse"><select data-story-reuse-variant="${storyEscape(asset.id)}"><option value="">选择已有定稿素材</option>${reusableVariants.map((variant) => {
+            const sourceAsset = storyState.assets.find((item) => item.id === variant.assetId);
+            return `<option value="${storyEscape(variant.id)}">${storyEscape(sourceAsset?.name || "资产")} · ${storyEscape(storyDate(variant.updatedAt))}</option>`;
+          }).join("")}</select><button type="button" data-story-use-variant="${storyEscape(asset.id)}" ${storyState.action ? "disabled" : ""}>复用</button></div>` : ""}
         </article>`;
     }).join("") : `<div class="story-shot-assets-empty">此镜还没有资产清单。先让 AI 按本集分镜提取资产。</div>`;
     const generationRows = generationRefs.length ? generationRefs.map((ref) => {
@@ -693,15 +733,16 @@
           <section class="story-shot-workspace-card">
             <div class="story-shot-workspace-card-head">
               <div><p class="eyebrow">SHOT ASSETS</p><h4>本镜所需资产</h4></div>
-              <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>在资产库审核</span></button>
+              <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>打开全局资产库</span></button>
             </div>
-            <p class="story-shot-workspace-hint">只列出此镜使用的人物、场景和道具。确认清单后才允许生成资产图；图片在资产库中审核定稿。</p>
+            <p class="story-shot-workspace-hint">这里直接完成本镜资产生成、重生成、定稿和复用已有素材。资产库只用于查看全项目记录。</p>
             <div class="story-shot-workspace-assets">${assetRows}</div>
             <div class="story-shot-workspace-actions">
               <button class="story-secondary-button" type="button" data-story-confirm-shot-assets="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}><i data-lucide="${confirmed ? "badge-check" : "check-check"}"></i><span>${confirmed ? "重新确认资产清单" : "确认此镜资产清单"}</span></button>
               <button class="story-create-button" type="button" data-story-generate-shot-assets="${storyEscape(shot.id)}" ${confirmed && generatedAssets.length < assets.length && !storyState.action ? "" : "disabled"}><i data-lucide="images"></i><span>生成未完成资产图</span></button>
               <small>${generatedAssets.length} 张已出图 · ${approvedAssets.length} 张已定稿</small>
             </div>
+            <p class="story-message">${storyEscape(storyState.actionMessage || "")}</p>
           </section>
           <section class="story-shot-workspace-card">
             <div class="story-shot-workspace-card-head">
@@ -768,21 +809,25 @@
         .sort((a, b) => (b.status === "approved") - (a.status === "approved") || String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
       const failedCount = storyAssetVariants(asset.id).filter((variant) => variant.status === "failed").length;
       const approved = storyApprovedAssetVariant(asset);
+      const expanded = storyState.assetLibraryExpandedAssetId === asset.id;
+      const cover = approved || variants[0] || null;
+      const expandedVariants = [...new Map([approved, ...variants].filter(Boolean).map((variant) => [variant.id, variant])).values()];
+      const displayVariants = expanded ? expandedVariants : cover ? [cover] : [];
       const shotLabels = storyAssetShotLabels(asset);
       return `<article class="story-library-asset-card ${approved ? "is-approved" : ""}">
         <div class="story-library-asset-head"><div><span>${storyEscape(storyAssetKindLabel(asset.kind))}</span><strong>${storyEscape(asset.name)}</strong></div><em>${approved ? "已定稿" : variants.length ? "待审核" : "未出图"}</em></div>
         <div class="story-library-asset-shots">${shotLabels.length ? shotLabels.map((label) => `<span>${storyEscape(label)}</span>`).join("") : "<span>未绑定分镜</span>"}</div>
         <details><summary>图片提示词</summary><p>${storyEscape(asset.metadata?.imagePrompt || asset.description || "暂无提示词")}</p></details>
-        <div class="story-library-variant-grid">${variants.length ? variants.map((variant) => {
+        <div class="story-library-variant-grid">${displayVariants.length ? displayVariants.map((variant) => {
           const imageUrl = storyAssetVariantImageUrl(variant);
           const pending = ["generating", "queued", "pending"].includes(variant.status);
           return `<div class="story-library-variant ${variant.status === "approved" ? "is-approved" : ""}">
-            ${imageUrl ? `<img src="${storyEscape(imageUrl)}" alt="${storyEscape(asset.name)} 设计图" loading="lazy" />` : `<span>${pending ? storyEscape(storyVariantStatusLabel(variant.status)) : "图片地址刷新中，稍后重开资产库"}</span>`}
+            ${imageUrl ? `<img src="${storyEscape(imageUrl)}" alt="${storyEscape(asset.name)} 设计图" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-story-media-image /><span class="story-media-fallback" data-story-media-fallback hidden>图片加载失败，请重新生成</span>` : `<span>${pending ? storyEscape(storyVariantStatusLabel(variant.status)) : "图片地址刷新中，稍后重开资产库"}</span>`}
             <small>${storyEscape(storyVariantStatusLabel(variant.status))}</small>
-            ${imageUrl && variant.status !== "approved" ? `<button type="button" data-story-approve-variant="${storyEscape(variant.id)}" data-story-asset-id="${storyEscape(asset.id)}">设为定稿</button>` : ""}
+            ${imageUrl && variant.status !== "approved" ? `<button type="button" data-story-approve-variant="${storyEscape(variant.id)}" data-story-asset-id="${storyEscape(asset.id)}" ${storyState.action ? "disabled" : ""}>${storyState.action === "approve-asset" ? "正在定稿…" : "设为定稿"}</button>` : ""}
           </div>`;
         }).join("") : `<div class="story-library-variant-empty"><i data-lucide="image-off"></i><span>尚未生成设计图</span></div>`}</div>
-        ${failedCount ? `<small class="story-library-failed-count">已收起 ${failedCount} 个失败变体</small>` : ""}
+        <div class="story-library-asset-footer">${expandedVariants.length > 1 ? `<button type="button" data-story-library-expand-asset="${storyEscape(asset.id)}">${expanded ? "收起变体" : `查看全部变体 · ${expandedVariants.length}`}</button>` : "<span></span>"}${failedCount ? `<small class="story-library-failed-count">已收起 ${failedCount} 个失败变体</small>` : ""}</div>
       </article>`;
     }).join("");
     return `<div class="story-asset-library-backdrop" data-story-close-asset-library>
@@ -797,6 +842,7 @@
           <label class="story-library-search">搜索<input type="search" value="${storyEscape(storyState.assetLibraryQuery)}" placeholder="按资产名、说明或提示词搜索" data-story-library-query /></label>
           <span>${storyState.assetLibraryLoading ? "正在读取当前分集分镜…" : `${visibleAssets.length} / ${storyState.assets.length} 个资产${selectedShot ? ` · 当前 ${storyAssetShotLabels({ metadata: { episodeIds: [selectedShot.episodeId], shotNos: [selectedShot.shotNo] } })[0] || ""}` : ""}`}</span>
         </div>
+        <p class="story-library-message ${storyState.action === "approve-asset" ? "is-loading" : ""}" ${storyState.assetLibraryMessage ? "" : "hidden"}>${storyEscape(storyState.assetLibraryMessage)}</p>
         <div class="story-asset-library-grid">${cards || `<div class="story-library-state"><strong>当前筛选没有资产</strong><span>切换分集或分镜，或先让 AI 提取本集资产。</span></div>`}</div>
       </section>
     </div>`;
@@ -1224,6 +1270,8 @@
     const selectedShot = storyState.shots.find((shot) => shot.id === storyState.selectedShotId);
     const selectedShotKey = episodeId && selectedShot ? storyShotFilterKey(episodeId, selectedShot.shotNo) : "";
     storyState.assetLibraryOpen = true;
+    storyState.assetLibraryExpandedAssetId = "";
+    storyState.assetLibraryMessage = "";
     await loadStoryAssetLibraryEpisode(episodeId);
     storyState.assetLibraryShotKey = selectedShotKey;
     renderStoryDetail();
@@ -1231,6 +1279,8 @@
 
   function closeStoryAssetLibrary() {
     storyState.assetLibraryOpen = false;
+    storyState.assetLibraryExpandedAssetId = "";
+    storyState.assetLibraryMessage = "";
     renderStoryDetail();
   }
 
@@ -1673,7 +1723,7 @@
       await loadStoryDetail(storyState.selectedId);
       await loadStoryEpisodeShots();
       storyState.episodeTab = "production";
-      storyState.actionMessage = failures.length ? `部分资产生成失败：${failures.slice(0, 3).join("；")}` : `S${String(shot.shotNo).padStart(2, "0")} 的资产设计图已生成，请到右上角资产库审核定稿。`;
+      storyState.actionMessage = failures.length ? `部分资产生成失败：${failures.slice(0, 3).join("；")}` : `S${String(shot.shotNo).padStart(2, "0")} 的资产设计图已生成，可直接在分镜卡片内定稿。`;
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -1700,7 +1750,7 @@
       await createStoryAssetImageVariant(asset);
       await loadStoryDetail(storyState.selectedId);
       storyState.episodeTab = "production";
-      storyState.actionMessage = `「${asset.name}」设计图已生成，请审核后设为定稿。`;
+      storyState.actionMessage = `「${asset.name}」设计图已生成，可在当前分镜直接设为定稿。`;
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -1725,7 +1775,7 @@
       return;
     }
     if (!assets.length || !assets.every((asset) => storyAssetHasApprovedImage(asset))) {
-      storyState.actionMessage = "请先在资产库中定稿此镜需要的全部资产图。";
+      storyState.actionMessage = "请先在当前分镜定稿全部资产图。";
       renderStoryDetail();
       return;
     }
@@ -1843,12 +1893,45 @@
     if (!projectId || !assetId || !variantId || storyState.action) return;
     storyState.action = "approve-asset";
     storyState.actionMessage = "正在定稿资产设计图…";
+    storyState.assetLibraryMessage = "正在定稿这张资产设计图…";
     renderStoryDetail();
     try {
-      await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/variants/${encodeURIComponent(variantId)}/approve`, { method: "POST" });
+      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/variants/${encodeURIComponent(variantId)}/approve`, { method: "POST" });
       await loadStoryDetail(projectId);
       storyState.episodeTab = "production";
-      storyState.actionMessage = "资产已定稿。全部资产定稿后可进入模型与提示词。";
+      storyState.actionMessage = `「${payload.asset?.name || "资产"}」已定稿。`;
+      storyState.assetLibraryMessage = storyState.actionMessage;
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+      storyState.assetLibraryMessage = `定稿失败：${storyState.actionMessage}`;
+    } finally {
+      storyState.action = "";
+      renderStoryDetail();
+    }
+  }
+
+  async function useStoryAssetVariant(assetId = "") {
+    const projectId = storyState.selectedId;
+    const id = String(assetId || "");
+    const selector = [...document.querySelectorAll("[data-story-reuse-variant]")]
+      .find((select) => select.dataset.storyReuseVariant === id);
+    const variantId = String(selector?.value || "");
+    if (!projectId || !id || !variantId || storyState.action) {
+      storyState.actionMessage = "请先从已有定稿素材中选择一张。";
+      renderStoryDetail();
+      return;
+    }
+    storyState.action = "reuse-asset";
+    storyState.actionMessage = "正在关联已有定稿素材…";
+    renderStoryDetail();
+    try {
+      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(id)}/use-variant`, {
+        method: "POST",
+        body: { variantId },
+      });
+      await loadStoryDetail(projectId);
+      storyState.episodeTab = "production";
+      storyState.actionMessage = `已关联「${payload.asset?.name || "资产"}」的已有定稿素材。`;
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -2050,6 +2133,12 @@
     storyEl("storyProjectDetail")?.addEventListener("click", (event) => {
       if (event.target.classList?.contains("story-asset-library-backdrop") || event.target.closest("button[data-story-close-asset-library]")) closeStoryAssetLibrary();
       else if (event.target.closest("[data-story-open-asset-library]")) openStoryAssetLibrary();
+      else if (event.target.closest("[data-story-library-expand-asset]")) {
+        const button = event.target.closest("[data-story-library-expand-asset]");
+        const assetId = button?.dataset.storyLibraryExpandAsset || "";
+        storyState.assetLibraryExpandedAssetId = storyState.assetLibraryExpandedAssetId === assetId ? "" : assetId;
+        renderStoryDetail();
+      }
       else if (event.target.closest("[data-story-refresh-detail]")) loadStoryProjects(storyState.selectedId);
       else if (event.target.closest("[data-story-back]")) openStoryLibrary();
       else if (event.target.closest("[data-story-tab]")) setStoryDetailTab(event.target.closest("[data-story-tab]")?.dataset.storyTab || "");
@@ -2075,6 +2164,7 @@
         const button = event.target.closest("[data-story-approve-variant]");
         approveStoryAssetImage(button.dataset.storyAssetId || "", button.dataset.storyApproveVariant || "");
       }
+      else if (event.target.closest("[data-story-use-variant]")) useStoryAssetVariant(event.target.closest("[data-story-use-variant]")?.dataset.storyUseVariant || "");
       else if (event.target.closest("[data-story-plan-shot-prompt]")) planStoryEpisodePrompts(event.target.closest("[data-story-plan-shot-prompt]")?.dataset.storyPlanShotPrompt || "");
       else if (event.target.closest("[data-story-plan-prompts]")) planStoryEpisodePrompts();
       else if (event.target.closest("[data-story-generate-shot-video]")) generateStoryShotVideo(event.target.closest("[data-story-generate-shot-video]")?.dataset.storyGenerateShotVideo || "");
@@ -2106,6 +2196,13 @@
         }
       }
     });
+    storyEl("storyProjectDetail")?.addEventListener("error", (event) => {
+      const image = event.target;
+      if (!image?.matches?.("img[data-story-media-image]")) return;
+      image.hidden = true;
+      const fallback = image.parentElement?.querySelector("[data-story-media-fallback]");
+      if (fallback) fallback.hidden = false;
+    }, true);
     storyEl("storyProjectDetail")?.addEventListener("submit", (event) => {
       if (event.target?.id === "storyEpisodeForm") createStoryEpisode(event);
       else if (event.target?.id === "storyEpisodeEditForm") event.preventDefault();
