@@ -187,6 +187,7 @@
           </div>
         </div>`;
       actions.innerHTML = `
+        <button class="story-create-button" type="button" data-story-create-open title="新建剧集项目"><i data-lucide="plus"></i><span>新增</span></button>
         <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>资产库</span></button>
         <button class="story-icon-button" type="button" data-story-refresh-detail title="刷新项目" aria-label="刷新项目"><i data-lucide="refresh-cw"></i></button>`;
     } else {
@@ -2531,6 +2532,17 @@
     });
     storyEl("storyProjectForm")?.addEventListener("submit", createStoryProject);
     storyEl("storyCreateProjectClose")?.addEventListener("click", () => setStoryCreateOpen(false));
+    document.querySelector(".story-library-head")?.addEventListener("click", (event) => {
+      if (event.target.closest("#storyCreateProjectToggle") || event.target.closest("[data-story-create-open]")) {
+        if (storyState.view !== "library") openStoryLibrary();
+        setStoryCreateOpen(true);
+        return;
+      }
+      if (event.target.closest("#storyRefreshProjects")) loadStoryProjects(storyState.view === "detail" ? storyState.selectedId : "");
+      else if (event.target.closest("[data-story-refresh-detail]")) loadStoryProjects(storyState.selectedId);
+      else if (event.target.closest("[data-story-open-asset-library]")) openStoryAssetLibrary();
+      else if (event.target.closest("[data-story-back]")) openStoryLibrary();
+    });
     storyEl("storyProjectList")?.addEventListener("click", (event) => {
       const create = event.target.closest("[data-story-create-open]");
       if (create) {
