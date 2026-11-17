@@ -1,3 +1,10 @@
+## 2026-11-17 Step DO: creation action now follows project context
+
+- Corrected the semantic mistake in the compact header: `新增` is not a generic action copied into every view. The project-library view exposes `新增项目`; project detail exposes `新增剧集` instead. Both use the existing one-line header, with no extra toolbar or second header row.
+- `新增剧集` opens the `分集分镜树` tab, clears the current episode/shot selection, reveals the manual episode form, and focuses the episode title input.
+- Source commit `809ea9e2` is pushed to `old-site`; release snapshot `c604cdb7` is pushed to `platform-release` and deployed through `scripts/deploy_local.sh --site old`. Production active port is `4174`; `/api/health` returned `{"ok":true}`.
+- Verification passed after continuation: `node --check platform.story.js`, focused story canvas tests 18/18, `npm run check:undef`, and `git diff --check`. Production visual verification was unavailable because the browser session was logged out; behavior is covered by the focused source/DOM assertions. Uncommitted `server.parts/part-45.js` remains unrelated and was not included.
+
 ## 2026-11-17 Step DN: compact story header actions restored and deployed
 
 - The compact detail header now includes `新增` before `资产库` and refresh, keeping all project actions on the existing one-line header without adding another toolbar.
