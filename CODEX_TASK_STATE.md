@@ -7,6 +7,14 @@
 - Full suite: `1403 pass / 1 fail / 2 skipped`. The only failure remains the pre-existing serializer field-order assertion in `test/generation-record-list-refresh.test.js:385` (`resultAssetId` / `resultAssetIds` ordering), which predates the change and is not in the candidate path being validated.
 - Candidate-only release, runtime acceptance, benchmark, and promotion gates remain pending. Live was not touched.
 
+## 2026-11-17 Step DY: empty story project null-safe render
+
+- Reproduced the post-deletion/new-project regression from the code path: a project with zero scripts passes `null` into the analysis toolbar, where `storyScriptTextStats(null)` attempted to read `.content`.
+- Made script identity, text statistics, and episode-range helpers null-safe so an empty project renders its normal “未选择剧本” state instead of throwing.
+- Added a focused P1 regression test that executes those helpers plus the analysis toolbar with `null`, asserting zero stats and a disabled analyze action.
+- Verification: `test/story-canvas-p1.test.js` 21/21, `test/story-canvas-p0.test.js` 4/4, `npm run check:undef`, syntax checks, and `git diff --check` pass.
+- The unrelated dirty `server.parts/part-45.js` remains untouched and must stay out of the commit/release.
+
 ## 2026-11-17 Step DX: deletion closure for every story creation level
 
 - Added matching delete entry points for every story creation level: project cards and project detail, current manuscript entry segment, episode tree rows, and shot tree rows.

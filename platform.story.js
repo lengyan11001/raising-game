@@ -260,7 +260,8 @@
   }
 
   function storyScriptManuscriptId(script = {}) {
-    return String(script.manuscriptId || script.id || "").trim();
+    const source = script && typeof script === "object" ? script : {};
+    return String(source.manuscriptId || source.id || "").trim();
   }
 
   function storyManuscriptGroups() {
@@ -413,7 +414,8 @@
   }
 
   function storyScriptTextStats(script = {}) {
-    const content = String(script.content || "");
+    const source = script && typeof script === "object" ? script : {};
+    const content = String(source.content || "");
     return {
       characters: content.replace(/\s+/g, "").length,
       paragraphs: content.split(/\n+/).map((item) => item.trim()).filter(Boolean).length,
@@ -421,6 +423,7 @@
   }
 
   function storyScriptEpisodeRange(script = {}) {
+    if (!script || typeof script !== "object") return "尚未拆集";
     const group = storyManuscriptForScript(script);
     const episodes = group?.episodesByVersion?.get(script.id) || [];
     if (!episodes.length) return "尚未拆集";

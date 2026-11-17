@@ -26,6 +26,41 @@ function storyNumberingHelpers() {
   return context;
 }
 
+function storyEmptyProjectHelpers() {
+  const source = read("platform.story.js");
+  const functionSource = (name, nextName) => {
+    const start = source.indexOf(`function ${name}(`);
+    const end = source.indexOf(`function ${nextName}(`, start);
+    assert.notEqual(start, -1, `${name} missing`);
+    assert.notEqual(end, -1, `${nextName} missing`);
+    return source.slice(start, end);
+  };
+  const context = {
+    storyState: { action: "" },
+    storyEscape: (value = "") => String(value || ""),
+    storyPlanningEpisodeTargetValue: () => "",
+    storyPlanningDurationValue: () => "",
+  };
+  const snippets = [
+    functionSource("storyScriptTextStats", "storyScriptEpisodeRange"),
+    functionSource("storyScriptEpisodeRange", "storyDurationMinutesValue"),
+    functionSource("renderStoryAnalysisControls", "renderStoryAnalysisSection"),
+  ].join("\n");
+  vm.runInNewContext(`${snippets}\nthis.storyScriptTextStats = storyScriptTextStats; this.storyScriptEpisodeRange = storyScriptEpisodeRange; this.renderStoryAnalysisControls = renderStoryAnalysisControls;`, context);
+  return context;
+}
+
+test("new empty projects render the analysis controls without a selected script", () => {
+  const { storyScriptTextStats, storyScriptEpisodeRange, renderStoryAnalysisControls } = storyEmptyProjectHelpers();
+  const stats = storyScriptTextStats(null);
+  assert.equal(stats.characters, 0);
+  assert.equal(stats.paragraphs, 0);
+  assert.equal(storyScriptEpisodeRange(null), "尚未拆集");
+  const html = renderStoryAnalysisControls(null);
+  assert.match(html, /当前录入段：未选择剧本/);
+  assert.match(html, /data-story-analyze[^>]*disabled/);
+});
+
 test("story continuation numbering starts after the manuscript and re-analysis keeps its segment range", () => {
   const { storyStartEpisodeNoForScript, storyRenumberAnalysis } = storyNumberingHelpers();
   const episodes = [
