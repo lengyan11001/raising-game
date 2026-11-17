@@ -135,6 +135,12 @@ test("story creation keeps manuscripts and versions independent while retaining 
   assert.match(story, /event\.target\.closest\("\[data-story-script-id\]"\)/);
   assert.match(story, /function renderStoryManuscriptCard\(/);
   assert.match(story, /function storyManuscriptGroups\(/);
+  assert.match(story, /collapsedManuscriptIds: \[\]/);
+  assert.match(story, /collapsedEpisodeIds: \[\]/);
+  assert.match(story, /expandedManuscriptIds\.includes\(group\.id\) && !storyState\.collapsedManuscriptIds\.includes\(group\.id\)/);
+  assert.match(story, /expandedEpisodeIds\.includes\(episode\.id\) && !storyState\.collapsedEpisodeIds\.includes\(episode\.id\)/);
+  assert.match(story, /function toggleStoryManuscript[\s\S]*collapsedManuscriptIds/);
+  assert.match(story, /function toggleStoryEpisode[\s\S]*collapsedEpisodeIds/);
   assert.match(story, /data-story-analysis-target-episodes/);
   assert.match(story, /data-story-analysis-duration/);
   assert.match(story, /mode: storyState\.scriptCreateMode/);

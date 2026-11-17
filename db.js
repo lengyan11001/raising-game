@@ -1690,6 +1690,29 @@ async function ensureSchemaInner({ client = null } = {}) {
   `);
   await run(`ALTER TABLE app_story_episodes DROP CONSTRAINT IF EXISTS app_story_episodes_project_id_episode_no_key;`);
   await run(`CREATE UNIQUE INDEX IF NOT EXISTS app_story_episodes_manuscript_episode_uidx ON app_story_episodes (project_id, source_manuscript_id, episode_no);`);
+  await run(`
+    WITH legacy_manuscripts AS (
+      SELECT id,
+             first_value(id) OVER (
+               PARTITION BY project_id, title
+               ORDER BY version_no ASC, created_at ASC, id ASC
+             ) AS canonical_manuscript_id
+      FROM app_story_script_versions
+      WHERE manuscript_id = id
+    )
+    UPDATE app_story_script_versions sv
+    SET manuscript_id = legacy_manuscripts.canonical_manuscript_id
+    FROM legacy_manuscripts
+    WHERE sv.id = legacy_manuscripts.id
+      AND sv.manuscript_id = sv.id;
+  `);
+  await run(`
+    UPDATE app_story_episodes e
+    SET source_manuscript_id = sv.manuscript_id
+    FROM app_story_script_versions sv
+    WHERE e.source_script_version_id = sv.id
+      AND e.source_manuscript_id <> sv.manuscript_id;
+  `);
   await run(`CREATE INDEX IF NOT EXISTS app_story_episodes_project_idx ON app_story_episodes (project_id, episode_no ASC);`);
   await run(`
     CREATE TABLE IF NOT EXISTS app_story_assets (
@@ -9522,6 +9545,7 @@ const SCHEMA_MIGRATION_KEYS = Object.freeze([
   "2026-11-16-story-canvas-p0-v1",
   "2026-11-17-story-script-targeting-v1",
   "2026-11-17-story-manuscript-lineage-v1",
+  "2026-11-17-story-legacy-manuscript-group-v1",
 ]);
 const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
 const REQUIRED_SCHEMA_TABLES = Object.freeze([

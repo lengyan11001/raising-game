@@ -1,3 +1,12 @@
+## 2026-11-17 Step DS: legacy manuscript grouping and stable tree disclosure
+
+- Added migration `2026-11-17-story-legacy-manuscript-group-v1`. It repairs production rows created before manuscript lineage only when `manuscript_id = id`, groups them by `(project_id, title)`, keeps the oldest version as the canonical manuscript, and updates episode ownership to that canonical ID. New manuscripts with independent IDs are untouched.
+- The runtime bootstrap schema repeats the repair idempotently, while the migration ledger/readiness path requires the new version so deployed databases cannot silently skip it.
+- Story tree disclosure now keeps explicit collapsed manuscript/episode IDs. Manual collapse takes precedence over selection and background refresh, preventing a collapsed branch from reopening itself.
+- Verification before commit: focused story/migration suite passes 30/30; `node --check db.js`, `node --check ops/run-db-migrations.js`, `node --check platform.story.js`, `npm run check:undef`, and `git diff --check` pass.
+- Source prior to this repair was commit `80ec3d68`; platform release `5dba7a0f246727a4e9619c7a9859517c80063684` was deployed to Old and health checks passed. This repair still needs its own commit, platform-release snapshot, Old deployment, and production database verification.
+- Unrelated dirty file `server.parts/part-45.js` must remain excluded from commit and release.
+
 ## 2026-11-17 Step DR: manuscript lineage and script workflow closure
 
 - Script versions now belong to an independent manuscript lineage. New manuscripts get distinct `manuscript_id` values and independent `V01` numbering; saving a new version keeps the same manuscript and increments only that lineage.
@@ -7,7 +16,7 @@
 - AI analysis remains a preview below saved manuscripts; confirmation writes episode records. The episode tab renders a `manuscript -> episode -> shot` tree with independent disclosure and selection state, cached shot loads, and a dedicated shot workspace.
 - Shot planning prompt now uses synopsis density signals and explicitly forbids defaulting to 10 shots. A `[story-shot-plan]` log records raw/normalized counts for production verification.
 - Historical `Vxx` cards now switch the active script version for analysis and persistence; the rendered buttons previously lacked a delegated click handler.
-- Tests updated for the eighth migration and new lineage behavior. Focused suite passes 30/30; `npm run check:undef`, syntax checks, and `git diff --check` pass. Source is not committed or deployed yet.
+- Tests updated for the eighth migration and new lineage behavior. Focused suite passes 30/30; `npm run check:undef`, syntax checks, and `git diff --check` pass. Source commit `80ec3d68` was released as platform commit `5dba7a0f246727a4e9619c7a9859517c80063684` and deployed to Old.
 - Unrelated dirty file `server.parts/part-45.js` must remain excluded from the commit and release.
 
 ## 2026-11-17 Step DQ: story script targeting schema migration repaired

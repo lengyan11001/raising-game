@@ -28,7 +28,9 @@
     analysisDurationDirty: false,
     selectedEpisodeId: "",
     expandedManuscriptIds: [],
+    collapsedManuscriptIds: [],
     expandedEpisodeIds: [],
+    collapsedEpisodeIds: [],
     shotCache: {},
     shotLoadingEpisodeIds: [],
     episodeTab: "outline",
@@ -535,12 +537,12 @@
     const groups = storyManuscriptGroups();
     const selectedManuscript = selectedStoryManuscript();
     const nodes = groups.map((group) => {
-      const expanded = storyState.expandedManuscriptIds.includes(group.id);
+      const expanded = storyState.expandedManuscriptIds.includes(group.id) && !storyState.collapsedManuscriptIds.includes(group.id);
       const active = selectedManuscript?.id === group.id;
       const latest = group.latest || group.versions[0] || {};
       const episodeNodes = group.episodes.map((episode) => {
         const selected = episode.id === selectedEpisode?.id;
-        const episodeExpanded = storyState.expandedEpisodeIds.includes(episode.id);
+        const episodeExpanded = storyState.expandedEpisodeIds.includes(episode.id) && !storyState.collapsedEpisodeIds.includes(episode.id);
         const cachedShots = selected && storyState.shots.length ? storyState.shots : storyEpisodeShotsFromCache(episode.id);
         const shots = episodeExpanded ? [...cachedShots].sort((a, b) => Number(a.shotNo || 0) - Number(b.shotNo || 0)) : [];
         const loadingShots = storyState.shotLoadingEpisodeIds.includes(episode.id);
@@ -1311,7 +1313,9 @@
       storyState.selectedEpisodeId = "";
       storyState.selectedShotId = "";
       storyState.expandedManuscriptIds = [];
+      storyState.collapsedManuscriptIds = [];
       storyState.expandedEpisodeIds = [];
+      storyState.collapsedEpisodeIds = [];
       storyState.shotCache = {};
       storyState.shotLoadingEpisodeIds = [];
       storyState.assetLibraryEpisodeId = "";
@@ -1351,7 +1355,9 @@
         const episodeManuscriptId = String(selectedEpisode.sourceManuscriptId || "");
         if (episodeManuscriptId) storyState.selectedManuscriptId = episodeManuscriptId;
       }
-      if (storyState.selectedManuscriptId && !storyState.expandedManuscriptIds.includes(storyState.selectedManuscriptId)) {
+      if (storyState.selectedManuscriptId
+        && !storyState.collapsedManuscriptIds.includes(storyState.selectedManuscriptId)
+        && !storyState.expandedManuscriptIds.includes(storyState.selectedManuscriptId)) {
         storyState.expandedManuscriptIds.push(storyState.selectedManuscriptId);
       }
       if (storyState.analysisScriptId && storyState.analysisScriptId !== storyState.selectedScriptId) {
@@ -1471,10 +1477,13 @@
   function toggleStoryManuscript(manuscriptId = "") {
     const id = String(manuscriptId || "");
     if (!id) return;
-    if (storyState.expandedManuscriptIds.includes(id)) {
+    const isCollapsed = storyState.collapsedManuscriptIds.includes(id);
+    if (!isCollapsed && storyState.expandedManuscriptIds.includes(id)) {
       storyState.expandedManuscriptIds = storyState.expandedManuscriptIds.filter((item) => item !== id);
+      if (!storyState.collapsedManuscriptIds.includes(id)) storyState.collapsedManuscriptIds.push(id);
     } else {
-      storyState.expandedManuscriptIds.push(id);
+      storyState.collapsedManuscriptIds = storyState.collapsedManuscriptIds.filter((item) => item !== id);
+      if (!storyState.expandedManuscriptIds.includes(id)) storyState.expandedManuscriptIds.push(id);
     }
     renderStoryDetail();
   }
@@ -1482,12 +1491,15 @@
   async function toggleStoryEpisode(episodeId = "") {
     const id = String(episodeId || "");
     if (!id) return;
-    if (storyState.expandedEpisodeIds.includes(id)) {
+    const isCollapsed = storyState.collapsedEpisodeIds.includes(id);
+    if (!isCollapsed && storyState.expandedEpisodeIds.includes(id)) {
       storyState.expandedEpisodeIds = storyState.expandedEpisodeIds.filter((item) => item !== id);
+      if (!storyState.collapsedEpisodeIds.includes(id)) storyState.collapsedEpisodeIds.push(id);
       renderStoryDetail();
       return;
     }
-    storyState.expandedEpisodeIds.push(id);
+    storyState.collapsedEpisodeIds = storyState.collapsedEpisodeIds.filter((item) => item !== id);
+    if (!storyState.expandedEpisodeIds.includes(id)) storyState.expandedEpisodeIds.push(id);
     renderStoryDetail();
     if (storyEpisodeShotsLoaded(id)) return;
     try {
@@ -1563,6 +1575,7 @@
     const manuscriptId = String(episode?.sourceManuscriptId || "");
     if (manuscriptId) {
       selectStoryManuscriptById(manuscriptId);
+      storyState.collapsedManuscriptIds = storyState.collapsedManuscriptIds.filter((item) => item !== manuscriptId);
       if (!storyState.expandedManuscriptIds.includes(manuscriptId)) storyState.expandedManuscriptIds.push(manuscriptId);
     }
     storyState.selectedEpisodeId = id;
