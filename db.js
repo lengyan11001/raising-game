@@ -2424,6 +2424,7 @@ async function readAppDbFromTables(defaultDb = {}, options = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
   const includeUserAssets = options.includeUserAssets !== false;
+  const userAssetsUserId = String(options.userAssetsUserId || "").trim();
   // A full application snapshot used to issue every table query through the
   // shared pool at once. Two callers could therefore consume all 20 pool slots
   // before either one finished, starving auth, notifications, and generation.
@@ -2437,9 +2438,11 @@ async function readAppDbFromTables(defaultDb = {}, options = {}) {
     const walletOrders = await readRows(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`);
     const referralWithdrawals = await readRows(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`);
     const creditLedger = await readRows(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`);
-    const userAssets = includeUserAssets
-      ? await readRows(`SELECT * FROM app_user_assets ORDER BY created_at DESC`)
-      : [];
+    const userAssets = !includeUserAssets
+      ? []
+      : userAssetsUserId
+        ? await readRows(`SELECT * FROM app_user_assets WHERE user_id = $1 ORDER BY created_at DESC`, [userAssetsUserId])
+        : await readRows(`SELECT * FROM app_user_assets ORDER BY created_at DESC`);
     const userCharacters = await readRows(`SELECT * FROM app_user_characters ORDER BY created_at DESC`);
     const userUnlocks = await readRows(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`);
     // Admin home items and support messages have dedicated paginated readers.

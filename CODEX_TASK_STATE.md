@@ -1,3 +1,24 @@
+## 2026-11-17 Step CB: deployment/post-cutover diagnosis and bounded auth media scope
+
+- Investigated the user-visible deployment interruption and frontend slowdown without changing production during diagnosis.
+- Read-only production check at 2026-11-17 21:38 +08: public traffic is on `raising-game-demo-b.service` port `4175`; `raising-game-demo.service` port `4174` is the hot backup. Both services are active with `NRestarts=0`; all three public health URLs and both internal health URLs returned 200.
+- The latest rolling deployment actually completed successfully from about 21:29:59 to 21:34:53 +08. The fixed cost is the two 120-second canary observations, so roughly five minutes is expected and not a hung deploy. No Nginx error/crit/alert, application fatal/timeout, 5xx, or 499 appeared during that deployment window.
+- Earlier user-visible failures were separate from the final rolling transaction: PostgreSQL logs showed repeated full-table `app_user_assets` reads taking roughly 7-13 seconds during 19:22-19:43; at 19:26 tag/promo requests returned 500 because the application could not obtain a PostgreSQL connection before timeout. Nginx access logs also show the corresponding 499/500 burst.
+- The frontend slowdown is therefore primarily backend database contention during authenticated snapshot loading, not a static asset outage. The candidate-host disk is healthy (`46%`, 52G free), load is low, and the root volume is fully expanded.
+- Implemented a bounded auth read: `getAuth()` validates the session/API token first, then loads only the current user's `app_user_assets` rows. Anonymous and invalid-token requests no longer read an application snapshot. `requireAdmin()` explicitly retains all-user asset access for admin screens.
+- Added regression coverage in `test/generation-db-scope.test.js`; focused auth/generation tests passed `32/32`, full `npm test` passed `1361 pass / 0 fail / 1 skipped`, `npm run check:undef`, `node --check`, and `git diff --check` all passed.
+- Production was not modified in this step: no deployment, service restart, Nginx reload, traffic switch, migration, or database write occurred.
+- Next gate: integrate this committed change into an `old-site` integration commit, build a platform release, run candidate-only deployment on the inactive `4174` instance, and validate its release/PID/health before any explicit promotion. Keep the existing 1%/5% canaries until measured evidence supports shortening them.
+
+## 2026-11-16 Step CA: Old root disk expanded online to 100 GiB
+
+- Production root volume `d-t4na6uz7kzusbfm5aqp3` was expanded from 50 GiB to 100 GiB through the cloud console by the user; the guest block device then showed 100 GiB while `vda3` remained 49.8 GiB.
+- Ran `growpart /dev/vda 3` followed by online `resize2fs /dev/vda3`. The partition now runs to the volume end and `/dev/vda3` is 99 GiB ext4, mounted on `/`.
+- Verified: root usage changed from `42G used / 5.1G available / 90%` to `42G used / 53G available / 45%`; inode use is 4%; GPT no longer reports unused tail space.
+- Verification passed: 64 MiB fsync write/delete test; PostgreSQL 16.15 is not in recovery and accepted `CHECKPOINT`; local `pgsql_tmp` is 4 KiB; primary 4174 remains PID `597365`, candidate 4175 PID `607669`, both `NRestarts=0`; Nginx and PostgreSQL active; internal 4174/4175 livez ready; all three public health endpoints returned 200.
+- No service restart, traffic switch, database restart, Nginx change, code deployment, cleanup, or media deletion occurred. The cloud-side snapshot status was not independently read before the online partition resize.
+- Disk expansion buys approximately two to four months at the prior media growth rate. It does not replace the P0/P1 work: backup failure repair, disk-space alerting, bounded user-asset authentication queries, PostgreSQL temp-file protection, R2-primary media lifecycle, and legacy-media quarantine/cleanup.
+
 ## 2026-11-16 Step BY: explicit Old promotion guard and blast-radius policy
 
 - Read-only production check at 2026-11-16 00:54 +08: primary 4174 remained MainPID `317565`, candidate 4175 remained MainPID `339397`, Nginx remained MainPID `3914088`, all `NRestarts=0`; internal 4174/4175 health and all three public health URLs returned 200. Root disk is 87% used with 6.5G free. No production process, traffic, Nginx, database, or file was changed.
