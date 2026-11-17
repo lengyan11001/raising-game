@@ -127,7 +127,10 @@ test("story creation targets an episode and shot and opens a dedicated shot work
   const routes = read("server.parts/part-42.js");
   assert.match(story, /id="storyScriptTargetEpisode" data-story-script-target-episode/);
   assert.match(story, /id="storyScriptTargetShot" data-story-script-target-shot/);
-  assert.match(story, /placeholder="留空由 AI 规划"/);
+  assert.match(story, /data-story-analysis-target-episodes/);
+  assert.match(story, /data-story-analysis-duration/);
+  assert.match(story, /placeholder="由 AI 判断"/);
+  assert.match(story, /placeholder="由 AI 计算"/);
   assert.match(story, /body: \{ title, content, targetEpisodeId, targetShotId, estimatedDurationSeconds \}/);
   const saveScript = story.slice(story.indexOf("async function saveStoryScriptDraft("), story.indexOf("async function analyzeStoryDraft("));
   assert.match(saveScript, /targetEpisodeSelect \? targetEpisodeSelect\.value/);
@@ -138,11 +141,11 @@ test("story creation targets an episode and shot and opens a dedicated shot work
   assert.match(db, /ADD COLUMN IF NOT EXISTS target_shot_id/);
   assert.match(db, /ADD COLUMN IF NOT EXISTS estimated_duration_seconds/);
   assert.match(handlerBody(handlers, "handleCreateStoryScript"), /targetEpisodeId[\s\S]*targetShotId[\s\S]*estimatedDurationSeconds/);
-  assert.match(handlers, /async function analyzeStoryScript\(\{ project = \{\}, script = \{\}, targetEpisodes = 0, targetEpisode = null, targetShot = null \}/);
+  assert.match(handlers, /async function analyzeStoryScript\(\{ project = \{\}, script = \{\}, targetEpisodes = 0, targetDurationSeconds = null, targetEpisode = null, targetShot = null \}/);
   assert.match(handlers, /目标分集：\$\{targetEpisodeLabel\}/);
   assert.match(handlers, /目标分镜：\$\{targetShotLabel\}/);
-  assert.match(handlers, /预计时长：约 \$\{estimatedDurationSeconds\} 秒/);
-  assert.match(handlerBody(handlers, "handleAnalyzeStoryProject"), /script\.targetEpisodeId[\s\S]*script\.targetShotId[\s\S]*targetEpisode, targetShot/);
+  assert.match(handlers, /本次拆解的目标总时长/);
+  assert.match(handlerBody(handlers, "handleAnalyzeStoryProject"), /script\.targetEpisodeId[\s\S]*script\.targetShotId[\s\S]*targetDurationSeconds: body\.targetDurationSeconds/);
   assert.match(routes, /storyShotGenerationRefsMatch[\s\S]*handleCreateStoryGenerationRef/);
   assert.match(routes, /storyGenerationRefMatch[\s\S]*handleUpdateStoryGenerationRef/);
 
@@ -214,15 +217,27 @@ test("story episode workbench persists outline edits and AI-planned shots", () =
 test("story episodes and durations are AI-planned unless the user explicitly overrides them", () => {
   const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
   const story = read("platform.story.js");
+  const css = read("platform.css");
   const html = read("platform.html");
   const db = read("db.js");
   assert.match(handlers, /"durationSeconds": 0/);
   assert.match(handlers, /durationSeconds 必须由你按本集实际制作内容计算/);
   assert.match(handlers, /禁止默认套用 90 秒/);
+  assert.match(handlers, /目标集数或目标时长时，它们是硬约束/);
+  assert.match(handlers, /durationSeconds 总和必须在该目标上下 10% 以内/);
+  assert.match(handlers, /targetDurationSeconds: body\.targetDurationSeconds/);
   assert.match(handlers, /episodeTarget = Math\.max\(0,/);
-  assert.match(story, /计划集数（可选）[\s\S]*留空由 AI 判断/);
+  assert.match(story, /class="story-planning-card"/);
+  assert.match(story, /两项都可以留空[\s\S]*完整短剧/);
+  assert.match(story, /目标集数<em>留空自动<\/em>/);
+  assert.match(story, /目标时长<em>留空自动<\/em>/);
+  assert.match(story, /body: \{ scriptVersionId: script\.id, targetEpisodes, targetDurationSeconds \}/);
+  assert.match(story, /analysisTargetEpisodesDirty = true/);
+  assert.match(story, /analysisDurationDirty = true/);
   assert.match(story, /集数由 AI 规划/);
   assert.match(html, /预计集数（可选）[\s\S]*留空由 AI 判断/);
+  assert.match(css, /\.story-planning-card \{[^}]*border: 1px solid rgba\(255, 79, 163, \.22\)/);
+  assert.match(css, /\.story-planning-fields \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(db, /episode_target INTEGER NOT NULL DEFAULT 0/);
   assert.match(db, /ALTER COLUMN episode_target SET DEFAULT 0/);
 });

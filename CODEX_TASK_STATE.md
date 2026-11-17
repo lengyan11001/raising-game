@@ -1,3 +1,11 @@
+## 2026-11-17 Step DJ: Optional story planning goals UI and hard constraints
+
+- Reworked the story script workspace so the title is a separate full-width field, edit scope is compact, and AI production goals no longer look like scattered numeric inputs. The dedicated planning card makes it explicit that both target episode count and target duration are optional and can be left to AI.
+- Goal semantics are now: both blank means AI plans a complete short drama from the source; only episode count set means AI plans duration; only duration set means AI plans episode count; when either goal is set it is a hard prompt constraint. Duration is entered in minutes but sent/stored in seconds, and single-episode edits treat duration as the target for that episode.
+- The analyzer prompt requires set goals to be honored within about 10%, requires complete causal storytelling when an exact target is tight, and forbids falling back to a default 90-second episode. Analysis preview shows total duration plus each episode's duration and `durationBasis`.
+- Preserved story input state across rerenders so switching the scope/target fields does not clear user choices. Focused tests cover optional goals, dirty-state preservation, minute-to-second conversion, and prompt constraints.
+- Verification: changed-file syntax checks, `test/story-canvas-p1.test.js` 18/18, `npm run check:undef`, and `git diff --cached --check` all pass.
+
 ## 2026-11-17 Step DI: AI owns episode count and duration
 
 - Removed the remaining 90-second and one-episode defaults from the story pipeline. New projects/analyzer inputs can leave episode and duration planning to AI; zero means undecided rather than a forced value.

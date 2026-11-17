@@ -893,7 +893,8 @@ const STORY_ANALYZER_SYSTEM_PROMPT = `你是专业中文影视编剧与制片拆
 6. durationSeconds 必须由你按本集实际制作内容计算，不得使用固定模板，不得默认输出 90 秒。先列出本集需要保留的情节点、场景转换、关键对白和心理/动作转折，再判断完整讲清这些内容需要多少秒；如果短时长放不下，就延长本集或把内容拆成更多集，禁止为了压缩集数而删掉因果链。
 7. durationBasis 必须写明本集时长的计算依据，包含大概情节点数、场景数、关键对白量和主要转折点，不能写“节奏需要”之类空话。
 8. characters 和 scenes 去重，只保留对制作有用的稳定资产；角色外形要具体、可复用，不要写镜头动作。
-9. 保持原文人物关系、时代、类型和核心冲突，不擅自改结局，不添加原文没有依据的主要事件。`;
+9. 保持原文人物关系、时代、类型和核心冲突，不擅自改结局，不添加原文没有依据的主要事件。
+10. 用户指定目标集数或目标时长时，它们是硬约束：目标集数必须等于返回的 episodes 数量；目标时长对应 episodes 的 durationSeconds 总和，允许上下浮动 10%。两项同时指定时必须同时满足；若原文容量确实冲突，优先保证剧情因果完整，并在 summary 中明确说明。未指定时，不得套用固定集数或固定秒数，要按原文完整剧情规划。`;
 
 function storyParseJsonObject(text = "") {
   const source = String(text || "").trim();
@@ -970,7 +971,7 @@ function storyAnalysisFromModel(payload = {}) {
   };
 }
 
-async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 0, targetEpisode = null, targetShot = null } = {}) {
+async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 0, targetDurationSeconds = null, targetEpisode = null, targetShot = null } = {}) {
   const model = storyAnalyzerModel();
   if (!model) {
     throw Object.assign(new Error("剧本拆解模型尚未配置。"), {
@@ -982,14 +983,19 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
   if (!content) {
     throw Object.assign(new Error("请先保存剧本或小说文本。"), { statusCode: 400, code: "STORY_SCRIPT_EMPTY" });
   }
-  const target = Math.max(0, Math.min(50, Math.round(Number(targetEpisodes || 0) || 0)));
+  const target = targetEpisode ? 0 : Math.max(0, Math.min(30, Math.round(Number(targetEpisodes || 0) || 0)));
   const targetEpisodeLabel = targetEpisode
     ? `E${String(targetEpisode.episodeNo || 0).padStart(2, "0")} · ${String(targetEpisode.title || "未命名剧集")}`
     : "";
   const targetShotLabel = targetShot
     ? `S${String(targetShot.shotNo || 0).padStart(2, "0")} · ${String(targetShot.title || "未命名镜头")}`
     : "";
-  const estimatedDurationSeconds = Math.max(0, Number(script.estimatedDurationSeconds || 0) || 0);
+  const submittedDurationSeconds = targetDurationSeconds === null || targetDurationSeconds === undefined
+    ? script.estimatedDurationSeconds
+    : targetDurationSeconds;
+  const targetDuration = Math.max(0, Math.min(86400, Math.round(Number(submittedDurationSeconds || 0) || 0)));
+  const targetDurationMinutes = Math.round((targetDuration / 60) * 10) / 10;
+  const durationScope = targetEpisodeLabel ? "指定分集的目标时长" : "本次拆解的目标总时长";
   const contentStats = storyAnalysisContentStats(content);
   const userPrompt = [
     `项目名：${String(project.name || "未命名项目")}`,
@@ -998,7 +1004,9 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
     target ? `目标集数：${target}` : "目标集数：由你根据内容判断",
     targetEpisodeLabel ? `目标分集：${targetEpisodeLabel}。优先把本次文稿整理为这一集可直接制作的剧情大纲，不要无意义扩散到其他集。` : "目标分集：未指定，由你按内容规划",
     targetShotLabel ? `目标分镜：${targetShotLabel}。拆解时保留该镜头在原分集中的位置和前后连续性。` : "目标分镜：未指定，由你按分集节奏规划",
-    estimatedDurationSeconds ? `用户补充的预计时长：约 ${estimatedDurationSeconds} 秒，可作为总量参考，但不得因此删掉关键因果。` : "预计时长：未指定，必须由你根据本集内容计算，禁止默认套用 90 秒。",
+    targetDuration
+      ? `${durationScope}：约 ${targetDuration} 秒（${targetDurationMinutes} 分钟）。这是硬目标：本次返回剧集的 durationSeconds 总和必须在该目标上下 10% 以内；不得为了迎合时长删掉关键因果。若同时指定目标集数，必须同时满足；如果原文确实无法同时满足，优先保留完整因果，并在 summary 中明确说明冲突和取舍。`
+      : "目标时长：未指定。必须由你根据原文容量和本集实际制作内容计算，禁止默认套用 90 秒；应以能完整承载原文剧情为标准。",
     `原文统计信号：汉字约 ${contentStats.hanCharacters} 个，自然段约 ${contentStats.paragraphs} 个，引号对白约 ${contentStats.quotedLines} 段（约 ${contentStats.dialogueCharacters} 个汉字）。这些只是判断依据，不是强制集数或时长公式。`,
     `文稿标题：${String(script.title || "未命名文稿")}`,
     "文稿开始",
@@ -1018,7 +1026,7 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
     max_tokens: 7000,
   }, {
     deadline,
-    requestContext: { storyAnalyzer: true, projectId: project.id, scriptVersionId: script.id, targetEpisodes: target, targetEpisodeId: script.targetEpisodeId || "", targetShotId: script.targetShotId || "", estimatedDurationSeconds },
+    requestContext: { storyAnalyzer: true, projectId: project.id, scriptVersionId: script.id, targetEpisodes: target, targetDurationSeconds: targetDuration, targetEpisodeId: script.targetEpisodeId || "", targetShotId: script.targetShotId || "" },
     usage,
     optimizerModel: model,
   });
@@ -1138,7 +1146,7 @@ async function handleAnalyzeStoryProject(req, res, projectId = "") {
     : [];
   const targetShot = (targetShots || []).find((shot) => shot.id === script.targetShotId) || null;
   try {
-    const result = await analyzeStoryScript({ project, script, targetEpisodes: body.targetEpisodes, targetEpisode, targetShot });
+    const result = await analyzeStoryScript({ project, script, targetEpisodes: body.targetEpisodes, targetDurationSeconds: body.targetDurationSeconds, targetEpisode, targetShot });
     return sendJson(res, 200, { ok: true, scriptVersionId: script.id, ...result });
   } catch (error) {
     console.warn("[story-analyze-failed]", JSON.stringify({
