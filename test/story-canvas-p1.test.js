@@ -449,7 +449,16 @@ test("story video jobs bind approved asset IDs and sync completed backend record
   assert.match(story, /syncStoryVideoGenerationRefs\(id\)/);
   assert.match(story, /addEventListener\("visibilitychange"/);
   assert.match(story, /scheduleStoryVideoGenerationSync\(15000\)/);
+  assert.match(story, /data-story-generation-video data-generation-record-id/);
+  assert.match(story, /async function refreshStoryGenerationVideoSource\(video = null\)/);
+  assert.match(story, /refreshStoryGenerationVideoSource\(image\)/);
+  assert.match(story, /\/api\/generation-records\/\$\{encodeURIComponent\(recordId\)\}/);
+  assert.match(story, /video\.src = nextUrl[\s\S]*video\.load\(\)/);
 
+  assert.match(handlers, /function storyGenerationRefClientView\(ref = \{\}\)/);
+  assert.match(handlers, /metadata\.videoUrl = mediaUrl/);
+  assert.match(handlers, /generationRefs: \(generationRefs \|\| \[\]\)\.map\(storyGenerationRefClientView\)/);
+  assert.match(handlers, /generationRef: storyGenerationRefClientView\(ref\)/);
   assert.match(handlers, /metadata\.resultAssetId = String\(generatedRecord\.resultAssetId/);
   assert.match(handlers, /metadata\.resultAssetIds = Array\.isArray\(generatedRecord\.resultAssetIds\)/);
   assert.match(generation, /resultAssetId: String\(record\.resultAssetId \|\| ""\)/);
