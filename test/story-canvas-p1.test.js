@@ -24,7 +24,7 @@ test("story P1 script, analyze, import, and delete APIs are admin-only routes", 
     "handleImportStoryAnalysis",
     "handleDeleteStoryEpisode",
   ]) {
-    assert.match(handlerBody(handlers, name), /requireAdmin\(req, res\)/, `${name} must require admin`);
+    assert.match(handlerBody(handlers, name), /requireAdmin\(req, res, \{ loadDb: false \}\)/, `${name} must require admin without loading the full app snapshot`);
   }
   assert.match(routes, /storyProjectScriptsMatch[\s\S]*req\.method === "GET"[\s\S]*handleListStoryScripts/);
   assert.match(routes, /storyProjectScriptsMatch[\s\S]*req\.method === "POST"[\s\S]*handleCreateStoryScript/);
@@ -190,7 +190,7 @@ test("story episode workbench persists outline edits and AI-planned shots", () =
     "handleUpdateStoryShot",
     "handleDeleteStoryShot",
   ]) {
-    assert.match(handlerBody(handlers, name), /requireAdmin\(req, res\)/, `${name} must require admin`);
+    assert.match(handlerBody(handlers, name), /requireAdmin\(req, res, \{ loadDb: false \}\)/, `${name} must require admin without loading the full app snapshot`);
   }
   assert.match(routes, /storyEpisodeMatch[\s\S]*req\.method === "PUT"[\s\S]*handleUpdateStoryEpisode/);
   assert.match(routes, /storyEpisodeShotsMatch[\s\S]*req\.method === "GET"[\s\S]*handleListStoryShots/);
@@ -292,7 +292,7 @@ test("story production pipeline gates approved assets before model-optimized pro
     "handleApproveStoryAssetVariant",
     "handlePlanStoryEpisodePrompts",
   ]) {
-    assert.match(handlerBody(handlers, name), /requireAdmin\(req, res\)/, `${name} must require admin`);
+    assert.match(handlerBody(handlers, name), /requireAdmin\(req, res, \{ loadDb: false \}\)/, `${name} must require admin without loading the full app snapshot`);
   }
   for (const route of [
     /storyEpisodeAssetsPlanMatch[\s\S]*handlePlanStoryEpisodeAssets/,

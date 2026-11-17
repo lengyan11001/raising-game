@@ -785,14 +785,14 @@ function storyProjectInput(body = {}) {
 
 async function handleStoryContracts(req, res) {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   return sendJson(res, 200, { ok: true, contract: storyContracts() });
 }
 
 async function handleListStoryProjects(req, res) {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const projects = await listStoryProjectsFromDb(auth.user.id);
   if (projects === null) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
@@ -801,7 +801,7 @@ async function handleListStoryProjects(req, res) {
 
 async function handleCreateStoryProject(req, res) {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 256 * 1024);
   const project = await createStoryProjectInDb({
@@ -815,7 +815,7 @@ async function handleCreateStoryProject(req, res) {
 
 async function handleGetStoryProject(req, res, projectId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
   if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
@@ -847,7 +847,7 @@ async function handleGetStoryProject(req, res, projectId = "") {
 
 async function handleUpdateStoryProject(req, res, projectId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const existing = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
   if (existing === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
@@ -1060,7 +1060,7 @@ function storyAnalysisPayload(body = {}) {
 
 async function handleListStoryScripts(req, res, projectId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
   if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
@@ -1071,7 +1071,7 @@ async function handleListStoryScripts(req, res, projectId = "") {
 
 async function handleCreateStoryScript(req, res, projectId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   let body = {};
   try {
@@ -1119,7 +1119,7 @@ async function handleCreateStoryScript(req, res, projectId = "") {
 
 async function handleAnalyzeStoryProject(req, res, projectId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   let body = {};
   try {
@@ -1159,7 +1159,7 @@ async function handleAnalyzeStoryProject(req, res, projectId = "") {
 
 async function handleImportStoryAnalysis(req, res, projectId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   let body = {};
   try {
@@ -1188,7 +1188,7 @@ async function handleImportStoryAnalysis(req, res, projectId = "") {
 
 async function handleDeleteStoryEpisode(req, res, projectId = "", episodeId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const deleted = await deleteStoryEpisodeFromDb({ projectId, ownerUserId: auth.user.id, episodeId });
   if (deleted === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
@@ -1198,7 +1198,7 @@ async function handleDeleteStoryEpisode(req, res, projectId = "", episodeId = ""
 
 async function handleListStoryEpisodes(req, res, projectId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
   if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
@@ -1209,7 +1209,7 @@ async function handleListStoryEpisodes(req, res, projectId = "") {
 
 async function handleCreateStoryEpisode(req, res, projectId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 256 * 1024);
   const episode = await createStoryEpisodeInDb({
@@ -1232,7 +1232,7 @@ async function handleCreateStoryEpisode(req, res, projectId = "") {
 
 async function handleUpdateStoryEpisode(req, res, projectId = "", episodeId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 512 * 1024);
   const episode = await updateStoryEpisodeInDb({
@@ -1254,7 +1254,7 @@ async function handleUpdateStoryEpisode(req, res, projectId = "", episodeId = ""
 
 async function handlePlanStoryEpisodeShots(req, res, projectId = "", episodeId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
   if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
@@ -1309,7 +1309,7 @@ async function handlePlanStoryEpisodeShots(req, res, projectId = "", episodeId =
 
 async function handlePlanStoryEpisodeAssets(req, res, projectId = "", episodeId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
   if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
@@ -1367,7 +1367,7 @@ async function handlePlanStoryEpisodeAssets(req, res, projectId = "", episodeId 
 
 async function handleCreateStoryAssetVariant(req, res, projectId = "", assetId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 256 * 1024);
   const recordId = String(body.generationRecordId || body.taskId || "").trim();
@@ -1408,7 +1408,7 @@ async function handleCreateStoryAssetVariant(req, res, projectId = "", assetId =
 
 async function handleUpdateStoryAssetVariant(req, res, projectId = "", assetId = "", variantId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 256 * 1024);
   const requestedStatus = storyInputText(body.status, 40);
@@ -1429,7 +1429,7 @@ async function handleUpdateStoryAssetVariant(req, res, projectId = "", assetId =
 
 async function handleApproveStoryAssetVariant(req, res, projectId = "", assetId = "", variantId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const approved = await approveStoryAssetVariantInDb({ projectId, ownerUserId: auth.user.id, assetId, variantId });
   if (!approved) return sendJson(res, 404, { ok: false, code: "STORY_ASSET_VARIANT_NOT_FOUND", message: "资产设计图不存在。" });
@@ -1466,7 +1466,7 @@ async function handleApproveStoryAssetVariant(req, res, projectId = "", assetId 
 
 async function handleUseStoryAssetVariant(req, res, projectId = "", assetId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 32 * 1024);
   const variantId = storyInputText(body.variantId, 160);
@@ -1506,7 +1506,7 @@ async function handleUseStoryAssetVariant(req, res, projectId = "", assetId = ""
 
 async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 128 * 1024);
   const providerId = storyInputText(body.provider, 80);
@@ -1637,7 +1637,7 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
 
 async function handleCreateStoryGenerationRef(req, res, projectId = "", shotId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   let body = {};
   try {
@@ -1663,7 +1663,7 @@ async function handleCreateStoryGenerationRef(req, res, projectId = "", shotId =
 
 async function handleUpdateStoryGenerationRef(req, res, projectId = "", refId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   let body = {};
   try {
@@ -1686,7 +1686,7 @@ async function handleUpdateStoryGenerationRef(req, res, projectId = "", refId = 
 
 async function handleListStoryShots(req, res, projectId = "", episodeId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const shots = await listStoryShotsFromDb({ projectId, ownerUserId: auth.user.id, episodeId });
   if (shots === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
@@ -1695,7 +1695,7 @@ async function handleListStoryShots(req, res, projectId = "", episodeId = "") {
 
 async function handleCreateStoryShot(req, res, projectId = "", episodeId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 512 * 1024);
   const shot = await createStoryShotInDb({
@@ -1721,7 +1721,7 @@ async function handleCreateStoryShot(req, res, projectId = "", episodeId = "") {
 
 async function handleUpdateStoryShot(req, res, projectId = "", episodeId = "", shotId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 512 * 1024);
   const shot = await updateStoryShotInDb({
@@ -1746,7 +1746,7 @@ async function handleUpdateStoryShot(req, res, projectId = "", episodeId = "", s
 
 async function handleDeleteStoryShot(req, res, projectId = "", episodeId = "", shotId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res);
+  const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const shot = await deleteStoryShotFromDb({ projectId, episodeId, ownerUserId: auth.user.id, shotId });
   if (!shot) {
