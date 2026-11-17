@@ -859,16 +859,6 @@ async function handleUpdateStoryProject(req, res, projectId = "") {
   return sendJson(res, 200, { ok: true, project: storyProjectClientView(project) });
 }
 
-async function handleDeleteStoryProject(req, res, projectId = "") {
-  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res, { loadDb: false });
-  if (!auth) return;
-  const project = await deleteStoryProjectFromDb({ projectId, ownerUserId: auth.user.id });
-  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
-  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
-  return sendJson(res, 200, { ok: true, deletedProjectId: project.id });
-}
-
 const STORY_ANALYZER_SYSTEM_PROMPT = `你是专业中文影视编剧与制片拆解助手。你的任务是把用户提供的剧本或小说原文，整理成可制作的剧集开发结果。
 只输出一个合法 JSON 对象，不要 Markdown，不要代码围栏，不要解释。所有叙事字段使用中文。
 返回结构必须为：
@@ -981,33 +971,7 @@ function storyAnalysisFromModel(payload = {}) {
   };
 }
 
-function storyStartEpisodeNoForScript(script = {}, episodes = []) {
-  const scriptId = String(script.id || "").trim();
-  const manuscriptId = String(script.manuscriptId || script.id || "").trim();
-  const ownEpisodeNos = (Array.isArray(episodes) ? episodes : [])
-    .filter((episode) => String(episode.sourceScriptVersionId || "") === scriptId)
-    .map((episode) => Number(episode.episodeNo || 0))
-    .filter((episodeNo) => episodeNo > 0);
-  if (ownEpisodeNos.length) return Math.min(...ownEpisodeNos);
-  const manuscriptEpisodeNos = (Array.isArray(episodes) ? episodes : [])
-    .filter((episode) => String(episode.sourceManuscriptId || "") === manuscriptId)
-    .map((episode) => Number(episode.episodeNo || 0))
-    .filter((episodeNo) => episodeNo > 0);
-  return Math.max(0, ...manuscriptEpisodeNos) + 1;
-}
-
-function storyRenumberAnalysis(analysis = {}, startEpisodeNo = 1) {
-  const start = Math.max(1, Math.round(Number(startEpisodeNo || 1) || 1));
-  return {
-    ...analysis,
-    episodes: (Array.isArray(analysis.episodes) ? analysis.episodes : []).map((episode, index) => ({
-      ...episode,
-      episodeNo: start + index,
-    })),
-  };
-}
-
-async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 0, targetDurationSeconds = null, targetEpisode = null, startEpisodeNo = 1 } = {}) {
+async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 0, targetDurationSeconds = null, targetEpisode = null } = {}) {
   const model = storyAnalyzerModel();
   if (!model) {
     throw Object.assign(new Error("剧本拆解模型尚未配置。"), {
@@ -1030,13 +994,11 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
   const targetDurationMinutes = Math.round((targetDuration / 60) * 10) / 10;
   const durationScope = targetEpisodeLabel ? "指定分集的目标时长" : "本次拆解的目标总时长";
   const contentStats = storyAnalysisContentStats(content);
-  const episodeStart = targetEpisode ? Math.max(1, Number(targetEpisode.episodeNo || 1) || 1) : Math.max(1, Number(startEpisodeNo || 1) || 1);
   const userPrompt = [
     `项目名：${String(project.name || "未命名项目")}`,
     `项目说明：${String(project.description || "无")}`,
     `画幅：${String(project.aspectRatio || "9:16")}`,
     target ? `目标集数：${target}` : "目标集数：由你根据内容判断",
-    `分集编号：本次拆解从 E${String(episodeStart).padStart(2, "0")} 开始连续编号。不要从 E01 重新开始。`,
     targetEpisodeLabel ? `目标分集：${targetEpisodeLabel}。优先把本次文稿整理为这一集可直接制作的剧情大纲，不要无意义扩散到其他集。` : "目标分集：未指定，由你按内容规划",
     "分镜目标：本次只拆集，不限制分镜数量；后续分镜由 AI 按本集内容生成，可以覆盖已有分镜，也可以新增多个分镜。",
     targetDuration
@@ -1061,7 +1023,7 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
     max_tokens: 7000,
   }, {
     deadline,
-    requestContext: { storyAnalyzer: true, projectId: project.id, scriptVersionId: script.id, targetEpisodes: target, targetDurationSeconds: targetDuration, targetEpisodeId: script.targetEpisodeId || "", startEpisodeNo: episodeStart },
+    requestContext: { storyAnalyzer: true, projectId: project.id, scriptVersionId: script.id, targetEpisodes: target, targetDurationSeconds: targetDuration, targetEpisodeId: script.targetEpisodeId || "" },
     usage,
     optimizerModel: model,
   });
@@ -1074,7 +1036,7 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
       responsePreview: String(text || "").slice(0, 600),
     });
   }
-  const analysis = storyRenumberAnalysis(storyAnalysisFromModel(parsed), episodeStart);
+  const analysis = storyAnalysisFromModel(parsed);
   if (!analysis.episodes.length) {
     throw Object.assign(new Error("拆解结果没有有效剧集，请检查原文或重试。"), {
       statusCode: 502,
@@ -1082,19 +1044,16 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
     });
   }
   await repairStoryAnalysisHooks({ analysis, model, deadline, usage });
-  return { analysis, model: model.id, attempts: usage.attempts, startEpisodeNo: episodeStart };
+  return { analysis, model: model.id, attempts: usage.attempts };
 }
 
-function storyAnalysisPayload(body = {}, startEpisodeNo = 0) {
+function storyAnalysisPayload(body = {}) {
   const raw = body.analysis && typeof body.analysis === "object" ? body.analysis : body;
   const analysis = storyAnalysisFromModel(raw);
-  const episodes = startEpisodeNo
-    ? storyRenumberAnalysis(analysis, startEpisodeNo).episodes
-    : analysis.episodes;
   return {
     summary: storyInputText(raw.summary || analysis.summary, 3000),
     totalEpisodeSuggestion: analysis.totalEpisodeSuggestion,
-    episodes: episodes.slice(0, 100),
+    episodes: analysis.episodes.slice(0, 100),
     assets: [...analysis.characters, ...analysis.scenes].slice(0, 200),
   };
 }
@@ -1130,23 +1089,20 @@ async function handleCreateStoryScript(req, res, projectId = "") {
   if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
   if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
   const scripts = await listStoryScriptVersionsFromDb({ projectId, ownerUserId: auth.user.id });
-  const requestedMode = String(body.mode || "new").trim();
-  const mode = requestedMode === "continue" || requestedMode === "version" ? "continue" : "new";
+  const mode = String(body.mode || "new").trim() === "version" ? "version" : "new";
   const sourceScriptId = storyInputText(body.sourceScriptId, 120);
-  const requestedManuscriptId = storyInputText(body.manuscriptId, 120);
-  const sourceScript = mode === "continue"
-    ? ((scripts || []).find((item) => item.id === sourceScriptId)
-      || (scripts || []).find((item) => String(item.manuscriptId || item.id || "") === requestedManuscriptId))
+  const sourceScript = mode === "version"
+    ? (scripts || []).find((item) => item.id === sourceScriptId)
     : null;
-  if (mode === "continue" && !sourceScript) {
-    return sendJson(res, 400, { ok: false, code: "STORY_SOURCE_SCRIPT_NOT_FOUND", message: "要延续的剧本不存在，请刷新后重试。" });
+  if (mode === "version" && !sourceScript) {
+    return sendJson(res, 400, { ok: false, code: "STORY_SOURCE_SCRIPT_NOT_FOUND", message: "要覆盖的文稿不存在，请刷新后重试。" });
   }
   const manuscriptIds = new Set((scripts || []).map((item) => String(item.manuscriptId || item.id || "")).filter(Boolean));
-  const manuscriptId = mode === "continue"
+  const manuscriptId = mode === "version"
     ? String(sourceScript.manuscriptId || sourceScript.id || "")
     : randomId("manuscript");
   const title = storyInputText(body.title, 160)
-    || (mode === "continue" ? sourceScript.title : `${project.name || "剧集"} · 剧本 ${manuscriptIds.size + 1}`);
+    || (mode === "version" ? sourceScript.title : `${project.name || "剧集"} · 文稿 ${manuscriptIds.size + 1}`);
   if (targetEpisodeId) {
     const episodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
     const episode = (episodes || []).find((item) => item.id === targetEpisodeId);
@@ -1178,16 +1134,6 @@ async function handleCreateStoryScript(req, res, projectId = "") {
   return sendJson(res, 201, { ok: true, script });
 }
 
-async function handleDeleteStoryScript(req, res, projectId = "", scriptVersionId = "") {
-  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
-  const auth = await requireAdmin(req, res, { loadDb: false });
-  if (!auth) return;
-  const script = await deleteStoryScriptVersionFromDb({ projectId, ownerUserId: auth.user.id, scriptVersionId });
-  if (script === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
-  if (!script) return sendJson(res, 404, { ok: false, code: "STORY_SCRIPT_NOT_FOUND", message: "录入段不存在。" });
-  return sendJson(res, 200, { ok: true, deletedScriptVersionId: script.id });
-}
-
 async function handleAnalyzeStoryProject(req, res, projectId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
   const auth = await requireAdmin(req, res, { loadDb: false });
@@ -1205,11 +1151,10 @@ async function handleAnalyzeStoryProject(req, res, projectId = "") {
   const scriptId = String(body.scriptVersionId || "").trim();
   const script = scriptId ? (scripts || []).find((item) => item.id === scriptId) : scripts?.[0];
   if (!script) return sendJson(res, 400, { ok: false, code: "STORY_SCRIPT_REQUIRED", message: "请先保存一版剧本或小说文本。" });
-  const existingEpisodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
-  const targetEpisode = script.targetEpisodeId
-    ? (existingEpisodes || []).find((episode) => episode.id === script.targetEpisodeId) || null
-    : null;
-  const startEpisodeNo = storyStartEpisodeNoForScript(script, existingEpisodes || []);
+  const targetEpisodes = script.targetEpisodeId
+    ? await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id })
+    : [];
+  const targetEpisode = (targetEpisodes || []).find((episode) => episode.id === script.targetEpisodeId) || null;
   try {
     const result = await analyzeStoryScript({
       project,
@@ -1217,7 +1162,6 @@ async function handleAnalyzeStoryProject(req, res, projectId = "") {
       targetEpisodes: body.targetEpisodes !== undefined ? body.targetEpisodes : (script.targetEpisodeCount || 0),
       targetDurationSeconds: body.targetDurationSeconds !== undefined ? body.targetDurationSeconds : (script.estimatedDurationSeconds || 0),
       targetEpisode,
-      startEpisodeNo,
     });
     return sendJson(res, 200, { ok: true, scriptVersionId: script.id, ...result });
   } catch (error) {
@@ -1246,9 +1190,8 @@ async function handleImportStoryAnalysis(req, res, projectId = "") {
   } catch (error) {
     return sendJson(res, error.statusCode || 400, { ok: false, code: error.code || "INVALID_JSON", message: error.message || "请求内容无效。" });
   }
-  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
-  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
-  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  const payload = storyAnalysisPayload(body);
+  if (!payload.episodes.length) return sendJson(res, 400, { ok: false, code: "STORY_ANALYSIS_EMPTY", message: "没有可写入的剧集。" });
   const scripts = await listStoryScriptVersionsFromDb({ projectId, ownerUserId: auth.user.id });
   const requestedScriptId = storyInputText(body.scriptVersionId || body.sourceScriptVersionId, 120);
   const sourceScript = requestedScriptId
@@ -1257,16 +1200,11 @@ async function handleImportStoryAnalysis(req, res, projectId = "") {
   if (!sourceScript) {
     return sendJson(res, 400, { ok: false, code: "STORY_SOURCE_SCRIPT_REQUIRED", message: "拆解结果必须先关联一份已保存文稿。" });
   }
-  const existingEpisodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
-  const startEpisodeNo = storyStartEpisodeNoForScript(sourceScript, existingEpisodes || []);
-  const payload = storyAnalysisPayload(body, startEpisodeNo);
-  if (!payload.episodes.length) return sendJson(res, 400, { ok: false, code: "STORY_ANALYSIS_EMPTY", message: "没有可写入的剧集。" });
   const imported = await importStoryAnalysisInDb({
     projectId,
     ownerUserId: auth.user.id,
     sourceScriptVersionId: sourceScript.id,
     sourceManuscriptId: sourceScript.manuscriptId || sourceScript.id,
-    startEpisodeNo,
     ...payload,
   });
   if (!imported) {
@@ -1278,7 +1216,6 @@ async function handleImportStoryAnalysis(req, res, projectId = "") {
     project: imported.project ? storyProjectClientView(imported.project) : null,
     sourceScriptVersionId: sourceScript.id,
     sourceManuscriptId: sourceScript.manuscriptId || sourceScript.id,
-    startEpisodeNo,
     episodes: imported.episodes,
     assets: imported.assets,
   });
@@ -1310,38 +1247,11 @@ async function handleCreateStoryEpisode(req, res, projectId = "") {
   const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 256 * 1024);
-  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
-  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
-  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
-  const scripts = await listStoryScriptVersionsFromDb({ projectId, ownerUserId: auth.user.id });
-  const requestedScriptId = storyInputText(body.sourceScriptVersionId || body.scriptVersionId, 120);
-  const requestedManuscriptId = storyInputText(body.sourceManuscriptId || body.manuscriptId, 120);
-  if (!requestedScriptId && !requestedManuscriptId) {
-    return sendJson(res, 400, { ok: false, code: "STORY_SOURCE_SCRIPT_REQUIRED", message: "新增分集前必须先选择所属剧本和录入段。" });
-  }
-  const sourceScript = requestedScriptId
-    ? (scripts || []).find((script) => script.id === requestedScriptId)
-    : (scripts || [])
-      .filter((script) => String(script.manuscriptId || script.id || "") === requestedManuscriptId)
-      .sort((a, b) => Number(b.versionNo || 0) - Number(a.versionNo || 0))[0];
-  if (!sourceScript) {
-    return sendJson(res, 400, { ok: false, code: "STORY_SOURCE_SCRIPT_REQUIRED", message: "新增分集前必须先选择所属剧本和录入段。" });
-  }
-  const sourceManuscriptId = String(sourceScript.manuscriptId || sourceScript.id || "");
-  const existingEpisodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
-  const manuscriptEpisodes = (existingEpisodes || []).filter((episode) => String(episode.sourceManuscriptId || "") === sourceManuscriptId);
-  const requestedEpisodeNo = Math.max(0, Math.round(Number(body.episodeNo || 0) || 0));
-  const episodeNo = requestedEpisodeNo || Math.max(0, ...manuscriptEpisodes.map((episode) => Number(episode.episodeNo || 0))) + 1;
-  if ((existingEpisodes || []).some((episode) => String(episode.sourceManuscriptId || "") === sourceManuscriptId && Number(episode.episodeNo || 0) === episodeNo)) {
-    return sendJson(res, 409, { ok: false, code: "STORY_EPISODE_NO_EXISTS", message: `E${String(episodeNo).padStart(2, "0")} 已存在，请使用下一个分集编号。` });
-  }
   const episode = await createStoryEpisodeInDb({
     id: randomId("episode"),
     projectId,
     ownerUserId: auth.user.id,
-    sourceScriptVersionId: sourceScript.id,
-    sourceManuscriptId,
-    episodeNo,
+    episodeNo: Math.max(0, Math.round(Number(body.episodeNo || 0) || 0)),
     title: storyInputText(body.title, 160),
     synopsis: storyInputText(body.synopsis, 8000),
     status: storyInputText(body.status, 40) || "draft",

@@ -394,17 +394,26 @@ async function getAuth(req, options = {}) {
   // generation jobs for PostgreSQL pool connections.
   if (!token) return { db: lightweightAuthDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
   if (dbEnabled()) {
-    const db = loadDb ? await readDb({ includeUserAssets: options.includeUserAssets !== false }) : lightweightAuthDb();
+    const includeAllAccountData = options.includeAllAccountData === true || options.includeAllUserAssets === true;
+    const readAuthDb = async (user) => loadDb
+      ? readDb({
+        includeUserAssets: options.includeUserAssets !== false,
+        userAssetsUserId: options.includeAllUserAssets ? "" : user.id,
+        accountUserId: includeAllAccountData ? "" : user.id,
+        includeAllAccountData,
+      })
+      : lightweightAuthDb();
     const loadCurrentUserAssets = loadDb && options.loadCurrentUserAssets === true;
     const session = await getSessionByTokenInDb(token);
     if (session && recordBelongsToTenant(session, tenantId)) {
       const user = await getUserByIdInDb(session.userId);
       if (!recordBelongsToTenant(user, tenantId)) {
-        return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null };
+        return { db: lightweightAuthDb(), user: null, session: null, token, tokenSource: "", tokenRecord: null };
       }
       if (user?.riskStatus === "quarantined") {
-        return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
+        return { db: lightweightAuthDb(), user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
       }
+      const db = await readAuthDb(user);
       if (loadCurrentUserAssets) db.userAssets = await getUserAssetsForUserFromDb(user.id);
       const auth = { db, user, session, ...authUserContext(user, token, "session", null) };
       const store = requestContext.getStore();
@@ -414,8 +423,9 @@ async function getAuth(req, options = {}) {
     const user = await getUserByApiTokenInDb(token, tenantId);
     if (user) {
       if (user.riskStatus === "quarantined") {
-        return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
+        return { db: lightweightAuthDb(), user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
       }
+      const db = await readAuthDb(user);
       if (loadCurrentUserAssets) db.userAssets = await getUserAssetsForUserFromDb(user.id);
       const auth = { db, user, session: null, ...authUserContext(user, token, "api_token", null) };
       const store = requestContext.getStore();
@@ -426,9 +436,10 @@ async function getAuth(req, options = {}) {
     if (subtoken) {
       const parent = await getUserByIdInDb(subtoken.parentUserId);
       if (parent?.riskStatus === "quarantined") {
-        return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
+        return { db: lightweightAuthDb(), user: null, session: null, token, tokenSource: "", tokenRecord: null, quarantined: true };
       }
       if (recordBelongsToTenant(parent, tenantId)) {
+        const db = await readAuthDb(parent);
         if (loadCurrentUserAssets) db.userAssets = await getUserAssetsForUserFromDb(parent.id);
         const auth = {
           db,
@@ -441,7 +452,7 @@ async function getAuth(req, options = {}) {
         return auth;
       }
     }
-    return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null };
+    return { db: lightweightAuthDb(), user: null, session: null, token, tokenSource: "", tokenRecord: null };
   }
   const db = await readDb();
   const session = db.sessions.find((item) => item.token === token && recordBelongsToTenant(item, tenantId));
@@ -523,7 +534,7 @@ async function requirePrimaryTokenOwner(req, res) {
 }
 
 async function requireAdmin(req, res, options = {}) {
-  const auth = await requireUser(req, res, options);
+  const auth = await requireUser(req, res, { includeAllUserAssets: true, ...options });
   if (!auth) return null;
   if (auth.user.role !== "admin") {
     sendJson(res, 403, { ok: false, code: "ADMIN_REQUIRED", message: "需要管理员权限。" });

@@ -59,10 +59,89 @@ test("legacy full snapshots use one pooled connection and skip unused tables", (
   assert.match(block, /const client = await getPool\(\)\.connect\(\)/);
   assert.match(block, /finally \{\s*client\.release\(\);/);
   assert.doesNotMatch(block, /Promise\.all\(\[/);
-  assert.match(block, /const users = await readRows/);
-  assert.match(block, /const sessions = await readRows/);
+  assert.match(block, /if \(scopedAccount\)/);
+  assert.match(block, /jsonb_agg\(to_jsonb\(t\)/);
   assert.doesNotMatch(block, /SELECT \* FROM app_admin_home_items/);
   assert.doesNotMatch(block, /SELECT \* FROM app_support_messages/);
+});
+
+test("authenticated requests load only the current user's media assets", () => {
+  const part02 = read("server.parts/part-02.js");
+  const part12 = read("server.parts/part-12.js");
+  const db = read("db.js");
+  const authStart = part12.indexOf("async function getAuth(req, options = {}) {");
+  const authEnd = part12.indexOf("async function requireUser", authStart);
+  const auth = part12.slice(authStart, authEnd);
+  const readStart = db.indexOf("async function readAppDbFromTables(");
+  const readEnd = db.indexOf("async function replaceAppDbTables(", readStart);
+  const readSnapshot = db.slice(readStart, readEnd);
+
+  assert.ok(authStart > 0 && authEnd > authStart);
+  assert.match(part02, /userAssetsUserId: String\(options\.userAssetsUserId \|\| ""\)\.trim\(\)/);
+  assert.match(auth, /userAssetsUserId: options\.includeAllUserAssets \? "" : user\.id/);
+  assert.match(auth, /const includeAllAccountData = options\.includeAllAccountData === true \|\| options\.includeAllUserAssets === true/);
+  assert.match(auth, /accountUserId: includeAllAccountData \? "" : user\.id/);
+  assert.match(auth, /includeAllAccountData,/);
+  assert.match(auth, /const session = await getSessionByTokenInDb\(token\)/);
+  assert.match(auth, /const user = await getUserByIdInDb\(session\.userId\)/);
+  assert.ok(auth.indexOf("getSessionByTokenInDb") < auth.indexOf("readAuthDb(user)"));
+  assert.match(auth, /return \{ db: lightweightAuthDb\(\), user: null/);
+  assert.match(readSnapshot, /SELECT \* FROM app_user_assets WHERE user_id = \$1 ORDER BY created_at DESC/);
+  assert.match(part12, /includeAllUserAssets: true, \.\.\.options/);
+});
+
+test("authenticated snapshots scope account tables while admin keeps full reads", () => {
+  const db = read("db.js");
+  const part02 = read("server.parts/part-02.js");
+  const auth = read("server.parts/part-12.js");
+  const start = db.indexOf("async function readAppDbFromTables(");
+  const end = db.indexOf("async function replaceAppDbTables(", start);
+  const block = db.slice(start, end);
+
+  const scopedStart = block.indexOf("if (scopedAccount) {");
+  const scopedEnd = block.indexOf("} else {", scopedStart);
+  const scoped = block.slice(scopedStart, scopedEnd);
+  assert.ok(scopedStart > 0 && scopedEnd > scopedStart);
+  assert.match(part02, /accountUserId: String\(options\.accountUserId \|\| ""\)\.trim\(\)/);
+  assert.match(part02, /includeAllAccountData: options\.includeAllAccountData === true/);
+  assert.match(auth, /accountUserId: includeAllAccountData \? "" : user\.id/);
+  assert.equal((scoped.match(/await readRows\(/g) || []).length, 1);
+  assert.match(scoped, /jsonb_agg\(to_jsonb\(t\) ORDER BY t\.created_at ASC\).*?FROM app_users/);
+  assert.match(scoped, /jsonb_agg\(to_jsonb\(t\) ORDER BY t\.created_at ASC\).*?FROM app_sessions/);
+  assert.match(scoped, /jsonb_agg\(to_jsonb\(t\) ORDER BY t\.created_at DESC\).*?FROM app_wallet_orders/);
+  assert.match(scoped, /jsonb_agg\(to_jsonb\(t\) ORDER BY t\.created_at DESC\).*?FROM app_referral_withdrawals/);
+  assert.match(scoped, /FROM app_credit_ledger WHERE user_id = \$1 ORDER BY created_at DESC LIMIT 1000/);
+  assert.match(scoped, /FROM app_user_characters t WHERE t\.user_id = \$1/);
+  assert.match(scoped, /FROM app_user_unlocks t WHERE t\.user_id = \$1/);
+  assert.match(block, /includeAllAccountData === true \|\| !accountUserId/);
+  assert.match(block, /users = await readRows\(`SELECT \* FROM app_users WHERE deleted_at IS NULL/);
+});
+
+test("unlock list uses lightweight auth and a single user-scoped query", () => {
+  const db = read("db.js");
+  const part01 = read("server.parts/part-01.js");
+  const part35 = read("server.parts/part-35.js");
+  const start = part35.indexOf("async function handleListUnlocks(");
+  const end = part35.indexOf("async function handleGameFeed(", start);
+  const handler = part35.slice(start, end);
+
+  assert.ok(start > 0 && end > start);
+  assert.match(handler, /requireUser\(req, res, \{ loadDb: false \}\)/);
+  assert.match(handler, /getUserUnlocksForUserFromDb\(auth\.user\.id\)/);
+  assert.match(part01, /getUserUnlocksForUserFromDb/);
+  assert.match(db, /async function getUserUnlocksForUserFromDb\(userId = ""\)/);
+  const snapshotStart = db.indexOf("async function getUserUnlocksForUserFromDb(");
+  const snapshotEnd = db.indexOf("async function getUserAuthSummaryFromDb(", snapshotStart);
+  assert.match(db.slice(snapshotStart, snapshotEnd), /WHERE user_id = \$1[\s\S]*?AND deleted_at IS NULL/);
+});
+
+test("referral pages explicitly retain cross-user account summaries", () => {
+  const part33 = read("server.parts/part-33.js");
+  const part34 = read("server.parts/part-34.js");
+  assert.match(part33, /async function handleReferralSummary[\s\S]*?includeAllAccountData: true, includeUserAssets: false/);
+  assert.match(part33, /async function handleRedeemMembershipActivationCode[\s\S]*?includeAllAccountData: true, includeUserAssets: false/);
+  assert.match(part34, /async function handleUpdateReferralWallet[\s\S]*?includeAllAccountData: true, includeUserAssets: false/);
+  assert.match(part34, /async function handleCreateReferralWithdrawal[\s\S]*?includeAllAccountData: true, includeUserAssets: false/);
 });
 
 test("admin support replies do not load the full application snapshot", () => {
