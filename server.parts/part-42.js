@@ -1779,3 +1779,28 @@ async function handleRequest(req, res) {
   }
 }
 
+function topGeoTags(snapshot, max = 18) {
+  const counts = new Map();
+  (snapshot.characters || []).forEach((item) => {
+    (item.geoTags || characterTagsForGeo(item, 12)).forEach((tag) => {
+      const key = compactPlainText(tag, 40);
+      if (!key) return;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+  });
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, max)
+    .map(([tag, count]) => ({ tag, count }));
+}
+
+function geoCoverageMetric(label, count, total) {
+  const safeTotal = Math.max(0, Number(total || 0));
+  const safeCount = Math.max(0, Math.min(safeTotal, Number(count || 0)));
+  return {
+    label,
+    count: safeCount,
+    total: safeTotal,
+    percent: safeTotal ? Math.round((safeCount / safeTotal) * 100) : 0,
+  };
+}

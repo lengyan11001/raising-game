@@ -1,3 +1,12 @@
+## 2026-11-17 Step DY: story release plus scoped-auth optimization integrated and regression-tested
+
+- A concurrent Old deployment from another Codex session completed before this integration work: active `4174` is release `acd72972` (story scoped-deletion release), hot backup `4175` is `fd6ff3ca`, and all three Nginx upstreams are back to deterministic primary `4174` plus `backup 4175` rather than weighted traffic. No process was interrupted or deployment file edited directly.
+- The lightweight `/api/unlocks` optimization branch `d20359c7` was merged into the current story source line at integration commit `c51c5178`; both story functionality and endpoint-specific auth loading are retained.
+- Merging exposed that `server.parts/part-03.js` exceeded the enforced 2,500-line limit. `geoCoverageMetric` and `topGeoTags` were moved unchanged to the end of `server.parts/part-42.js`; `part-03.js` is now 2,489 lines and the source-split test passes.
+- Focused auth/session/security/unlocks/media/story/deploy tests pass `116/116`; Python deploy tests pass `39/39`; `check:undef`, syntax checks, and `git diff --check` pass.
+- Full suite: `1403 pass / 1 fail / 2 skipped`. The only failure remains the pre-existing serializer field-order assertion in `test/generation-record-list-refresh.test.js:385` (`resultAssetId` / `resultAssetIds` ordering), which predates the change and is not in the candidate path being validated.
+- Candidate-only release, runtime acceptance, benchmark, and promotion gates remain pending. Live was not touched.
+
 ## 2026-11-17 Step DX: deletion closure for every story creation level
 
 - Added matching delete entry points for every story creation level: project cards and project detail, current manuscript entry segment, episode tree rows, and shot tree rows.
