@@ -349,10 +349,15 @@ async function papayaLanguageRequest(body = {}, { timeoutMs = 180000 } = {}) {
   const responseText = await response.text();
   let payload = {};
   try { payload = responseText ? JSON.parse(responseText) : {}; } catch { payload = { text: responseText }; }
-  if (!response.ok || payload.error) {
-    const error = new Error(payload.error?.message || payload.message || `Papaya request failed: ${response.status}`);
-    error.statusCode = response.status || 502;
-    error.code = payload.error?.code || payload.code || "PAPAYA_REQUEST_FAILED";
+  const payloadCode = Number(payload.code ?? payload.statusCode ?? 0) || 0;
+  if (!response.ok || payload.error || payloadCode >= 400 || payload.success === false) {
+    const message = payload.error?.message || payload.message || `Papaya request failed: ${response.status}`;
+    const securityBlocked = payloadCode === 451 || /content blocked by security check|security check/i.test(String(message || ""));
+    const error = new Error(message);
+    error.statusCode = !response.ok ? (response.status || 502) : (payloadCode || 502);
+    error.code = securityBlocked
+      ? "PAPAYA_CONTENT_BLOCKED"
+      : (payload.error?.code || payload.code || "PAPAYA_REQUEST_FAILED");
     error.payload = payload;
     throw error;
   }

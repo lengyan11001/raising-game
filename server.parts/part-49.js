@@ -219,13 +219,15 @@ async function planStoryEpisodeAssets({ project = {}, episode = {}, shots = [] }
 }
 
 async function optimizeStoryShotPrompt({ prompt = "", provider = "", providerLabel = "", duration = 5, resolution = "720p", optimizerModelId = "", references = [] } = {}) {
-  const optimizerModel = promptOptimizerSelectedModel(optimizerModelId);
-  if (!optimizerModel) {
+  const requestedOptimizerModel = promptOptimizerSelectedModel(optimizerModelId);
+  if (!requestedOptimizerModel) {
     throw Object.assign(new Error("请选择支持的提示词优化模型。"), { statusCode: 400, code: "STORY_PROMPT_OPTIMIZER_UNSUPPORTED" });
   }
-  if (!optimizerModel.configured()) {
-    throw Object.assign(new Error(`${optimizerModel.label} 尚未配置，请更换优化模型。`), { statusCode: 503, code: "STORY_PROMPT_OPTIMIZER_UNCONFIGURED" });
+  if (!requestedOptimizerModel.configured()) {
+    throw Object.assign(new Error(`${requestedOptimizerModel.label} 尚未配置，请更换优化模型。`), { statusCode: 503, code: "STORY_PROMPT_OPTIMIZER_UNCONFIGURED" });
   }
+  let optimizerModel = requestedOptimizerModel;
+  let fallbackReason = "";
   const seedanceRequest = seedancePromptOptimizerIsProvider(provider);
   const request = promptOptimizerRequestForPayload({
     prompt,
@@ -241,13 +243,38 @@ async function optimizeStoryShotPrompt({ prompt = "", provider = "", providerLab
   }
   const deadline = Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS;
   const usage = { attempts: 0 };
-  request.body.model = optimizerModel.upstreamModel;
-  let raw = await promptOptimizerUpstreamRequest(request.body, {
-    deadline,
-    requestContext: { storyShotPrompt: true, provider, optimizerModel: optimizerModel.id },
-    usage,
-    optimizerModel,
-  });
+  const runStoryPromptOptimizerRequest = async (body, requestContext = {}) => {
+    body.model = optimizerModel.upstreamModel;
+    try {
+      return await promptOptimizerUpstreamRequest(body, {
+        deadline,
+        requestContext: { storyShotPrompt: true, provider, optimizerModel: optimizerModel.id, ...requestContext },
+        usage,
+        optimizerModel,
+      });
+    } catch (error) {
+      const papayaBlocked = optimizerModel.id === "carrothub-papaya-1.0"
+        && String(error.upstreamCode || error.cause?.code || error.code || "") === "PAPAYA_CONTENT_BLOCKED";
+      const fallbackModel = PROMPT_OPTIMIZER_MODELS["qwen3.7-flash"];
+      if (!papayaBlocked || !fallbackModel?.configured()) throw error;
+      fallbackReason = "papaya_content_blocked";
+      optimizerModel = fallbackModel;
+      body.model = optimizerModel.upstreamModel;
+      console.warn("[story-prompt-optimizer-fallback]", JSON.stringify({
+        from: requestedOptimizerModel.id,
+        to: optimizerModel.id,
+        reason: fallbackReason,
+        provider,
+      }));
+      return await promptOptimizerUpstreamRequest(body, {
+        deadline,
+        requestContext: { storyShotPrompt: true, provider, optimizerModel: optimizerModel.id, fallbackFrom: requestedOptimizerModel.id, ...requestContext },
+        usage,
+        optimizerModel,
+      });
+    }
+  };
+  let raw = await runStoryPromptOptimizerRequest(request.body);
   let text = w3PromptOptimizerText(raw);
   let parsed = w3ParseOptimizerJson(text);
   let optimizedPrompt = parsed?.optimizedPrompt || w3OptimizerReadablePrompt(text);
@@ -261,12 +288,7 @@ async function optimizeStoryShotPrompt({ prompt = "", provider = "", providerLab
       language: "zh",
       references,
     }, { languageCorrection: true });
-    raw = await promptOptimizerUpstreamRequest(correction.body, {
-      deadline,
-      requestContext: { storyShotPrompt: true, provider, optimizerModel: optimizerModel.id, languageCorrection: true },
-      usage,
-      optimizerModel,
-    });
+    raw = await runStoryPromptOptimizerRequest(correction.body, { languageCorrection: true });
     text = w3PromptOptimizerText(raw);
     parsed = w3ParseOptimizerJson(text);
     optimizedPrompt = parsed?.optimizedPrompt || w3OptimizerReadablePrompt(text);
@@ -286,6 +308,8 @@ async function optimizeStoryShotPrompt({ prompt = "", provider = "", providerLab
     mode: seedanceRequest ? "seedance" : "w3",
     referencePlan: parsed?.referencePlan || [],
     attempts: usage.attempts,
+    fallbackFrom: fallbackReason ? requestedOptimizerModel.id : "",
+    fallbackReason,
   };
 }
 
