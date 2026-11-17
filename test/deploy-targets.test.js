@@ -457,7 +457,8 @@ test("deployment key auth is preferred and never falls back to password", () => 
 });
 
 test("Old rolling deployment migrates PostgreSQL before candidate traffic", () => {
-  assert.match(deploySite, /node ops\/run-db-migrations\.js --dry-run && node ops\/run-db-migrations\.js --apply && node ops\/run-db-migrations\.js --dry-run/);
+  assert.match(deploySite, /NODE_PATH=\/opt\/raising-game-demo\/node_modules DB_MIGRATION_RUNTIME_ROOT=\/opt\/raising-game-demo node ops\/run-db-migrations\.js --dry-run/);
+  assert.match(deploySite, /node ops\/run-db-migrations\.js --dry-run && NODE_PATH=\/opt\/raising-game-demo\/node_modules DB_MIGRATION_RUNTIME_ROOT=\/opt\/raising-game-demo node ops\/run-db-migrations\.js --apply && NODE_PATH=\/opt\/raising-game-demo\/node_modules DB_MIGRATION_RUNTIME_ROOT=\/opt\/raising-game-demo node ops\/run-db-migrations\.js --dry-run/);
   assert.match(deploySite, /\. \/etc\/raising-game-demo\.env/);
   assert.match(deploySite, /"rolling_migrate_commands"/);
   assert.match(deploySite, /"rolling_post_cutover_commands"/);

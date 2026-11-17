@@ -73,7 +73,7 @@ TARGETS = {
         "rolling_candidate_port": "4175",
         "rolling_migrate_commands": (
             "/usr/bin/python3 __RELEASE__/scripts/ensure_media_signing_secret.py --env-file /etc/raising-game-demo.env",
-            "set -a; . /etc/raising-game-demo.env; set +a; cd __RELEASE__; DB_MIGRATION_RUNTIME_ROOT=/opt/raising-game-demo node ops/run-db-migrations.js --dry-run && node ops/run-db-migrations.js --apply && node ops/run-db-migrations.js --dry-run",
+            "set -a; . /etc/raising-game-demo.env; set +a; cd __RELEASE__; NODE_PATH=/opt/raising-game-demo/node_modules DB_MIGRATION_RUNTIME_ROOT=/opt/raising-game-demo node ops/run-db-migrations.js --dry-run && NODE_PATH=/opt/raising-game-demo/node_modules DB_MIGRATION_RUNTIME_ROOT=/opt/raising-game-demo node ops/run-db-migrations.js --apply && NODE_PATH=/opt/raising-game-demo/node_modules DB_MIGRATION_RUNTIME_ROOT=/opt/raising-game-demo node ops/run-db-migrations.js --dry-run",
         ),
         "rolling_post_cutover_commands": (
             "__RELEASE__/ops/harden-old-nginx-private-media.sh",
