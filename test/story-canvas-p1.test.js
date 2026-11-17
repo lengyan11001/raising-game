@@ -141,6 +141,9 @@ test("story creation keeps manuscripts and versions independent while retaining 
   assert.match(story, /expandedEpisodeIds\.includes\(episode\.id\) && !storyState\.collapsedEpisodeIds\.includes\(episode\.id\)/);
   assert.match(story, /function toggleStoryManuscript[\s\S]*collapsedManuscriptIds/);
   assert.match(story, /function toggleStoryEpisode[\s\S]*collapsedEpisodeIds/);
+  const openEpisode = story.slice(story.indexOf("async function openStoryEpisode("), story.indexOf("function closeStoryEpisode("));
+  assert.match(openEpisode, /sameEpisode && episodeExpanded[\s\S]*collapsedEpisodeIds\.push\(id\)[\s\S]*return/);
+  assert.match(story, /sameManuscript && manuscriptExpanded[\s\S]*collapsedManuscriptIds\.push\(manuscriptId\)/);
   assert.match(story, /data-story-analysis-target-episodes/);
   assert.match(story, /data-story-analysis-duration/);
   assert.match(story, /mode: storyState\.scriptCreateMode/);
