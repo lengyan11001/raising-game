@@ -7016,11 +7016,13 @@ async function listStoryEpisodesFromDb({ projectId = "", ownerUserId = "" } = {}
   return rows.map(storyEpisodeFromRow);
 }
 
-async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "", episodeNo = 0, title = "", synopsis = "", status = "draft", durationSeconds = 0, metadata = {} } = {}) {
+async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "", sourceScriptVersionId = "", sourceManuscriptId = "", episodeNo = 0, title = "", synopsis = "", status = "draft", durationSeconds = 0, metadata = {} } = {}) {
   if (!dbEnabled()) return null;
   const episodeId = String(id || "").trim();
   const parentId = String(projectId || "").trim();
   const ownerId = String(ownerUserId || "").trim();
+  const scriptVersionId = String(sourceScriptVersionId || "").trim();
+  const manuscriptId = String(sourceManuscriptId || "").trim();
   if (!episodeId || !parentId || !ownerId) return null;
   await ensureSchema();
   const client = await getPool().connect();
@@ -7038,16 +7040,18 @@ async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "
     let nextNo = Math.max(0, Number(episodeNo || 0) || 0);
     if (!nextNo) {
       const next = await client.query(
-        `SELECT COALESCE(MAX(episode_no), 0) + 1 AS next_no FROM app_story_episodes WHERE project_id = $1`,
-        [parentId],
+        `SELECT COALESCE(MAX(episode_no), 0) + 1 AS next_no
+         FROM app_story_episodes
+         WHERE project_id = $1 AND ($2 = '' OR source_manuscript_id = $2)`,
+        [parentId, manuscriptId],
       );
       nextNo = Math.max(1, Number(next.rows[0]?.next_no || 1) || 1);
     }
     const inserted = await client.query(
-      `INSERT INTO app_story_episodes(id, project_id, episode_no, title, synopsis, status, duration_seconds, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+      `INSERT INTO app_story_episodes(id, project_id, source_script_version_id, source_manuscript_id, episode_no, title, synopsis, status, duration_seconds, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
        RETURNING *`,
-      [episodeId, parentId, nextNo, String(title || ""), String(synopsis || ""), String(status || "draft"), Math.max(0, Number(durationSeconds || 0) || 0), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {})],
+      [episodeId, parentId, scriptVersionId, manuscriptId, nextNo, String(title || ""), String(synopsis || ""), String(status || "draft"), Math.max(0, Number(durationSeconds || 0) || 0), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {})],
     );
     row = inserted.rows[0];
     await client.query(
