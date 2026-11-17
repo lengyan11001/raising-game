@@ -971,7 +971,7 @@ function storyAnalysisFromModel(payload = {}) {
   };
 }
 
-async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 0, targetDurationSeconds = null, targetEpisode = null, targetShot = null } = {}) {
+async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 0, targetDurationSeconds = null, targetEpisode = null } = {}) {
   const model = storyAnalyzerModel();
   if (!model) {
     throw Object.assign(new Error("剧本拆解模型尚未配置。"), {
@@ -987,9 +987,6 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
   const targetEpisodeLabel = targetEpisode
     ? `E${String(targetEpisode.episodeNo || 0).padStart(2, "0")} · ${String(targetEpisode.title || "未命名剧集")}`
     : "";
-  const targetShotLabel = targetShot
-    ? `S${String(targetShot.shotNo || 0).padStart(2, "0")} · ${String(targetShot.title || "未命名镜头")}`
-    : "";
   const submittedDurationSeconds = targetDurationSeconds === null || targetDurationSeconds === undefined
     ? script.estimatedDurationSeconds
     : targetDurationSeconds;
@@ -1003,7 +1000,7 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
     `画幅：${String(project.aspectRatio || "9:16")}`,
     target ? `目标集数：${target}` : "目标集数：由你根据内容判断",
     targetEpisodeLabel ? `目标分集：${targetEpisodeLabel}。优先把本次文稿整理为这一集可直接制作的剧情大纲，不要无意义扩散到其他集。` : "目标分集：未指定，由你按内容规划",
-    targetShotLabel ? `目标分镜：${targetShotLabel}。拆解时保留该镜头在原分集中的位置和前后连续性。` : "目标分镜：未指定，由你按分集节奏规划",
+    "分镜目标：本次只拆集，不限制分镜数量；后续分镜由 AI 按本集内容生成，可以覆盖已有分镜，也可以新增多个分镜。",
     targetDuration
       ? `${durationScope}：约 ${targetDuration} 秒（${targetDurationMinutes} 分钟）。这是硬目标：本次返回剧集的 durationSeconds 总和必须在该目标上下 10% 以内；不得为了迎合时长删掉关键因果。若同时指定目标集数，必须同时满足；如果原文确实无法同时满足，优先保留完整因果，并在 summary 中明确说明冲突和取舍。`
       : "目标时长：未指定。必须由你根据原文容量和本集实际制作内容计算，禁止默认套用 90 秒；应以能完整承载原文剧情为标准。",
@@ -1026,7 +1023,7 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
     max_tokens: 7000,
   }, {
     deadline,
-    requestContext: { storyAnalyzer: true, projectId: project.id, scriptVersionId: script.id, targetEpisodes: target, targetDurationSeconds: targetDuration, targetEpisodeId: script.targetEpisodeId || "", targetShotId: script.targetShotId || "" },
+    requestContext: { storyAnalyzer: true, projectId: project.id, scriptVersionId: script.id, targetEpisodes: target, targetDurationSeconds: targetDuration, targetEpisodeId: script.targetEpisodeId || "" },
     usage,
     optimizerModel: model,
   });
@@ -1141,12 +1138,8 @@ async function handleAnalyzeStoryProject(req, res, projectId = "") {
     ? await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id })
     : [];
   const targetEpisode = (targetEpisodes || []).find((episode) => episode.id === script.targetEpisodeId) || null;
-  const targetShots = targetEpisode && script.targetShotId
-    ? await listStoryShotsFromDb({ projectId, ownerUserId: auth.user.id, episodeId: targetEpisode.id })
-    : [];
-  const targetShot = (targetShots || []).find((shot) => shot.id === script.targetShotId) || null;
   try {
-    const result = await analyzeStoryScript({ project, script, targetEpisodes: body.targetEpisodes, targetDurationSeconds: body.targetDurationSeconds, targetEpisode, targetShot });
+    const result = await analyzeStoryScript({ project, script, targetEpisodes: body.targetEpisodes, targetDurationSeconds: body.targetDurationSeconds, targetEpisode });
     return sendJson(res, 200, { ok: true, scriptVersionId: script.id, ...result });
   } catch (error) {
     console.warn("[story-analyze-failed]", JSON.stringify({

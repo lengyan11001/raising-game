@@ -17,10 +17,6 @@
     productionModels: null,
     selectedScriptId: "",
     scriptTargetEpisodeId: "",
-    scriptTargetShotId: "",
-    scriptTargetShots: [],
-    scriptTargetLoading: false,
-    scriptTargetLoadedFor: "",
     scriptTargetDirty: false,
     analysisTargetEpisodes: "",
     analysisTargetEpisodesDirty: false,
@@ -207,12 +203,10 @@
 
   function storyScriptTargetSummary(script = {}) {
     const episode = (storyState.detail?.episodes || []).find((item) => item.id === script.targetEpisodeId);
-    const shot = storyState.scriptTargetShots.find((item) => item.id === script.targetShotId);
     const duration = Number(script.estimatedDurationSeconds || 0);
     const parts = [];
     if (episode) parts.push(`E${String(episode.episodeNo).padStart(2, "0")}`);
     else if (script.targetEpisodeId) parts.push("指定分集");
-    if (script.targetShotId) parts.push(shot ? `S${String(shot.shotNo).padStart(2, "0")}` : "指定分镜");
     if (duration) parts.push(storyDurationLabel(duration));
     return parts.length ? parts.join(" · ") : "AI 自动规划";
   }
@@ -244,55 +238,13 @@
   function syncStoryScriptTargetFromSelection() {
     const script = selectedStoryScript();
     storyState.scriptTargetEpisodeId = String(script?.targetEpisodeId || "");
-    storyState.scriptTargetShotId = String(script?.targetShotId || "");
-    storyState.scriptTargetShots = [];
-    storyState.scriptTargetLoadedFor = "";
     storyState.scriptTargetDirty = false;
-  }
-
-  async function loadStoryScriptTargetShots({ render = false } = {}) {
-    const projectId = storyState.selectedId;
-    const episodeId = storyState.scriptTargetEpisodeId;
-    if (!projectId || !episodeId) {
-      storyState.scriptTargetShots = [];
-      storyState.scriptTargetShotId = "";
-      storyState.scriptTargetLoadedFor = "";
-      storyState.scriptTargetLoading = false;
-      if (render) renderStoryDetail();
-      return [];
-    }
-    if (storyState.scriptTargetLoadedFor === episodeId && storyState.scriptTargetShots.length) {
-      return storyState.scriptTargetShots;
-    }
-    storyState.scriptTargetLoading = true;
-    try {
-      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/shots`);
-      storyState.scriptTargetShots = Array.isArray(payload.shots) ? payload.shots : [];
-      storyState.scriptTargetLoadedFor = episodeId;
-      if (!storyState.scriptTargetShots.some((shot) => shot.id === storyState.scriptTargetShotId)) {
-        storyState.scriptTargetShotId = "";
-      }
-      return storyState.scriptTargetShots;
-    } finally {
-      storyState.scriptTargetLoading = false;
-      if (render) renderStoryDetail();
-    }
-  }
-
-  function refreshStoryScriptShotSelect() {
-    const select = document.querySelector("[data-story-script-target-shot]");
-    if (!select) return;
-    const options = storyState.scriptTargetShots.map((shot) => `<option value="${storyEscape(shot.id)}" ${shot.id === storyState.scriptTargetShotId ? "selected" : ""}>S${String(shot.shotNo).padStart(2, "0")} · ${storyEscape(shot.title || "未命名镜头")}</option>`).join("");
-    select.innerHTML = `<option value="">不指定分镜${storyState.scriptTargetEpisodeId ? "（整集）" : ""}</option>${options}`;
-    select.disabled = !storyState.scriptTargetEpisodeId || storyState.scriptTargetLoading || !storyState.scriptTargetShots.length;
   }
 
   function renderStoryScriptSection() {
     const script = selectedStoryScript();
     const episodes = Array.isArray(storyState.detail?.episodes) ? storyState.detail.episodes : [];
     const targetEpisodeId = storyState.scriptTargetDirty ? storyState.scriptTargetEpisodeId : (script?.targetEpisodeId || "");
-    const targetShotId = storyState.scriptTargetDirty ? storyState.scriptTargetShotId : (script?.targetShotId || "");
-    const targetShots = storyState.scriptTargetLoadedFor === targetEpisodeId ? storyState.scriptTargetShots : [];
     const versions = storyState.scripts.map((item) => `
       <button class="story-script-version${item.id === script?.id ? " is-active" : ""}" data-story-script-id="${storyEscape(item.id)}" type="button">
         <span>V${storyEscape(item.versionNo)}</span>
@@ -314,33 +266,13 @@
             ${versions || `<div class="story-script-empty">尚未保存剧本</div>`}
           </aside>
           <div class="story-script-editor">
-            <label class="story-script-title-field">文稿标题<input id="storyScriptTitle" maxlength="160" value="${storyEscape(script?.title || `第 ${storyState.scripts.length + 1} 版文稿`)}" placeholder="例如：夜班便利店 第一季" /></label>
-            <div class="story-script-scope">
-              <div class="story-script-group-head"><span>整理范围</span><small>可选 · 只重做已有分集或分镜时填写</small></div>
-              <div class="story-script-editor-grid">
-                <label>目标分集<select id="storyScriptTargetEpisode" data-story-script-target-episode><option value="">不指定（由 AI 拆解）</option>${episodes.map((episode) => `<option value="${storyEscape(episode.id)}" ${episode.id === targetEpisodeId ? "selected" : ""}>E${String(episode.episodeNo).padStart(2, "0")} · ${storyEscape(episode.title || "未命名剧集")}</option>`).join("")}</select></label>
-                <label>目标分镜<select id="storyScriptTargetShot" data-story-script-target-shot ${!targetEpisodeId || storyState.scriptTargetLoading ? "disabled" : ""}><option value="">不指定分镜${targetEpisodeId ? "（整集）" : ""}</option>${targetShots.map((shot) => `<option value="${storyEscape(shot.id)}" ${shot.id === targetShotId ? "selected" : ""}>S${String(shot.shotNo).padStart(2, "0")} · ${storyEscape(shot.title || "未命名镜头")}</option>`).join("")}</select></label>
-              </div>
+            <div class="story-script-fields">
+              <label class="story-script-title-field">文稿标题<input id="storyScriptTitle" maxlength="160" value="${storyEscape(script?.title || `第 ${storyState.scripts.length + 1} 版文稿`)}" placeholder="例如：夜班便利店 第一季" /></label>
+              <label class="story-script-control">覆盖已有分集<em>可选</em><select id="storyScriptTargetEpisode" data-story-script-target-episode><option value="">自动 · 可新增</option>${episodes.map((episode) => `<option value="${storyEscape(episode.id)}" ${episode.id === targetEpisodeId ? "selected" : ""}>E${String(episode.episodeNo).padStart(2, "0")} · ${storyEscape(episode.title || "未命名剧集")}</option>`).join("")}</select></label>
+              <label class="story-script-control">目标集数<em>自动</em><span class="story-planning-input"><input id="storyAnalysisTarget" data-story-analysis-target-episodes type="number" min="0" max="30" step="1" value="${storyEscape(planningEpisodes)}" placeholder="AI" ${targetEpisodeScoped ? "disabled" : ""} /><b>集</b></span></label>
+              <label class="story-script-control">目标时长<em>自动</em><span class="story-planning-input"><input id="storyScriptDuration" data-story-analysis-duration type="number" min="0" max="1440" step="0.5" value="${storyEscape(planningDuration)}" placeholder="AI" /><b>分</b></span></label>
             </div>
-            <div class="story-planning-card">
-              <div class="story-planning-intro">
-                <span class="story-planning-icon"><i data-lucide="sparkles"></i></span>
-                <div><strong>AI 创作目标</strong><p>两项都可以留空。留空时 AI 会按原文容量规划一部完整短剧；填写后，本次拆解必须满足目标。</p></div>
-                <span class="story-planning-optional">可选</span>
-              </div>
-              <div class="story-planning-fields">
-                <label class="story-planning-field">
-                  <span>目标集数<em>留空自动</em></span>
-                  <span class="story-planning-input"><input id="storyAnalysisTarget" data-story-analysis-target-episodes type="number" min="0" max="30" step="1" value="${storyEscape(planningEpisodes)}" placeholder="由 AI 判断" ${targetEpisodeScoped ? "disabled" : ""} /><b>集</b></span>
-                  <small>${targetEpisodeScoped ? "已指定单集，本次不设置全剧集数" : "填写后按该集数拆分"}</small>
-                </label>
-                <label class="story-planning-field">
-                  <span>目标时长<em>留空自动</em></span>
-                  <span class="story-planning-input"><input id="storyScriptDuration" data-story-analysis-duration type="number" min="0" max="1440" step="0.5" value="${storyEscape(planningDuration)}" placeholder="由 AI 计算" /><b>分钟</b></span>
-                  <small>${targetEpisodeScoped ? "指定单集时，按这一集的制作时长计算" : "指定全剧总时长；不填则按完整短剧规划"}</small>
-                </label>
-              </div>
-            </div>
+            <p class="story-script-goal-note">留空由 AI 按原文规划完整短剧；指定分集时只覆盖该集。分镜由 AI 生成，可新增多个，不受已有镜头限制。</p>
             <label class="story-script-content">正文<textarea id="storyScriptContent" rows="16" maxlength="1500000" placeholder="粘贴完整小说、故事大纲或分集草案。建议先保存版本，再让 AI 拆解。">${storyEscape(script?.content || "")}</textarea></label>
             <div class="story-script-actions">
               <p class="story-message" id="storyScriptMessage">${storyEscape(storyState.actionMessage)}</p>
@@ -1087,26 +1019,19 @@
       </section>`;
     host.innerHTML = `
       <div class="story-detail-panel">
-        <div class="story-detail-topbar">
-          <button class="story-back-button" data-story-back type="button"><i data-lucide="arrow-left"></i><span>全部项目</span></button>
-          <span>STORY PROJECT · ${storyEscape(project.status)}</span>
-        </div>
-        <div class="story-detail-head">
-          <div>
-            <p class="eyebrow">PROJECT</p>
+        <div class="story-project-toolbar">
+          <button class="story-back-button" data-story-back type="button"><i data-lucide="arrow-left"></i><span>剧集</span></button>
+          <div class="story-project-toolbar-main">
             <h2>${storyEscape(project.name)}</h2>
-            <p>${storyEscape(project.description || "尚未填写项目说明。")}</p>
+            <div class="story-project-inline-stats">
+              <span><b>${Number(project.scriptVersionCount || 0)}</b> 文稿</span>
+              <span><b>${Number(project.episodeCount || 0)}</b> 集</span>
+              <span><b>${Number(project.assetCount || 0)}</b> 资产</span>
+              <span><b>${Number(project.shotCount || 0)}</b> 分镜</span>
+              <span>${storyEscape(project.aspectRatio)}</span>
+            </div>
           </div>
-          <div class="story-detail-head-actions">
-            <div class="story-detail-badges"><span>${storyEscape(project.aspectRatio)}</span><span>${Number(project.episodeTarget || 0) > 0 ? `计划 ${Number(project.episodeTarget)} 集` : "集数由 AI 规划"}</span></div>
-            <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>资产库</span></button>
-          </div>
-        </div>
-        <div class="story-metrics">
-          ${storyMetric("剧本版本", project.scriptVersionCount)}
-          ${storyMetric("剧集", project.episodeCount)}
-          ${storyMetric("资产", project.assetCount)}
-          ${storyMetric("镜头", project.shotCount)}
+          <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>资产库</span></button>
         </div>
         ${renderStoryDetailTabs()}
         <div class="story-tab-panel" data-story-tab-panel="script" ${storyState.detailTab === "script" ? "" : "hidden"}>
@@ -1220,9 +1145,6 @@
         storyState.analysisScriptId = "";
       }
       syncStoryScriptTargetFromSelection();
-      if (storyState.scriptTargetEpisodeId) {
-        await loadStoryScriptTargetShots().catch(() => []);
-      }
       storyState.action = "";
       storyState.actionMessage = "";
       storyState.loading = false;
@@ -2455,9 +2377,8 @@
     const title = storyEl("storyScriptTitle")?.value || "";
     const content = storyEl("storyScriptContent")?.value || "";
     const targetEpisodeSelect = storyEl("storyScriptTargetEpisode");
-    const targetShotSelect = storyEl("storyScriptTargetShot");
     const targetEpisodeId = targetEpisodeSelect ? targetEpisodeSelect.value : storyState.scriptTargetEpisodeId;
-    const targetShotId = targetShotSelect ? targetShotSelect.value : storyState.scriptTargetShotId;
+    const targetShotId = "";
     const durationMinutes = storyEl("storyScriptDuration")?.value || "";
     const estimatedDurationSeconds = Math.max(0, Math.min(86400, Math.round((Number(durationMinutes || 0) || 0) * 60)));
     if (!content.trim()) {
@@ -2658,10 +2579,7 @@
           storyState.actionMessage = "";
           if (storyState.analysisScriptId !== storyState.selectedScriptId) storyState.analysis = null;
           syncStoryScriptTargetFromSelection();
-          void (async () => {
-            await loadStoryScriptTargetShots().catch(() => []);
-            renderStoryDetail();
-          })();
+          renderStoryDetail();
         }
       }
     });
@@ -2689,19 +2607,7 @@
       else if (event.target?.matches("[data-story-script-target-episode]")) {
         storyState.scriptTargetDirty = true;
         storyState.scriptTargetEpisodeId = event.target.value || "";
-        storyState.scriptTargetShotId = "";
-        storyState.scriptTargetShots = [];
-        storyState.scriptTargetLoadedFor = "";
-        refreshStoryScriptShotSelect();
-        void loadStoryScriptTargetShots().then(refreshStoryScriptShotSelect).catch((error) => {
-          storyState.actionMessage = error.message || String(error);
-          refreshStoryScriptShotSelect();
-        });
-        return;
-      }
-      else if (event.target?.matches("[data-story-script-target-shot]")) {
-        storyState.scriptTargetDirty = true;
-        storyState.scriptTargetShotId = event.target.value || "";
+        renderStoryDetail();
         return;
       }
       else if (event.target?.matches("[data-story-image-model]")) storyState.imageModel = event.target.value || storyState.imageModel;
