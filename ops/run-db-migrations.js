@@ -37,6 +37,11 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-17-story-manuscript-lineage-v1",
+    description: "Add manuscript lineage to script versions and episode sets",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",
@@ -284,6 +289,36 @@ const STORY_SCRIPT_TARGETING_DDL = Object.freeze([
      ON app_story_script_versions (project_id, target_episode_id, target_shot_id);`,
 ]);
 
+const STORY_MANUSCRIPT_LINEAGE_DDL = Object.freeze([
+  `ALTER TABLE app_story_script_versions
+     ADD COLUMN IF NOT EXISTS manuscript_id TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS target_episode_count INTEGER NOT NULL DEFAULT 0;`,
+  `UPDATE app_story_script_versions SET manuscript_id = id WHERE manuscript_id = '';`,
+  `ALTER TABLE app_story_script_versions DROP CONSTRAINT IF EXISTS app_story_script_versions_project_id_version_no_key;`,
+  `DROP INDEX IF EXISTS app_story_script_versions_project_id_version_no_key;`,
+  `CREATE INDEX IF NOT EXISTS app_story_script_versions_manuscript_idx
+     ON app_story_script_versions (project_id, manuscript_id, version_no DESC);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS app_story_script_versions_manuscript_version_uidx
+     ON app_story_script_versions (project_id, manuscript_id, version_no)
+     WHERE manuscript_id <> '';`,
+  `ALTER TABLE app_story_episodes
+     ADD COLUMN IF NOT EXISTS source_script_version_id TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS source_manuscript_id TEXT NOT NULL DEFAULT '';`,
+  `UPDATE app_story_episodes e
+   SET source_script_version_id = sv.id,
+       source_manuscript_id = sv.manuscript_id
+   FROM (
+     SELECT DISTINCT ON (project_id) project_id, id, manuscript_id
+     FROM app_story_script_versions
+     ORDER BY project_id, version_no DESC, created_at DESC
+   ) sv
+   WHERE e.project_id = sv.project_id
+     AND e.source_manuscript_id = '';`,
+  `ALTER TABLE app_story_episodes DROP CONSTRAINT IF EXISTS app_story_episodes_project_id_episode_no_key;`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS app_story_episodes_manuscript_episode_uidx
+     ON app_story_episodes (project_id, source_manuscript_id, episode_no);`,
+]);
+
 async function runStatements(client, statements) {
   for (const statement of statements) await client.query(statement);
 }
@@ -458,6 +493,8 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
         await runStatements(schemaLockClient, STORY_CANVAS_P0_DDL);
       } else if (migration.version === "2026-11-17-story-script-targeting-v1") {
         await runStatements(schemaLockClient, STORY_SCRIPT_TARGETING_DDL);
+      } else if (migration.version === "2026-11-17-story-manuscript-lineage-v1") {
+        await runStatements(schemaLockClient, STORY_MANUSCRIPT_LINEAGE_DDL);
       } else {
         throw new Error(`Unknown schema migration: ${migration.version}`);
       }

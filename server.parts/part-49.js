@@ -168,7 +168,7 @@ const STORY_SHOT_PLANNER_SYSTEM_PROMPT = `你是专业中文影视分镜师。�
 }
 规则：
 1. 严格按大纲时间顺序覆盖开场、发展、转折、结尾，不新增原文没有依据的主要事件，不改变人物关系和结果。
-2. 镜头数量必须按本集大纲的实际剧情密度决定，不得套用固定镜头数模板。先把大纲拆成连续可执行的动作/对白/情绪节点，再为每个节点安排镜头；所有 shotNo 连续且唯一。
+2. 镜头数量必须按本集大纲的实际剧情密度决定，不得套用固定镜头数模板。先把大纲拆成连续可执行的动作/对白/情绪节点，再为每个节点安排镜头；所有 shotNo 连续且唯一。尤其禁止机械返回 10 个镜头：10 不是默认值，也不得因为常见模板停在 10；如果动作和对白节点少于 10 个就输出更少，如果节点多于 10 个就必须继续拆。
 3. 每个镜头只表现一个清晰的视觉动作或信息变化。description 必须写清景别、人物动作、环境、关键道具、情绪和与前后镜头的连续性。
 4. 充分使用输入的出场角色、场景和结尾钩子；必须有一个明确镜头落地钩子，不能只写在镜头外。
 5. dialogue 只保留能推动剧情或揭示人物关系的关键对白，禁止长篇复述。
@@ -302,6 +302,9 @@ async function planStoryEpisodeShots({ project = {}, episode = {} } = {}) {
   }
   const metadata = episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {};
   const episodeDuration = Math.max(0, Number(episode.durationSeconds || 0) || 0);
+  const synopsis = String(episode.synopsis || "").trim();
+  const contentStats = storyAnalysisContentStats(synopsis);
+  const actionSignals = (synopsis.match(/[，。！？；：]/g) || []).length;
   const userPrompt = [
     `项目：${String(project.name || "未命名项目")}`,
     `画幅：${String(project.aspectRatio || "9:16")}`,
@@ -311,10 +314,11 @@ async function planStoryEpisodeShots({ project = {}, episode = {} } = {}) {
     `出场角色：${storyTextList(metadata.characters, 30, 80).join("、") || "按大纲判断"}`,
     `场景：${storyTextList(metadata.scenes, 30, 100).join("、") || "按大纲判断"}`,
     `结尾钩子：${String(metadata.hook || "").trim() || "缺失，请根据本集结尾补写"}`,
+    `大纲统计信号：汉字约 ${contentStats.hanCharacters} 个，自然段约 ${contentStats.paragraphs} 个，引号对白约 ${contentStats.quotedLines} 段（约 ${contentStats.dialogueCharacters} 个汉字），句读转折约 ${actionSignals} 个。这些信号用于判断动作、对白和情绪节点数量；不要机械套用 10 镜。`,
     "单集大纲开始",
-    String(episode.synopsis || "").trim(),
+    synopsis,
     "单集大纲结束",
-    "请严格输出约定 JSON。",
+    "请先按时间顺序拆出动作/对白/情绪节点，再为节点安排镜头，最后严格输出约定 JSON。",
   ].join("\n");
   const deadline = Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS;
   const usage = { attempts: 0 };
@@ -345,6 +349,18 @@ async function planStoryEpisodeShots({ project = {}, episode = {} } = {}) {
   if (!plan.shots.length) {
     throw Object.assign(new Error("AI 分镜结果为空，请重试。"), { statusCode: 502, code: "STORY_SHOT_PLAN_EMPTY" });
   }
+  console.info("[story-shot-plan]", JSON.stringify({
+    projectId: project.id || "",
+    episodeId: episode.id || "",
+    synopsisCharacters: contentStats.hanCharacters,
+    paragraphs: contentStats.paragraphs,
+    quotedLines: contentStats.quotedLines,
+    actionSignals,
+    targetDurationSeconds: episodeDuration,
+    rawShotCount: Array.isArray(parsed?.shots) ? parsed.shots.length : (Array.isArray(parsed?.storyboard) ? parsed.storyboard.length : 0),
+    normalizedShotCount: plan.shots.length,
+    exactlyTen: plan.shots.length === 10,
+  }));
   return { ...plan, model: model.id, attempts: usage.attempts };
 }
 

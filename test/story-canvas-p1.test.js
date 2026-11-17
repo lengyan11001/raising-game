@@ -47,7 +47,7 @@ test("story P1 data functions stay PostgreSQL-only and enforce project ownership
     assert.match(db, new RegExp(`\\b${fn},`), `db export ${fn}`);
     assert.match(imports, new RegExp(`\\b${fn},`), `server import ${fn}`);
   }
-  assert.match(db, /async function importStoryAnalysisInDb[\s\S]*BEGIN[\s\S]*ON CONFLICT \(project_id, episode_no\) DO UPDATE[\s\S]*COMMIT/);
+  assert.match(db, /async function importStoryAnalysisInDb[\s\S]*BEGIN[\s\S]*ON CONFLICT \(project_id, source_manuscript_id, episode_no\) DO UPDATE[\s\S]*COMMIT/);
   assert.match(db, /async function deleteStoryEpisodeFromDb[\s\S]*DELETE FROM app_story_episodes[\s\S]*DELETE FROM app_story_canvas_links/);
   assert.match(db, /async function listStoryScriptVersionsFromDb[\s\S]*p\.owner_user_id = \$2/);
   assert.doesNotMatch(handlerBody(read("server.parts/part-03.js"), "handleImportStoryAnalysis"), /writeFile|data\/.*\.json/i);
@@ -119,32 +119,43 @@ test("story P1 uses a script-episode-shot tree with confirmation-gated assets", 
   assert.match(css, /\.story-asset-library-modal \{/);
 });
 
-test("story creation targets an episode and shot and opens a dedicated shot workspace", () => {
+test("story creation keeps manuscripts and versions independent while retaining shot workspace targeting", () => {
   const story = read("platform.story.js");
   const css = read("platform.css");
   const db = read("db.js");
   const handlers = read("server.parts/part-03.js");
   const routes = read("server.parts/part-42.js");
-  assert.match(story, /id="storyScriptTargetEpisode" data-story-script-target-episode/);
-  assert.doesNotMatch(story, /id="storyScriptTargetShot" data-story-script-target-shot/);
+  assert.match(story, /id="storyScriptCreateForm"/);
+  assert.match(story, /id="storyScriptCreateContent"/);
+  assert.match(story, /id="storyScriptCreateTargetEpisodes"/);
+  assert.match(story, /id="storyScriptCreateDuration"/);
+  assert.match(story, /data-story-script-create/);
+  assert.match(story, /data-story-script-version-source/);
+  assert.match(story, /function selectStoryScriptVersion\(/);
+  assert.match(story, /event\.target\.closest\("\[data-story-script-id\]"\)/);
+  assert.match(story, /function renderStoryManuscriptCard\(/);
+  assert.match(story, /function storyManuscriptGroups\(/);
   assert.match(story, /data-story-analysis-target-episodes/);
   assert.match(story, /data-story-analysis-duration/);
-  assert.match(story, /placeholder="AI"/);
-  assert.match(story, /body: \{ title, content, targetEpisodeId, targetShotId, estimatedDurationSeconds \}/);
-  const saveScript = story.slice(story.indexOf("async function saveStoryScriptDraft("), story.indexOf("async function analyzeStoryDraft("));
-  assert.match(saveScript, /targetEpisodeSelect \? targetEpisodeSelect\.value/);
-  assert.match(saveScript, /const targetShotId = ""/);
-  assert.doesNotMatch(saveScript, /targetEpisodeSelect\?\.value \|\| storyState\.scriptTargetEpisodeId/);
-  assert.doesNotMatch(story, /loadStoryScriptTargetShots/);
-  assert.match(db, /ADD COLUMN IF NOT EXISTS target_episode_id/);
-  assert.match(db, /ADD COLUMN IF NOT EXISTS target_shot_id/);
-  assert.match(db, /ADD COLUMN IF NOT EXISTS estimated_duration_seconds/);
-  assert.match(handlerBody(handlers, "handleCreateStoryScript"), /targetEpisodeId[\s\S]*targetShotId[\s\S]*estimatedDurationSeconds/);
-  assert.match(handlers, /async function analyzeStoryScript\(\{ project = \{\}, script = \{\}, targetEpisodes = 0, targetDurationSeconds = null, targetEpisode = null \}/);
-  assert.match(handlers, /目标分集：\$\{targetEpisodeLabel\}/);
-  assert.match(handlers, /分镜目标：本次只拆集，不限制分镜数量/);
-  assert.match(handlers, /本次拆解的目标总时长/);
-  assert.match(handlerBody(handlers, "handleAnalyzeStoryProject"), /script\.targetEpisodeId[\s\S]*targetDurationSeconds: body\.targetDurationSeconds/);
+  assert.match(story, /mode: storyState\.scriptCreateMode/);
+  assert.match(story, /sourceScriptId: storyState\.scriptCreateSourceId/);
+  assert.match(story, /targetEpisodeCount,/);
+  assert.match(story, /estimatedDurationSeconds,/);
+  assert.match(story, /body: \{ analysis, scriptVersionId \}/);
+  assert.match(story, /const scriptVersionId = storyState\.analysisScriptId \|\| selectedStoryScript\(\)\?\.id \|\| ""/);
+  assert.match(handlerBody(handlers, "handleCreateStoryScript"), /mode === "version"/);
+  assert.match(handlerBody(handlers, "handleCreateStoryScript"), /manuscriptId = mode === "version"/);
+  assert.match(handlerBody(handlers, "handleImportStoryAnalysis"), /sourceManuscriptId: sourceScript\.manuscriptId/);
+  assert.match(db, /ADD COLUMN IF NOT EXISTS manuscript_id/);
+  assert.match(db, /ADD COLUMN IF NOT EXISTS target_episode_count/);
+  assert.match(db, /ADD COLUMN IF NOT EXISTS source_script_version_id/);
+  assert.match(db, /ADD COLUMN IF NOT EXISTS source_manuscript_id/);
+  assert.match(db, /ON CONFLICT \(project_id, source_manuscript_id, episode_no\) DO UPDATE/);
+  assert.match(db, /DROP CONSTRAINT IF EXISTS app_story_script_versions_project_id_version_no_key/);
+  assert.match(db, /app_story_script_versions_manuscript_version_uidx/);
+  assert.match(css, /\.story-manuscript-card \{/);
+  assert.match(css, /\.story-script-modal \{/);
+  assert.match(css, /\.story-tree-disclosure \{/);
   assert.match(routes, /storyShotGenerationRefsMatch[\s\S]*handleCreateStoryGenerationRef/);
   assert.match(routes, /storyGenerationRefMatch[\s\S]*handleUpdateStoryGenerationRef/);
 
@@ -155,14 +166,9 @@ test("story creation targets an episode and shot and opens a dedicated shot work
   assert.match(workspace, /data-story-open-asset-library/);
   assert.doesNotMatch(workspace, /返回分集|剧情大纲|分镜清单/);
 
-  const openShot = story.slice(story.indexOf("async function openStoryShot("), story.indexOf("async function generateStoryEpisodeShots("));
-  assert.match(openShot, /await loadStoryEpisodeShots\(\)/);
-  assert.match(openShot, /storyState\.episodeTab = "production"/);
-  assert.doesNotMatch(openShot, /scrollIntoView|data-story-shot-card|advanced\/generate|generateStoryShotVideo/);
-  assert.match(story, /class="story-tree-script is-static"/);
+  const openShot = story.slice(story.indexOf("async function openStoryShot("), story.indexOf("async function createStoryShot("));
+  assert.doesNotMatch(openShot, /data-story-open-episode|data-story-episode-view/);
   assert.match(story, /锁定大纲，AI 拆分镜/);
-  assert.match(css, /\.story-tree-script\.is-static \{ cursor: default; \}/);
-  assert.match(css, /\.story-tree-episode:hover, \.story-tree-script\.is-active/);
   assert.match(css, /\.story-shot-workspace-grid \{[^}]*grid-template-columns/);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.story-shot-workspace-grid \{ grid-template-columns: 1fr;/);
 });
@@ -226,11 +232,10 @@ test("story episodes and durations are AI-planned unless the user explicitly ove
   assert.match(handlers, /durationSeconds 总和必须在该目标上下 10% 以内/);
   assert.match(handlers, /targetDurationSeconds: body\.targetDurationSeconds/);
   assert.match(handlers, /episodeTarget = Math\.max\(0,/);
-  assert.match(story, /class="story-script-fields"/);
-  assert.match(story, /留空由 AI 按原文规划完整短剧/);
-  assert.match(story, /目标集数<em>自动<\/em>/);
-  assert.match(story, /目标时长<em>自动<\/em>/);
-  assert.match(story, /分镜由 AI 生成，可新增多个/);
+  assert.match(story, /class="story-script-modal-planning"/);
+  assert.match(story, /目标集数<em>可选<\/em>/);
+  assert.match(story, /目标时长<em>可选<\/em>/);
+  assert.match(story, /参数留空时由 AI 根据原文完整短剧结构规划/);
   assert.match(story, /function renderStoryWindowHeader\(\)/);
   assert.match(story, /classList\.toggle\("is-detail"/);
   assert.match(story, /class="story-project-inline-head"/);
@@ -246,7 +251,8 @@ test("story episodes and durations are AI-planned unless the user explicitly ove
   assert.match(story, /analysisTargetEpisodesDirty = true/);
   assert.match(story, /analysisDurationDirty = true/);
   assert.match(html, /预计集数（可选）[\s\S]*留空由 AI 判断/);
-  assert.match(css, /\.story-script-fields \{[^}]*grid-template-columns: minmax\(190px, 1\.7fr\) repeat\(3, minmax\(112px, 1fr\)\)/);
+  assert.match(css, /\.story-analysis-toolbar \{[^}]*display: flex/);
+  assert.match(css, /\.story-script-modal-planning \{[^}]*display: flex/);
   assert.match(css, /\.story-library-head\.is-detail \{[^}]*min-height: 34px[^}]*margin-bottom: 6px/);
   assert.match(css, /\.story-shell\.is-detail \{ margin-top: -8px; padding-top: 0; \}/);
   assert.match(css, /\.story-library-head\.is-detail \.story-project-inline-head h2 \{[^}]*margin: 0[^}]*line-height: 1/);
@@ -260,7 +266,9 @@ test("story episode workbench exposes AI storyboard flow and hook repair", () =>
   const css = read("platform.css");
   assert.match(story, /data-story-open-episode=/);
   assert.match(story, /data-story-close-episode/);
-  assert.match(story, /data-story-episode-view="shots"/);
+  assert.match(story, /data-story-toggle-episode/);
+  assert.match(story, /function toggleStoryEpisode\(/);
+  assert.match(story, /storyEpisodeShotsFromCache\(episode\.id\)/);
   assert.match(story, /data-story-save-episode/);
   assert.match(story, /data-story-lock-episode/);
   assert.match(story, /data-story-plan-shots/);
