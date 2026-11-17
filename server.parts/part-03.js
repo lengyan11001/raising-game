@@ -1682,6 +1682,7 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
   const optimizerModelId = storyInputText(body.optimizerModel || body.optimizerModelId, 120);
   const resolution = storyInputText(body.resolution, 24) || "720p";
   const targetShotId = storyInputText(body.shotId, 120);
+  const revisionFeedback = storyInputText(body.revisionFeedback, 4000);
   const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
   if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
   if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
@@ -1724,7 +1725,12 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
     : [...shots].sort((a, b) => a.shotNo - b.shotNo);
   for (const shot of promptShots) {
     try {
-      const sourcePrompt = storyShotProductionPrompt({ project, episode, shot, assets, variants: variants || [] });
+      const previousPrompt = String(shot.videoPrompt || "").trim();
+      const sourcePrompt = [
+        storyShotProductionPrompt({ project, episode, shot, assets, variants: variants || [] }),
+        previousPrompt ? `上一版视频提示词：\n${previousPrompt}` : "",
+        revisionFeedback ? `用户对重新生成的修改意见（必须落实，并保留已定稿资产的身份与连续性）：\n${revisionFeedback}` : "",
+      ].filter(Boolean).join("\n\n");
       const optimized = await optimizeStoryShotPrompt({
         prompt: sourcePrompt,
         provider: provider.id,
@@ -1749,6 +1755,7 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
           optimizerMode: optimized.mode,
           resolution,
           assetIds: assets.filter((asset) => storyShotUsesAsset(asset, shot)).map((asset) => asset.id),
+          revisionFeedback,
           optimizedAt: new Date().toISOString(),
         },
       });

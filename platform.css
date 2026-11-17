@@ -15746,6 +15746,17 @@ body.app-keyboard-open {
 .story-shot-prompt-block > button:disabled { color: #615864; background: rgba(255, 255, 255, .02); border-color: var(--story-line); }
 .story-shot-production-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .story-shot-production-actions small { margin-left: auto; color: #776d7b; font-size: 8px; }
+.story-revision-backdrop { position: fixed; z-index: 1700; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(8, 7, 10, .8); backdrop-filter: blur(10px); }
+.story-revision-modal { display: grid; gap: 15px; width: min(620px, 96vw); padding: 18px; background: #151217; border: 1px solid rgba(255, 79, 163, .28); border-radius: 12px; box-shadow: 0 28px 80px rgba(0, 0, 0, .6); }
+.story-revision-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.story-revision-modal h3 { margin: 4px 0 0; color: #f2eaf4; font-size: 18px; }
+.story-revision-modal header p:not(.eyebrow) { margin: 6px 0 0; color: #9a909e; font-size: 10px; line-height: 1.6; }
+.story-revision-modal > label { display: grid; gap: 7px; color: #b9afbd; font-size: 10px; font-weight: 720; }
+.story-revision-modal textarea { width: 100%; min-height: 132px; padding: 11px 12px; resize: vertical; color: #f5eff6; background: #100e12; border: 1px solid rgba(255, 255, 255, .12); border-radius: 8px; font: inherit; font-size: 11px; line-height: 1.65; outline: none; }
+.story-revision-modal textarea:focus { border-color: rgba(255, 79, 163, .68); box-shadow: 0 0 0 3px rgba(255, 79, 163, .1); }
+.story-revision-modal > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.story-revision-modal > footer small { max-width: 330px; color: #817787; font-size: 9px; line-height: 1.55; }
+.story-revision-modal > footer > div { display: flex; flex: 0 0 auto; gap: 8px; }
 .story-asset-library-backdrop { position: fixed; z-index: 1600; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(8, 7, 10, .78); backdrop-filter: blur(10px); }
 .story-asset-library-modal { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); width: min(1180px, 96vw); max-height: 90vh; overflow: hidden; background: #141216; border: 1px solid rgba(255, 79, 163, .25); border-radius: 14px; box-shadow: 0 28px 80px rgba(0, 0, 0, .58); }
 .story-asset-library-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px 20px; background: linear-gradient(120deg, rgba(255, 79, 163, .09), transparent 58%); border-bottom: 1px solid var(--story-line); }
