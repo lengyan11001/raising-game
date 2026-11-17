@@ -5190,6 +5190,21 @@ async function getUserAssetsForUserFromDb(userId = "") {
   return rows.map(recordFromPayloadRow);
 }
 
+async function getUserUnlocksForUserFromDb(userId = "") {
+  if (!dbEnabled()) return [];
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return [];
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT *
+    FROM app_user_unlocks
+    WHERE user_id = $1
+      AND deleted_at IS NULL
+    ORDER BY created_at DESC
+  `, [cleanUserId]);
+  return rows.map(recordFromPayloadRow);
+}
+
 async function getUserAuthSummaryFromDb(userId = "") {
   if (!dbEnabled()) return { walletOrders: [], userCharacters: [], creditLedger: [], giftsReceived: 0 };
   const cleanUserId = String(userId || "").trim();
@@ -12169,6 +12184,7 @@ module.exports = {
   getVegaMediaLibrarySourceUrlsByAssetUrisFromDb,
   upsertVegaMediaLibraryEntryInDb,
   getUserAssetIdsByUrlsFromDb,
+  getUserUnlocksForUserFromDb,
   upsertUserCharacterInDb,
   listChatConversationsInDb,
   findChatConversationByCharacterInDb,

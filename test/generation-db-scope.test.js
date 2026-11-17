@@ -117,6 +117,24 @@ test("authenticated snapshots scope account tables while admin keeps full reads"
   assert.match(block, /users = await readRows\(`SELECT \* FROM app_users WHERE deleted_at IS NULL/);
 });
 
+test("unlock list uses lightweight auth and a single user-scoped query", () => {
+  const db = read("db.js");
+  const part01 = read("server.parts/part-01.js");
+  const part35 = read("server.parts/part-35.js");
+  const start = part35.indexOf("async function handleListUnlocks(");
+  const end = part35.indexOf("async function handleGameFeed(", start);
+  const handler = part35.slice(start, end);
+
+  assert.ok(start > 0 && end > start);
+  assert.match(handler, /requireUser\(req, res, \{ loadDb: false \}\)/);
+  assert.match(handler, /getUserUnlocksForUserFromDb\(auth\.user\.id\)/);
+  assert.match(part01, /getUserUnlocksForUserFromDb/);
+  assert.match(db, /async function getUserUnlocksForUserFromDb\(userId = ""\)/);
+  const snapshotStart = db.indexOf("async function getUserUnlocksForUserFromDb(");
+  const snapshotEnd = db.indexOf("async function getUserAuthSummaryFromDb(", snapshotStart);
+  assert.match(db.slice(snapshotStart, snapshotEnd), /WHERE user_id = \$1[\s\S]*?AND deleted_at IS NULL/);
+});
+
 test("referral pages explicitly retain cross-user account summaries", () => {
   const part33 = read("server.parts/part-33.js");
   const part34 = read("server.parts/part-34.js");

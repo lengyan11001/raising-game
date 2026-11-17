@@ -300,6 +300,7 @@ const {
   upsertUserAssetInDb,
   getUserAssetFromDb,
   getUserAssetsForUserFromDb,
+  getUserUnlocksForUserFromDb,
   getUserAuthSummaryFromDb,
   getUserAssetsByIdsFromDb,
   getVegaMediaLibraryEntryFromDb,
