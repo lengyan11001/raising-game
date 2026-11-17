@@ -754,6 +754,7 @@ function isLocalPublicAssetUrl(value = "") {
 async function readDb(options = {}) {
   const db = (await readAppDbFromTables(DEFAULT_DB, {
     includeUserAssets: options.includeUserAssets !== false,
+    userAssetsUserId: String(options.userAssetsUserId || "").trim(),
   })) || DEFAULT_DB;
   const users = Array.isArray(db.users)
     ? db.users.map((user) => ({ ...user, tenantId: recordTenantId(user) }))
