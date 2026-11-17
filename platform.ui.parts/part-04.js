@@ -952,7 +952,13 @@ async function requestJson(url, options = {}) {
     body: options.body === undefined ? undefined : typeof options.body === "string" ? options.body : JSON.stringify(options.body),
     signal: options.signal || (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined),
   });
-  const payload = await response.json().catch(() => ({}));
+  const responseText = await response.text().catch(() => "");
+  let payload = {};
+  try {
+    payload = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    payload = {};
+  }
   if (!response.ok || payload.ok === false) {
     const sessionLost = response.status === 401 && Boolean(requestToken)
       && requestToken === String(state.token || "")
@@ -963,11 +969,17 @@ async function requestJson(url, options = {}) {
     if (payload.code === "SESSION_REPLACED" && requestToken === String(state.token || "")) {
       window.dispatchEvent(new CustomEvent("raising-session-replaced", { detail: payload }));
     }
-    const error = new Error(payload.message || payload.detail || `Request failed: ${response.status}`);
+    const plainText = String(responseText || "").trim();
+    const visibleResponseText = plainText && !/^<!doctype\b|^<html\b/i.test(plainText)
+      ? plainText.slice(0, 500)
+      : "";
+    const statusLabel = `Request failed: ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
+    const error = new Error(payload.message || payload.detail || visibleResponseText || statusLabel);
     error.statusCode = response.status;
     error.code = payload.code || "";
     error.payload = payload;
     error.details = payload.details || null;
+    error.responseText = responseText;
     throw error;
   }
   return payload;

@@ -4631,3 +4631,19 @@ CODEX_TASK_STATE.md
 - Changed files: `db.js`, `platform.css`, `platform.story.js`, `server.parts/part-01.js`, `server.parts/part-03.js`, `server.parts/part-42.js`, `test/story-canvas-p1.test.js`.
 - The unrelated pre-existing `server.parts/part-45.js` working-tree change remains preserved and must be excluded from staging, commit, release, and deployment.
 - Deployment status at record time: source, release, and Old deployment pending; Live must remain untouched.
+
+## 2026-11-17 Step DB: Papaya prompt optimization 451 reproduced
+
+- User report: after confirming the shot assets, clicking AI prompt optimization returns `Request failed: 502`.
+- Reproduced against the currently running Old release `b8a6fd049c7673368bc731103b9271d930cb5730` with the real project `story-1794824527580-ea36f6e2`, episode `61b3852a-bf84-4ca6-9650-9b8affb11890`, shot S01 `407b4d08-8747-4bea-b4e2-d0f736de164e`.
+- Real Papaya response was HTTP-success payload `{ code: "451", message: "Content blocked by security check (political_cn_entity,political_cn_entity)" }` with no `choices`. `papayaLanguageRequest()` only treated HTTP errors / `payload.error` as failures, so the blocked response flowed onward as an empty optimizer body and became application 502 `STORY_SHOT_PROMPT_OPTIMIZER_EMPTY`.
+- The exact optimizer input is 7689 system chars + 3171 user chars. Qwen3.7 Flash accepted the same exact input and returned a parsed 1152-character optimized prompt. Replacing political-role terms (`教育局`, `校长室`, `职称评定`, `职称`, `校长`, `高义`) in the user prompt also let Papaya return a parsed prompt, proving the upstream security classifier is the trigger rather than Nginx, the asset-approval gate, or timeout handling.
+- Fix direction: make Papaya surface API-level error payloads as real errors, and when Papaya reports a 451 security block for a story shot, transparently fall back to configured Qwen3.7 Flash so the user's content is preserved instead of rewritten/redacted. Also preserve the real backend error for non-JSON frontend failures.
+- Live remains untouched.
+
+### 2026-11-17 Papaya 451 fallback verification
+
+- Added regression coverage for `papayaLanguageRequest()` API-level `451` payloads, story-shot Papaya-to-Qwen fallback, non-security failure passthrough, and frontend JSON/non-JSON 502 error text.
+- Targeted tests passed: `test/session-login-race.test.js`, `test/request-json-errors.test.js`, `test/story-prompt-optimizer-fallback.test.js`, `test/story-canvas-p0.test.js`, `test/story-canvas-p1.test.js`.
+- `npm run check:undef`, syntax checks, and `git diff --check` passed.
+- `test/w3-prompt-optimizer.test.js` passes when run against the committed `server.parts/part-45.js`; the unrelated uncommitted `part-45.js` WIP remains excluded from staging, release build, and deployment.

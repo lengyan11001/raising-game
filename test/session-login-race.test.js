@@ -36,7 +36,7 @@ test("a stale auth response cannot clear a newer login token", async () => {
     fetch: async (_url, options) => ({
       status: 401,
       ok: false,
-      json: async () => ({ ok: false, code: "LOGIN_REQUIRED", message: "sign in" }),
+      text: async () => JSON.stringify({ ok: false, code: "LOGIN_REQUIRED", message: "sign in" }),
     }),
   };
   vm.runInNewContext(`${loadRequestJson()}\n;globalThis.requestJson = requestJson;`, sandbox);
@@ -62,7 +62,7 @@ test("an auth rejection for the current token still clears the session", async (
     fetch: async () => ({
       status: 401,
       ok: false,
-      json: async () => ({ ok: false, code: "SESSION_REPLACED", message: "replaced" }),
+      text: async () => JSON.stringify({ ok: false, code: "SESSION_REPLACED", message: "replaced" }),
     }),
   };
   vm.runInNewContext(`${loadRequestJson()}\n;globalThis.requestJson = requestJson;`, sandbox);

@@ -355,9 +355,10 @@ test("shot assets generate, regenerate, approve, and reuse materials in place", 
   assert.doesNotMatch(workspace, /在资产库审核|图片在资产库中审核定稿/);
 
   const library = story.slice(story.indexOf("function renderStoryAssetLibraryModal("), story.indexOf("function storyShotPromptMatchesModel("));
-  assert.match(library, /assetLibraryExpandedAssetId/);
-  assert.match(library, /const displayVariants = expanded \? expandedVariants : cover \? \[cover\] : \[\]/);
-  assert.match(library, /data-story-library-expand-asset/);
+  assert.match(library, /assetLibraryPreviewAssetId/);
+  assert.match(library, /storyAssetVariantThumbnailUrl\(cover \|\| \{\}\)/);
+  assert.match(library, /data-story-library-preview-asset/);
+  assert.match(library, /story-library-preview/);
   assert.match(library, /data-story-media-fallback/);
   assert.match(library, /assetLibraryMessage/);
   assert.match(story, /function storyReusableAssetVariants[\s\S]*variant\.status !== "approved"[\s\S]*sourceAsset\.kind === asset\.kind/);
@@ -373,6 +374,16 @@ test("shot assets generate, regenerate, approve, and reuse materials in place", 
   assert.match(css, /\.story-shot-workspace-asset-visual \{/);
   assert.match(css, /\.story-shot-asset-reuse \{/);
   assert.match(css, /\.story-library-message \{/);
+  assert.match(css, /\.story-library-asset-cover \{/);
+  assert.match(css, /\.story-library-preview-backdrop \{/);
+});
+
+test("generation record media supports cached image thumbnails", () => {
+  const handlers = read("server.parts/part-41.js");
+  assert.match(handlers, /async function generationRecordThumbnailFile\(/);
+  assert.match(handlers, /scale='min\(480,iw\)':-2/);
+  assert.match(handlers, /wantsThumbnail && isImageGenerationRecord\(record\)/);
+  assert.match(handlers, /max-age=86400, immutable/);
 });
 
 test("story asset images use refreshed authenticated media URLs instead of persisted signed URLs", () => {

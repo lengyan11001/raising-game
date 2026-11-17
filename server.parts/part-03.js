@@ -1704,6 +1704,7 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
   }
   const updatedShots = [];
   const failures = [];
+  const optimizerFallbacks = [];
   const promptShots = targetShotId
     ? shots.filter((shot) => shot.id === targetShotId)
     : [...shots].sort((a, b) => a.shotNo - b.shotNo);
@@ -1718,6 +1719,15 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
         resolution,
         optimizerModelId,
       });
+      if (optimized.fallbackFrom) {
+        optimizerFallbacks.push({
+          shotId: shot.id,
+          shotNo: shot.shotNo,
+          from: optimized.fallbackFrom,
+          to: optimized.model,
+          reason: optimized.fallbackReason || "",
+        });
+      }
       const saved = await createStoryPromptVersionInDb({
         id: randomId("prompt"),
         projectId,
@@ -1732,6 +1742,8 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
           providerLabel: provider.label,
           optimizerModel: optimized.model,
           optimizerMode: optimized.mode,
+          optimizerFallbackFrom: optimized.fallbackFrom || "",
+          optimizerFallbackReason: optimized.fallbackReason || "",
           resolution,
           assetIds: assets.filter((asset) => storyShotUsesAsset(asset, shot)).map((asset) => asset.id),
           optimizedAt: new Date().toISOString(),
@@ -1761,6 +1773,7 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
     shots: updatedShots,
     assets,
     failures,
+    optimizerFallbacks,
   });
 }
 

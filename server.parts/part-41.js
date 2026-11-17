@@ -184,9 +184,42 @@ async function handleAdminGenerationRecordReferenceMedia(req, res, taskId, refer
   return proxyRemoteMedia(req, res, remoteUrl, { fallbackMime, headers });
 }
 
+async function generationRecordThumbnailFile(filePath = "", stat = null) {
+  const sourcePath = String(filePath || "").trim();
+  if (!sourcePath) return "";
+  const fileStat = stat || await fs.stat(sourcePath);
+  const cacheDir = path.join(os.tmpdir(), "raising-game-thumbnails");
+  const cacheKey = crypto.createHash("sha256").update(`${sourcePath}:${fileStat.size}:${fileStat.mtimeMs}`).digest("hex");
+  const outputPath = path.join(cacheDir, `${cacheKey}.jpg`);
+  try {
+    const cached = await fs.stat(outputPath);
+    if (cached.size > 0) return outputPath;
+  } catch {}
+  await fs.mkdir(cacheDir, { recursive: true });
+  const tempPath = path.join(cacheDir, `${cacheKey}.${process.pid}.${crypto.randomUUID()}.tmp.jpg`);
+  try {
+    await execFileQuiet("ffmpeg", [
+      "-hide_banner",
+      "-loglevel", "error",
+      "-y",
+      "-i", sourcePath,
+      "-vf", "scale='min(480,iw)':-2",
+      "-frames:v", "1",
+      "-q:v", "5",
+      tempPath,
+    ], { timeout: 30000 });
+    await fs.rename(tempPath, outputPath);
+    return outputPath;
+  } catch {
+    await fs.unlink(tempPath).catch(() => {});
+    return "";
+  }
+}
+
 async function handleAdminGenerationRecordMedia(req, res, taskId) {
   const mediaToken = new URL(req.url || "/", "http://localhost").searchParams.get("token") || "";
   const tokenPayload = mediaToken ? parseAdminGenerationMediaToken(mediaToken) : null;
+  const wantsThumbnail = new URL(req.url || "/", "http://localhost").searchParams.get("thumb") === "1";
   const decodedTaskId = decodeURIComponent(taskId);
   if (tokenPayload && tokenPayload.taskId !== decodedTaskId) {
     return sendJson(res, 403, { ok: false, message: "Media token does not match this generation record." });
@@ -211,6 +244,17 @@ async function handleAdminGenerationRecordMedia(req, res, taskId) {
     }
     try {
       const stat = await fs.stat(normalizedPath);
+      if (wantsThumbnail && isImageGenerationRecord(record)) {
+        const thumbnailPath = await generationRecordThumbnailFile(normalizedPath, stat);
+        if (thumbnailPath) {
+          const thumbnailStat = await fs.stat(thumbnailPath);
+          return sendMediaFile(req, res, thumbnailPath, {
+            contentType: "image/jpeg",
+            stat: thumbnailStat,
+            headers: { ...headers, "cache-control": "private, max-age=86400, immutable" },
+          });
+        }
+      }
       return sendMediaFile(req, res, normalizedPath, { contentType: mime, stat, headers });
     } catch (error) {
       if (!isPublicHttpUrl(target.url || "")) {
