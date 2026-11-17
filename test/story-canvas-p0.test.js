@@ -29,9 +29,13 @@ test("story P0 schema is registered in runtime, readiness, and migration ledger"
     assert.match(db, new RegExp(`"${table}"`), `required table ${table}`);
   }
   assert.match(db, /"2026-11-16-story-canvas-p0-v1"/);
+  assert.match(db, /"2026-11-17-story-script-targeting-v1"/);
   assert.match(migrations, /version: "2026-11-16-story-canvas-p0-v1"/);
+  assert.match(migrations, /version: "2026-11-17-story-script-targeting-v1"/);
   assert.match(migrations, /const STORY_CANVAS_P0_DDL = Object\.freeze\(\[/);
   assert.match(migrations, /migration\.version === "2026-11-16-story-canvas-p0-v1"[\s\S]*STORY_CANVAS_P0_DDL/);
+  assert.match(migrations, /const STORY_SCRIPT_TARGETING_DDL = Object\.freeze\(\[/);
+  assert.match(migrations, /migration\.version === "2026-11-17-story-script-targeting-v1"[\s\S]*STORY_SCRIPT_TARGETING_DDL/);
 });
 
 test("story APIs are admin-session gated and use PostgreSQL data functions", () => {

@@ -22,13 +22,14 @@ test("migration runner defaults to dry-run and shows pending versions", () => {
   assert.equal(result.status, 0, result.stderr);
   const plan = JSON.parse(result.stdout);
   assert.equal(plan.dryRun, true);
-  assert.equal(plan.pending.length, 6);
+  assert.equal(plan.pending.length, 7);
   assert.match(plan.pending[0].version, /schema-bootstrap/);
   assert.match(plan.pending[1].version, /webhook-deliveries/);
   assert.match(plan.pending[2].version, /request-idempotency/);
   assert.match(plan.pending[3].version, /generation-submit-jobs/);
   assert.match(plan.pending[4].version, /story-canvas-p0/);
-  assert.match(plan.pending[5].version, /generation-records-kv/);
+  assert.match(plan.pending[5].version, /story-script-targeting/);
+  assert.match(plan.pending[6].version, /generation-records-kv/);
 });
 
 test("migration runner never applies without an explicit database URL", () => {
@@ -39,7 +40,7 @@ test("migration runner never applies without an explicit database URL", () => {
 
 test("migration runner validates lock timeout and renders stable audit output", () => {
   assert.throws(() => parseArgs(["--lock-timeout-ms=10"]), /between 100 and 300000/);
-  const plan = createMigrationPlan({ completedKeys: ["2026-11-11-schema-bootstrap-v1", "2026-11-11-webhook-deliveries-v1", "2026-11-11-request-idempotency-v1", "2026-11-11-generation-submit-jobs-v1", "2026-11-16-story-canvas-p0-v1", "2026-11-11-generation-records-kv-v1"], dryRun: true, lockTimeoutMs: 2500 });
+  const plan = createMigrationPlan({ completedKeys: ["2026-11-11-schema-bootstrap-v1", "2026-11-11-webhook-deliveries-v1", "2026-11-11-request-idempotency-v1", "2026-11-11-generation-submit-jobs-v1", "2026-11-16-story-canvas-p0-v1", "2026-11-17-story-script-targeting-v1", "2026-11-11-generation-records-kv-v1"], dryRun: true, lockTimeoutMs: 2500 });
   assert.equal(plan.pending.length, 0);
   assert.match(renderPlan(plan), /migration_mode=dry-run/);
   assert.match(renderPlan(plan), /completed_version=2026-11-11-schema-bootstrap-v1/);
@@ -64,6 +65,7 @@ test("migration plan preserves independently completed schema and data versions"
     "2026-11-11-request-idempotency-v1",
     "2026-11-11-generation-submit-jobs-v1",
     "2026-11-16-story-canvas-p0-v1",
+    "2026-11-17-story-script-targeting-v1",
   ]);
   assert.deepEqual(plan.completed, ["2026-11-11-generation-records-kv-v1"]);
 });
@@ -79,6 +81,7 @@ test("webhook schema v2 remains pending when only bootstrap is recorded", () => 
     "2026-11-11-request-idempotency-v1",
     "2026-11-11-generation-submit-jobs-v1",
     "2026-11-16-story-canvas-p0-v1",
+    "2026-11-17-story-script-targeting-v1",
   ]);
 });
 
@@ -110,6 +113,7 @@ test("generation submit jobs remain pending until their own schema version is re
   assert.deepEqual(plan.pending.map((item) => item.version), [
     "2026-11-11-generation-submit-jobs-v1",
     "2026-11-16-story-canvas-p0-v1",
+    "2026-11-17-story-script-targeting-v1",
     "2026-11-11-generation-records-kv-v1",
   ]);
 });

@@ -9458,6 +9458,7 @@ const SCHEMA_MIGRATION_KEYS = Object.freeze([
   "2026-11-11-request-idempotency-v1",
   "2026-11-11-generation-submit-jobs-v1",
   "2026-11-16-story-canvas-p0-v1",
+  "2026-11-17-story-script-targeting-v1",
 ]);
 const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
 const REQUIRED_SCHEMA_TABLES = Object.freeze([

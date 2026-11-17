@@ -32,6 +32,11 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-17-story-script-targeting-v1",
+    description: "Add episode, shot, and duration targeting columns to story script versions",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",
@@ -270,6 +275,15 @@ const STORY_CANVAS_P0_DDL = Object.freeze([
   `CREATE INDEX IF NOT EXISTS app_story_canvas_links_project_idx ON app_story_canvas_links (project_id, scope_type, scope_id);`,
 ]);
 
+const STORY_SCRIPT_TARGETING_DDL = Object.freeze([
+  `ALTER TABLE app_story_script_versions
+     ADD COLUMN IF NOT EXISTS target_episode_id TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS target_shot_id TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS estimated_duration_seconds INTEGER NOT NULL DEFAULT 0;`,
+  `CREATE INDEX IF NOT EXISTS app_story_script_versions_target_idx
+     ON app_story_script_versions (project_id, target_episode_id, target_shot_id);`,
+]);
+
 async function runStatements(client, statements) {
   for (const statement of statements) await client.query(statement);
 }
@@ -442,6 +456,8 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
         await runStatements(schemaLockClient, GENERATION_SUBMIT_JOBS_DDL);
       } else if (migration.version === "2026-11-16-story-canvas-p0-v1") {
         await runStatements(schemaLockClient, STORY_CANVAS_P0_DDL);
+      } else if (migration.version === "2026-11-17-story-script-targeting-v1") {
+        await runStatements(schemaLockClient, STORY_SCRIPT_TARGETING_DDL);
       } else {
         throw new Error(`Unknown schema migration: ${migration.version}`);
       }
