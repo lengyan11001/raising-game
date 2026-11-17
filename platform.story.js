@@ -714,7 +714,7 @@
       return `
         <article class="story-shot-video-result">
           <div><strong>${storyEscape(ref.metadata?.modelLabel || ref.metadata?.model || selectedVideoModel.label)}</strong><span>${storyEscape(storyVariantStatusLabel(status))}</span></div>
-          ${videoUrl ? `<video controls preload="metadata" src="${storyEscape(videoUrl)}"></video><a href="${storyEscape(videoUrl)}" target="_blank" rel="noopener">打开视频</a>` : `<p>${ref.status === "failed" ? storyEscape(ref.metadata?.error || "生成失败") : ["succeeded", "success", "completed", "complete"].includes(String(ref.status || ref.metadata?.generationStatus || "").toLowerCase()) ? "后台已完成，正在同步视频地址…" : "后台任务处理中，完成后会自动显示视频预览。"}</p>`}
+          ${videoUrl ? `<video controls preload="metadata" src="${storyEscape(videoUrl)}" data-story-generation-video data-generation-record-id="${storyEscape(ref.generationRecordId || "")}"></video><a href="${storyEscape(videoUrl)}" data-story-generation-video-link target="_blank" rel="noopener">打开视频</a><span class="story-video-refresh-status" data-story-video-status hidden></span>` : `<p>${ref.status === "failed" ? storyEscape(ref.metadata?.error || "生成失败") : ["succeeded", "success", "completed", "complete"].includes(String(ref.status || ref.metadata?.generationStatus || "").toLowerCase()) ? "后台已完成，正在同步视频地址…" : "后台任务处理中，完成后会自动显示视频预览。"}</p>`}
           ${ref.generationRecordId ? `<small>记录 ${storyEscape(ref.generationRecordId)}</small>` : ""}
           ${ref.metadata?.prompt ? `<details><summary>本次视频提示词</summary><pre>${storyEscape(ref.metadata.prompt)}</pre></details>` : ""}
         </article>`;
@@ -1610,6 +1610,47 @@
       && !storyGenerationRefVideoUrl(ref);
   }
 
+  async function refreshStoryGenerationVideoSource(video = null) {
+    if (!video?.matches?.("video[data-story-generation-video]")) return;
+    const recordId = String(video.dataset.generationRecordId || "").trim();
+    if (!recordId) return;
+    const status = video.parentElement?.querySelector("[data-story-video-status]");
+    if (video.dataset.storyVideoRefreshing === "1" || video.dataset.storyVideoRefreshAttempted === "1") {
+      if (status) {
+        status.textContent = "视频链接刷新失败，请稍后重试。";
+        status.hidden = false;
+      }
+      return;
+    }
+    video.dataset.storyVideoRefreshAttempted = "1";
+    video.dataset.storyVideoRefreshing = "1";
+    if (status) {
+      status.textContent = "视频链接已过期，正在刷新…";
+      status.hidden = false;
+    }
+    try {
+      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(recordId)}`);
+      const record = payload.record || payload.generation || {};
+      const nextUrl = storyGenerationVideoUrl(record);
+      if (!nextUrl) throw new Error("视频地址尚未同步。");
+      video.src = nextUrl;
+      const link = video.parentElement?.querySelector("a[data-story-generation-video-link]");
+      if (link) link.href = nextUrl;
+      if (status) status.textContent = "视频链接已刷新，正在加载…";
+      video.addEventListener("loadeddata", () => {
+        if (status) status.hidden = true;
+      }, { once: true });
+      video.load();
+    } catch (error) {
+      if (status) {
+        status.textContent = error?.message || "视频链接刷新失败，请稍后重试。";
+        status.hidden = false;
+      }
+    } finally {
+      delete video.dataset.storyVideoRefreshing;
+    }
+  }
+
   function storyIsVegaVideoModel(model = {}) {
     return String(model.family || "") === "vega" || /vega/i.test(String(model.id || ""));
   }
@@ -2459,6 +2500,10 @@
     });
     storyEl("storyProjectDetail")?.addEventListener("error", (event) => {
       const image = event.target;
+      if (image?.matches?.("video[data-story-generation-video]")) {
+        void refreshStoryGenerationVideoSource(image);
+        return;
+      }
       if (!image?.matches?.("img[data-story-media-image]")) return;
       image.hidden = true;
       const fallback = image.parentElement?.querySelector("[data-story-media-fallback]");

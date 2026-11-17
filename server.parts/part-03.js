@@ -753,6 +753,15 @@ function storyAssetVariantClientView(variant = {}) {
   };
 }
 
+function storyGenerationRefClientView(ref = {}) {
+  if (!ref || typeof ref !== "object") return ref;
+  const metadata = ref.metadata && typeof ref.metadata === "object" ? { ...ref.metadata } : {};
+  const generationRecordId = String(ref.generationRecordId || metadata.generationRecordId || "").trim();
+  const mediaUrl = generationRecordId && ref.kind === "video" ? adminGenerationMediaUrl(generationRecordId) : "";
+  if (mediaUrl) metadata.videoUrl = mediaUrl;
+  return { ...ref, metadata };
+}
+
 function storyInputText(value = "", maxLength = 2000) {
   return String(value || "").trim().slice(0, maxLength);
 }
@@ -827,7 +836,7 @@ async function handleGetStoryProject(req, res, projectId = "") {
     assets: assets || [],
     assetVariants: (assetVariants || []).map(storyAssetVariantClientView),
     promptVersions: promptVersions || [],
-    generationRefs: generationRefs || [],
+    generationRefs: (generationRefs || []).map(storyGenerationRefClientView),
     productionModels: storyProductionModels(),
     canvasLinks: canvasLinks || [],
     contracts: storyContracts(),
@@ -1798,7 +1807,7 @@ async function handleCreateStoryGenerationRef(req, res, projectId = "", shotId =
   });
   if (ref === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
   if (!ref) return sendJson(res, 404, { ok: false, code: "STORY_SHOT_NOT_FOUND", message: "分镜不存在。" });
-  return sendJson(res, 201, { ok: true, generationRef: ref });
+  return sendJson(res, 201, { ok: true, generationRef: storyGenerationRefClientView(ref) });
 }
 
 async function handleUpdateStoryGenerationRef(req, res, projectId = "", refId = "") {
@@ -1821,7 +1830,7 @@ async function handleUpdateStoryGenerationRef(req, res, projectId = "", refId = 
   });
   if (ref === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
   if (!ref) return sendJson(res, 404, { ok: false, code: "STORY_GENERATION_REF_NOT_FOUND", message: "生成记录不存在。" });
-  return sendJson(res, 200, { ok: true, generationRef: ref });
+  return sendJson(res, 200, { ok: true, generationRef: storyGenerationRefClientView(ref) });
 }
 
 async function handleListStoryShots(req, res, projectId = "", episodeId = "") {
