@@ -433,7 +433,11 @@ test("story video jobs bind approved asset IDs and sync completed backend record
   assert.doesNotMatch(story, /await pollStoryVideoGenerationRecord\(taskId\)[\s\S]*loadStoryDetail\(projectId\)[\s\S]*视频已生成/);
 
   assert.match(story, /async function syncStoryVideoGenerationRefs\(projectId = ""\)/);
+  assert.match(story, /function storyGenerationStatusSucceeded\(status = ""\)/);
   assert.match(story, /status: "succeeded"[\s\S]*videoUrl\b/);
+  assert.match(story, /storyGenerationStatusSucceeded\(status\)[\s\S]*status: "succeeded"[\s\S]*mediaSyncPending: true/);
+  assert.match(story, /mediaSyncPending: true[\s\S]*return;[\s\S]*\["failed", "error", "canceled", "cancelled"\]/);
+  assert.match(story, /后台已完成，正在同步视频地址/);
   assert.match(story, /status: "failed"[\s\S]*record\.error \|\| record\.message/);
   assert.match(story, /syncStoryVideoGenerationRefs\(id\)/);
   assert.match(story, /addEventListener\("visibilitychange"/);
