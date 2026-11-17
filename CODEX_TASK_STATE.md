@@ -4564,3 +4564,31 @@ CODEX_TASK_STATE.md
 - Asset UX from the same batch keeps completed ready variants, offers a separate per-asset regeneration action, collapses historical failures, and batches only missing images.
 - Verification: syntax checks pass; `npm run check:undef` passes; `git diff --check` passes; focused story, generation-list, local-media-retention, and Vega-regeneration tests pass 64/64.
 - Source commit pending at time of this record; production deployment and browser validation remain pending in the next step.
+
+## 2026-11-16 Step CX: Current-model prompt freshness guard
+
+- User confirmed the required order: AI storyboard -> AI asset extraction -> image-model asset design -> explicit asset approval -> model-specific video-prompt optimization -> final video prompt.
+- The existing story pipeline already implements that order, including per-asset image-model selection and a server-side `STORY_ASSETS_NOT_APPROVED` gate before prompt optimization.
+- Added a client-side freshness guard in `platform.story.js`: a frozen prompt now counts as ready only when `metadata.videoPromptMeta.provider` and `resolution` match the currently selected video model and resolution.
+- After switching models or resolution, existing prompts remain visible but are marked `模型已变，需刷新`; the workflow counter, warning copy, and button switch to a refresh state so stale prompts cannot be mistaken for final model-optimized output.
+- Added stale visual states in `platform.css` and regression assertions in `test/story-canvas-p1.test.js`.
+- Verification: `node --check platform.story.js`, `npm run check:undef`, `git diff --check`, and `node --test test/story-canvas-p1.test.js` (13/13) pass.
+- No production deployment or service restart has been performed for this step. The unrelated existing `server.parts/part-45.js` working-tree change was preserved.
+
+## 2026-11-17 Step CY: Rich prompt media-mention decoration
+
+- Reproduced the intermittent shifted pink mention label in the rich TipTap prompt editor: when the mention snapshot was partial, `@Image 1` could be decorated only through `@Image`, leaving `" 1"` outside the token span. Chinese text immediately after the number made the mismatch especially visible.
+- Updated `vendor/vipeak-prompt-editor.src.js` so canonical `@Image N`, `@Video N`, `@Audio N`, and `@Document N` labels are always decorated as one token even while upload-derived mention snapshots are incomplete.
+- Regenerated `vendor/vipeak-prompt-editor.js` and added a regression test covering 30 image and 30 video labels with only generic fallback tokens.
+- Verification: focused prompt/advanced UI tests pass `55/55`; `npm run check:undef` passes; `git diff --check` passes. A browser stress test typed 60 mention labels into the real TipTap editor and produced 60 complete decoration spans with no partial labels.
+- Source commit `36872754dced939d3b685a57543adabcebd1e119`; platform release `d07b28934f24be86a534f1bce868d19e743398e2`; only `platform-release` was pushed.
+- Old-only deployment through `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4175 release=d07b2893...`. Public `/api/health`, `/api/livez`, and `/api/readyz` each return HTTP `200`; `/api/livez` and `/api/readyz` report release `d07b28934f24be86a534f1bce868d19e743398e2`.
+- Public `/vendor/vipeak-prompt-editor.js` returns HTTP `200` and contains the canonical media-label regex used by the fix.
+
+## 2026-11-17 Step CZ: Story tree, per-shot asset confirmation, and asset-library modal
+
+- Restructured the story detail UI around `剧本根节点 → 分集节点 → S01/S02 分镜`. The old main asset-library tab was removed; the top-right `资产库` button opens a modal instead.
+- Each shot now shows its own required assets, per-asset image/design prompts, final video prompt, confirmation action, and explicit asset-image generation action. Asset-image generation remains disabled until that shot's asset list is confirmed.
+- Opening the asset-library modal only loads the selected episode's shot index. It never starts image generation. The modal filters by episode and shot, displays refreshed variant images, collapses failed variants, and preserves the selected shot when opened from a shot workbench.
+- Fixed asset-library episode switching so it reloads that episode's shots. Per-shot prompt generation now checks only the assets used by that shot on both client and server; whole-episode prompt generation still requires all episode assets to be approved.
+- Verification: `node --check platform.story.js`, `node --check server.parts/part-03.js`, `npm run check:undef`, `git diff --check`, and story P0/P1 tests `17/17` pass. No deployment was performed. The unrelated existing `server.parts/part-45.js` working-tree change remains preserved and must not be committed with this work.
