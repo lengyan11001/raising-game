@@ -1,3 +1,22 @@
+## 2026-11-17 Step DR: manuscript lineage and script workflow closure
+
+- Script versions now belong to an independent manuscript lineage. New manuscripts get distinct `manuscript_id` values and independent `V01` numbering; saving a new version keeps the same manuscript and increments only that lineage.
+- Episodes now carry `source_script_version_id` and `source_manuscript_id`. The old project-wide episode-number uniqueness constraint is replaced by `(project_id, source_manuscript_id, episode_no)`, so two manuscripts can each contain `E01`.
+- Re-importing an AI breakdown deletes/replaces only the selected manuscript's episode set. Import requires the concrete source script version, preventing previews from being written against another manuscript.
+- The first project tab now has a compact top-right `+` action. It opens a manuscript modal for title, full text, optional target episode count and optional target duration, then saves only the manuscript. Version creation uses the active version and defaults to the next `Vxx` title.
+- AI analysis remains a preview below saved manuscripts; confirmation writes episode records. The episode tab renders a `manuscript -> episode -> shot` tree with independent disclosure and selection state, cached shot loads, and a dedicated shot workspace.
+- Shot planning prompt now uses synopsis density signals and explicitly forbids defaulting to 10 shots. A `[story-shot-plan]` log records raw/normalized counts for production verification.
+- Historical `Vxx` cards now switch the active script version for analysis and persistence; the rendered buttons previously lacked a delegated click handler.
+- Tests updated for the eighth migration and new lineage behavior. Focused suite passes 30/30; `npm run check:undef`, syntax checks, and `git diff --check` pass. Source is not committed or deployed yet.
+- Unrelated dirty file `server.parts/part-45.js` must remain excluded from the commit and release.
+
+## 2026-11-17 Step DQ: story script targeting schema migration repaired
+
+- Saving a new script version failed with `column "target_episode_id" of relation "app_story_script_versions" does not exist` because the existing P0 migration ledger was already marked complete while the deployed table predated the targeting columns. Runtime schema verification intentionally checks the ledger rather than mutating columns during requests.
+- Added schema version `2026-11-17-story-script-targeting-v1` with idempotent `target_episode_id`, `target_shot_id`, and `estimated_duration_seconds` columns plus the target index. The runtime readiness ledger now requires this version; bootstrap mode remains idempotent.
+- Verification passed: migration/story focused tests 30/30, `node --check db.js`, `node --check ops/run-db-migrations.js`, `npm run check:undef`, and `git diff --check`.
+- Source commit `7fc9a2a5`; platform release `472007351d73f5dcec84a35b59b464c8bb8732f7` deployed to Old through the rolling entrypoint. Active port is `4174`; `/api/health` and `/api/readyz` return 200. Production PostgreSQL confirms all three columns and migration `2026-11-17-story-script-targeting-v1` are present.
+
 ## 2026-11-17 Step DP: production DB outage diagnosed and story snapshot starvation fixed
 
 - The apparent data loss was PostgreSQL pool starvation, not deletion or a schema break. Production still contains 1,136 users, 31,910 user assets, 34,440 generation records, 1 story project, 1 episode, 10 shots, and 22 story assets.

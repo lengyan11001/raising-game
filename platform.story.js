@@ -16,6 +16,10 @@
     assetVariants: [],
     productionModels: null,
     selectedScriptId: "",
+    selectedManuscriptId: "",
+    scriptCreateOpen: false,
+    scriptCreateMode: "new",
+    scriptCreateSourceId: "",
     scriptTargetEpisodeId: "",
     scriptTargetDirty: false,
     analysisTargetEpisodes: "",
@@ -23,6 +27,10 @@
     analysisDurationMinutes: "",
     analysisDurationDirty: false,
     selectedEpisodeId: "",
+    expandedManuscriptIds: [],
+    expandedEpisodeIds: [],
+    shotCache: {},
+    shotLoadingEpisodeIds: [],
     episodeTab: "outline",
     selectedShotId: "",
     shots: [],
@@ -243,6 +251,114 @@
     return storyState.scripts.find((script) => script.id === storyState.selectedScriptId) || storyState.scripts[0] || null;
   }
 
+  function storyScriptManuscriptId(script = {}) {
+    return String(script.manuscriptId || script.id || "").trim();
+  }
+
+  function storyManuscriptGroups() {
+    const groups = new Map();
+    for (const script of storyState.scripts) {
+      const manuscriptId = storyScriptManuscriptId(script);
+      if (!manuscriptId) continue;
+      if (!groups.has(manuscriptId)) groups.set(manuscriptId, { id: manuscriptId, versions: [], episodes: [] });
+      groups.get(manuscriptId).versions.push(script);
+    }
+    const episodes = Array.isArray(storyState.detail?.episodes) ? storyState.detail.episodes : [];
+    for (const group of groups.values()) {
+      group.versions.sort((a, b) => Number(b.versionNo || 0) - Number(a.versionNo || 0));
+      group.latest = group.versions[0] || null;
+      group.episodes = episodes
+        .filter((episode) => String(episode.sourceManuscriptId || "") === group.id)
+        .sort((a, b) => Number(a.episodeNo || 0) - Number(b.episodeNo || 0));
+    }
+    return [...groups.values()].sort((a, b) => String(b.latest?.createdAt || "").localeCompare(String(a.latest?.createdAt || "")));
+  }
+
+  function selectedStoryManuscript() {
+    const script = selectedStoryScript();
+    const manuscriptId = storyState.selectedManuscriptId || storyScriptManuscriptId(script || {});
+    return storyManuscriptGroups().find((group) => group.id === manuscriptId) || null;
+  }
+
+  function selectStoryManuscript(manuscript = null, versionId = "") {
+    if (!manuscript) return;
+    const script = manuscript.versions.find((item) => item.id === versionId) || manuscript.latest || null;
+    storyState.selectedManuscriptId = manuscript.id;
+    storyState.selectedScriptId = script?.id || "";
+    syncStoryScriptTargetFromSelection();
+  }
+
+  function storyManuscriptById(manuscriptId = "") {
+    return storyManuscriptGroups().find((group) => group.id === String(manuscriptId || "")) || null;
+  }
+
+  function selectStoryManuscriptById(manuscriptId = "", versionId = "") {
+    const manuscript = storyManuscriptById(manuscriptId);
+    if (!manuscript) return null;
+    const script = manuscript.versions.find((item) => item.id === versionId) || manuscript.latest || null;
+    storyState.selectedManuscriptId = manuscript.id;
+    storyState.selectedScriptId = script?.id || "";
+    storyState.analysisDurationMinutes = "";
+    storyState.analysisDurationDirty = false;
+    storyState.analysis = null;
+    storyState.analysisScriptId = "";
+    syncStoryScriptTargetFromSelection();
+    return manuscript;
+  }
+
+  function selectStoryScriptVersion(scriptId = "") {
+    const script = storyState.scripts.find((item) => item.id === String(scriptId || ""));
+    if (!script) return false;
+    const manuscript = storyManuscriptForScript(script);
+    storyState.selectedManuscriptId = manuscript?.id || storyScriptManuscriptId(script);
+    storyState.selectedScriptId = script.id;
+    storyState.analysisDurationMinutes = "";
+    storyState.analysisDurationDirty = false;
+    storyState.analysis = null;
+    storyState.analysisScriptId = "";
+    syncStoryScriptTargetFromSelection();
+    return true;
+  }
+
+  function storyEpisodeShotsFromCache(episodeId = "") {
+    return storyState.shotCache[String(episodeId || "")]?.shots || [];
+  }
+
+  function storyEpisodeShotsLoaded(episodeId = "") {
+    return Boolean(storyState.shotCache[String(episodeId || "")]?.loaded);
+  }
+
+  function setStoryEpisodeShotsCache(episodeId = "", shots = []) {
+    const id = String(episodeId || "");
+    if (!id) return;
+    storyState.shotCache[id] = { shots: Array.isArray(shots) ? shots : [], loaded: true };
+  }
+
+  function openStoryScriptCreate(mode = "new", sourceScriptId = "") {
+    if (!storyState.detail || storyState.action) return;
+    storyState.scriptCreateMode = mode === "version" ? "version" : "new";
+    storyState.scriptCreateSourceId = storyState.scriptCreateMode === "version" ? String(sourceScriptId || "") : "";
+    storyState.scriptCreateOpen = true;
+    renderStoryDetail();
+    requestAnimationFrame(() => storyEl("storyScriptCreateTitle")?.focus());
+  }
+
+  function closeStoryScriptCreate() {
+    storyState.scriptCreateOpen = false;
+    storyState.scriptCreateSourceId = "";
+    renderStoryDetail();
+  }
+
+  function storyManuscriptForEpisode(episode = {}) {
+    const manuscriptId = String(episode.sourceManuscriptId || "");
+    return storyManuscriptGroups().find((group) => group.id === manuscriptId) || null;
+  }
+
+  function storyManuscriptForScript(script = {}) {
+    const manuscriptId = storyScriptManuscriptId(script);
+    return storyManuscriptGroups().find((group) => group.id === manuscriptId) || null;
+  }
+
   function storyScriptTargetSummary(script = {}) {
     const episode = (storyState.detail?.episodes || []).find((item) => item.id === script.targetEpisodeId);
     const duration = Number(script.estimatedDurationSeconds || 0);
@@ -266,10 +382,10 @@
     return `${minutes} 分钟`;
   }
 
-  function storyPlanningEpisodeTargetValue() {
+  function storyPlanningEpisodeTargetValue(script = selectedStoryScript()) {
     if (storyState.analysisTargetEpisodesDirty) return storyState.analysisTargetEpisodes;
-    const projectTarget = Math.max(0, Number(storyState.detail?.project?.episodeTarget || 0) || 0);
-    return projectTarget ? String(projectTarget) : "";
+    const scriptTarget = Math.max(0, Number(script?.targetEpisodeCount || 0) || 0);
+    return scriptTarget ? String(scriptTarget) : "";
   }
 
   function storyPlanningDurationValue(script = {}) {
@@ -283,58 +399,71 @@
     storyState.scriptTargetDirty = false;
   }
 
-  function renderStoryScriptSection() {
-    const script = selectedStoryScript();
-    const episodes = Array.isArray(storyState.detail?.episodes) ? storyState.detail.episodes : [];
-    const targetEpisodeId = storyState.scriptTargetDirty ? storyState.scriptTargetEpisodeId : (script?.targetEpisodeId || "");
-    const versions = storyState.scripts.map((item) => `
-      <button class="story-script-version${item.id === script?.id ? " is-active" : ""}" data-story-script-id="${storyEscape(item.id)}" type="button">
-        <span>V${storyEscape(item.versionNo)}</span>
-        <strong>${storyEscape(item.title || "未命名文稿")}</strong>
-        <small>${storyEscape(storyDate(item.createdAt))} · ${storyEscape(storyScriptTargetSummary(item))}</small>
+  function renderStoryManuscriptCard(group = {}) {
+    const active = selectedStoryManuscript()?.id === group.id;
+    const latest = group.latest || {};
+    const targetEpisodes = Number(latest.targetEpisodeCount || 0);
+    const preview = String(latest.content || "").replace(/\s+/g, " ").trim().slice(0, 180);
+    const versions = group.versions.map((version) => `
+      <button class="story-script-version${version.id === storyState.selectedScriptId ? " is-active" : ""}" data-story-script-id="${storyEscape(version.id)}" type="button">
+        <span>V${String(version.versionNo || 1).padStart(2, "0")}</span>
+        <strong>${storyEscape(storyDate(version.createdAt))}</strong>
+        <small>${storyEscape(version.targetEpisodeCount ? `目标 ${version.targetEpisodeCount} 集` : "集数由 AI 规划")}</small>
       </button>`).join("");
-    const targetEpisodeScoped = Boolean(targetEpisodeId);
-    const planningEpisodes = targetEpisodeScoped ? "" : storyPlanningEpisodeTargetValue();
-    const planningDuration = storyPlanningDurationValue(script);
+    return `
+      <article class="story-manuscript-card${active ? " is-active" : ""}">
+        <button class="story-manuscript-main" data-story-select-manuscript="${storyEscape(group.id)}" type="button">
+          <span class="story-manuscript-mark"><i data-lucide="file-text"></i></span>
+          <span class="story-manuscript-copy">
+            <strong>${storyEscape(latest.title || "未命名文稿")}</strong>
+            <small>${group.versions.length} 个版本 · ${group.episodes.length} 集 · ${storyEscape(storyDate(latest.createdAt))}</small>
+            <p>${storyEscape(preview || "暂无正文预览。")}</p>
+          </span>
+          <span class="story-manuscript-badges"><em>V${String(latest.versionNo || 1).padStart(2, "0")}</em><em>${targetEpisodes ? `${targetEpisodes} 集目标` : "AI 规划"}</em></span>
+        </button>
+        <div class="story-manuscript-actions">
+          <button class="story-secondary-button" data-story-script-version-source="${storyEscape(active ? (storyState.selectedScriptId || latest.id || "") : (latest.id || ""))}" type="button" ${storyState.action ? "disabled" : ""}><i data-lucide="copy-plus"></i><span>存为新版本</span></button>
+          <button class="story-create-button" data-story-analyze-manuscript="${storyEscape(group.id)}" type="button" ${storyState.action || !latest.id ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${group.episodes.length ? "重新 AI 拆解" : "AI 拆解"}</span></button>
+        </div>
+        ${active ? `<div class="story-manuscript-versions"><div class="story-manuscript-versions-head"><strong>版本记录</strong><small>选中要拆解的版本</small></div>${versions}</div>` : ""}
+      </article>`;
+  }
+
+  function renderStoryScriptSection() {
+    const groups = storyManuscriptGroups();
     return `
       <section class="story-section story-script-section">
-        <div class="story-section-head">
-          <div><p class="eyebrow">SCRIPT WORKSPACE</p><h3>剧本与版本</h3></div>
-          <span>${storyState.scripts.length} 个版本</span>
+        <div class="story-section-head story-manuscript-head">
+          <div><p class="eyebrow">MANUSCRIPT</p><h3>我的文稿</h3></div>
+          <button class="story-icon-button story-add-manuscript" data-story-script-create type="button" title="新增文稿" aria-label="新增文稿"><i data-lucide="plus"></i></button>
         </div>
-        <div class="story-script-layout">
-          <aside class="story-script-versions" aria-label="剧本版本">
-            <div class="story-script-versions-head"><strong>版本记录</strong><small>每次保存都会新增版本</small></div>
-            ${versions || `<div class="story-script-empty">尚未保存剧本</div>`}
-          </aside>
-          <div class="story-script-editor">
-            <div class="story-script-fields">
-              <label class="story-script-title-field">文稿标题<input id="storyScriptTitle" maxlength="160" value="${storyEscape(script?.title || `第 ${storyState.scripts.length + 1} 版文稿`)}" placeholder="例如：夜班便利店 第一季" /></label>
-              <label class="story-script-control">覆盖已有分集<em>可选</em><select id="storyScriptTargetEpisode" data-story-script-target-episode><option value="">自动 · 可新增</option>${episodes.map((episode) => `<option value="${storyEscape(episode.id)}" ${episode.id === targetEpisodeId ? "selected" : ""}>E${String(episode.episodeNo).padStart(2, "0")} · ${storyEscape(episode.title || "未命名剧集")}</option>`).join("")}</select></label>
-              <label class="story-script-control">目标集数<em>自动</em><span class="story-planning-input"><input id="storyAnalysisTarget" data-story-analysis-target-episodes type="number" min="0" max="30" step="1" value="${storyEscape(planningEpisodes)}" placeholder="AI" ${targetEpisodeScoped ? "disabled" : ""} /><b>集</b></span></label>
-              <label class="story-script-control">目标时长<em>自动</em><span class="story-planning-input"><input id="storyScriptDuration" data-story-analysis-duration type="number" min="0" max="1440" step="0.5" value="${storyEscape(planningDuration)}" placeholder="AI" /><b>分</b></span></label>
-            </div>
-            <p class="story-script-goal-note">留空由 AI 按原文规划完整短剧；指定分集时只覆盖该集。分镜由 AI 生成，可新增多个，不受已有镜头限制。</p>
-            <label class="story-script-content">正文<textarea id="storyScriptContent" rows="16" maxlength="1500000" placeholder="粘贴完整小说、故事大纲或分集草案。建议先保存版本，再让 AI 拆解。">${storyEscape(script?.content || "")}</textarea></label>
-            <div class="story-script-actions">
-              <p class="story-message" id="storyScriptMessage">${storyEscape(storyState.actionMessage)}</p>
-              <div>
-                <button class="story-secondary-button" data-story-save-script type="button" ${storyState.action ? "disabled" : ""}><i data-lucide="save"></i><span>保存为新版本</span></button>
-                <button class="story-create-button" data-story-analyze type="button" ${storyState.action || !script ? "disabled" : ""}><i data-lucide="sparkles"></i><span>AI 拆解</span></button>
-              </div>
-            </div>
-          </div>
+        <div class="story-manuscript-list">
+          ${groups.length ? groups.map(renderStoryManuscriptCard).join("") : `
+            <button class="story-manuscript-empty" data-story-script-create type="button"><i data-lucide="plus"></i><strong>新增第一份文稿</strong><span>输入标题和原文后保存，再从下方执行 AI 拆解。</span></button>`}
         </div>
+        <p class="story-message" id="storyScriptMessage">${storyEscape(storyState.actionMessage)}</p>
       </section>`;
+  }
+
+  function renderStoryAnalysisControls(script = {}) {
+    return `
+      <div class="story-analysis-toolbar">
+        <span>当前版本：${storyEscape(script?.title || "未选择文稿")}${script?.versionNo ? ` · V${String(script.versionNo).padStart(2, "0")}` : ""}</span>
+        <label>目标集数<input data-story-analysis-target-episodes type="number" min="0" max="30" step="1" value="${storyEscape(storyPlanningEpisodeTargetValue())}" placeholder="AI" /><em>集</em></label>
+        <label>目标时长<input data-story-analysis-duration type="number" min="0" max="1440" step="0.5" value="${storyEscape(storyPlanningDurationValue(script))}" placeholder="AI" /><em>分</em></label>
+        <button class="story-create-button" data-story-analyze type="button" ${storyState.action || !script?.id ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${storyState.action === "analyze" ? "拆解中…" : "AI 拆解"}</span></button>
+      </div>`;
   }
 
   function renderStoryAnalysisSection() {
     const analysis = storyState.analysis;
+    const script = selectedStoryScript();
     if (!analysis) {
       return `
         <section class="story-section story-analysis-section">
-          <div class="story-section-head"><div><p class="eyebrow">AI BREAKDOWN</p><h3>拆解预览</h3></div><span>只预览，不写库</span></div>
-          <div class="story-analysis-empty"><i data-lucide="wand-sparkles"></i><div><strong>先保存剧本，再执行 AI 拆解</strong><span>模型会给出分集梗概、角色与场景建议；确认后才写入 PostgreSQL。</span></div></div>
+          <div class="story-section-head"><div><p class="eyebrow">AI BREAKDOWN</p><h3>大纲与分集预览</h3></div><span>先预览，确认后再产生分集记录</span></div>
+          ${renderStoryAnalysisControls(script)}
+          <div class="story-analysis-empty"><i data-lucide="wand-sparkles"></i><div><strong>选中文稿后执行 AI 拆解</strong><span>左侧选择一份文稿和要使用的版本；参数留空时由 AI 根据原文完整短剧结构规划。这里只审一次大纲结果。</span></div></div>
         </section>`;
     }
     const totalDurationSeconds = (analysis.episodes || []).reduce((total, episode) => total + Math.max(0, Number(episode.durationSeconds || 0) || 0), 0);
@@ -363,6 +492,7 @@
           <div><p class="eyebrow">AI BREAKDOWN</p><h3>拆解预览</h3></div>
           <span>${analysis.episodes?.length || 0} 集 · 共 ${storyDurationLabel(totalDurationSeconds)} · 建议 ${Number(analysis.totalEpisodeSuggestion || 0) || "待定"} 集</span>
         </div>
+        ${renderStoryAnalysisControls(script)}
         <p class="story-analysis-summary">${storyEscape(analysis.summary || "模型未返回整体梗概。")}</p>
         <div class="story-analysis-list">${episodes}</div>
         <div class="story-analysis-tags">
@@ -402,35 +532,52 @@
   }
 
   function renderStoryStructureTree(episodes = [], selectedEpisode = null) {
-    const script = selectedStoryScript();
-    const nodes = episodes.map((episode) => {
-      const selected = episode.id === selectedEpisode?.id;
-      const shots = selected ? [...storyState.shots].sort((a, b) => a.shotNo - b.shotNo) : [];
+    const groups = storyManuscriptGroups();
+    const selectedManuscript = selectedStoryManuscript();
+    const nodes = groups.map((group) => {
+      const expanded = storyState.expandedManuscriptIds.includes(group.id);
+      const active = selectedManuscript?.id === group.id;
+      const latest = group.latest || group.versions[0] || {};
+      const episodeNodes = group.episodes.map((episode) => {
+        const selected = episode.id === selectedEpisode?.id;
+        const episodeExpanded = storyState.expandedEpisodeIds.includes(episode.id);
+        const cachedShots = selected && storyState.shots.length ? storyState.shots : storyEpisodeShotsFromCache(episode.id);
+        const shots = episodeExpanded ? [...cachedShots].sort((a, b) => Number(a.shotNo || 0) - Number(b.shotNo || 0)) : [];
+        const loadingShots = storyState.shotLoadingEpisodeIds.includes(episode.id);
+        const shotsLoaded = (selected && storyState.shots.length > 0) || storyEpisodeShotsLoaded(episode.id);
+        return `
+          <div class="story-tree-node ${selected ? "is-selected" : ""}" data-story-episode-node="${storyEscape(episode.id)}">
+            <div class="story-tree-row">
+              <button class="story-tree-episode" type="button" data-story-open-episode="${storyEscape(episode.id)}" data-story-episode-view="outline">
+                <span class="story-tree-node-mark">E${String(episode.episodeNo).padStart(2, "0")}</span>
+                <span class="story-tree-node-copy"><strong>${storyEscape(episode.title || `第 ${episode.episodeNo} 集`)}</strong><small>${storyEscape(storyEpisodeStatusLabel(episode.status))} · ${Number(episode.shotCount || 0)} 镜 · ${storyDurationLabel(episode.durationSeconds)}</small></span>
+              </button>
+              <button class="story-tree-disclosure" type="button" data-story-toggle-episode="${storyEscape(episode.id)}" aria-label="${episodeExpanded ? "收起分镜" : "展开分镜"}" aria-expanded="${episodeExpanded}"><i data-lucide="${episodeExpanded ? "chevron-down" : "chevron-right"}"></i></button>
+            </div>
+            ${episodeExpanded ? `<div class="story-tree-shots">
+              ${shots.length ? shots.map((shot) => `
+                <button class="story-tree-shot ${shot.id === storyState.selectedShotId ? "is-active" : ""}" type="button" data-story-open-shot="${storyEscape(shot.id)}">
+                  <b>S${String(shot.shotNo).padStart(2, "0")}</b><span>${storyEscape(shot.title || `镜头 ${shot.shotNo}`)}</span><em>${storyShotAssetsConfirmed(shot) ? "已确认" : "待确认"}</em>
+                </button>`).join("") : `<div class="story-tree-loading">${loadingShots ? "正在读取分镜…" : shotsLoaded ? "此集暂无分镜。" : "展开后读取分镜。"}</div>`}
+            </div>` : ""}
+          </div>`;
+      }).join("");
       return `
-        <div class="story-tree-node ${selected ? "is-selected" : ""}">
-          <button class="story-tree-episode" type="button" data-story-open-episode="${storyEscape(episode.id)}" data-story-episode-view="outline">
-            <span class="story-tree-node-mark">E${String(episode.episodeNo).padStart(2, "0")}</span>
-            <span class="story-tree-node-copy"><strong>${storyEscape(episode.title || `第 ${episode.episodeNo} 集`)}</strong><small>${storyEscape(storyEpisodeStatusLabel(episode.status))} · ${Number(episode.shotCount || 0)} 镜</small></span>
-            <i data-lucide="${selected ? "chevron-down" : "chevron-right"}"></i>
-          </button>
-          ${selected ? `<div class="story-tree-shots">
-            ${shots.length ? shots.map((shot) => `
-              <button class="story-tree-shot ${shot.id === storyState.selectedShotId ? "is-active" : ""}" type="button" data-story-open-shot="${storyEscape(shot.id)}">
-                <b>S${String(shot.shotNo).padStart(2, "0")}</b><span>${storyEscape(shot.title || `镜头 ${shot.shotNo}`)}</span><em>${storyShotAssetsConfirmed(shot) ? "已确认" : "待确认"}</em>
-              </button>`).join("") : `<div class="story-tree-loading">${selected ? "正在读取分镜…" : "展开分集后显示分镜"}</div>`}
-          </div>` : ""}
+        <div class="story-tree-script-group ${active ? "is-active" : ""}">
+          <div class="story-tree-row story-tree-manuscript-row">
+            <button class="story-tree-script" type="button" data-story-select-manuscript="${storyEscape(group.id)}">
+              <span class="story-tree-node-mark"><i data-lucide="file-text"></i></span>
+              <span class="story-tree-node-copy"><strong>${storyEscape(latest.title || "未命名文稿")}</strong><small>V${String(latest.versionNo || 1).padStart(2, "0")} · ${group.versions.length} 个版本 · ${group.episodes.length} 集</small></span>
+            </button>
+            <button class="story-tree-disclosure" type="button" data-story-toggle-manuscript="${storyEscape(group.id)}" aria-label="${expanded ? "收起文稿分集" : "展开文稿分集"}" aria-expanded="${expanded}"><i data-lucide="${expanded ? "chevron-down" : "chevron-right"}"></i></button>
+          </div>
+          ${expanded ? `<div class="story-tree-branch">${episodeNodes || `<div class="story-tree-loading">尚未拆解。切到“创建文稿”，选中此文稿后执行 AI 拆解。</div>`}</div>` : ""}
         </div>`;
     }).join("");
     return `
       <section class="story-structure">
-        <div class="story-structure-head"><div><p class="eyebrow">STORY TREE</p><h3>剧本结构</h3></div><button class="story-icon-button" type="button" title="刷新项目结构" data-story-refresh-detail><i data-lucide="refresh-cw"></i></button></div>
-        <div class="story-tree-root">
-          <div class="story-tree-script is-static">
-            <span class="story-tree-node-mark"><i data-lucide="file-text"></i></span>
-            <span class="story-tree-node-copy"><strong>${storyEscape(script?.title || "原始剧本")}</strong><small>${storyState.scripts.length} 个版本 · AI 拆解为分集</small></span>
-          </div>
-          <div class="story-tree-branch">${nodes || `<div class="story-tree-loading">保存剧本并执行 AI 拆解后，这里会出现分集节点。</div>`}</div>
-        </div>
+        <div class="story-structure-head"><div><p class="eyebrow">STORY TREE</p><h3>文稿 · 分集 · 分镜</h3></div><button class="story-icon-button" type="button" title="刷新项目结构" data-story-refresh-detail><i data-lucide="refresh-cw"></i></button></div>
+        <div class="story-tree-root">${nodes || `<div class="story-tree-loading">先创建文稿，再从“创建文稿”页执行 AI 拆解。</div>`}</div>
       </section>`;
   }
 
@@ -824,6 +971,36 @@
     return [...new Set(declared.map((value) => `S${String(value).padStart(2, "0")}`))];
   }
 
+  function renderStoryScriptCreateModal() {
+    if (!storyState.scriptCreateOpen) return "";
+    const source = storyState.scripts.find((script) => script.id === storyState.scriptCreateSourceId) || null;
+    const isVersion = storyState.scriptCreateMode === "version" && source;
+    const group = source ? storyManuscriptGroups().find((item) => item.id === storyScriptManuscriptId(source)) : null;
+    const nextVersionNo = group ? Math.max(0, ...group.versions.map((script) => Number(script.versionNo || 0))) + 1 : Number(source?.versionNo || 0) + 1;
+    const versionTitle = source ? `${String(source.title || "未命名文稿").replace(/ · V\d+$/i, "")} · V${String(nextVersionNo).padStart(2, "0")}` : "";
+    return `
+      <div class="story-script-modal-backdrop" data-story-close-script-modal>
+        <form class="story-script-modal" id="storyScriptCreateForm">
+          <div class="story-script-modal-head">
+            <div><p class="eyebrow">${isVersion ? "NEW VERSION" : "NEW MANUSCRIPT"}</p><h3>${isVersion ? "存为新版本" : "新增文稿"}</h3></div>
+            <button class="story-icon-button" data-story-close-script-modal type="button" aria-label="关闭"><i data-lucide="x"></i></button>
+          </div>
+          <p class="story-script-modal-note">${isVersion ? `归入「${storyEscape(group?.latest?.title || source?.title || "当前文稿")}」这条手稿主线，原版本保留。` : "创建一条独立的手稿主线，不会覆盖已有文稿。"}</p>
+          <label>文稿标题<input id="storyScriptCreateTitle" maxlength="160" value="${storyEscape(isVersion ? versionTitle : "")}" placeholder="${storyEscape(isVersion ? "默认使用下一版本名称" : "例如：夜班便利店 第一季")}" /></label>
+          <label>原文<textarea id="storyScriptCreateContent" rows="13" maxlength="1500000" placeholder="粘贴完整小说、剧本文本或本轮修改稿。">${storyEscape(isVersion ? source?.content || "" : "")}</textarea></label>
+          <div class="story-script-modal-planning">
+            <label>目标集数<em>可选</em><input id="storyScriptCreateTargetEpisodes" type="number" min="0" max="30" step="1" value="${storyEscape(source?.targetEpisodeCount || "")}" placeholder="AI 规划" /></label>
+            <label>目标时长<em>可选</em><input id="storyScriptCreateDuration" type="number" min="0" max="1440" step="0.5" value="${storyEscape(storyDurationMinutesValue(source?.estimatedDurationSeconds))}" placeholder="AI 规划" /></label>
+          </div>
+          <p class="story-message" id="storyScriptCreateMessage"></p>
+          <div class="story-script-modal-actions">
+            <button class="story-secondary-button" data-story-close-script-modal type="button">取消</button>
+            <button class="story-create-button" type="submit" ${storyState.action ? "disabled" : ""}><i data-lucide="save"></i><span>${isVersion ? "保存新版本" : "保存文稿"}</span></button>
+          </div>
+        </form>
+      </div>`;
+  }
+
   function renderStoryRevisionModal() {
     const request = storyState.revisionRequest;
     if (!request) return "";
@@ -996,27 +1173,7 @@
       storyRefreshIcons();
       return;
     }
-    const { project, episodes = [], canvasLinks = [], contracts = {} } = storyState.detail;
-    const projectCanvas = canvasLinks.find((link) => link.scopeType === "project");
-    const episodeCanvasMap = new Map(canvasLinks.filter((link) => link.scopeType === "episode").map((link) => [link.scopeId, link]));
-    const episodeRows = episodes.length ? episodes.map((episode) => {
-      const link = episodeCanvasMap.get(episode.id);
-      return `
-        <article class="story-episode-row">
-          <div class="story-episode-index">E${String(episode.episodeNo).padStart(2, "0")}</div>
-          <div class="story-episode-copy">
-            <strong>${storyEscape(episode.title || `第 ${episode.episodeNo} 集`)}</strong>
-            <p>${storyEscape(episode.synopsis || "尚未填写单集梗概。")}</p>
-            <small>${episode.shotCount} 个镜头 · ${storyEscape(link?.canvasId || `story-episode-${episode.id}`)}</small>
-          </div>
-          <span class="story-status-pill">${storyEscape(storyEpisodeStatusLabel(episode.status))}</span>
-          <div class="story-episode-actions">
-            <button type="button" data-story-open-episode="${storyEscape(episode.id)}"><i data-lucide="pen-line"></i><span>编辑大纲</span></button>
-            <button type="button" data-story-open-episode="${storyEscape(episode.id)}" data-story-episode-view="shots"><i data-lucide="clapperboard"></i><span>分镜清单</span></button>
-            <button class="story-episode-delete" data-story-delete-episode="${storyEscape(episode.id)}" type="button" title="删除剧集" aria-label="删除第 ${Number(episode.episodeNo)} 集"><i data-lucide="trash-2"></i></button>
-          </div>
-        </article>`;
-    }).join("") : `<div class="story-list-state">尚未拆集。创建第一集后，单集画布入口会固定为 <code>story-episode-&lt;id&gt;</code>。</div>`;
+    const { project, episodes = [] } = storyState.detail;
     const selectedEpisode = episodes.find((episode) => episode.id === storyState.selectedEpisodeId);
     const episodeWorkspace = selectedEpisode ? (() => {
       const shotWorkspace = renderStoryShotWorkspace(selectedEpisode);
@@ -1070,10 +1227,10 @@
         <div class="story-tab-panel" data-story-tab-panel="episodes" ${storyState.detailTab === "episodes" ? "" : "hidden"}>
           <section class="story-section">
             <div class="story-section-head"><div><p class="eyebrow">STORY TREE</p><h3>剧本 · 分集 · 分镜</h3></div><span>${Number(project.episodeTarget || 0) > 0 ? `${episodes.length} / ${Number(project.episodeTarget)} 集` : `已拆出 ${episodes.length} 集 · AI 规划`}</span></div>
-            <p class="story-tab-lead">剧本是根节点；AI 拆解后生成分集节点，分集下再生成 S01、S02 分镜。每镜的资产和提示词在右侧独立完成。</p>
             <div class="story-tree-layout">${storyTree}<div class="story-tree-workspace">${episodeWorkspace || emptyEpisodeWorkspace}</div></div>
           </section>
         </div>
+        ${renderStoryScriptCreateModal()}
         ${renderStoryRevisionModal()}
         ${renderStoryAssetLibraryModal()}
       </div>`;
@@ -1148,8 +1305,15 @@
     if (!id) return;
     if (storyState.selectedId !== id) {
       storyState.detailTab = "script";
+      storyState.selectedManuscriptId = "";
+      storyState.scriptCreateOpen = false;
+      storyState.scriptCreateSourceId = "";
       storyState.selectedEpisodeId = "";
       storyState.selectedShotId = "";
+      storyState.expandedManuscriptIds = [];
+      storyState.expandedEpisodeIds = [];
+      storyState.shotCache = {};
+      storyState.shotLoadingEpisodeIds = [];
       storyState.assetLibraryEpisodeId = "";
       storyState.assetLibraryShotKey = "";
       storyState.assetLibraryOpen = false;
@@ -1178,8 +1342,18 @@
         storyState.selectedShotId = "";
         storyState.shots = [];
       }
-      const selectedScript = storyState.scripts.find((script) => script.id === storyState.selectedScriptId);
+      const selectedScript = storyState.scripts.find((script) => script.id === storyState.selectedScriptId) || storyState.scripts[0] || null;
       storyState.selectedScriptId = selectedScript?.id || storyState.scripts[0]?.id || "";
+      storyState.selectedManuscriptId = storyScriptManuscriptId(selectedScript || storyState.scripts[0] || {});
+      if (!storyState.selectedManuscriptId) storyState.selectedManuscriptId = "";
+      const selectedEpisode = episodes.find((episode) => episode.id === storyState.selectedEpisodeId) || null;
+      if (selectedEpisode) {
+        const episodeManuscriptId = String(selectedEpisode.sourceManuscriptId || "");
+        if (episodeManuscriptId) storyState.selectedManuscriptId = episodeManuscriptId;
+      }
+      if (storyState.selectedManuscriptId && !storyState.expandedManuscriptIds.includes(storyState.selectedManuscriptId)) {
+        storyState.expandedManuscriptIds.push(storyState.selectedManuscriptId);
+      }
       if (storyState.analysisScriptId && storyState.analysisScriptId !== storyState.selectedScriptId) {
         storyState.analysis = null;
         storyState.analysisScriptId = "";
@@ -1278,12 +1452,50 @@
     return String(value || "").split(/[、,，\n]+/).map((item) => item.trim()).filter(Boolean);
   }
 
-  async function loadStoryEpisodeShots() {
+  async function loadStoryEpisodeShots(episodeId = storyState.selectedEpisodeId, { syncCurrent = episodeId === storyState.selectedEpisodeId } = {}) {
     const projectId = storyState.selectedId;
-    const episodeId = storyState.selectedEpisodeId;
-    if (!projectId || !episodeId) return;
-    const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/shots`);
-    storyState.shots = Array.isArray(payload.shots) ? payload.shots : [];
+    const id = String(episodeId || "");
+    if (!projectId || !id) return [];
+    if (!storyState.shotLoadingEpisodeIds.includes(id)) storyState.shotLoadingEpisodeIds.push(id);
+    try {
+      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(id)}/shots`);
+      const shots = Array.isArray(payload.shots) ? payload.shots : [];
+      setStoryEpisodeShotsCache(id, shots);
+      if (syncCurrent || storyState.selectedEpisodeId === id) storyState.shots = shots;
+      return shots;
+    } finally {
+      storyState.shotLoadingEpisodeIds = storyState.shotLoadingEpisodeIds.filter((item) => item !== id);
+    }
+  }
+
+  function toggleStoryManuscript(manuscriptId = "") {
+    const id = String(manuscriptId || "");
+    if (!id) return;
+    if (storyState.expandedManuscriptIds.includes(id)) {
+      storyState.expandedManuscriptIds = storyState.expandedManuscriptIds.filter((item) => item !== id);
+    } else {
+      storyState.expandedManuscriptIds.push(id);
+    }
+    renderStoryDetail();
+  }
+
+  async function toggleStoryEpisode(episodeId = "") {
+    const id = String(episodeId || "");
+    if (!id) return;
+    if (storyState.expandedEpisodeIds.includes(id)) {
+      storyState.expandedEpisodeIds = storyState.expandedEpisodeIds.filter((item) => item !== id);
+      renderStoryDetail();
+      return;
+    }
+    storyState.expandedEpisodeIds.push(id);
+    renderStoryDetail();
+    if (storyEpisodeShotsLoaded(id)) return;
+    try {
+      await loadStoryEpisodeShots(id, { syncCurrent: false });
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+    }
+    renderStoryDetail();
   }
 
   async function loadStoryAssetLibraryShots(episodeId = storyState.assetLibraryEpisodeId) {
@@ -1344,15 +1556,27 @@
   }
 
   async function openStoryEpisode(episodeId = "", view = "outline") {
-    storyState.selectedEpisodeId = episodeId;
+    const id = String(episodeId || "");
+    if (!id) return;
+    const sameEpisode = storyState.selectedEpisodeId === id;
+    const episode = (storyState.detail?.episodes || []).find((item) => item.id === id);
+    const manuscriptId = String(episode?.sourceManuscriptId || "");
+    if (manuscriptId) {
+      selectStoryManuscriptById(manuscriptId);
+      if (!storyState.expandedManuscriptIds.includes(manuscriptId)) storyState.expandedManuscriptIds.push(manuscriptId);
+    }
+    storyState.selectedEpisodeId = id;
     storyState.episodeTab = storyEpisodeTabId(view);
-    storyState.selectedShotId = "";
-    storyState.shots = [];
+    if (!sameEpisode) {
+      storyState.selectedShotId = "";
+      storyState.shots = storyEpisodeShotsFromCache(id);
+    }
     storyState.action = "";
     storyState.actionMessage = "";
     renderStoryDetail();
+    if (storyEpisodeShotsLoaded(id)) return;
     try {
-      await loadStoryEpisodeShots();
+      await loadStoryEpisodeShots(id);
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     }
@@ -2414,38 +2638,49 @@
   async function saveStoryScriptDraft() {
     const projectId = storyState.selectedId;
     if (!projectId || storyState.action) return;
-    const title = storyEl("storyScriptTitle")?.value || "";
-    const content = storyEl("storyScriptContent")?.value || "";
-    const targetEpisodeSelect = storyEl("storyScriptTargetEpisode");
-    const targetEpisodeId = targetEpisodeSelect ? targetEpisodeSelect.value : storyState.scriptTargetEpisodeId;
-    const targetShotId = "";
-    const durationMinutes = storyEl("storyScriptDuration")?.value || "";
+    const title = storyEl("storyScriptCreateTitle")?.value || "";
+    const content = storyEl("storyScriptCreateContent")?.value || "";
+    const targetEpisodeCount = Math.max(0, Math.min(1000, Math.round(Number(storyEl("storyScriptCreateTargetEpisodes")?.value || 0) || 0)));
+    const durationMinutes = storyEl("storyScriptCreateDuration")?.value || "";
     const estimatedDurationSeconds = Math.max(0, Math.min(86400, Math.round((Number(durationMinutes || 0) || 0) * 60)));
     if (!content.trim()) {
-      storyState.actionMessage = "请输入剧本或小说正文。";
-      renderStoryDetail();
+      const message = storyEl("storyScriptCreateMessage");
+      if (message) message.textContent = "请输入剧本或小说正文。";
       return;
     }
     storyState.action = "save";
     storyState.actionMessage = "正在保存剧本版本…";
-    renderStoryDetail();
+    const submitButton = document.querySelector('#storyScriptCreateForm button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
     try {
       const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/scripts`, {
         method: "POST",
-        body: { title, content, targetEpisodeId, targetShotId, estimatedDurationSeconds },
+        body: {
+          mode: storyState.scriptCreateMode,
+          sourceScriptId: storyState.scriptCreateSourceId,
+          title,
+          content,
+          targetEpisodeCount,
+          estimatedDurationSeconds,
+        },
       });
+      storyState.action = "";
+      storyState.scriptCreateOpen = false;
+      storyState.scriptCreateSourceId = "";
       storyState.selectedScriptId = payload.script?.id || storyState.selectedScriptId;
+      storyState.selectedManuscriptId = storyScriptManuscriptId(payload.script || {}) || storyState.selectedManuscriptId;
       storyState.analysisDurationMinutes = "";
       storyState.analysisDurationDirty = false;
       storyState.analysis = null;
       storyState.analysisScriptId = "";
       await loadStoryDetail(projectId);
-      storyState.actionMessage = `已保存 V${payload.script?.versionNo || ""} 剧本版本。`;
+      storyState.actionMessage = `已保存 ${payload.script?.title || "文稿"} · V${String(payload.script?.versionNo || 1).padStart(2, "0")}。`;
       renderStoryDetail();
     } catch (error) {
       storyState.action = "";
-      storyState.actionMessage = error.message || String(error);
-      renderStoryDetail();
+      if (submitButton) submitButton.disabled = false;
+      const message = storyEl("storyScriptCreateMessage");
+      if (message) message.textContent = error.message || String(error);
     }
   }
 
@@ -2453,11 +2688,8 @@
     const projectId = storyState.selectedId;
     const script = selectedStoryScript();
     if (!projectId || !script || storyState.action) return;
-    const targetEpisodeSelect = storyEl("storyScriptTargetEpisode");
-    const targetEpisodes = targetEpisodeSelect?.value
-      ? 0
-      : Math.max(0, Math.min(30, Math.round(Number(storyEl("storyAnalysisTarget")?.value || 0) || 0)));
-    const durationMinutes = storyEl("storyScriptDuration")?.value || "";
+    const targetEpisodes = Math.max(0, Math.min(30, Math.round(Number(document.querySelector("[data-story-analysis-target-episodes]")?.value || 0) || 0)));
+    const durationMinutes = document.querySelector("[data-story-analysis-duration]")?.value || "";
     const targetDurationSeconds = Math.max(0, Math.min(86400, Math.round((Number(durationMinutes || 0) || 0) * 60)));
     storyState.analysisTargetEpisodes = targetEpisodes ? String(targetEpisodes) : "";
     storyState.analysisTargetEpisodesDirty = true;
@@ -2487,13 +2719,19 @@
     const projectId = storyState.selectedId;
     const analysis = storyState.analysis;
     if (!projectId || !analysis || storyState.action) return;
+    const scriptVersionId = storyState.analysisScriptId || selectedStoryScript()?.id || "";
+    if (!scriptVersionId) {
+      storyState.actionMessage = "拆解结果缺少来源文稿，请重新拆解。";
+      renderStoryDetail();
+      return;
+    }
     storyState.action = "import";
     storyState.actionMessage = "正在写入剧集与资产…";
     renderStoryDetail();
     try {
       await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/import`, {
         method: "POST",
-        body: { analysis },
+        body: { analysis, scriptVersionId },
       });
       storyState.analysis = null;
       storyState.analysisScriptId = "";
@@ -2568,7 +2806,23 @@
       if (button) loadStoryDetail(button.dataset.storyProjectId || "");
     });
     storyEl("storyProjectDetail")?.addEventListener("click", (event) => {
-      if (event.target.classList?.contains("story-revision-backdrop") || event.target.closest("button[data-story-close-revision]")) closeStoryRevisionRequest();
+      if (event.target.classList?.contains("story-script-modal-backdrop") || event.target.closest("button[data-story-close-script-modal]")) closeStoryScriptCreate();
+      else if (event.target.closest("[data-story-script-create]")) openStoryScriptCreate("new");
+      else if (event.target.closest("[data-story-script-version-source]")) openStoryScriptCreate("version", event.target.closest("[data-story-script-version-source]")?.dataset.storyScriptVersionSource || "");
+      else if (event.target.closest("[data-story-script-id]")) {
+        if (selectStoryScriptVersion(event.target.closest("[data-story-script-id]")?.dataset.storyScriptId || "")) renderStoryDetail();
+      }
+      else if (event.target.closest("[data-story-select-manuscript]")) {
+        selectStoryManuscriptById(event.target.closest("[data-story-select-manuscript]")?.dataset.storySelectManuscript || "");
+        renderStoryDetail();
+      }
+      else if (event.target.closest("[data-story-toggle-manuscript]")) toggleStoryManuscript(event.target.closest("[data-story-toggle-manuscript]")?.dataset.storyToggleManuscript || "");
+      else if (event.target.closest("[data-story-toggle-episode]")) toggleStoryEpisode(event.target.closest("[data-story-toggle-episode]")?.dataset.storyToggleEpisode || "");
+      else if (event.target.closest("[data-story-analyze-manuscript]")) {
+        selectStoryManuscriptById(event.target.closest("[data-story-analyze-manuscript]")?.dataset.storyAnalyzeManuscript || "");
+        analyzeStoryDraft();
+      }
+      else if (event.target.classList?.contains("story-revision-backdrop") || event.target.closest("button[data-story-close-revision]")) closeStoryRevisionRequest();
       else if (event.target.closest("[data-story-submit-revision]")) submitStoryRevisionRequest();
       else if (event.target.classList?.contains("story-asset-library-backdrop") || event.target.closest("button[data-story-close-asset-library]")) closeStoryAssetLibrary();
       else if (event.target.closest("[data-story-open-asset-library]")) openStoryAssetLibrary();
@@ -2650,7 +2904,11 @@
       if (fallback) fallback.hidden = false;
     }, true);
     storyEl("storyProjectDetail")?.addEventListener("submit", (event) => {
-      if (event.target?.id === "storyEpisodeForm") createStoryEpisode(event);
+      if (event.target?.id === "storyScriptCreateForm") {
+        event.preventDefault();
+        saveStoryScriptDraft();
+      }
+      else if (event.target?.id === "storyEpisodeForm") createStoryEpisode(event);
       else if (event.target?.id === "storyEpisodeEditForm") event.preventDefault();
     });
     storyEl("storyProjectDetail")?.addEventListener("change", (event) => {

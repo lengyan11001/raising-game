@@ -1647,8 +1647,15 @@ async function ensureSchemaInner({ client = null } = {}) {
   await run(`ALTER TABLE app_story_script_versions ADD COLUMN IF NOT EXISTS target_episode_id TEXT NOT NULL DEFAULT '';`);
   await run(`ALTER TABLE app_story_script_versions ADD COLUMN IF NOT EXISTS target_shot_id TEXT NOT NULL DEFAULT '';`);
   await run(`ALTER TABLE app_story_script_versions ADD COLUMN IF NOT EXISTS estimated_duration_seconds INTEGER NOT NULL DEFAULT 0;`);
+  await run(`ALTER TABLE app_story_script_versions ADD COLUMN IF NOT EXISTS manuscript_id TEXT NOT NULL DEFAULT '';`);
+  await run(`ALTER TABLE app_story_script_versions ADD COLUMN IF NOT EXISTS target_episode_count INTEGER NOT NULL DEFAULT 0;`);
+  await run(`UPDATE app_story_script_versions SET manuscript_id = id WHERE manuscript_id = '';`);
+  await run(`ALTER TABLE app_story_script_versions DROP CONSTRAINT IF EXISTS app_story_script_versions_project_id_version_no_key;`);
+  await run(`DROP INDEX IF EXISTS app_story_script_versions_project_id_version_no_key;`);
   await run(`CREATE INDEX IF NOT EXISTS app_story_script_versions_project_idx ON app_story_script_versions (project_id, version_no DESC);`);
   await run(`CREATE INDEX IF NOT EXISTS app_story_script_versions_target_idx ON app_story_script_versions (project_id, target_episode_id, target_shot_id);`);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_script_versions_manuscript_idx ON app_story_script_versions (project_id, manuscript_id, version_no DESC);`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS app_story_script_versions_manuscript_version_uidx ON app_story_script_versions (project_id, manuscript_id, version_no) WHERE manuscript_id <> '';`);
   await run(`
     CREATE TABLE IF NOT EXISTS app_story_episodes (
       id TEXT PRIMARY KEY,
@@ -1664,6 +1671,25 @@ async function ensureSchemaInner({ client = null } = {}) {
       UNIQUE (project_id, episode_no)
     );
   `);
+  await run(`
+    ALTER TABLE app_story_episodes
+      ADD COLUMN IF NOT EXISTS source_script_version_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS source_manuscript_id TEXT NOT NULL DEFAULT '';
+  `);
+  await run(`
+    UPDATE app_story_episodes e
+    SET source_script_version_id = sv.id,
+        source_manuscript_id = sv.manuscript_id
+    FROM (
+      SELECT DISTINCT ON (project_id) project_id, id, manuscript_id
+      FROM app_story_script_versions
+      ORDER BY project_id, version_no DESC, created_at DESC
+    ) sv
+    WHERE e.project_id = sv.project_id
+      AND e.source_manuscript_id = '';
+  `);
+  await run(`ALTER TABLE app_story_episodes DROP CONSTRAINT IF EXISTS app_story_episodes_project_id_episode_no_key;`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS app_story_episodes_manuscript_episode_uidx ON app_story_episodes (project_id, source_manuscript_id, episode_no);`);
   await run(`CREATE INDEX IF NOT EXISTS app_story_episodes_project_idx ON app_story_episodes (project_id, episode_no ASC);`);
   await run(`
     CREATE TABLE IF NOT EXISTS app_story_assets (
@@ -6740,6 +6766,8 @@ function storyEpisodeFromRow(row = {}) {
   return {
     id: String(row.id || "").trim(),
     projectId: String(row.project_id || "").trim(),
+    sourceScriptVersionId: String(row.source_script_version_id || "").trim(),
+    sourceManuscriptId: String(row.source_manuscript_id || "").trim(),
     episodeNo: Math.max(1, Number(row.episode_no || 1) || 1),
     title: String(row.title || "").trim(),
     synopsis: String(row.synopsis || ""),
@@ -6774,12 +6802,14 @@ function storyScriptVersionFromRow(row = {}) {
   return {
     id: String(row.id || "").trim(),
     projectId: String(row.project_id || "").trim(),
+    manuscriptId: String(row.manuscript_id || row.id || "").trim(),
     versionNo: Math.max(1, Number(row.version_no || 1) || 1),
     title: String(row.title || "").trim(),
     content: String(row.content || ""),
     status: String(row.status || "draft").trim(),
     targetEpisodeId: String(row.target_episode_id || "").trim(),
     targetShotId: String(row.target_shot_id || "").trim(),
+    targetEpisodeCount: Math.max(0, Number(row.target_episode_count || 0) || 0),
     estimatedDurationSeconds: Math.max(0, Number(row.estimated_duration_seconds || 0) || 0),
     createdBy: String(row.created_by || "").trim(),
     frozenAt: toIsoString(row.frozen_at),
@@ -7207,13 +7237,13 @@ async function listStoryScriptVersionsFromDb({ projectId = "", ownerUserId = "" 
      FROM app_story_script_versions sv
      JOIN app_story_projects p ON p.id = sv.project_id
      WHERE sv.project_id = $1 AND p.owner_user_id = $2
-     ORDER BY sv.version_no DESC, sv.created_at DESC`,
+     ORDER BY sv.created_at DESC, sv.version_no DESC`,
     [parentId, ownerId],
   );
   return rows.map(storyScriptVersionFromRow);
 }
 
-async function createStoryScriptVersionInDb({ id = "", projectId = "", ownerUserId = "", title = "", content = "", status = "draft", targetEpisodeId = "", targetShotId = "", estimatedDurationSeconds = 0, createdBy = "" } = {}) {
+async function createStoryScriptVersionInDb({ id = "", projectId = "", ownerUserId = "", manuscriptId = "", title = "", content = "", status = "draft", targetEpisodeId = "", targetShotId = "", targetEpisodeCount = 0, estimatedDurationSeconds = 0, createdBy = "" } = {}) {
   if (!dbEnabled()) return null;
   const scriptId = String(id || "").trim();
   const parentId = String(projectId || "").trim();
@@ -7233,15 +7263,17 @@ async function createStoryScriptVersionInDb({ id = "", projectId = "", ownerUser
       return null;
     }
     const next = await client.query(
-      `SELECT COALESCE(MAX(version_no), 0) + 1 AS next_no FROM app_story_script_versions WHERE project_id = $1`,
-      [parentId],
+      `SELECT COALESCE(MAX(version_no), 0) + 1 AS next_no
+       FROM app_story_script_versions
+       WHERE project_id = $1 AND manuscript_id = $2`,
+      [parentId, String(manuscriptId || scriptId)],
     );
     const versionNo = Math.max(1, Number(next.rows[0]?.next_no || 1) || 1);
     const inserted = await client.query(
-      `INSERT INTO app_story_script_versions(id, project_id, version_no, title, content, status, target_episode_id, target_shot_id, estimated_duration_seconds, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO app_story_script_versions(id, project_id, manuscript_id, version_no, title, content, status, target_episode_id, target_shot_id, target_episode_count, estimated_duration_seconds, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
-      [scriptId, parentId, versionNo, String(title || ""), String(content || ""), String(status || "draft"), String(targetEpisodeId || ""), String(targetShotId || ""), Math.max(0, Number(estimatedDurationSeconds || 0) || 0), String(createdBy || "")],
+      [scriptId, parentId, String(manuscriptId || scriptId), versionNo, String(title || ""), String(content || ""), String(status || "draft"), String(targetEpisodeId || ""), String(targetShotId || ""), Math.max(0, Math.min(1000, Math.round(Number(targetEpisodeCount || 0) || 0))), Math.max(0, Number(estimatedDurationSeconds || 0) || 0), String(createdBy || "")],
     );
     row = inserted.rows[0];
     await client.query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
@@ -7786,7 +7818,7 @@ async function updateStoryGenerationRefInDb({ id = "", projectId = "", ownerUser
   return rows[0] ? storyGenerationRefFromRow(rows[0]) : null;
 }
 
-async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", episodes = [], assets = [], summary = "", totalEpisodeSuggestion = 0 } = {}) {
+async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", sourceScriptVersionId = "", sourceManuscriptId = "", episodes = [], assets = [], summary = "", totalEpisodeSuggestion = 0 } = {}) {
   if (!dbEnabled()) return null;
   const parentId = String(projectId || "").trim();
   const ownerId = String(ownerUserId || "").trim();
@@ -7805,24 +7837,54 @@ async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", episo
       await client.query("ROLLBACK");
       return null;
     }
+    let manuscriptId = String(sourceManuscriptId || "").trim();
+    let scriptVersionId = String(sourceScriptVersionId || "").trim();
+    if (!manuscriptId || !scriptVersionId) {
+      const source = await client.query(
+        `SELECT id, manuscript_id FROM app_story_script_versions
+         WHERE project_id = $1
+         ORDER BY version_no DESC, created_at DESC
+         LIMIT 1`,
+        [parentId],
+      );
+      if (source.rows[0]) {
+        manuscriptId = manuscriptId || String(source.rows[0].manuscript_id || source.rows[0].id || "");
+        scriptVersionId = scriptVersionId || String(source.rows[0].id || "");
+      }
+    }
+    if (manuscriptId) {
+      await client.query(
+        `DELETE FROM app_story_canvas_links
+         WHERE project_id = $1 AND scope_type = 'episode'
+           AND scope_id IN (SELECT id FROM app_story_episodes WHERE project_id = $1 AND source_manuscript_id = $2)`,
+        [parentId, manuscriptId],
+      );
+      await client.query(
+        `DELETE FROM app_story_episodes WHERE project_id = $1 AND source_manuscript_id = $2`,
+        [parentId, manuscriptId],
+      );
+    }
     for (const episode of Array.isArray(episodes) ? episodes : []) {
       const episodeNo = Math.max(1, Math.min(10000, Math.round(Number(episode.episodeNo || 0) || 0)));
       if (!episodeNo) continue;
       const episodeId = String(episode.id || "").trim() || crypto.randomUUID();
       const row = await client.query(
-        `INSERT INTO app_story_episodes(id, project_id, episode_no, title, synopsis, status, duration_seconds, metadata)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-         ON CONFLICT (project_id, episode_no) DO UPDATE
+        `INSERT INTO app_story_episodes(id, project_id, source_script_version_id, source_manuscript_id, episode_no, title, synopsis, status, duration_seconds, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+         ON CONFLICT (project_id, source_manuscript_id, episode_no) DO UPDATE
          SET title = EXCLUDED.title,
              synopsis = EXCLUDED.synopsis,
              status = EXCLUDED.status,
              duration_seconds = EXCLUDED.duration_seconds,
              metadata = EXCLUDED.metadata,
+             source_script_version_id = EXCLUDED.source_script_version_id,
              updated_at = NOW()
          RETURNING *`,
         [
           episodeId,
           parentId,
+          scriptVersionId,
+          manuscriptId,
           episodeNo,
           String(episode.title || `第 ${episodeNo} 集`),
           String(episode.synopsis || ""),
@@ -9459,6 +9521,7 @@ const SCHEMA_MIGRATION_KEYS = Object.freeze([
   "2026-11-11-generation-submit-jobs-v1",
   "2026-11-16-story-canvas-p0-v1",
   "2026-11-17-story-script-targeting-v1",
+  "2026-11-17-story-manuscript-lineage-v1",
 ]);
 const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
 const REQUIRED_SCHEMA_TABLES = Object.freeze([
