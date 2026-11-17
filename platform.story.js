@@ -187,7 +187,6 @@
           </div>
         </div>`;
       actions.innerHTML = `
-        <button class="story-secondary-button" type="button" data-story-create-open title="新建剧集项目"><i data-lucide="plus"></i><span>新增项目</span></button>
         <button class="story-create-button" type="button" data-story-add-episode title="新增剧集"><i data-lucide="plus"></i><span>新增剧集</span></button>
         <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>资产库</span></button>
         <button class="story-icon-button" type="button" data-story-refresh-detail title="刷新项目" aria-label="刷新项目"><i data-lucide="refresh-cw"></i></button>`;
@@ -199,7 +198,7 @@
       actions.innerHTML = `
         <span class="story-contract-badge" id="storyContractBadge">P1 · 加载中</span>
         <button class="story-icon-button" id="storyRefreshProjects" type="button" title="刷新项目" aria-label="刷新项目"><i data-lucide="refresh-cw"></i></button>
-        <button class="story-create-button" id="storyCreateProjectToggle" type="button"><i data-lucide="plus"></i><span>新建项目</span></button>`;
+        <button class="story-create-button" id="storyCreateProjectToggle" type="button"><i data-lucide="plus"></i><span>新增项目</span></button>`;
       renderStoryContract();
     }
     storyRefreshIcons();
