@@ -1128,6 +1128,10 @@ els.advancedParameterPanel?.addEventListener("input", handleAdvancedParameterPan
 els.advancedParameterPanel?.addEventListener("change", handleAdvancedParameterPanelChange);
 document.addEventListener("click", handleAdvancedParameterDocumentClick);
 document.addEventListener("keydown", handleAdvancedParameterKeydown);
+window.addEventListener("resize", scheduleAdvancedParameterPanelPosition);
+window.visualViewport?.addEventListener("resize", scheduleAdvancedParameterPanelPosition);
+window.visualViewport?.addEventListener("scroll", scheduleAdvancedParameterPanelPosition);
+document.addEventListener("scroll", handleAdvancedParameterDocumentScroll, true);
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
   const provider = currentAdvancedProvider();
@@ -1446,6 +1450,7 @@ els.loginForm?.addEventListener("submit", (event) => {
 els.telegramLoginBtn?.addEventListener("click", authorizeTelegramLogin);
 els.emailLoginTab?.addEventListener("click", () => setLoginMethod("email"));
 els.passwordLoginTab?.addEventListener("click", () => setLoginMethod("password"));
+els.toggleLoginPasswordBtn?.addEventListener("click", toggleLoginPasswordVisibility);
 els.requestEmailLoginCodeBtn?.addEventListener("click", requestEmailLoginCode);
 els.verifyEmailLoginBtn?.addEventListener("click", verifyEmailLogin);
 els.forgotPasswordBtn?.addEventListener("click", forgotPassword);

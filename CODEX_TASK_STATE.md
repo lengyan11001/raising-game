@@ -1,3 +1,13 @@
+## 2026-11-17 Step DL: login stale-shell diagnosis and password visibility
+
+- One user's broken login screenshot does not match fresh production HTML. Production currently has separate Email code / Password tabs and `passwordLoginPanel` hidden by default, so the screenshot is a stale cached shell rather than the current renderer.
+- Hardened the platform service worker navigation cache: `/` and `/platform.html` no longer share the `"/"` cache key. Each pathname now gets its own navigation key, preventing a slow request for one shell from serving the other shell's cached HTML.
+- Auth dialog styling is now self-contained dark UI at all widths: dark inputs and autofill overrides, no white username field, scrollable modal body, safe-area bottom padding, consistent tabs, login/forgot controls, and inline error styling.
+- Added a password visibility button using inline eye/eye-off SVGs so it does not depend on Lucide load timing. It toggles `type`, `aria-pressed`, localized label/title, and resets to masked whenever `renderLoginForm()` runs.
+- Asset suffix is now `login-modal-password-20261117-1` in `platform.html`, `platform.js`, and canvas assertions.
+- Verification: focused auth/UI/service-worker/canvas tests 72/72; syntax, `npm run check:undef`, and `git diff --check` pass. Browser preview checked at 320x500: controls fit, modal body scrolls, and the password eye control remains visible.
+- Full `npm test`: 1389 pass / 9 fail / 2 skipped. The failures are the pre-existing serializer baseline and unrelated `server.parts/part-45.js` Seedance optimizer WIP. No deployment was performed.
+
 ## 2026-11-17 Step DK: Compact story planning toolbar and AI-owned shot count
 
 - The story detail header is now a single compact line: a `剧集` back button, project title, inline counts for script versions / episodes / assets / shots / aspect ratio, and the asset-library action. The old project eyebrow, description, status, and oversized metric cards no longer consume vertical space.

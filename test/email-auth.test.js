@@ -56,6 +56,22 @@ test("email verification is the default login method with password as an explici
   assert.match(config, /passwordLoginPanel: document\.querySelector\("#passwordLoginPanel"\)/);
 });
 
+test("password login can reveal and hide the password without leaving reset state", () => {
+  assert.match(html, /<div class="auth-password-field">/);
+  assert.match(html, /id="loginPassword" type="password"[^>]*autocomplete="current-password"/);
+  assert.match(html, /id="toggleLoginPasswordBtn" type="button"[^>]*aria-pressed="false"/);
+  assert.match(html, /class="auth-password-icon auth-password-icon-show"/);
+  assert.match(html, /class="auth-password-icon auth-password-icon-hide" aria-hidden="true" hidden/);
+  assert.match(config, /toggleLoginPasswordBtn: document\.querySelector\("#toggleLoginPasswordBtn"\)/);
+  assert.match(create, /function setLoginPasswordVisibility\(visible = false\)/);
+  assert.match(create, /input\.type = showPassword \? "text" : "password"/);
+  assert.match(create, /showIcon\.hidden = showPassword/);
+  assert.match(create, /hideIcon\.hidden = !showPassword/);
+  assert.match(create, /function toggleLoginPasswordVisibility\(\)/);
+  assert.match(create, /setLoginPasswordVisibility\(false\);[\s\S]*?els\.loginTitle\.textContent = label/);
+  assert.match(main, /toggleLoginPasswordBtn\?\.addEventListener\("click", toggleLoginPasswordVisibility\)/);
+});
+
 test("email login code requests show a 60-second resend countdown", () => {
   assert.match(create, /EMAIL_LOGIN_CODE_COOLDOWN_SECONDS = 60/);
   assert.match(create, /function startEmailLoginCodeCooldown/);

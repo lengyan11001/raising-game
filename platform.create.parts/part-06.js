@@ -680,6 +680,28 @@ function setLoginMethod(method = "email") {
   });
 }
 
+function setLoginPasswordVisibility(visible = false) {
+  const input = els.loginPassword;
+  const button = els.toggleLoginPasswordBtn;
+  if (!input || !button) return;
+  const showPassword = Boolean(visible);
+  input.type = showPassword ? "text" : "password";
+  button.setAttribute("aria-pressed", showPassword ? "true" : "false");
+  const label = showPassword
+    ? t("auth.hidePassword", {}, "Hide password")
+    : t("auth.showPassword", {}, "Show password");
+  button.setAttribute("aria-label", label);
+  button.setAttribute("title", label);
+  const showIcon = button.querySelector(".auth-password-icon-show");
+  const hideIcon = button.querySelector(".auth-password-icon-hide");
+  if (showIcon) showIcon.hidden = showPassword;
+  if (hideIcon) hideIcon.hidden = !showPassword;
+}
+
+function toggleLoginPasswordVisibility() {
+  setLoginPasswordVisibility(els.loginPassword?.type === "password");
+}
+
 function openLogin() {
   if (state.user) return openAccount();
   prepareModalOpen();
@@ -756,16 +778,13 @@ async function logout() {
 function renderLoginForm() {
   const label = t("nav.login");
   renderEmailLoginCodeCooldown();
+  setLoginPasswordVisibility(false);
   if (els.loginTitle) els.loginTitle.textContent = label;
   if (els.loginSubmit) els.loginSubmit.textContent = label;
   if (els.loginSubmit) els.loginSubmit.disabled = false;
   if (els.telegramLoginBtn) els.telegramLoginBtn.disabled = false;
   if (els.telegramLoginStatus) els.telegramLoginStatus.textContent = "";
-  setGoogleLoginBusy(false);
-  if (els.googleLoginStatus) {
-    els.googleLoginStatus.textContent = "";
-    els.googleLoginStatus.hidden = true;
-  }
+  resetGoogleLoginFeedback();
   if (els.loginMessage) els.loginMessage.textContent = "";
   const emailEnabled = Boolean(state.config?.auth?.email?.enabled);
   if (els.emailLoginTab) els.emailLoginTab.hidden = !emailEnabled;

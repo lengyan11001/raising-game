@@ -123,6 +123,8 @@ test("service worker never intercepts API or non-GET requests", () => {
 test("service worker prefers a fresh navigation and uses cache only as fallback", () => {
   const sw = read("platform-sw.js");
   const navigate = sw.match(/if \(request\.mode === "navigate"\) \{([\s\S]*?)\n    \}/)?.[1] || "";
+  assert.match(navigate, /const key = new Request\(`\$\{url\.origin\}\$\{url\.pathname\}`, \{ method: "GET" \}\);/);
+  assert.doesNotMatch(navigate, /pathname === "\/" \|\| url\.pathname === "\/platform\.html"/);
   assert.match(navigate, /fetchAndCache\(cache, request, key\)/);
   assert.match(navigate, /networkWithin\(networkPromise, 1500\)/);
   assert.match(navigate, /if \(fresh\) return fresh;/);

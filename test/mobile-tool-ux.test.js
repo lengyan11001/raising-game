@@ -149,8 +149,20 @@ test("Google login stays inside the mobile login dialog", () => {
   assert.doesNotMatch(loginDialog, /google-login-button/);
   assert.match(google, /function renderGoogleLoginButton\(/);
   assert.match(google, /googleId\.renderButton\(container,/);
+  assert.match(google, /click_listener: beginGoogleLoginFeedback/);
+  assert.match(google, /function beginGoogleLoginFeedback\(/);
   assert.doesNotMatch(google, /googleId\.prompt\(/);
   assert.match(create, /els\.loginDialog\.showModal\(\);[\s\S]*?renderGoogleLoginButton\(\)/);
   assert.match(css, /\.google-login-mount \{[\s\S]*?width: 100%;/);
   assert.match(google, /const GOOGLE_LOGIN_VISIBLE = true;/);
+});
+
+test("login dialog keeps controls visible and uses an auth-specific dark form", () => {
+  assert.match(css, /\.auth-modal form \{[\s\S]*?display: flex;[\s\S]*?max-height: calc\(var\(--app-height, 100vh\) - 22px\)/);
+  assert.match(css, /\.auth-modal \.modal-body \{[\s\S]*?overflow-y: auto;[\s\S]*?overscroll-behavior: contain/);
+  assert.match(css, /\.auth-modal input:not\(\[type="checkbox"\]\)[\s\S]*?background: #101115/);
+  assert.match(css, /\.auth-modal input:-webkit-autofill/);
+  assert.match(css, /\.auth-password-field \{[\s\S]*?position: relative/);
+  assert.match(css, /\.auth-password-toggle \{[\s\S]*?position: absolute/);
+  assert.match(css, /\.auth-modal #loginMessage:not\(:empty\) \{[\s\S]*?color: #ff9aaa/);
 });
