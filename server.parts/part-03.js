@@ -757,7 +757,9 @@ function storyGenerationRefClientView(ref = {}) {
   if (!ref || typeof ref !== "object") return ref;
   const metadata = ref.metadata && typeof ref.metadata === "object" ? { ...ref.metadata } : {};
   const generationRecordId = String(ref.generationRecordId || metadata.generationRecordId || "").trim();
-  const mediaUrl = generationRecordId && ref.kind === "video" ? adminGenerationMediaUrl(generationRecordId) : "";
+  const status = String(ref.status || metadata.generationStatus || "").toLowerCase();
+  const completed = ["succeeded", "success", "completed", "complete"].includes(status);
+  const mediaUrl = generationRecordId && ref.kind === "video" && completed ? adminGenerationMediaUrl(generationRecordId) : "";
   if (mediaUrl) metadata.videoUrl = mediaUrl;
   return { ...ref, metadata };
 }

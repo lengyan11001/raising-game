@@ -709,8 +709,9 @@
         </article>`;
     }).join("") : `<div class="story-shot-assets-empty">此镜还没有资产清单。先让 AI 按本集分镜提取资产。</div>`;
     const generationRows = generationRefs.length ? generationRefs.map((ref) => {
-      const videoUrl = storyGenerationRefVideoUrl(ref);
       const status = String(ref.status || ref.metadata?.generationStatus || "queued");
+      const failed = ["failed", "error", "canceled", "cancelled"].includes(status.toLowerCase());
+      const videoUrl = failed ? "" : storyGenerationRefVideoUrl(ref);
       return `
         <article class="story-shot-video-result">
           <div><strong>${storyEscape(ref.metadata?.modelLabel || ref.metadata?.model || selectedVideoModel.label)}</strong><span>${storyEscape(storyVariantStatusLabel(status))}</span></div>
@@ -1660,6 +1661,10 @@
       && (String(model.family || "") === "seedance" || /seedance/i.test(String(model.id || "")));
   }
 
+  function storyIsWanVideoModel(model = {}) {
+    return String(model.family || "") === "wan" || /wan/i.test(String(model.id || ""));
+  }
+
   function storyVideoReferenceLimit(model = {}) {
     if (storyIsVegaVideoModel(model)) return 30;
     if (String(model.family || "") === "wan" || /wan/i.test(String(model.id || ""))) return 10;
@@ -1686,18 +1691,24 @@
       if (!variant || variant.status !== "approved") continue;
       let assetIds = storyAssetVariantReferenceIds(variant);
       if (!assetIds.length && variant.metadata?.generationRecordId) {
-        try {
-          const payload = await requestJson(`/api/generation-records/${encodeURIComponent(variant.metadata.generationRecordId)}`);
-          assetIds = storyGenerationResultAssetIds(payload.record || payload.generation || {});
-        } catch (_) {
-          assetIds = [];
+        const materialized = await requestJson(`/api/generation-records/${encodeURIComponent(variant.metadata.generationRecordId)}/add-asset`, { method: "POST" });
+        assetIds = [materialized.asset?.id].map((value) => String(value || "").trim()).filter(Boolean);
+        if (assetIds.length) {
+          const updated = await requestJson(`/api/story/projects/${encodeURIComponent(storyState.selectedId)}/assets/${encodeURIComponent(asset.id)}/variants/${encodeURIComponent(variant.id)}`, {
+            method: "PUT",
+            body: { metadata: { resultAssetId: assetIds[0], resultAssetIds: assetIds } },
+          });
+          if (updated.variant) {
+            storyState.assetVariants = storyState.assetVariants.map((item) => item.id === updated.variant.id ? updated.variant : item);
+          }
         }
       }
-      const url = storyAssetVariantImageUrl(variant);
-      (assetIds.length ? assetIds : [""]).forEach((assetId, index) => {
+      if (!assetIds.length) {
+        throw new Error(`「${asset.name}」已定稿，但没有可复用的资产 ID。请打开资产库重新加入资产后再生成视频。`);
+      }
+      assetIds.forEach((assetId) => {
         references.push({
           assetId,
-          url: index === 0 ? url : "",
           assetName: String(asset.name || ""),
         });
       });
@@ -1714,26 +1725,40 @@
   function storyVideoMediaParams(model = {}, references = []) {
     const limited = references.slice(0, storyVideoReferenceLimit(model));
     if (!limited.length) return {};
-    const mediaEntry = (reference) => ({
-      ...(reference.assetId ? { assetId: reference.assetId } : {}),
-      ...(reference.url ? { url: reference.url } : {}),
-    });
-    if (storyIsSeedanceVideoModel(model) && limited.length > 1) {
+    const mediaEntry = (reference) => ({ assetId: reference.assetId });
+    const modelId = String(model.id || "");
+    if (storyIsWanVideoModel(model)) {
+      const wan30Prime = /wan30-prime|wan3\.0-prime|w3-prime/i.test(modelId);
+      const wan30 = wan30Prime || /wan30|wan3\.0|w3/i.test(modelId);
       return {
-        seedanceMode: "reference_images",
+        provider: wan30 ? "wan30" : "wan27",
+        videoCapability: wan30Prime ? "wan30-video-prime" : wan30 ? "wan30-video" : "wan27-r2v",
+        mediaMode: wan30 ? "multimodal" : "wan27-r2v",
         referenceImages: limited.map(mediaEntry),
       };
     }
-    const [first, ...rest] = limited;
-    const params = {
-      ...(first.assetId ? { firstFrameAssetId: first.assetId } : {}),
-      ...(first.url ? { firstFrameUrl: first.url } : {}),
-    };
-    if (rest.length) {
-      params.referenceImageAssetIds = rest.map((reference) => reference.assetId).filter(Boolean);
-      params.referenceImages = rest.map(mediaEntry);
+    if (storyIsVegaVideoModel(model)) {
+      return {
+        provider: modelId,
+        mediaMode: "reference_video",
+        referenceImages: limited.map(mediaEntry),
+        referenceImageAssetIds: limited.map((reference) => reference.assetId),
+      };
     }
-    return params;
+    if (storyIsSeedanceVideoModel(model)) {
+      return {
+        seedanceMode: "reference_video",
+        ...(/seedance25|seedance-nsfw/i.test(modelId) ? { functionMode: "reference_video" } : {}),
+        referenceImages: limited.map(mediaEntry),
+      };
+    }
+    return {
+      firstFrameAssetId: limited[0].assetId,
+      ...(limited.length > 1 ? {
+        referenceImageAssetIds: limited.slice(1).map((reference) => reference.assetId).filter(Boolean),
+        referenceImages: limited.slice(1).map(mediaEntry),
+      } : {}),
+    };
   }
 
   async function updateStoryVideoGenerationRef(projectId = "", ref = {}, patch = {}) {
@@ -2092,13 +2117,13 @@
           resolution: storyState.promptResolution,
           ratio: storyState.detail?.project?.aspectRatio || "9:16",
           duration,
+          ...mediaParams,
           params: {
             createKind: "story-shot-video",
             projectId,
             episodeId: episode.id,
             shotId: shot.id,
             shotNo: shot.shotNo,
-            ...mediaParams,
           },
         },
       });
@@ -2125,7 +2150,7 @@
             shotNo: shot.shotNo,
             referenceAssetIds,
             referenceImageCount: mediaReferences.length,
-            mediaMode: mediaParams.seedanceMode || (mediaParams.firstFrameAssetId ? "first_frame_with_references" : "reference_images"),
+            mediaMode: mediaParams.mediaMode || mediaParams.seedanceMode || (mediaParams.firstFrameAssetId ? "first_frame_with_references" : "reference_images"),
           },
         },
       });
