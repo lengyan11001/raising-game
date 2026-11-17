@@ -58,7 +58,10 @@
     if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
 
     if (request.mode === "navigate") {
-      const key = url.pathname === "/" || url.pathname === "/platform.html" ? "/" : request;
+      // Keep each navigation path in its own cache slot. A shared "/" slot
+      // can mix the marketing shell and platform shell when either request is
+      // slower than the network timeout.
+      const key = new Request(`${url.origin}${url.pathname}`, { method: "GET" });
       event.respondWith((async () => {
         const cache = await caches.open(cacheName);
         // Navigation is the deployment fence. Prefer a fresh shell so every

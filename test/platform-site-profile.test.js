@@ -124,7 +124,7 @@ test("Generate parameter pickers close after selection and duration uses a slide
   assert.match(picker, /advanced-parameter-model-check/);
   assert.match(picker, /querySelector\("\.advanced-parameter-option\.is-selected"\)/);
   assert.match(picker, /scrollIntoView\?\.\(\{ block: "nearest" \}\)/);
-  assert.match(createSource, /dataset\.advancedParameterPlacement = openUp \? "up" : "down"/);
+  assert.match(createSource, /dataset\.advancedParameterPlacement = placement/);
 
   const setter = createSource.slice(
     createSource.indexOf("function setAdvancedParameterValue("),

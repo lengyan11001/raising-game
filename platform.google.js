@@ -5,6 +5,7 @@ const GOOGLE_LOGIN_VISIBLE = true;
 let googleLoginSdkPromise = null;
 let googleLoginConfigured = false;
 let googleLoginRenderedWidth = 0;
+let googleLoginClickTimer = null;
 
 function ensureGoogleLoginSdk() {
   if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
@@ -48,6 +49,38 @@ function setGoogleLoginBusy(busy) {
   els.googleLoginBtn.setAttribute("aria-busy", busy ? "true" : "false");
 }
 
+function clearGoogleLoginClickTimer() {
+  if (googleLoginClickTimer) {
+    window.clearTimeout(googleLoginClickTimer);
+    googleLoginClickTimer = null;
+  }
+}
+
+function showGoogleLoginStatus(message = "") {
+  if (!els.googleLoginStatus) return;
+  const text = String(message || "").trim();
+  els.googleLoginStatus.textContent = text;
+  els.googleLoginStatus.hidden = !text;
+}
+
+function beginGoogleLoginFeedback() {
+  clearGoogleLoginClickTimer();
+  showGoogleLoginStatus(t("auth.googleStarting"));
+  setGoogleLoginBusy(true);
+  googleLoginClickTimer = window.setTimeout(() => {
+    googleLoginClickTimer = null;
+    if (els.googleLoginBtn?.getAttribute("aria-busy") !== "true") return;
+    setGoogleLoginBusy(false);
+    showGoogleLoginStatus(t("auth.googleNoResponse"));
+  }, 15000);
+}
+
+function resetGoogleLoginFeedback() {
+  clearGoogleLoginClickTimer();
+  setGoogleLoginBusy(false);
+  showGoogleLoginStatus("");
+}
+
 function renderGoogleLoginButton(googleId = window.google?.accounts?.id) {
   if (!GOOGLE_LOGIN_VISIBLE) {
     if (els.googleLoginBtn) els.googleLoginBtn.hidden = true;
@@ -71,6 +104,7 @@ function renderGoogleLoginButton(googleId = window.google?.accounts?.id) {
     logo_alignment: "left",
     locale: googleButtonLocale(),
     width,
+    click_listener: beginGoogleLoginFeedback,
   });
   container.dataset.renderedWidth = String(width);
   return true;
@@ -100,12 +134,10 @@ function configureGoogleLogin() {
 }
 
 async function handleGoogleCredential(response = {}) {
+  clearGoogleLoginClickTimer();
   const credential = String(response.credential || "").trim();
   if (!credential) {
-    if (els.googleLoginStatus) {
-      els.googleLoginStatus.hidden = false;
-      els.googleLoginStatus.textContent = t("auth.googleFailed", { message: "No credential was returned." });
-    }
+    showGoogleLoginStatus(t("auth.googleFailed", { message: "No credential was returned." }));
     setGoogleLoginBusy(false);
     return;
   }
@@ -121,11 +153,9 @@ async function handleGoogleCredential(response = {}) {
     });
     await completeLogin(payload);
   } catch (error) {
-    if (els.googleLoginStatus) {
-      els.googleLoginStatus.hidden = false;
-      els.googleLoginStatus.textContent = t("auth.googleFailed", { message: String(error?.message || error || "Authorization failed.") });
-    }
+    showGoogleLoginStatus(t("auth.googleFailed", { message: String(error?.message || error || "Authorization failed.") }));
   } finally {
+    clearGoogleLoginClickTimer();
     setGoogleLoginBusy(false);
   }
 }

@@ -1231,47 +1231,94 @@ function closeAdvancedParameterPanel() {
   });
 }
 
-function advancedParameterViewportTop() {
+function advancedParameterViewportMetrics() {
+  const visualViewport = window.visualViewport;
+  return {
+    left: visualViewport?.offsetLeft || 0,
+    top: visualViewport?.offsetTop || 0,
+    width: visualViewport?.width || window.innerWidth,
+    height: visualViewport?.height || window.innerHeight,
+  };
+}
+
+function advancedParameterViewportTop(viewportTop = 12) {
   const viewportGap = 12;
+  const minimumTop = viewportTop + viewportGap;
   const header = document.querySelector(".site-head");
-  if (!header) return viewportGap;
+  if (!header) return minimumTop;
   const style = window.getComputedStyle(header);
   const rect = header.getBoundingClientRect();
   const overlaysViewportTop = (style.position === "sticky" || style.position === "fixed")
-    && rect.top <= viewportGap
-    && rect.bottom > viewportGap;
-  return overlaysViewportTop ? rect.bottom + 8 : viewportGap;
+    && rect.top <= minimumTop
+    && rect.bottom > minimumTop;
+  return overlaysViewportTop ? Math.max(minimumTop, rect.bottom + 8) : minimumTop;
 }
 
 function positionAdvancedParameterPanel() {
   const panel = els.advancedParameterPanel;
   const chip = els.advancedParameterChips?.querySelector(`[data-advanced-parameter-open="${state.advancedParameterOpen}"]`);
   if (!panel || panel.hidden || !chip) return;
+  // Portaling the panel out of its form card prevents ancestor transforms,
+  // overflow clipping, and stacking contexts from putting asset cards above it.
+  if (panel.parentElement !== document.body) document.body.append(panel);
+
   const chipRect = chip.getBoundingClientRect();
+  const viewport = advancedParameterViewportMetrics();
   const viewportGap = 12;
   const panelGap = 10;
-  const viewportTop = advancedParameterViewportTop();
-  const spaceBelow = Math.max(0, window.innerHeight - chipRect.bottom - panelGap - viewportGap);
+  const viewportLeft = viewport.left;
+  const viewportRight = viewport.left + viewport.width;
+  const viewportBottom = viewport.top + viewport.height;
+  const viewportTop = advancedParameterViewportTop(viewport.top);
+  const spaceBelow = Math.max(0, viewportBottom - viewportGap - chipRect.bottom - panelGap);
   const spaceAbove = Math.max(0, chipRect.top - panelGap - viewportTop);
-  const panelWidth = Math.min(480, Math.max(0, window.innerWidth - viewportGap * 2));
-  const maxLeft = Math.max(viewportGap, window.innerWidth - viewportGap - panelWidth);
+  const panelWidth = Math.min(480, Math.max(1, viewport.width - viewportGap * 2));
+  const maxLeft = Math.max(viewportLeft + viewportGap, viewportRight - viewportGap - panelWidth);
 
   panel.style.position = "fixed";
-  panel.style.width = `${panelWidth}px`;
-  panel.style.left = `${Math.round(Math.min(Math.max(viewportGap, chipRect.left), maxLeft))}px`;
+  panel.style.width = `${Math.floor(panelWidth)}px`;
+  panel.style.left = `${Math.round(Math.min(Math.max(viewportLeft + viewportGap, chipRect.left), maxLeft))}px`;
   panel.style.right = "auto";
+  panel.style.bottom = "auto";
   panel.style.maxHeight = "none";
+  panel.style.top = `${Math.round(viewportTop)}px`;
   const contentHeight = Math.ceil(panel.getBoundingClientRect().height);
-  const heightCap = Math.min(300, Math.floor(window.innerHeight * 0.52));
-  const wantedHeight = Math.min(contentHeight, heightCap);
-  const openUp = spaceBelow < wantedHeight && spaceAbove > spaceBelow;
-  const available = openUp ? spaceAbove : spaceBelow;
-  const panelHeight = Math.max(0, Math.min(wantedHeight, available));
-  panel.dataset.advancedParameterPlacement = openUp ? "up" : "down";
+  const heightCap = Math.min(300, Math.floor(viewport.height * 0.52));
+  const wantedHeight = Math.max(1, Math.min(contentHeight, heightCap));
+  let placement = "center";
+  let availableHeight = Math.max(1, viewportBottom - viewportGap - viewportTop);
+  if (spaceBelow >= wantedHeight) {
+    placement = "down";
+    availableHeight = spaceBelow;
+  } else if (spaceAbove >= wantedHeight) {
+    placement = "up";
+    availableHeight = spaceAbove;
+  }
+  const panelHeight = Math.max(1, Math.floor(Math.min(wantedHeight, availableHeight)));
+  const maxTop = Math.max(viewportTop, viewportBottom - viewportGap - panelHeight);
+  const preferredTop = placement === "down"
+    ? chipRect.bottom + panelGap
+    : placement === "up"
+      ? chipRect.top - panelGap - panelHeight
+      : viewportTop + Math.max(0, (viewportBottom - viewportGap - viewportTop - panelHeight) / 2);
+  panel.dataset.advancedParameterPlacement = placement;
   panel.style.maxHeight = `${Math.floor(panelHeight)}px`;
-  panel.style.top = openUp ? "auto" : `${Math.round(chipRect.bottom + panelGap)}px`;
-  panel.style.bottom = openUp ? `${Math.round(window.innerHeight - chipRect.top + panelGap)}px` : "auto";
-  panel.scrollTop = 0;
+  panel.style.top = `${Math.round(Math.min(Math.max(viewportTop, preferredTop), maxTop))}px`;
+}
+
+let advancedParameterPositionFrame = 0;
+function scheduleAdvancedParameterPanelPosition() {
+  if (advancedParameterPositionFrame) return;
+  advancedParameterPositionFrame = requestAnimationFrame(() => {
+    advancedParameterPositionFrame = 0;
+    positionAdvancedParameterPanel();
+  });
+}
+
+function handleAdvancedParameterDocumentScroll(event) {
+  if (!state.advancedParameterOpen) return;
+  if (els.advancedParameterPanel?.contains(event.target)) return;
+  scheduleAdvancedParameterPanelPosition();
 }
 
 function renderAdvancedParameterPanel(kind = "") {
@@ -1321,20 +1368,13 @@ function renderAdvancedParameterPanel(kind = "") {
   }
   els.advancedParameterPanel.hidden = false;
   els.advancedParameterPanel.innerHTML = body;
+  els.advancedParameterPanel.scrollTop = 0;
   delete els.advancedParameterPanel.dataset.advancedParameterPlacement;
   positionAdvancedParameterPanel();
   refreshIcons();
   if (modelList) {
     const selected = els.advancedParameterPanel.querySelector(".advanced-parameter-option.is-selected");
-    if (selected) {
-      const panelRect = els.advancedParameterPanel.getBoundingClientRect();
-      const selectedRect = selected.getBoundingClientRect();
-      if (selectedRect.top < panelRect.top) {
-        els.advancedParameterPanel.scrollTop -= panelRect.top - selectedRect.top;
-      } else if (selectedRect.bottom > panelRect.bottom) {
-        els.advancedParameterPanel.scrollTop += selectedRect.bottom - panelRect.bottom;
-      }
-    }
+    selected?.scrollIntoView?.({ block: "nearest" });
   }
 }
 
@@ -1415,6 +1455,8 @@ function handleAdvancedParameterDocumentClick(event) {
   // Rendering the chips/options replaces the clicked node. The composed path is
   // captured at dispatch time, so it still identifies this click as internal.
   const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  if (els.advancedParameterPanel && path.includes(els.advancedParameterPanel)) return;
+  if (event.target.closest?.("#advancedParameterPanel")) return;
   if (els.advancedParameterShell && path.includes(els.advancedParameterShell)) return;
   if (event.target.closest?.("#advancedParameterShell")) return;
   closeAdvancedParameterPanel();

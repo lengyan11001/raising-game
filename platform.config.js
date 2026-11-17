@@ -1644,6 +1644,7 @@ const els = {
   passwordLoginPanel: document.querySelector("#passwordLoginPanel"),
   loginUsername: document.querySelector("#loginUsername"),
   loginPassword: document.querySelector("#loginPassword"),
+  toggleLoginPasswordBtn: document.querySelector("#toggleLoginPasswordBtn"),
   loginEmail: document.querySelector("#loginEmail"),
   loginEmailCode: document.querySelector("#loginEmailCode"),
   requestEmailLoginCodeBtn: document.querySelector("#requestEmailLoginCodeBtn"),

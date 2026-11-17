@@ -172,14 +172,24 @@ test("Generate parameter picker stays compact and selected chips show full label
   assert.match(css, /\.advanced-parameter-chip-value \{[\s\S]*?overflow: visible;[\s\S]*?text-overflow: clip/);
   assert.match(create, /kind === "model" \? valueLabel :/);
   assert.match(create, /\$\{kind === "model" \? "" : `<i class="advanced-parameter-chip-caret" data-lucide="chevron-down"><\/i>`\}/);
-  assert.match(create, /function advancedParameterViewportTop\(\)/);
+  assert.match(create, /function advancedParameterViewportMetrics\(\)/);
+  assert.match(create, /function advancedParameterViewportTop\(viewportTop = 12\)/);
   assert.match(create, /\.site-head[\s\S]*?style\.position === "sticky"[\s\S]*?rect\.bottom \+ 8/);
+  assert.match(create, /document\.body\.append\(panel\)/);
   assert.match(create, /panel\.style\.position = "fixed"/);
-  assert.match(create, /const heightCap = Math\.min\(300, Math\.floor\(window\.innerHeight \* 0\.52\)\)/);
-  assert.match(create, /const openUp = spaceBelow < wantedHeight && spaceAbove > spaceBelow/);
+  assert.match(create, /const heightCap = Math\.min\(300, Math\.floor\(viewport\.height \* 0\.52\)\)/);
+  assert.match(create, /let placement = "center"/);
+  assert.match(create, /placement = "down"/);
+  assert.match(create, /placement = "up"/);
+  assert.match(create, /dataset\.advancedParameterPlacement = placement/);
   assert.match(create, /panel\.style\.maxHeight = `\$\{Math\.floor\(panelHeight\)\}px`/);
-  assert.doesNotMatch(create, /selected\?\.scrollIntoView/);
-  assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?box-sizing: border-box;[\s\S]*?position: fixed/);
+  assert.match(create, /selected\?\.scrollIntoView\?\.\(\{ block: "nearest" \}\)/);
+  assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?box-sizing: border-box;[\s\S]*?position: fixed;[\s\S]*?z-index: 4000/);
+  assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?overscroll-behavior: contain/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.advanced-parameter-panel \{[\s\S]*?position: fixed;[\s\S]*?width: min\(480px, calc\(100vw - 24px\)\)/);
+  assert.match(create, /path\.includes\(els\.advancedParameterPanel\)/);
+  assert.match(main, /document\.addEventListener\("scroll", handleAdvancedParameterDocumentScroll, true\)/);
+  assert.match(main, /window\.visualViewport\?\.addEventListener\("resize", scheduleAdvancedParameterPanelPosition\)/);
 });
 
 test("Generate dialogs expand to the available viewport without redundant scrolling", () => {

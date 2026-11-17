@@ -8,7 +8,7 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=story-ai-storyboard-20261116-1" />
+    <link rel="stylesheet" href="./platform.css?v=login-modal-password-20261117-1" />
     <link rel="stylesheet" href="./platform.prompt-editor.css?v=main-site-compat-20261111-1" />
     <script src="./platform.vitals.js?v=main-site-compat-20261111-1" defer></script>
     <script>
@@ -1224,7 +1224,17 @@
           <div class="auth-method-panel" id="passwordLoginPanel" role="tabpanel" hidden>
             <div class="auth-divider"><span data-i18n="auth.orUsername">Use username and password</span></div>
             <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
-            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password" data-i18n-placeholder="auth.password" />
+            <div class="auth-password-field">
+              <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password" data-i18n-placeholder="auth.password" />
+              <button class="auth-password-toggle" id="toggleLoginPasswordBtn" type="button" aria-label="Show password" aria-pressed="false" title="Show password">
+                <span class="auth-password-icon auth-password-icon-show" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.1 12s3.6-7 9.9-7 9.9 7 9.9 7-3.6 7-9.9 7-9.9-7-9.9-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                </span>
+                <span class="auth-password-icon auth-password-icon-hide" aria-hidden="true" hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 3 18 18"></path><path d="M10.6 5.2A10.9 10.9 0 0 1 12 5c6.3 0 9.9 7 9.9 7a16.3 16.3 0 0 1-3 4.1"></path><path d="M6.1 6.1C3.6 7.8 2.1 12 2.1 12s3.6 7 9.9 7c1.1 0 2.1-.2 3-.5"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg>
+                </span>
+              </button>
+            </div>
             <p class="auth-register-hint">
               <i data-lucide="info"></i>
               <span data-i18n="auth.autoRegisterHint">Password sign-in is for existing accounts only. New accounts must use email or Google.</span>
@@ -1235,7 +1245,7 @@
             <button class="ghost-button" id="forgotPasswordBtn" type="button" data-i18n="auth.forgotPassword">Forgot password?</button>
           </div>
           <p class="job-note" id="telegramLoginStatus" hidden></p>
-          <p class="job-note" id="googleLoginStatus" hidden></p>
+          <p class="job-note" id="googleLoginStatus" role="status" aria-live="polite" hidden></p>
           <p class="job-note" id="loginMessage"></p>
         </div>
       </form>
@@ -1724,6 +1734,6 @@
     <script>
       window.VIPEAK_PROMPT_EDITOR_MODE = "rich";
     </script>
-    <script src="./platform.js?v=story-ai-storyboard-20261116-1"></script>
+    <script src="./platform.js?v=login-modal-password-20261117-1"></script>
   </body>
 </html>
