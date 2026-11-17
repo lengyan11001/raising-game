@@ -443,6 +443,8 @@ test("story video jobs bind approved asset IDs and sync completed backend record
   assert.match(story, /firstFrameAssetId: limited\[0\]\.assetId/);
   assert.doesNotMatch(story, /storyGenerationReferenceImageUrl|upstreamUrlForProtectedGenerationMedia|UPSTREAM_REFERENCE_NOT_PUBLIC/);
   assert.match(story, /duration,[\s\S]*\.\.\.mediaParams,[\s\S]*params: \{/);
+  assert.match(story, /const canGenerateVideo = promptReady && assetsApproved && !storyState\.action/);
+  assert.doesNotMatch(story, /async function generateStoryShotVideo[\s\S]{0,900}if \(!storyShotAssetsConfirmed\(shot\)\)/);
   assert.match(story, /storyApprovedAssetReferences\(episode, shot\)/);
   assert.match(story, /if \(!Object\.keys\(mediaParams\)\.length\)[\s\S]*已阻止无素材生成/);
   assert.doesNotMatch(story, /await pollStoryVideoGenerationRecord\(taskId\)[\s\S]*loadStoryDetail\(projectId\)[\s\S]*视频已生成/);

@@ -675,7 +675,7 @@
     const selectedVideoModel = videoModels.find((model) => model.id === storyState.videoModel) || videoModels[0] || { id: storyState.videoModel, label: storyState.videoModel };
     const optimizerModel = storyState.optimizerModel || optimizerModels[0]?.id || "";
     const promptReady = storyShotPromptMatchesModel(shot, selectedVideoModel.id, storyState.promptResolution);
-    const canGenerateVideo = confirmed && promptReady && assetsApproved && !storyState.action;
+    const canGenerateVideo = promptReady && assetsApproved && !storyState.action;
     const generationRefs = (Array.isArray(storyState.detail?.generationRefs) ? storyState.detail.generationRefs : [])
       .filter((ref) => ref.shotId === shot.id && ref.kind === "video")
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
@@ -766,12 +766,12 @@
             </div>
             <div class="story-shot-prompt-block ${promptReady ? "is-ready" : shot.videoPrompt ? "is-stale" : ""}">
               <div><strong>最终视频提示词</strong><small>${promptReady ? `已按 ${storyEscape(selectedVideoModel.label)} · ${storyEscape(storyState.promptResolution)} 优化` : shot.videoPrompt ? "模型或分辨率已变化，需要刷新" : "等待资产定稿后由 AI 生成"}</small></div>
-              ${shot.videoPrompt ? `<pre>${storyEscape(shot.videoPrompt)}</pre>` : `<p>先确认资产清单并完成图片定稿，再按所选模型优化此镜提示词。</p>`}
+              ${shot.videoPrompt ? `<pre>${storyEscape(shot.videoPrompt)}</pre>` : `<p>完成图片定稿后，再按所选模型优化此镜提示词。</p>`}
               <button type="button" data-story-plan-shot-prompt="${storyEscape(shot.id)}" ${assetsApproved && selectedVideoModel.promptOptimizer && optimizerModel && !storyState.action ? "" : "disabled"}><i data-lucide="wand-sparkles"></i><span>${shot.videoPrompt ? "按当前模型刷新此镜提示词" : "AI 生成本镜视频提示词"}</span></button>
             </div>
             <div class="story-shot-generation-gate ${canGenerateVideo ? "is-ready" : ""}">
               <strong>${canGenerateVideo ? "可以生成视频" : "生成门禁未通过"}</strong>
-              <span>${!confirmed ? "先确认此镜资产清单。" : !assetsApproved ? `还需定稿 ${assets.length - approvedAssets.length} 个资产图。` : !promptReady ? "请按当前视频模型和分辨率优化提示词。" : "资产、提示词和模型均已就绪。"}</span>
+              <span>${!assetsApproved ? `还需定稿 ${assets.length - approvedAssets.length} 个资产图。` : !promptReady ? "请按当前视频模型和分辨率优化提示词。" : "资产、提示词和模型均已就绪。"}</span>
             </div>
             <button class="story-create-button story-shot-generate-video" type="button" data-story-generate-shot-video="${storyEscape(shot.id)}" ${canGenerateVideo ? "" : "disabled"}><i data-lucide="${storyState.action === "generate-video" ? "loader-circle" : "clapperboard"}"></i><span>${storyState.action === "generate-video" ? "视频生成中…" : "生成视频"}</span></button>
             <p class="story-message">${storyEscape(storyState.actionMessage || "")}</p>
@@ -2081,11 +2081,6 @@
     const assets = storyShotAssets(episode, shot);
     const models = Array.isArray(storyState.productionModels?.video) ? storyState.productionModels.video : [];
     const model = models.find((item) => item.id === storyState.videoModel) || models[0] || { id: storyState.videoModel, label: storyState.videoModel };
-    if (!storyShotAssetsConfirmed(shot)) {
-      storyState.actionMessage = "请先确认此镜的资产清单。";
-      renderStoryDetail();
-      return;
-    }
     if (!assets.length || !assets.every((asset) => storyAssetHasApprovedImage(asset))) {
       storyState.actionMessage = "请先在当前分镜定稿全部资产图。";
       renderStoryDetail();
