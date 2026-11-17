@@ -347,6 +347,7 @@ test("shot assets generate, regenerate, approve, and reuse materials in place", 
   assert.match(workspace, /data-story-media-image/);
   assert.match(workspace, /data-story-generate-asset=/);
   assert.match(workspace, /generated \? "重新生成" : "生成图片"/);
+  assert.match(workspace, /data-story-generate-asset-shot="[\s\S]*?\$\{storyState\.action \? "disabled" : ""\}/);
   assert.match(workspace, /data-story-approve-variant=/);
   assert.match(workspace, /data-story-reuse-variant=/);
   assert.match(workspace, /data-story-use-variant=/);

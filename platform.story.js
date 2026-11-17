@@ -691,7 +691,7 @@
           </div>
           <label class="story-shot-asset-prompt"><span>AI 建议图片提示词</span><p>${storyEscape(prompt)}</p></label>
           <div class="story-shot-workspace-asset-actions">
-            <button type="button" data-story-generate-asset="${storyEscape(asset.id)}" data-story-generate-asset-shot="${storyEscape(shot.id)}" ${confirmed && !storyState.action ? "" : "disabled"}>${storyState.generatingAssetId === asset.id ? "生成中…" : generated ? "重新生成" : "生成图片"}</button>
+            <button type="button" data-story-generate-asset="${storyEscape(asset.id)}" data-story-generate-asset-shot="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}>${storyState.generatingAssetId === asset.id ? "生成中…" : generated ? "重新生成" : "生成图片"}</button>
             ${displayVariant && displayVariant.status !== "approved" ? `<button class="is-approve" type="button" data-story-approve-variant="${storyEscape(displayVariant.id)}" data-story-asset-id="${storyEscape(asset.id)}" ${storyState.action ? "disabled" : ""}>${storyState.action === "approve-asset" ? "正在定稿…" : "设为定稿"}</button>` : ""}
           </div>
           ${reusableVariants.length ? `<div class="story-shot-asset-reuse"><select data-story-reuse-variant="${storyEscape(asset.id)}"><option value="">选择已有定稿素材</option>${reusableVariants.map((variant) => {
