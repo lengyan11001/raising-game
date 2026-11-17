@@ -13,6 +13,8 @@
 - Made script identity, text statistics, and episode-range helpers null-safe so an empty project renders its normal “未选择剧本” state instead of throwing.
 - Added a focused P1 regression test that executes those helpers plus the analysis toolbar with `null`, asserting zero stats and a disabled analyze action.
 - Verification: `test/story-canvas-p1.test.js` 21/21, `test/story-canvas-p0.test.js` 4/4, `npm run check:undef`, syntax checks, and `git diff --check` pass.
+- Source commit `6f1d0694` was built as platform release `0f0620c9703141875a8337260f4e027dd3e39f11`, fast-forwarded to `platform-release` on top of the concurrent `eb9fbe86` release, and deployed Old-only through `scripts/deploy_local.sh --site old`.
+- Rolling deployment switched traffic `4174 -> 4175`; 1% and 5% canaries passed. Production verification opened the existing zero-script project `baijie`: the manuscript empty state and disabled AI breakdown controls rendered normally, with no browser console errors.
 - The unrelated dirty `server.parts/part-45.js` remains untouched and must stay out of the commit/release.
 
 ## 2026-11-17 Step DX: deletion closure for every story creation level
