@@ -860,7 +860,7 @@
             </div>
             <form class="story-create-form" id="storyProjectForm">
               <label class="story-field"><span>项目名</span><input id="storyProjectName" maxlength="120" placeholder="例如：夜班便利店" required /></label>
-              <label class="story-field"><span>预计集数</span><input id="storyProjectEpisodes" type="number" min="1" max="50" placeholder="可留空" /></label>
+              <label class="story-field"><span>预计集数（可选）</span><input id="storyProjectEpisodes" type="number" min="0" max="50" placeholder="留空由 AI 判断" /></label>
               <label class="story-field"><span>画幅</span><select id="storyProjectAspect"><option value="9:16">9:16 竖屏</option><option value="16:9">16:9 横屏</option><option value="1:1">1:1 方形</option><option value="4:5">4:5</option></select></label>
               <label class="story-field story-field-wide"><span>项目说明</span><textarea id="storyProjectDescription" maxlength="4000" rows="2" placeholder="题材、受众或交付要求，可留空"></textarea></label>
               <div class="story-create-actions">

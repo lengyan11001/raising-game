@@ -772,7 +772,7 @@ function storyProjectInput(body = {}) {
   const aspectRatio = ["9:16", "16:9", "1:1", "4:5"].includes(String(body.aspectRatio || "").trim())
     ? String(body.aspectRatio).trim()
     : "9:16";
-  const episodeTarget = Math.max(1, Math.min(1000, Math.round(Number(body.episodeTarget || 1) || 1)));
+  const episodeTarget = Math.max(0, Math.min(1000, Math.round(Number(body.episodeTarget || 0) || 0)));
   return {
     name: storyInputText(body.name, 120) || "未命名剧集项目",
     description: storyInputText(body.description, 4000),
@@ -869,9 +869,10 @@ const STORY_ANALYZER_SYSTEM_PROMPT = `你是专业中文影视编剧与制片拆
     {
       "episodeNo": 1,
       "title": "本集标题",
-      "synopsis": "本集可制作剧情大纲，240-500个中文字符，包含具体事件、人物动机、场景推进、冲突转折与结果",
+      "synopsis": "本集可制作剧情大纲，建议300-900个中文字符；内容复杂的较长剧集可以更详细，必须包含具体事件、人物动机、场景推进、冲突转折与结果",
       "hook": "30-100个中文字符的结尾钩子",
-      "durationSeconds": 90,
+      "durationSeconds": 0,
+      "durationBasis": "本集时长依据：列出情节点数量、场景数、关键对白量和心理/动作转折，说明为什么需要这个秒数",
       "characters": ["出场角色名"],
       "scenes": ["场景名"]
     }
@@ -887,10 +888,13 @@ const STORY_ANALYZER_SYSTEM_PROMPT = `你是专业中文影视编剧与制片拆
 1. 先通读全文并按原文顺序覆盖剧情。通常一章或一个完整情节单元拆为一集；不要为了压缩集数把多章硬塞进一集，也不要把一集扩写成多集。
 2. 如果用户给了目标集数，就按要求拆分；没给目标集数时，由你根据剧情容量判断，totalEpisodeSuggestion 给出建议总集数。
 3. 第一版最多输出 30 集；如果建议总集数超过 30，先完整拆解前 30 集，并在 summary 末尾注明“本次拆解前30集”。
-4. 每集 synopsis 必须为 240-500 个中文字符。必须写清具体事件、人物动机、场景推进、关键冲突、转折与结果；按“开场 → 发展 → 转折 → 结尾”连续叙述。禁止用“矛盾升级”“经历波折”“最终化解”等空泛套话，禁止只写一句话摘要。
+4. 每集 synopsis 建议 300-900 个中文字符，并按本集实际剧情复杂度伸缩；不得为了凑长度注水，也不得把长集压成一句话。必须写清具体事件、人物动机、场景推进、关键冲突、转折与结果；按“开场 → 发展 → 转折 → 结尾”连续叙述。禁止用“矛盾升级”“经历波折”“最终化解”等空泛套话。
 5. hook 必须承接本集结尾并指向下一集，30-100 个中文字符；不要把 hook 重复写进 synopsis 末尾。
-6. characters 和 scenes 去重，只保留对制作有用的稳定资产；角色外形要具体、可复用，不要写镜头动作。
-7. 保持原文人物关系、时代、类型和核心冲突，不擅自改结局，不添加原文没有依据的主要事件。`;
+6. durationSeconds 必须由你按本集实际制作内容计算，不得使用固定模板，不得默认输出 90 秒。先列出本集需要保留的情节点、场景转换、关键对白和心理/动作转折，再判断完整讲清这些内容需要多少秒；如果短时长放不下，就延长本集或把内容拆成更多集，禁止为了压缩集数而删掉因果链。
+7. durationBasis 必须写明本集时长的计算依据，包含大概情节点数、场景数、关键对白量和主要转折点，不能写“节奏需要”之类空话。
+8. characters 和 scenes 去重，只保留对制作有用的稳定资产；角色外形要具体、可复用，不要写镜头动作。
+9. 保持原文人物关系、时代、类型和核心冲突，不擅自改结局，不添加原文没有依据的主要事件。
+10. 用户指定目标集数或目标时长时，它们是硬约束：目标集数必须等于返回的 episodes 数量；目标时长对应 episodes 的 durationSeconds 总和，允许上下浮动 10%。两项同时指定时必须同时满足；若原文容量确实冲突，优先保证剧情因果完整，并在 summary 中明确说明。未指定时，不得套用固定集数或固定秒数，要按原文完整剧情规划。`;
 
 function storyParseJsonObject(text = "") {
   const source = String(text || "").trim();
@@ -928,13 +932,14 @@ function storyAnalysisFromModel(payload = {}) {
     const characters = storyTextList(episode?.characters || episode?.roles, 24, 80);
     const scenes = storyTextList(episode?.scenes || episode?.locations, 24, 100);
     const hook = storyInputText(episode?.hook || episode?.cliffhanger || "", 500);
+    const durationBasis = storyInputText(episode?.durationBasis || episode?.duration_basis || "", 1200);
     return {
       episodeNo,
       title: storyInputText(episode?.title || `第 ${episodeNo} 集`, 160),
       synopsis: storyInputText(episode?.synopsis || episode?.summary || episode?.outline || "", 8000),
       status: "draft",
       durationSeconds: Math.max(0, Math.min(86400, Math.round(Number(episode?.durationSeconds || episode?.duration_seconds || 0) || 0))),
-      metadata: { hook, characters, scenes },
+      metadata: { hook, characters, scenes, durationBasis },
     };
   }).filter((episode) => episode.title || episode.synopsis).slice(0, 30);
   const characters = (Array.isArray(root.characters) ? root.characters : []).map((character) => {
@@ -966,177 +971,7 @@ function storyAnalysisFromModel(payload = {}) {
   };
 }
 
-function storyAnalyzerModel() {
-  for (const id of ["qwen3.7-flash", "carrothub-papaya-1.0", "byteplus-language"]) {
-    const model = promptOptimizerSelectedModel(id);
-    if (model?.configured?.()) return model;
-  }
-  return null;
-}
-
-async function repairStoryAnalysisHooks({ analysis, model, deadline, usage }) {
-  const missing = analysis.episodes.filter((episode) => !String(episode.metadata?.hook || "").trim());
-  if (!missing.length) return analysis;
-  const prompt = [
-    "下面这些剧集缺少结尾钩子。请依据本集大纲和下一集开头，补齐能直接用于制作审稿的钩子。",
-    "只输出合法 JSON：{\"hooks\":[{\"episodeNo\":1,\"hook\":\"30-100个中文字符\"}]}",
-    "钩子必须承接本集最后一个具体画面或人物决定，并制造下一集必须继续观看的悬念；不得复述整段大纲。",
-    JSON.stringify(analysis.episodes.map((episode, index) => ({
-      episodeNo: episode.episodeNo,
-      title: episode.title,
-      synopsis: episode.synopsis,
-      nextEpisodeTitle: analysis.episodes[index + 1]?.title || "",
-      nextEpisodeOpening: analysis.episodes[index + 1]?.synopsis || "",
-    }))),
-  ].join("\n");
-  try {
-    const raw = await promptOptimizerUpstreamRequest({
-      model: model.upstreamModel,
-      messages: [
-        { role: "system", content: "你是中文短剧总编剧，擅长写具体、有画面感、能驱动下一集的结尾钩子。" },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.35,
-      max_tokens: 2400,
-    }, {
-      deadline,
-      requestContext: { storyAnalyzer: true, storyHookRepair: true, model: model.id },
-      usage,
-      optimizerModel: model,
-    });
-    const parsed = storyParseJsonObject(qwen37FlashResponseText(raw));
-    const hooks = new Map((Array.isArray(parsed?.hooks) ? parsed.hooks : []).map((item) => [
-      Math.max(1, Math.round(Number(item?.episodeNo || 0) || 0)),
-      storyInputText(item?.hook, 500),
-    ]));
-    for (const episode of analysis.episodes) {
-      const hook = hooks.get(episode.episodeNo);
-      if (hook) episode.metadata = { ...(episode.metadata || {}), hook };
-    }
-  } catch {}
-  return analysis;
-}
-
-const STORY_SHOT_PLANNER_SYSTEM_PROMPT = `你是专业中文影视分镜师。请把已经定稿的单集大纲拆成可连续制作、可逐镜审核的镜头清单。
-只输出一个合法 JSON 对象，不要 Markdown，不要代码围栏，不要解释。返回结构：
-{
-  "hook": "如果输入钩子为空，补写30-100个中文字符的结尾钩子；否则原样返回",
-  "shots": [
-    {
-      "shotNo": 1,
-      "title": "12字以内镜头标题",
-      "description": "80-220个中文字符的可执行分镜描述",
-      "durationSeconds": 5,
-      "shotSize": "远景/全景/中景/近景/特写",
-      "camera": "固定/推/拉/摇/移/跟/手持等",
-      "location": "具体场景",
-      "characters": ["出场角色"],
-      "dialogue": "对白、旁白或留空",
-      "storyBeat": "本镜承担的剧情推进"
-    }
-  ]
-}
-规则：
-1. 严格按大纲时间顺序覆盖开场、发展、转折、结尾，不新增原文没有依据的主要事件，不改变人物关系和结果。
-2. 镜头数量按本集时长和剧情密度决定，通常每5-10秒一个镜头；90秒建议8-14个镜头，所有 shotNo 连续且唯一。
-3. 每个镜头只表现一个清晰的视觉动作或信息变化。description 必须写清景别、人物动作、环境、关键道具、情绪和与前后镜头的连续性。
-4. 充分使用输入的出场角色、场景和结尾钩子；必须有一个明确镜头落地钩子，不能只写在镜头外。
-5. dialogue 只保留能推动剧情或揭示人物关系的关键对白，禁止长篇复述。
-6. durationSeconds 为1-30的整数，所有镜头时长之和应接近本集目标时长，允许上下浮动10%。
-7. hook 必须具体、有画面感，承接本集最后动作并指向下一集。`;
-
-function storyAssetBelongsToEpisode(asset = {}, episode = {}) {
-  const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata : {};
-  const episodeId = String(episode.id || "");
-  if (Array.isArray(metadata.episodeIds)) return metadata.episodeIds.map(String).includes(episodeId);
-  const name = String(asset.name || "").trim();
-  if (!name) return false;
-  const episodeMetadata = episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {};
-  return [...storyTextList(episodeMetadata.characters, 40, 100), ...storyTextList(episodeMetadata.scenes, 40, 120)]
-    .some((item) => item.includes(name) || name.includes(item));
-}
-
-function storyShotUsesAsset(asset = {}, shot = {}) {
-  const shotNos = storyTextList(asset.metadata?.shotNos || [], 80, 24)
-    .map((item) => Number(item))
-    .filter((item) => Number.isFinite(item));
-  if (shotNos.length) return shotNos.includes(Number(shot.shotNo || 0));
-  const name = String(asset.name || "").trim();
-  if (!name) return false;
-  const metadata = shot.metadata && typeof shot.metadata === "object" ? shot.metadata : {};
-  const kind = String(asset.kind || "");
-  if (kind === "style") return true;
-  if (kind === "character") {
-    const characters = storyTextList(metadata.characters, 40, 100);
-    if (characters.some((item) => item.includes(name) || name.includes(item))) return true;
-  }
-  if (kind === "scene") {
-    const location = String(metadata.location || "").trim();
-    if (location && (location.includes(name) || name.includes(location))) return true;
-  }
-  const haystack = [shot.title, shot.description, metadata.location, metadata.dialogue, metadata.storyBeat]
-    .filter(Boolean)
-    .join("\n");
-  return Boolean(name && haystack.includes(name));
-}
-
-function storyApprovedVariantForAsset(asset = {}, variants = []) {
-  const approvedId = String(asset.metadata?.approvedVariantId || "");
-  const assetVariants = variants.filter((variant) => variant.assetId === asset.id);
-  return variants.find((variant) => variant.id === approvedId && variant.status === "approved")
-    || assetVariants.find((variant) => variant.status === "approved")
-    || null;
-}
-
-function storyApprovedVariantHasImage(variant = {}) {
-  if (!variant || variant.status !== "approved") return false;
-  const metadata = variant.metadata && typeof variant.metadata === "object" ? variant.metadata : {};
-  return Boolean(
-    String(variant.mediaUrl || "").trim()
-      || String(metadata.mediaUrl || "").trim()
-      || String(metadata.imageUrl || "").trim()
-      || String(metadata.generationRecordId || "").trim()
-  );
-}
-
-function storyAssetDesignReady(asset = {}, variants = []) {
-  return storyApprovedVariantHasImage(storyApprovedVariantForAsset(asset, variants));
-}
-
-function storyShotProductionPrompt({ project = {}, episode = {}, shot = {}, assets = [], variants = [] } = {}) {
-  const metadata = shot.metadata && typeof shot.metadata === "object" ? shot.metadata : {};
-  const relevantAssets = assets.filter((asset) => storyShotUsesAsset(asset, shot));
-  const assetLines = relevantAssets.map((asset) => {
-    const variant = storyApprovedVariantForAsset(asset, variants);
-    const visual = variant?.description || asset.description || "";
-    const imagePrompt = variant?.metadata?.imagePrompt || asset.metadata?.imagePrompt || "";
-    const continuity = asset.metadata?.continuity || "";
-    return [
-      `- ${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : asset.kind === "prop" ? "道具" : "资产"}：${asset.name}`,
-      `  视觉定稿：${visual}`,
-      continuity ? `  连续性：${continuity}` : "",
-      imagePrompt ? `  设计图依据：${imagePrompt}` : "",
-      String(variant?.metadata?.generationRecordId || "").trim() ? `  已定稿参考图记录：${String(variant.metadata.generationRecordId).trim()}` : "",
-    ].filter(Boolean).join("\n");
-  }).join("\n");
-  return [
-    `项目：${project.name || "未命名项目"}；画幅：${project.aspectRatio || "9:16"}`,
-    `本集：E${String(episode.episodeNo || 1).padStart(2, "0")} ${episode.title || ""}；时长：${Number(shot.durationSeconds || 5)} 秒`,
-    `镜头：S${String(shot.shotNo || 1).padStart(2, "0")} ${shot.title || ""}`,
-    `画面内容：${shot.description || "无"}`,
-    metadata.shotSize ? `景别：${metadata.shotSize}` : "",
-    metadata.camera ? `运镜：${metadata.camera}` : "",
-    metadata.location ? `地点：${metadata.location}` : "",
-    Array.isArray(metadata.characters) && metadata.characters.length ? `出场角色：${metadata.characters.join("、")}` : "",
-    metadata.dialogue ? `关键对白：${metadata.dialogue}` : "",
-    metadata.storyBeat ? `叙事作用：${metadata.storyBeat}` : "",
-    "已定稿资产（身份、服装、场景结构和关键道具必须严格延续）：",
-    assetLines || "- 本镜头未绑定资产，按镜头描述和前后镜连续性执行",
-    "请只生成这一镜可直接交给视频模型执行的提示词；不要拆成多镜，不要改写剧情，不要加入未定稿角色或道具。",
-  ].filter(Boolean).join("\n");
-}
-
-async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 0, targetEpisode = null, targetShot = null } = {}) {
+async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 0, targetDurationSeconds = null, targetEpisode = null, targetShot = null } = {}) {
   const model = storyAnalyzerModel();
   if (!model) {
     throw Object.assign(new Error("剧本拆解模型尚未配置。"), {
@@ -1148,14 +983,20 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
   if (!content) {
     throw Object.assign(new Error("请先保存剧本或小说文本。"), { statusCode: 400, code: "STORY_SCRIPT_EMPTY" });
   }
-  const target = Math.max(0, Math.min(50, Math.round(Number(targetEpisodes || 0) || 0)));
+  const target = targetEpisode ? 0 : Math.max(0, Math.min(30, Math.round(Number(targetEpisodes || 0) || 0)));
   const targetEpisodeLabel = targetEpisode
     ? `E${String(targetEpisode.episodeNo || 0).padStart(2, "0")} · ${String(targetEpisode.title || "未命名剧集")}`
     : "";
   const targetShotLabel = targetShot
     ? `S${String(targetShot.shotNo || 0).padStart(2, "0")} · ${String(targetShot.title || "未命名镜头")}`
     : "";
-  const estimatedDurationSeconds = Math.max(0, Number(script.estimatedDurationSeconds || 0) || 0);
+  const submittedDurationSeconds = targetDurationSeconds === null || targetDurationSeconds === undefined
+    ? script.estimatedDurationSeconds
+    : targetDurationSeconds;
+  const targetDuration = Math.max(0, Math.min(86400, Math.round(Number(submittedDurationSeconds || 0) || 0)));
+  const targetDurationMinutes = Math.round((targetDuration / 60) * 10) / 10;
+  const durationScope = targetEpisodeLabel ? "指定分集的目标时长" : "本次拆解的目标总时长";
+  const contentStats = storyAnalysisContentStats(content);
   const userPrompt = [
     `项目名：${String(project.name || "未命名项目")}`,
     `项目说明：${String(project.description || "无")}`,
@@ -1163,7 +1004,10 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
     target ? `目标集数：${target}` : "目标集数：由你根据内容判断",
     targetEpisodeLabel ? `目标分集：${targetEpisodeLabel}。优先把本次文稿整理为这一集可直接制作的剧情大纲，不要无意义扩散到其他集。` : "目标分集：未指定，由你按内容规划",
     targetShotLabel ? `目标分镜：${targetShotLabel}。拆解时保留该镜头在原分集中的位置和前后连续性。` : "目标分镜：未指定，由你按分集节奏规划",
-    estimatedDurationSeconds ? `预计时长：约 ${estimatedDurationSeconds} 秒，请按这个时长控制内容密度。` : "预计时长：未指定，请根据剧情节奏规划",
+    targetDuration
+      ? `${durationScope}：约 ${targetDuration} 秒（${targetDurationMinutes} 分钟）。这是硬目标：本次返回剧集的 durationSeconds 总和必须在该目标上下 10% 以内；不得为了迎合时长删掉关键因果。若同时指定目标集数，必须同时满足；如果原文确实无法同时满足，优先保留完整因果，并在 summary 中明确说明冲突和取舍。`
+      : "目标时长：未指定。必须由你根据原文容量和本集实际制作内容计算，禁止默认套用 90 秒；应以能完整承载原文剧情为标准。",
+    `原文统计信号：汉字约 ${contentStats.hanCharacters} 个，自然段约 ${contentStats.paragraphs} 个，引号对白约 ${contentStats.quotedLines} 段（约 ${contentStats.dialogueCharacters} 个汉字）。这些只是判断依据，不是强制集数或时长公式。`,
     `文稿标题：${String(script.title || "未命名文稿")}`,
     "文稿开始",
     content,
@@ -1182,7 +1026,7 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
     max_tokens: 7000,
   }, {
     deadline,
-    requestContext: { storyAnalyzer: true, projectId: project.id, scriptVersionId: script.id, targetEpisodes: target, targetEpisodeId: script.targetEpisodeId || "", targetShotId: script.targetShotId || "", estimatedDurationSeconds },
+    requestContext: { storyAnalyzer: true, projectId: project.id, scriptVersionId: script.id, targetEpisodes: target, targetDurationSeconds: targetDuration, targetEpisodeId: script.targetEpisodeId || "", targetShotId: script.targetShotId || "" },
     usage,
     optimizerModel: model,
   });
@@ -1302,7 +1146,7 @@ async function handleAnalyzeStoryProject(req, res, projectId = "") {
     : [];
   const targetShot = (targetShots || []).find((shot) => shot.id === script.targetShotId) || null;
   try {
-    const result = await analyzeStoryScript({ project, script, targetEpisodes: body.targetEpisodes, targetEpisode, targetShot });
+    const result = await analyzeStoryScript({ project, script, targetEpisodes: body.targetEpisodes, targetDurationSeconds: body.targetDurationSeconds, targetEpisode, targetShot });
     return sendJson(res, 200, { ok: true, scriptVersionId: script.id, ...result });
   } catch (error) {
     console.warn("[story-analyze-failed]", JSON.stringify({
@@ -1432,12 +1276,17 @@ async function handlePlanStoryEpisodeShots(req, res, projectId = "", episodeId =
     const result = await planStoryEpisodeShots({ project, episode });
     const metadata = { ...(episode.metadata || {}) };
     if (result.hook) metadata.hook = result.hook;
+    const episodePatch = { status: "shots_planned", metadata };
+    if (Number(episode.durationSeconds || 0) <= 0 && Number(result.recommendedDurationSeconds || 0) > 0) {
+      episodePatch.durationSeconds = result.recommendedDurationSeconds;
+      metadata.durationBasis = `按 AI 分镜节点计算：共 ${result.shots.length} 个镜头，总时长 ${result.recommendedDurationSeconds} 秒。`;
+    }
     const saved = await replaceStoryShotsInDb({
       projectId,
       episodeId,
       ownerUserId: auth.user.id,
       shots: result.shots,
-      episodePatch: { status: "shots_planned", metadata },
+      episodePatch,
     });
     if (!saved) {
       return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "分镜保存失败。" });

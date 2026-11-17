@@ -1,3 +1,57 @@
+## 2026-11-17 Step DJ: Optional story planning goals UI and hard constraints
+
+- Reworked the story script workspace so the title is a separate full-width field, edit scope is compact, and AI production goals no longer look like scattered numeric inputs. The dedicated planning card makes it explicit that both target episode count and target duration are optional and can be left to AI.
+- Goal semantics are now: both blank means AI plans a complete short drama from the source; only episode count set means AI plans duration; only duration set means AI plans episode count; when either goal is set it is a hard prompt constraint. Duration is entered in minutes but sent/stored in seconds, and single-episode edits treat duration as the target for that episode.
+- The analyzer prompt requires set goals to be honored within about 10%, requires complete causal storytelling when an exact target is tight, and forbids falling back to a default 90-second episode. Analysis preview shows total duration plus each episode's duration and `durationBasis`.
+- Preserved story input state across rerenders so switching the scope/target fields does not clear user choices. Focused tests cover optional goals, dirty-state preservation, minute-to-second conversion, and prompt constraints.
+- Verification: changed-file syntax checks, `test/story-canvas-p1.test.js` 18/18, `npm run check:undef`, and `git diff --cached --check` all pass.
+
+## 2026-11-17 Step DI: AI owns episode count and duration
+
+- Removed the remaining 90-second and one-episode defaults from the story pipeline. New projects/analyzer inputs can leave episode and duration planning to AI; zero means undecided rather than a forced value.
+- The analyzer now requires AI to compute `durationSeconds` from plot nodes, scenes, dialogue, and transitions, and to return `durationBasis`. The shot planner returns `recommendedDurationSeconds`; `replaceStoryShotsInDb()` now persists that duration to the episode instead of dropping it.
+- Project episode targets now use `0 = AI undecided` end to end. The UI labels this as AI-planned, sends an explicit override only when the user enters one, and stores AI's `totalEpisodeSuggestion` after import.
+- Moved story analysis/shot planner helpers from `server.parts/part-03.js` into `server.parts/part-49.js` to keep runtime source parts under the 2,500-line bound. No unrelated `server.parts/part-45.js` WIP was modified.
+- Verification: `node --test test/story-canvas-p1.test.js` 18/18; syntax checks for the changed server/DB/frontend files; `npm run check:undef`; and `git diff --check` pass. Full `npm test` is `1386 pass / 10 fail / 2 skipped`; the failures are the known generation-picker test, the existing serializer-order baseline, and eight failures caused by unrelated uncommitted `part-45.js` WIP (`w3EscapeJsonControlCharacters` / `seedancePromptOptimizerStoryGroundingText` missing). Source-split now passes.
+
+## 2026-11-17 Step DH: Server-side short-drama quality audit
+
+- User asked to inspect PostgreSQL directly rather than review the browser. Read-only Old production query found project `story-1794824527580-ea36f6e2` (`白洁`), one 90-second episode, 10 shots, 22 assets, 49 variants, 36 approved video-prompt versions, and 4 story video generation refs.
+- Source script is 8,111 characters / 6,723 Han characters across 107 paragraphs and 69 quoted dialogue segments. Current adaptation has only two explicit dialogue lines (S02 and S07), and all 10 shots are 9 seconds.
+- All 34 asset bindings on the 10 shots resolve to approved assets. Six additional planned assets are unused. S06 declares `高义家玄关` but has no scene asset; S03 places dressing in `高档小区玄关` rather than at 白洁's home.
+- Video generations: S01 has three attempts (one 401 `CreateAsset` failure, two successes); S02 has one success. S03-S10 have no video generation. The two successful CDN media URLs currently return HTTP 403 from both local and the Old server, although the signed upstream TOS media remains available.
+- Downloaded/probed the two successful upstream videos via the server: both are 9.056s, 720x1280, 24fps H264/AAC. Contact sheets confirm each is a simple single action: S01 is a corridor walk/door approach; S02 is an office conversation/card handoff.
+- Quality conclusion: the current chain is a coherent plot skeleton, not a qualified short-drama episode. It compresses 6,723 Han characters into 90 seconds, omits the causal aftermath of the assault, overloads S07, leaves the episode hook disconnected from S10, and has no DB/code path for timeline assembly, voice/subtitle mixing, or final export.
+- Recommendation recorded: either reposition 90 seconds as a teaser, or expand to roughly 3-4 minutes using 24-32 shots. Fix S03/S06/S10, reduce each shot to one primary action and one emotional turn, add critical dialogue, and implement a real timeline/assembly stage before calling the result a complete short drama.
+
+## 2026-11-17 Step DG: regeneration requires a revision brief
+
+- Asset-image and video-prompt regeneration now require the user to enter a revision brief before submitting; first-time generation remains unchanged and does not show the prompt.
+- Asset regeneration appends `本次重新生成的修改要求：...` to the generation prompt and records the brief in generation metadata. Video-prompt refresh passes the previous prompt plus the new brief to the optimizer and records the brief in prompt-version metadata for traceability.
+- The dialog enforces a non-empty brief and a 4000-character maximum. Existing single-item and batch refresh paths both use the same requirement.
+- Verification passed: `node --test test/story-canvas-p1.test.js` (17/17), syntax checks for `platform.story.js`, `server.parts/part-03.js`, and the focused test, `npm run check:undef`, and `git diff --check`.
+- Source commit `52914a15` `Require revision brief for story regeneration`; platform release `3e5a4b6f` was pushed to `platform-release` only. Old completed the rolling deployment at release `3e5a4b6f3896bd0a240c752479815a7fa46ebc13` (`OLD_ROLLING_DEPLOY_OK`, active port `4175`), and `https://123vips.com/api/health` returned `{"ok":true}`.
+- Production `platform.story.js` contains `REVISION BRIEF`, `revisionFeedback`, and the revision-brief dialog behavior. Live was not pushed or deployed. `server.parts/part-45.js` remains unrelated WIP and was excluded from this release.
+
+## 2026-11-17 Step DF: Story video uses the Generate media pipeline
+
+- Root cause of `CreateAsset failed: InvalidParameter.DownloadFailed` / TOS `401`: story-shot video media parameters were nested under `params` and the earlier implementation could build story-specific protected media URLs. Wan also requires upstream links, not local asset IDs.
+- Fix: story-shot generation now submits the same top-level `/api/advanced/generate` fields used by the Generate page. The client sends owned asset IDs only; the existing server resolver publishes Wan media through the configured public/R2 path and signs private OSS media once at the final upstream boundary. No protected `/api/admin/generation-records/.../media` URL is sent upstream and no story-specific URL signer exists.
+- Wan mappings now use `provider: wan30|wan27`, `videoCapability: wan30-video|wan30-video-prime|wan27-r2v`, and the matching media mode. Seedance and Vega continue through their existing asset-ID paths. Failed videos no longer render a stale media URL.
+- Verification passed: story test 17/17; Wan ingress/reference/signing 15/15; Aliyun/Wan27 20/20; syntax checks, `npm run check:undef`, and `git diff --check`.
+- Full-suite rerun still reports the same pre-existing failures (generation serializer order, Generate picker source assertion, source split threshold, and the optimizer harness dependencies); focused reruns reproduce them independently of this change.
+- Pushed source commit `4d2490df` to `old-site` and platform release `8122fab5` to `platform-release` only; Live was not pushed or deployed. `scripts/deploy_local.sh --site old` completed the rolling/canary cutover to release `8122fab5628f094b45c37ab216ca8868c60ed862`.
+- Post-deploy verification: `https://123vips.com/api/health` returned `{"ok":true}` and the public site returned `200`. `/api/readiness` is not a public route (`404`). `server.parts/part-45.js` remains unrelated WIP and is excluded from this fix.
+
+## 2026-11-17 Step BQ: story video previews refresh expiring media URLs
+
+- Root cause: shot `generationRef` records persisted an OSS signed video URL at generation time. That URL expired and returned `403`, even though the generation record and uploaded media were healthy.
+- Fixed server hydration to emit a fresh admin generation-media URL from `generationRecordId` whenever project detail or generation refs are returned; legacy `metadata.generationRecordId` remains supported. The stale stored `metadata.videoUrl` is no longer used for story previews.
+- Added frontend recovery for already-open pages: story videos carry `data-generation-record-id`, retry once by fetching `/api/generation-records/:id` after a media error, replace the source, and call `video.load()`. A failed refresh shows a clear state without regenerating the video.
+- Files changed: `platform.css`, `platform.story.js`, `server.parts/part-03.js`, `test/story-canvas-p1.test.js`. Syntax checks, undefined-symbol guard, `git diff --check`, and focused story/media/security tests pass `40/40`.
+- Source commit `bededdb5`; platform release `5f00020b74c1224a817c7e48fbbecf08ba5a416d` pushed to `platform-release` and deployed to Old only with `scripts/deploy_local.sh --site old`. Live was not pushed or deployed. Public health/readiness checks returned `200` with release `5f00020b`.
+- Production browser acceptance on project `白洁`, E01/S01, record `cgt-20261117134401-aa790c`: the page rendered the first frame, playback advanced to `0.627s` with `paused=false`, and the media endpoint returned HTTP `206`, `video/mp4`, `accept-ranges: bytes`, total `8582735` bytes. This confirms both preview and range playback work without the expired OSS signature.
+
 ## 2026-11-16 Step BN: AI-owned hooks and shot planning
 
 - Reworked the episode workflow so the user supplies and reviews the source script while AI owns the production draft. Empty hooks returned by the initial script analysis are repaired by a second AI pass; if a hook is still missing, the AI shot planner writes it while planning the locked episode.
@@ -4655,3 +4709,21 @@ CODEX_TASK_STATE.md
 - Story generation refs are persisted immediately after submission. A visibility-aware client sync checks pending refs against `/api/generation-records/:id`, writes `succeeded` plus `metadata.videoUrl` (or `failed` with the backend error), and re-renders the shot; the UI no longer blocks on a foreground polling loop.
 - Verification: `node --check platform.story.js`, `npm run check:undef`, `git diff --check`, `test/story-canvas-p0.test.js` + `test/story-canvas-p1.test.js` (21/21), and session/login, request-error, and Papaya fallback suites (8/8) pass.
 - The pre-existing uncommitted `server.parts/part-45.js` WIP remains explicitly excluded from staging, snapshot, deployment, and this change.
+
+## 2026-11-17 Step DD: TG Box formal-project kickoff status
+
+- Confirmed the prior local TG Box dev services were no longer listening. Their Python 3.11 portable runtime under `/tmp/tgbox-python` had been removed, leaving `api/.venv` symlinks broken; the runtime was restored at the same path from python-build-standalone 3.11.18 without reinstalling the API packages.
+- Restarted the local backend at `http://127.0.0.1:8010` and Vite frontend at `http://127.0.0.1:5180`. Backend health is 200 (`{"status":"ok"}`), frontend is 200, and login through the Vite `/api` proxy returns 200 as `admin` / owner of `默认工作区`.
+- This is only a local development environment. No production or remote TG Box server was started, accessed, or deployed.
+- Formalization gate: replace local SQLite with PostgreSQL via `DATABASE_URL` and validate PostgreSQL-compatible SQL/migrations before any production deployment. The repository's current `deploy/docker-compose.prod.yml` still provisions MySQL, so it must not be used unchanged under the workspace data-storage rule.
+- Current local `.env` still has empty `TG_API_ID` / `TG_API_HASH`; Telegram login, QR, and session import remain unavailable until real API credentials are configured.
+
+## 2026-11-17 Step DE: Story shot asset thumbnails
+
+- Changed assets inside the shot workspace to compact small thumbnails (`82x108` card slot, rendered about `80x108`) while keeping the prompt, regenerate, reuse, and approve actions beside them.
+- Added signed OSS image-transform URLs for safe server-side `thumbnail` and `preview` presets. `thumb=1` image media requests now redirect to a signed CDN WebP instead of proxying the original multi-megabyte image; frontend shot assets, variant lists, and asset-library previews use the thumbnail URL while full-size links remain available.
+- Stabilized admin generation media tokens to a 30-minute expiry bucket with a two-hour TTL, preventing repeated remounts from churning signed URLs.
+- Verification: `npm run check:undef`, syntax checks, `git diff --check`, and focused OSS/story/security tests pass `54/54`.
+- Source commit `134bb9c9e1c0130948c57158be6ca85d1c3acc2d`; platform release `ffe0f684d2b88e56e6eb67099ed0061ce5c21f34`; pushed only `old-site` and `platform-release`.
+- Old-only deployment completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=ffe0f684...`. Public `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; release markers report `ffe0f684...`.
+- Online shot acceptance on project `白洁`, episode E01, shot S01: both asset images render at `80x108`; image requests include `thumb=1`, return `302` to `assets-cdn.123vips.com` with an OSS resize/WebP transform, and one measured thumbnail completed as `image/webp` at `7,452` bytes (`361x480`). Existing WIP files `CODEX_TASK_STATE.md` and `server.parts/part-45.js` remain outside the committed release.

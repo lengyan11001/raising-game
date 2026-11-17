@@ -1622,12 +1622,13 @@ async function ensureSchemaInner({ client = null } = {}) {
       description TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'draft',
       aspect_ratio TEXT NOT NULL DEFAULT '9:16',
-      episode_target INTEGER NOT NULL DEFAULT 1,
+      episode_target INTEGER NOT NULL DEFAULT 0,
       settings JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await run(`ALTER TABLE app_story_projects ALTER COLUMN episode_target SET DEFAULT 0;`);
   await run(`CREATE INDEX IF NOT EXISTS app_story_projects_owner_updated_idx ON app_story_projects (owner_user_id, updated_at DESC, created_at DESC);`);
   await run(`
     CREATE TABLE IF NOT EXISTS app_story_script_versions (
@@ -6723,7 +6724,7 @@ function storyProjectFromRow(row = {}) {
     description: String(row.description || ""),
     status: String(row.status || "draft").trim(),
     aspectRatio: String(row.aspect_ratio || "9:16").trim(),
-    episodeTarget: Math.max(1, Number(row.episode_target || 1) || 1),
+    episodeTarget: Math.max(0, Number(row.episode_target || 0) || 0),
     settings: row.settings && typeof row.settings === "object" ? row.settings : {},
     episodeCount: Math.max(0, Number(row.episode_count || 0) || 0),
     scriptVersionCount: Math.max(0, Number(row.script_version_count || 0) || 0),
@@ -6892,7 +6893,7 @@ async function getStoryProjectFromDb({ id = "", ownerUserId = "" } = {}) {
   return rows[0] ? storyProjectFromRow(rows[0]) : null;
 }
 
-async function createStoryProjectInDb({ id = "", ownerUserId = "", name = "", description = "", status = "draft", aspectRatio = "9:16", episodeTarget = 1, settings = {} } = {}) {
+async function createStoryProjectInDb({ id = "", ownerUserId = "", name = "", description = "", status = "draft", aspectRatio = "9:16", episodeTarget = 0, settings = {} } = {}) {
   if (!dbEnabled()) return null;
   const projectId = String(id || "").trim();
   const ownerId = String(ownerUserId || "").trim();
@@ -6904,7 +6905,7 @@ async function createStoryProjectInDb({ id = "", ownerUserId = "", name = "", de
     await client.query(
       `INSERT INTO app_story_projects(id, owner_user_id, name, description, status, aspect_ratio, episode_target, settings)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
-      [projectId, ownerId, String(name || ""), String(description || ""), String(status || "draft"), String(aspectRatio || "9:16"), Math.max(1, Number(episodeTarget || 1) || 1), JSON.stringify(settings && typeof settings === "object" ? settings : {})],
+      [projectId, ownerId, String(name || ""), String(description || ""), String(status || "draft"), String(aspectRatio || "9:16"), Math.max(0, Number(episodeTarget || 0) || 0), JSON.stringify(settings && typeof settings === "object" ? settings : {})],
     );
     await client.query(
       `INSERT INTO app_story_canvas_links(id, project_id, scope_type, scope_id, canvas_id)
@@ -6922,7 +6923,7 @@ async function createStoryProjectInDb({ id = "", ownerUserId = "", name = "", de
   return getStoryProjectFromDb({ id: projectId, ownerUserId: ownerId });
 }
 
-async function updateStoryProjectInDb({ id = "", ownerUserId = "", name = "", description = "", status = "draft", aspectRatio = "9:16", episodeTarget = 1, settings = {} } = {}) {
+async function updateStoryProjectInDb({ id = "", ownerUserId = "", name = "", description = "", status = "draft", aspectRatio = "9:16", episodeTarget = 0, settings = {} } = {}) {
   if (!dbEnabled()) return null;
   const projectId = String(id || "").trim();
   const ownerId = String(ownerUserId || "").trim();
@@ -6938,7 +6939,7 @@ async function updateStoryProjectInDb({ id = "", ownerUserId = "", name = "", de
          settings = $8::jsonb,
          updated_at = NOW()
      WHERE id = $1 AND owner_user_id = $2`,
-    [projectId, ownerId, String(name || ""), String(description || ""), String(status || "draft"), String(aspectRatio || "9:16"), Math.max(1, Number(episodeTarget || 1) || 1), JSON.stringify(settings && typeof settings === "object" ? settings : {})],
+    [projectId, ownerId, String(name || ""), String(description || ""), String(status || "draft"), String(aspectRatio || "9:16"), Math.max(0, Number(episodeTarget || 0) || 0), JSON.stringify(settings && typeof settings === "object" ? settings : {})],
   );
   return rowCount ? getStoryProjectFromDb({ id: projectId, ownerUserId: ownerId }) : null;
 }
@@ -7147,12 +7148,16 @@ async function replaceStoryShotsInDb({ projectId = "", episodeId = "", ownerUser
     const currentMetadata = currentEpisode.metadata && typeof currentEpisode.metadata === "object" ? currentEpisode.metadata : {};
     const patchMetadata = episodePatch.metadata && typeof episodePatch.metadata === "object" ? episodePatch.metadata : {};
     const status = String(episodePatch.status || currentEpisode.status || "shots_planned");
+    const patchDuration = Number(episodePatch.durationSeconds);
+    const durationSeconds = Number.isFinite(patchDuration) && patchDuration >= 0
+      ? Math.min(86400, Math.round(patchDuration))
+      : null;
     const episodeRow = await client.query(
       `UPDATE app_story_episodes
-       SET status = $3, metadata = $4::jsonb, updated_at = NOW()
+       SET status = $3, metadata = $4::jsonb, duration_seconds = COALESCE($5::int, duration_seconds), updated_at = NOW()
        WHERE id = $1 AND project_id = $2
        RETURNING *`,
-      [targetEpisodeId, parentId, status, JSON.stringify({ ...currentMetadata, ...patchMetadata })],
+      [targetEpisodeId, parentId, status, JSON.stringify({ ...currentMetadata, ...patchMetadata }), durationSeconds],
     );
     await client.query(`DELETE FROM app_story_shots WHERE project_id = $1 AND episode_id = $2`, [parentId, targetEpisodeId]);
     const savedShots = [];
@@ -7874,13 +7879,14 @@ async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", episo
         importedAt: new Date().toISOString(),
       },
     };
+    const suggestedEpisodeTarget = Math.max(0, Number(totalEpisodeSuggestion || 0) || 0) || importedEpisodes.length;
     await client.query(
       `UPDATE app_story_projects
-       SET episode_target = GREATEST(1, $3),
+       SET episode_target = $3,
            settings = COALESCE(settings, '{}'::jsonb) || $4::jsonb,
            updated_at = NOW()
        WHERE id = $1 AND owner_user_id = $2`,
-      [parentId, ownerId, Math.max(1, importedEpisodes.length), JSON.stringify(settingsPatch)],
+      [parentId, ownerId, Math.max(0, Math.round(suggestedEpisodeTarget)), JSON.stringify(settingsPatch)],
     );
     await client.query("COMMIT");
   } catch (error) {
