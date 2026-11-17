@@ -1570,6 +1570,10 @@
     return storyGenerationVideoUrl(ref.metadata || {});
   }
 
+  function storyGenerationStatusSucceeded(status = "") {
+    return ["succeeded", "success", "completed", "complete"].includes(String(status || "").toLowerCase());
+  }
+
   async function pollStoryGenerationRecord(taskId = "") {
     for (let attempt = 0; attempt < 120; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, attempt ? 3000 : 1000));
@@ -1728,6 +1732,18 @@
                 videoUrl,
                 posterUrl: record.posterUrl || record.coverUrl || "",
                 generationStatus: record.status || "succeeded",
+                syncedAt: new Date().toISOString(),
+              },
+            });
+            changed = true;
+            return;
+          }
+          if (storyGenerationStatusSucceeded(status)) {
+            await updateStoryVideoGenerationRef(id, ref, {
+              status: "succeeded",
+              metadata: {
+                generationStatus: record.status || status,
+                mediaSyncPending: true,
                 syncedAt: new Date().toISOString(),
               },
             });
