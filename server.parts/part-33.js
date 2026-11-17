@@ -562,7 +562,7 @@ async function scanTelegramGenerationNotifications() {
 }
 
 async function handleReferralSummary(req, res) {
-  const auth = await requireUser(req, res, { includeAllAccountData: true, includeUserAssets: false });
+  const auth = await requireUser(req, res);
   if (!auth) return;
   await ensureCreatorMembershipFromReferrals(auth.db, auth.user);
   await grantPendingReferralRewardsForMember(auth.db, auth.user);
@@ -591,7 +591,7 @@ function makeMembershipActivationCode() {
 }
 
 async function handleRedeemMembershipActivationCode(req, res) {
-  const auth = await requireUser(req, res, { includeAllAccountData: true, includeUserAssets: false });
+  const auth = await requireUser(req, res);
   if (!auth) return;
   const tenant = requestTenantDescriptor(req);
   if (!tenant.membershipProgram) {

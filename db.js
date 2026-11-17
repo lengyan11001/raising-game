@@ -2611,10 +2611,6 @@ async function readAppDbFromTables(defaultDb = {}, options = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
   const includeUserAssets = options.includeUserAssets !== false;
-  const userAssetsUserId = String(options.userAssetsUserId || "").trim();
-  const accountUserId = String(options.accountUserId || "").trim();
-  const includeAllAccountData = options.includeAllAccountData === true || !accountUserId;
-  const scopedAccount = !includeAllAccountData;
   // A full application snapshot used to issue every table query through the
   // shared pool at once. Two callers could therefore consume all 20 pool slots
   // before either one finished, starving auth, notifications, and generation.
@@ -2623,60 +2619,16 @@ async function readAppDbFromTables(defaultDb = {}, options = {}) {
   const client = await getPool().connect();
   try {
     const readRows = async (sql, params = []) => (await client.query(sql, params)).rows;
-    // Authenticated requests only need the signed-in account's rows. Keep the
-    // legacy full snapshot behind an explicit opt-in for admin and system jobs.
-    // The scoped path is assembled by PostgreSQL in one round trip so a normal
-    // page request does not spend eight pool queries rebuilding account state.
-    let users;
-    let sessions;
-    let walletOrders;
-    let referralWithdrawals;
-    let creditLedger;
-    let userAssets;
-    let userCharacters;
-    let userUnlocks;
-    if (scopedAccount) {
-      const assetUserId = userAssetsUserId || accountUserId;
-      const scopedParams = [accountUserId];
-      const scopedAssetSql = includeUserAssets
-        ? (scopedParams.push(assetUserId), `COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_user_assets t WHERE t.user_id = $2), '[]'::jsonb)`)
-        : `'[]'::jsonb`;
-      const snapshotRows = await readRows(`
-        SELECT
-          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at ASC) FROM app_users t WHERE t.id = $1 AND t.deleted_at IS NULL), '[]'::jsonb) AS "users",
-          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at ASC) FROM app_sessions t WHERE t.user_id = $1), '[]'::jsonb) AS "sessions",
-          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_wallet_orders t WHERE t.user_id = $1), '[]'::jsonb) AS "walletOrders",
-          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_referral_withdrawals t WHERE t.user_id = $1), '[]'::jsonb) AS "referralWithdrawals",
-          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM (
-            SELECT * FROM app_credit_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1000
-          ) t), '[]'::jsonb) AS "creditLedger",
-          ${scopedAssetSql} AS "userAssets",
-          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_user_characters t WHERE t.user_id = $1), '[]'::jsonb) AS "userCharacters",
-          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_user_unlocks t WHERE t.user_id = $1), '[]'::jsonb) AS "userUnlocks"
-      `, scopedParams);
-      const snapshot = snapshotRows[0] || {};
-      users = snapshot.users || [];
-      sessions = snapshot.sessions || [];
-      walletOrders = snapshot.walletOrders || [];
-      referralWithdrawals = snapshot.referralWithdrawals || [];
-      creditLedger = snapshot.creditLedger || [];
-      userAssets = snapshot.userAssets || [];
-      userCharacters = snapshot.userCharacters || [];
-      userUnlocks = snapshot.userUnlocks || [];
-    } else {
-      users = await readRows(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`);
-      sessions = await readRows(`SELECT * FROM app_sessions ORDER BY created_at ASC`);
-      walletOrders = await readRows(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`);
-      referralWithdrawals = await readRows(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`);
-      creditLedger = await readRows(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`);
-      userAssets = !includeUserAssets
-        ? []
-        : userAssetsUserId
-          ? await readRows(`SELECT * FROM app_user_assets WHERE user_id = $1 ORDER BY created_at DESC`, [userAssetsUserId])
-          : await readRows(`SELECT * FROM app_user_assets ORDER BY created_at DESC`);
-      userCharacters = await readRows(`SELECT * FROM app_user_characters ORDER BY created_at DESC`);
-      userUnlocks = await readRows(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`);
-    }
+    const users = await readRows(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`);
+    const sessions = await readRows(`SELECT * FROM app_sessions ORDER BY created_at ASC`);
+    const walletOrders = await readRows(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`);
+    const referralWithdrawals = await readRows(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`);
+    const creditLedger = await readRows(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`);
+    const userAssets = includeUserAssets
+      ? await readRows(`SELECT * FROM app_user_assets ORDER BY created_at DESC`)
+      : [];
+    const userCharacters = await readRows(`SELECT * FROM app_user_characters ORDER BY created_at DESC`);
+    const userUnlocks = await readRows(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`);
     // Admin home items and support messages have dedicated paginated readers.
     // They were previously queried here and then discarded by readDb(), wasting
     // two sequential round trips and transferring payloads nobody consumed.
@@ -7064,11 +7016,13 @@ async function listStoryEpisodesFromDb({ projectId = "", ownerUserId = "" } = {}
   return rows.map(storyEpisodeFromRow);
 }
 
-async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "", episodeNo = 0, title = "", synopsis = "", status = "draft", durationSeconds = 0, metadata = {} } = {}) {
+async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "", sourceScriptVersionId = "", sourceManuscriptId = "", episodeNo = 0, title = "", synopsis = "", status = "draft", durationSeconds = 0, metadata = {} } = {}) {
   if (!dbEnabled()) return null;
   const episodeId = String(id || "").trim();
   const parentId = String(projectId || "").trim();
   const ownerId = String(ownerUserId || "").trim();
+  const scriptVersionId = String(sourceScriptVersionId || "").trim();
+  const manuscriptId = String(sourceManuscriptId || "").trim();
   if (!episodeId || !parentId || !ownerId) return null;
   await ensureSchema();
   const client = await getPool().connect();
@@ -7086,16 +7040,18 @@ async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "
     let nextNo = Math.max(0, Number(episodeNo || 0) || 0);
     if (!nextNo) {
       const next = await client.query(
-        `SELECT COALESCE(MAX(episode_no), 0) + 1 AS next_no FROM app_story_episodes WHERE project_id = $1`,
-        [parentId],
+        `SELECT COALESCE(MAX(episode_no), 0) + 1 AS next_no
+         FROM app_story_episodes
+         WHERE project_id = $1 AND ($2 = '' OR source_manuscript_id = $2)`,
+        [parentId, manuscriptId],
       );
       nextNo = Math.max(1, Number(next.rows[0]?.next_no || 1) || 1);
     }
     const inserted = await client.query(
-      `INSERT INTO app_story_episodes(id, project_id, episode_no, title, synopsis, status, duration_seconds, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+      `INSERT INTO app_story_episodes(id, project_id, source_script_version_id, source_manuscript_id, episode_no, title, synopsis, status, duration_seconds, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
        RETURNING *`,
-      [episodeId, parentId, nextNo, String(title || ""), String(synopsis || ""), String(status || "draft"), Math.max(0, Number(durationSeconds || 0) || 0), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {})],
+      [episodeId, parentId, scriptVersionId, manuscriptId, nextNo, String(title || ""), String(synopsis || ""), String(status || "draft"), Math.max(0, Number(durationSeconds || 0) || 0), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {})],
     );
     row = inserted.rows[0];
     await client.query(
@@ -7349,6 +7305,54 @@ async function createStoryScriptVersionInDb({ id = "", projectId = "", ownerUser
     );
     row = inserted.rows[0];
     await client.query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return row ? storyScriptVersionFromRow(row) : null;
+}
+
+async function deleteStoryScriptVersionFromDb({ projectId = "", ownerUserId = "", scriptVersionId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const targetId = String(scriptVersionId || "").trim();
+  if (!parentId || !ownerId || !targetId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  let row;
+  try {
+    await client.query("BEGIN");
+    const project = await client.query(
+      `SELECT id FROM app_story_projects WHERE id = $1 AND owner_user_id = $2 FOR UPDATE`,
+      [parentId, ownerId],
+    );
+    if (!project.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const deletedEpisodes = await client.query(
+      `DELETE FROM app_story_episodes
+       WHERE project_id = $1 AND source_script_version_id = $2
+       RETURNING id`,
+      [parentId, targetId],
+    );
+    if (deletedEpisodes.rows.length) {
+      await client.query(
+        `DELETE FROM app_story_canvas_links
+         WHERE project_id = $1 AND scope_type = 'episode' AND scope_id = ANY($2::text[])`,
+        [parentId, deletedEpisodes.rows.map((item) => item.id)],
+      );
+    }
+    const deleted = await client.query(
+      `DELETE FROM app_story_script_versions WHERE id = $1 AND project_id = $2 RETURNING *`,
+      [targetId, parentId],
+    );
+    row = deleted.rows[0];
+    if (row) await client.query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -8075,6 +8079,19 @@ async function deleteStoryEpisodeFromDb({ projectId = "", ownerUserId = "", epis
     client.release();
   }
   return row ? storyEpisodeFromRow(row) : null;
+}
+
+async function deleteStoryProjectFromDb({ projectId = "", ownerUserId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const targetId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!targetId || !ownerId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `DELETE FROM app_story_projects WHERE id = $1 AND owner_user_id = $2 RETURNING *`,
+    [targetId, ownerId],
+  );
+  return rows[0] ? storyProjectFromRow(rows[0]) : null;
 }
 
 async function listStoryCanvasLinksFromDb({ projectId = "", ownerUserId = "" } = {}) {
@@ -12248,6 +12265,7 @@ module.exports = {
   replaceStoryShotsInDb,
   listStoryScriptVersionsFromDb,
   createStoryScriptVersionInDb,
+  deleteStoryScriptVersionFromDb,
   listStoryAssetsFromDb,
   listStoryAssetVariantsFromDb,
   upsertStoryAssetPlanInDb,
@@ -12262,6 +12280,7 @@ module.exports = {
   updateStoryGenerationRefInDb,
   importStoryAnalysisInDb,
   deleteStoryEpisodeFromDb,
+  deleteStoryProjectFromDb,
   listStoryCanvasLinksFromDb,
   findUserUnlockInDb,
   normalizeApiSubtokenRecord,

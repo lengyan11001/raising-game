@@ -269,8 +269,6 @@ class DeployOldRollingTests(unittest.TestCase):
                 pid = ROLLING.activate_inactive_candidate(
                     args,
                     rolling,
-                    active_service="primary.service",
-                    active_port="4174",
                     candidate_service="candidate.service",
                     candidate_port="4175",
                     release=root / "release",
@@ -286,49 +284,6 @@ class DeployOldRollingTests(unittest.TestCase):
             self.assertEqual(rolling.wait_http_200.call_count, 9)
             public_urls = [call.args[0] for call in rolling.wait_http_200.call_args_list[-3:]]
             self.assertEqual(public_urls, list(ROLLING.DEFAULT_HEALTH_URLS))
-
-    def test_candidate_only_can_update_primary_when_candidate_holds_traffic(self) -> None:
-        args = ROLLING.parse_args([
-            "--commit", "a" * 40,
-            "--candidate-only",
-            "--apply",
-            "--primary-service", "primary.service",
-            "--candidate-service", "candidate.service",
-        ])
-        rolling = mock.Mock()
-        rolling.require_active.side_effect = lambda service, *_args: "222" if service == "candidate.service" else "111"
-        rolling.systemctl_show.side_effect = lambda service, *_args: {
-            "ActiveState": "active",
-            "SubState": "running",
-            "MainPID": "222" if service == "candidate.service" else "111",
-            "NRestarts": "0",
-        }
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            destination = root / "primary-dropin.conf"
-            destination.write_text("previous\n", encoding="utf-8")
-            with mock.patch.object(ROLLING, "run") as run_mock:
-                pid = ROLLING.activate_inactive_candidate(
-                    args,
-                    rolling,
-                    active_service="candidate.service",
-                    active_port="4175",
-                    candidate_service="primary.service",
-                    candidate_port="4174",
-                    release=root / "release",
-                    node_path=root / "node_modules",
-                    destination=destination,
-                    previous_dropin=b"previous\n",
-                )
-            self.assertEqual(pid, 111)
-            run_mock.assert_any_call(["systemctl", "restart", "primary.service"], timeout=120)
-            rolling.require_active.assert_any_call("candidate.service", "systemctl")
-            rolling.require_active.assert_any_call("primary.service", "systemctl")
-            rolling.systemctl_show.assert_any_call(
-                "candidate.service",
-                "ActiveState,SubState,MainPID,NRestarts",
-                "systemctl",
-            )
 
     def test_candidate_only_failure_restores_old_candidate_without_touching_primary(self) -> None:
         args = ROLLING.parse_args([
@@ -350,8 +305,6 @@ class DeployOldRollingTests(unittest.TestCase):
                     ROLLING.activate_inactive_candidate(
                         args,
                         rolling,
-                        active_service="primary.service",
-                        active_port="4174",
                         candidate_service="candidate.service",
                         candidate_port="4175",
                         release=root / "release",

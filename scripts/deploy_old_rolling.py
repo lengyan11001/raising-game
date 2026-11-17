@@ -292,21 +292,6 @@ def target_for_active_port(
     raise DeployError(f"active upstream port is neither {primary_port} nor {candidate_port}: {active_port}")
 
 
-def service_for_port(
-    port: str,
-    *,
-    primary_port: str,
-    candidate_port: str,
-    primary_service: str,
-    candidate_service: str,
-) -> str:
-    if port == primary_port:
-        return primary_service
-    if port == candidate_port:
-        return candidate_service
-    raise DeployError(f"active upstream port is neither {primary_port} nor {candidate_port}: {port}")
-
-
 def dropin_path(service: str) -> Path:
     unit = service if service.endswith(".service") else f"{service}.service"
     return Path(f"/etc/systemd/system/{unit}.d/zz-release-root.conf")
@@ -348,13 +333,11 @@ def verify_inactive_candidate(
     args: argparse.Namespace,
     rolling,
     *,
-    active_service: str,
-    active_port: str,
     candidate_service: str,
     candidate_port: str,
     release: Path,
 ) -> int:
-    if candidate_service == active_service or candidate_port == active_port:
+    if candidate_service != args.candidate_service or candidate_port != args.candidate_port:
         raise DeployError("candidate-only verification refuses to target the active service or port")
     candidate_pid = int(rolling.require_active(candidate_service, "systemctl"))
     health_base = f"http://127.0.0.1:{candidate_port}"
@@ -399,21 +382,21 @@ def verify_inactive_candidate(
     return candidate_pid
 
 
-def verify_active_service_unchanged(rolling, *, service: str, expected_pid: int) -> None:
+def verify_primary_service_unchanged(rolling, *, service: str, expected_pid: int) -> None:
     state = rolling.systemctl_show(
         service,
         "ActiveState,SubState,MainPID,NRestarts",
         "systemctl",
     )
     if state.get("ActiveState") != "active" or state.get("SubState") != "running":
-        raise DeployError(f"active service is not active after candidate verification: {state}")
+        raise DeployError(f"primary service is not active after candidate verification: {state}")
     if state.get("MainPID") != str(expected_pid):
         raise DeployError(
-            "active service PID changed during candidate-only verification: "
+            "primary service PID changed during candidate-only verification: "
             f"expected={expected_pid} observed={state.get('MainPID')}"
         )
     log(
-        f"OLD_ACTIVE_UNCHANGED service={service} pid={expected_pid} "
+        f"OLD_PRIMARY_UNCHANGED service={service} pid={expected_pid} "
         f"restarts={state.get('NRestarts', '0')}"
     )
 
@@ -428,8 +411,6 @@ def activate_inactive_candidate(
     args: argparse.Namespace,
     rolling,
     *,
-    active_service: str,
-    active_port: str,
     candidate_service: str,
     candidate_port: str,
     release: Path,
@@ -438,9 +419,7 @@ def activate_inactive_candidate(
     previous_dropin: bytes | None,
 ) -> int:
     """Restart only the inactive candidate and restore it on any failed gate."""
-    if candidate_service == active_service or candidate_port == active_port:
-        raise DeployError("candidate-only refuses to restart the active service")
-    active_pid = int(rolling.require_active(active_service, "systemctl"))
+    primary_pid = int(rolling.require_active(args.primary_service, "systemctl"))
     atomic_write(destination, render_dropin(release, node_path))
     try:
         run(["systemctl", "daemon-reload"], timeout=60)
@@ -448,16 +427,14 @@ def activate_inactive_candidate(
         candidate_pid = verify_inactive_candidate(
             args,
             rolling,
-            active_service=active_service,
-            active_port=active_port,
             candidate_service=candidate_service,
             candidate_port=candidate_port,
             release=release,
         )
-        verify_active_service_unchanged(
+        verify_primary_service_unchanged(
             rolling,
-            service=active_service,
-            expected_pid=active_pid,
+            service=args.primary_service,
+            expected_pid=primary_pid,
         )
         verify_public_health_unchanged(args, rolling)
     except Exception:
@@ -630,13 +607,6 @@ def deploy(args: argparse.Namespace) -> int:
         args.primary_port,
         args.candidate_port,
     )
-    active_service = service_for_port(
-        active_port,
-        primary_port=args.primary_port,
-        candidate_port=args.candidate_port,
-        primary_service=args.primary_service,
-        candidate_service=args.candidate_service,
-    )
     target_port, target_service = target_for_active_port(
         active_port,
         primary_port=args.primary_port,
@@ -676,16 +646,14 @@ def deploy(args: argparse.Namespace) -> int:
         f"candidate_service={target_service} release={release}"
     )
     if args.candidate_only:
-        if target_service == active_service or target_port == active_port:
-            raise DeployError("--candidate-only refuses to mutate the active service/port")
+        if target_service != args.candidate_service or target_port != args.candidate_port:
+            raise DeployError("--candidate-only requires traffic to remain on the primary service/port")
         if not args.apply:
             log("OLD_CANDIDATE_ONLY_PLAN_OK")
             return 0
         activate_inactive_candidate(
             args,
             rolling,
-            active_service=active_service,
-            active_port=active_port,
             candidate_service=target_service,
             candidate_port=target_port,
             release=release,

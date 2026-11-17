@@ -740,6 +740,11 @@ async function handleRequest(req, res) {
       return await handleCreateStoryScript(req, res, decodeURIComponent(storyProjectScriptsMatch[1]));
     }
 
+    const storyProjectScriptMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/scripts\/([^/]+)\/?$/);
+    if (req.method === "DELETE" && storyProjectScriptMatch) {
+      return await handleDeleteStoryScript(req, res, decodeURIComponent(storyProjectScriptMatch[1]), decodeURIComponent(storyProjectScriptMatch[2]));
+    }
+
     const storyProjectAnalyzeMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/analyze\/?$/);
     if (req.method === "POST" && storyProjectAnalyzeMatch) {
       return await handleAnalyzeStoryProject(req, res, decodeURIComponent(storyProjectAnalyzeMatch[1]));
@@ -833,6 +838,9 @@ async function handleRequest(req, res) {
     }
     if (req.method === "PUT" && storyProjectMatch) {
       return await handleUpdateStoryProject(req, res, decodeURIComponent(storyProjectMatch[1]));
+    }
+    if (req.method === "DELETE" && storyProjectMatch) {
+      return await handleDeleteStoryProject(req, res, decodeURIComponent(storyProjectMatch[1]));
     }
 
     if (req.method === "GET" && url.pathname === "/api/workflow/presets") {
