@@ -166,17 +166,17 @@ test("story creation targets an episode and shot and opens a dedicated shot work
 });
 
 test("story analyzer requests production-length episode outlines", () => {
-  const handlers = read("server.parts/part-03.js");
-  assert.match(handlers, /本集可制作剧情大纲，240-500个中文字符/);
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  assert.match(handlers, /本集可制作剧情大纲，建议300-900个中文字符/);
   assert.match(handlers, /通常一章或一个完整情节单元拆为一集/);
-  assert.match(handlers, /禁止只写一句话摘要/);
+  assert.match(handlers, /不得把长集压成一句话/);
   assert.match(handlers, /开场 → 发展 → 转折 → 结尾/);
   assert.match(handlers, /repairStoryAnalysisHooks/);
   assert.match(handlers, /缺少结尾钩子/);
 });
 
 test("story episode workbench persists outline edits and AI-planned shots", () => {
-  const handlers = read("server.parts/part-03.js");
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
   const routes = read("server.parts/part-42.js");
   const db = read("db.js");
   const imports = read("server.parts/part-01.js");
@@ -204,8 +204,27 @@ test("story episode workbench persists outline edits and AI-planned shots", () =
   assert.match(db, /async function listStoryShotsFromDb[\s\S]*p\.owner_user_id = \$3[\s\S]*ORDER BY s\.shot_no ASC/);
   assert.match(db, /async function createStoryShotInDb[\s\S]*SELECT COALESCE\(MAX\(shot_no\), 0\) \+ 1/);
   assert.match(handlers, /STORY_SHOT_PLANNER_SYSTEM_PROMPT/);
-  assert.match(handlers, /通常每5-10秒一个镜头/);
+  assert.match(handlers, /recommendedDurationSeconds/);
+  assert.match(handlers, /镜头数量必须按本集大纲的实际剧情密度决定/);
+  assert.match(handlers, /不得默认输出 90 秒/);
   assert.match(db, /async function replaceStoryShotsInDb[\s\S]*DELETE FROM app_story_shots/);
+  assert.match(db, /async function replaceStoryShotsInDb[\s\S]*duration_seconds = COALESCE\(\$5::int, duration_seconds\)/);
+});
+
+test("story episodes and durations are AI-planned unless the user explicitly overrides them", () => {
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const story = read("platform.story.js");
+  const html = read("platform.html");
+  const db = read("db.js");
+  assert.match(handlers, /"durationSeconds": 0/);
+  assert.match(handlers, /durationSeconds 必须由你按本集实际制作内容计算/);
+  assert.match(handlers, /禁止默认套用 90 秒/);
+  assert.match(handlers, /episodeTarget = Math\.max\(0,/);
+  assert.match(story, /计划集数（可选）[\s\S]*留空由 AI 判断/);
+  assert.match(story, /集数由 AI 规划/);
+  assert.match(html, /预计集数（可选）[\s\S]*留空由 AI 判断/);
+  assert.match(db, /episode_target INTEGER NOT NULL DEFAULT 0/);
+  assert.match(db, /ALTER COLUMN episode_target SET DEFAULT 0/);
 });
 
 test("story episode workbench exposes AI storyboard flow and hook repair", () => {
@@ -283,7 +302,7 @@ test("story production pipeline gates approved assets before model-optimized pro
 });
 
 test("story shot prompt source never injects the episode hook into every shot", () => {
-  const handlers = read("server.parts/part-03.js");
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
   const start = handlers.indexOf("function storyShotProductionPrompt(");
   assert.notEqual(start, -1);
   const promptSource = handlers.slice(start, handlers.indexOf("\n}\n", start));
@@ -342,7 +361,7 @@ test("shot assets generate, regenerate, approve, and reuse materials in place", 
   const story = read("platform.story.js");
   const css = read("platform.css");
   const db = read("db.js");
-  const handlers = read("server.parts/part-03.js");
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
   const routes = read("server.parts/part-42.js");
 
   const workspace = story.slice(story.indexOf("function renderStoryShotWorkspace("), story.indexOf("function storyShotFilterKey("));
@@ -396,7 +415,7 @@ test("generation record media supports cached image thumbnails", () => {
 });
 
 test("story asset images use refreshed authenticated media URLs instead of persisted signed URLs", () => {
-  const handlers = read("server.parts/part-03.js");
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
   const generation = read("server.parts/part-41.js");
   const story = read("platform.story.js");
   assert.match(handlers, /function storyAssetVariantClientView[\s\S]*adminGenerationMediaUrl\(generationRecordId\)/);
@@ -413,7 +432,7 @@ test("story asset images use refreshed authenticated media URLs instead of persi
 
 test("story asset replanning removes stale episode scope and invalidates frozen prompts", () => {
   const db = read("db.js");
-  const handlers = read("server.parts/part-03.js");
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
   const story = read("platform.story.js");
   assert.match(db, /async function invalidateStoryEpisodeProductionPrompts\(/);
   assert.match(db, /UPDATE app_story_prompt_versions[\s\S]*SET status = 'stale'/);
@@ -427,7 +446,7 @@ test("story asset replanning removes stale episode scope and invalidates frozen 
 
 test("story video jobs bind approved asset IDs and sync completed backend records", () => {
   const story = read("platform.story.js");
-  const handlers = read("server.parts/part-03.js");
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
   const generation = read("server.parts/part-20.js");
 
   assert.match(story, /function storyGenerationResultAssetId\(record = \{\}\)/);

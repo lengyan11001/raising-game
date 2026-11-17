@@ -86,6 +86,187 @@ function storyAssetsFromModel(payload = {}) {
   }).filter((item) => item.name && item.description);
 }
 
+function storyAnalyzerModel() {
+  for (const id of ["qwen3.7-flash", "carrothub-papaya-1.0", "byteplus-language"]) {
+    const model = promptOptimizerSelectedModel(id);
+    if (model?.configured?.()) return model;
+  }
+  return null;
+}
+
+async function repairStoryAnalysisHooks({ analysis, model, deadline, usage }) {
+  const missing = analysis.episodes.filter((episode) => !String(episode.metadata?.hook || "").trim());
+  if (!missing.length) return analysis;
+  const prompt = [
+    "下面这些剧集缺少结尾钩子。请依据本集大纲和下一集开头，补齐能直接用于制作审稿的钩子。",
+    "只输出合法 JSON：{\"hooks\":[{\"episodeNo\":1,\"hook\":\"30-100个中文字符\"}]}",
+    "钩子必须承接本集最后一个具体画面或人物决定，并制造下一集必须继续观看的悬念；不得复述整段大纲。",
+    JSON.stringify(analysis.episodes.map((episode, index) => ({
+      episodeNo: episode.episodeNo,
+      title: episode.title,
+      synopsis: episode.synopsis,
+      nextEpisodeTitle: analysis.episodes[index + 1]?.title || "",
+      nextEpisodeOpening: analysis.episodes[index + 1]?.synopsis || "",
+    }))),
+  ].join("\n");
+  try {
+    const raw = await promptOptimizerUpstreamRequest({
+      model: model.upstreamModel,
+      messages: [
+        { role: "system", content: "你是中文短剧总编剧，擅长写具体、有画面感、能驱动下一集的结尾钩子。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.35,
+      max_tokens: 2400,
+    }, {
+      deadline,
+      requestContext: { storyAnalyzer: true, storyHookRepair: true, model: model.id },
+      usage,
+      optimizerModel: model,
+    });
+    const parsed = storyParseJsonObject(qwen37FlashResponseText(raw));
+    const hooks = new Map((Array.isArray(parsed?.hooks) ? parsed.hooks : []).map((item) => [
+      Math.max(1, Math.round(Number(item?.episodeNo || 0) || 0)),
+      storyInputText(item?.hook, 500),
+    ]));
+    for (const episode of analysis.episodes) {
+      const hook = hooks.get(episode.episodeNo);
+      if (hook) episode.metadata = { ...(episode.metadata || {}), hook };
+    }
+  } catch {}
+  return analysis;
+}
+
+function storyAnalysisContentStats(text = "") {
+  const source = String(text || "");
+  const hanCharacters = (source.match(/[\u3400-\u9fff]/g) || []).length;
+  const paragraphs = source.split(/\n\s*\n|\n/).map((item) => item.trim()).filter(Boolean).length;
+  const quotedLines = [...source.matchAll(/[“"「]([^”"」]{1,300})[”"」]/g)].map((match) => match[1].trim()).filter(Boolean);
+  const dialogueCharacters = quotedLines.reduce((total, line) => total + (line.match(/[\u3400-\u9fff]/g) || []).length, 0);
+  return { hanCharacters, paragraphs, quotedLines: quotedLines.length, dialogueCharacters };
+}
+
+const STORY_SHOT_PLANNER_SYSTEM_PROMPT = `你是专业中文影视分镜师。请把已经定稿的单集大纲拆成可连续制作、可逐镜审核的镜头清单。
+只输出一个合法 JSON 对象，不要 Markdown，不要代码围栏，不要解释。返回结构：
+{
+  "hook": "如果输入钩子为空，补写30-100个中文字符的结尾钩子；否则原样返回",
+  "recommendedDurationSeconds": 0,
+  "shots": [
+    {
+      "shotNo": 1,
+      "title": "12字以内镜头标题",
+      "description": "80-220个中文字符的可执行分镜描述",
+      "durationSeconds": 5,
+      "shotSize": "远景/全景/中景/近景/特写",
+      "camera": "固定/推/拉/摇/移/跟/手持等",
+      "location": "具体场景",
+      "characters": ["出场角色"],
+      "dialogue": "对白、旁白或留空",
+      "storyBeat": "本镜承担的剧情推进"
+    }
+  ]
+}
+规则：
+1. 严格按大纲时间顺序覆盖开场、发展、转折、结尾，不新增原文没有依据的主要事件，不改变人物关系和结果。
+2. 镜头数量必须按本集大纲的实际剧情密度决定，不得套用固定镜头数模板。先把大纲拆成连续可执行的动作/对白/情绪节点，再为每个节点安排镜头；所有 shotNo 连续且唯一。
+3. 每个镜头只表现一个清晰的视觉动作或信息变化。description 必须写清景别、人物动作、环境、关键道具、情绪和与前后镜头的连续性。
+4. 充分使用输入的出场角色、场景和结尾钩子；必须有一个明确镜头落地钩子，不能只写在镜头外。
+5. dialogue 只保留能推动剧情或揭示人物关系的关键对白，禁止长篇复述。
+6. durationSeconds 为1-30的整数，所有镜头时长之和应接近本集目标时长，允许上下浮动10%。
+7. hook 必须具体、有画面感，承接本集最后动作并指向下一集。
+8. recommendedDurationSeconds 必须由你按全部镜头的实际可执行时长求和得出；如果输入的 episode 没有目标时长，就以这个值作为本集最终时长。不得默认输出 90 秒。`;
+
+function storyAssetBelongsToEpisode(asset = {}, episode = {}) {
+  const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata : {};
+  const episodeId = String(episode.id || "");
+  if (Array.isArray(metadata.episodeIds)) return metadata.episodeIds.map(String).includes(episodeId);
+  const name = String(asset.name || "").trim();
+  if (!name) return false;
+  const episodeMetadata = episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {};
+  return [...storyTextList(episodeMetadata.characters, 40, 100), ...storyTextList(episodeMetadata.scenes, 40, 120)]
+    .some((item) => item.includes(name) || name.includes(item));
+}
+
+function storyShotUsesAsset(asset = {}, shot = {}) {
+  const shotNos = storyTextList(asset.metadata?.shotNos || [], 80, 24)
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item));
+  if (shotNos.length) return shotNos.includes(Number(shot.shotNo || 0));
+  const name = String(asset.name || "").trim();
+  if (!name) return false;
+  const metadata = shot.metadata && typeof shot.metadata === "object" ? shot.metadata : {};
+  const kind = String(asset.kind || "");
+  if (kind === "style") return true;
+  if (kind === "character") {
+    const characters = storyTextList(metadata.characters, 40, 100);
+    if (characters.some((item) => item.includes(name) || name.includes(item))) return true;
+  }
+  if (kind === "scene") {
+    const location = String(metadata.location || "").trim();
+    if (location && (location.includes(name) || name.includes(location))) return true;
+  }
+  const haystack = [shot.title, shot.description, metadata.location, metadata.dialogue, metadata.storyBeat]
+    .filter(Boolean)
+    .join("\n");
+  return Boolean(name && haystack.includes(name));
+}
+
+function storyApprovedVariantForAsset(asset = {}, variants = []) {
+  const approvedId = String(asset.metadata?.approvedVariantId || "");
+  const assetVariants = variants.filter((variant) => variant.assetId === asset.id);
+  return variants.find((variant) => variant.id === approvedId && variant.status === "approved")
+    || assetVariants.find((variant) => variant.status === "approved")
+    || null;
+}
+
+function storyApprovedVariantHasImage(variant = {}) {
+  if (!variant || variant.status !== "approved") return false;
+  const metadata = variant.metadata && typeof variant.metadata === "object" ? variant.metadata : {};
+  return Boolean(
+    String(variant.mediaUrl || "").trim()
+      || String(metadata.mediaUrl || "").trim()
+      || String(metadata.imageUrl || "").trim()
+      || String(metadata.generationRecordId || "").trim()
+  );
+}
+
+function storyAssetDesignReady(asset = {}, variants = []) {
+  return storyApprovedVariantHasImage(storyApprovedVariantForAsset(asset, variants));
+}
+
+function storyShotProductionPrompt({ project = {}, episode = {}, shot = {}, assets = [], variants = [] } = {}) {
+  const metadata = shot.metadata && typeof shot.metadata === "object" ? shot.metadata : {};
+  const relevantAssets = assets.filter((asset) => storyShotUsesAsset(asset, shot));
+  const assetLines = relevantAssets.map((asset) => {
+    const variant = storyApprovedVariantForAsset(asset, variants);
+    const visual = variant?.description || asset.description || "";
+    const imagePrompt = variant?.metadata?.imagePrompt || asset.metadata?.imagePrompt || "";
+    const continuity = asset.metadata?.continuity || "";
+    return [
+      `- ${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : asset.kind === "prop" ? "道具" : "资产"}：${asset.name}`,
+      `  视觉定稿：${visual}`,
+      continuity ? `  连续性：${continuity}` : "",
+      imagePrompt ? `  设计图依据：${imagePrompt}` : "",
+      String(variant?.metadata?.generationRecordId || "").trim() ? `  已定稿参考图记录：${String(variant.metadata.generationRecordId).trim()}` : "",
+    ].filter(Boolean).join("\n");
+  }).join("\n");
+  return [
+    `项目：${project.name || "未命名项目"}；画幅：${project.aspectRatio || "9:16"}`,
+    `本集：E${String(episode.episodeNo || 1).padStart(2, "0")} ${episode.title || ""}；时长：${Number(shot.durationSeconds || 5)} 秒`,
+    `镜头：S${String(shot.shotNo || 1).padStart(2, "0")} ${shot.title || ""}`,
+    `画面内容：${shot.description || "无"}`,
+    metadata.shotSize ? `景别：${metadata.shotSize}` : "",
+    metadata.camera ? `运镜：${metadata.camera}` : "",
+    metadata.location ? `地点：${metadata.location}` : "",
+    Array.isArray(metadata.characters) && metadata.characters.length ? `出场角色：${metadata.characters.join("、")}` : "",
+    metadata.dialogue ? `关键对白：${metadata.dialogue}` : "",
+    metadata.storyBeat ? `叙事作用：${metadata.storyBeat}` : "",
+    "已定稿资产（身份、服装、场景结构和关键道具必须严格延续）：",
+    assetLines || "- 本镜头未绑定资产，按镜头描述和前后镜连续性执行",
+    "请只生成这一镜可直接交给视频模型执行的提示词；不要拆成多镜，不要改写剧情，不要加入未定稿角色或道具。",
+  ].filter(Boolean).join("\n");
+}
+
 function storyShotsFromModel(payload = {}, episode = {}) {
   const root = payload?.data && typeof payload.data === "object" ? payload.data : payload;
   const rawShots = Array.isArray(root?.shots) ? root.shots : (Array.isArray(root?.storyboard) ? root.storyboard : []);
@@ -106,6 +287,7 @@ function storyShotsFromModel(payload = {}, episode = {}) {
   })).filter((shot) => shot.title || shot.description).slice(0, 80);
   return {
     hook: storyInputText(root?.hook || episode?.metadata?.hook || "", 500),
+    recommendedDurationSeconds: Math.max(0, Math.min(86400, Math.round(Number(root?.recommendedDurationSeconds || root?.recommended_duration_seconds || 0) || 0))),
     shots,
   };
 }
@@ -119,12 +301,13 @@ async function planStoryEpisodeShots({ project = {}, episode = {} } = {}) {
     throw Object.assign(new Error("单集大纲为空，无法拆分镜。"), { statusCode: 400, code: "STORY_EPISODE_SYNOPSIS_EMPTY" });
   }
   const metadata = episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {};
+  const episodeDuration = Math.max(0, Number(episode.durationSeconds || 0) || 0);
   const userPrompt = [
     `项目：${String(project.name || "未命名项目")}`,
     `画幅：${String(project.aspectRatio || "9:16")}`,
     `集数：E${String(episode.episodeNo || 1).padStart(2, "0")}`,
     `标题：${String(episode.title || "")}`,
-    `目标时长：${Math.max(1, Number(episode.durationSeconds || 90) || 90)}秒`,
+    episodeDuration ? `本集目标时长：${episodeDuration}秒。镜头时长之和应贴近该时长。` : "本集目标时长：未指定，由你根据大纲情节点、对白和动作复杂度计算，并在 recommendedDurationSeconds 中返回。",
     `出场角色：${storyTextList(metadata.characters, 30, 80).join("、") || "按大纲判断"}`,
     `场景：${storyTextList(metadata.scenes, 30, 100).join("、") || "按大纲判断"}`,
     `结尾钩子：${String(metadata.hook || "").trim() || "缺失，请根据本集结尾补写"}`,
@@ -188,7 +371,7 @@ async function planStoryEpisodeAssets({ project = {}, episode = {}, shots = [] }
     `画幅：${String(project.aspectRatio || "9:16")}`,
     `集数：E${String(episode.episodeNo || 1).padStart(2, "0")}`,
     `标题：${String(episode.title || "")}`,
-    `目标时长：${Math.max(1, Number(episode.durationSeconds || 90) || 90)}秒`,
+    Number(episode.durationSeconds || 0) > 0 ? `目标时长：${Math.max(1, Number(episode.durationSeconds || 0) || 0)}秒` : "目标时长：按已定稿镜头清单的实际内容判断",
     `已有角色名：${storyTextList(metadata.characters, 30, 80).join("、") || "按分镜判断"}`,
     `已有场景名：${storyTextList(metadata.scenes, 30, 100).join("、") || "按分镜判断"}`,
     `结尾钩子：${String(metadata.hook || "")}`,

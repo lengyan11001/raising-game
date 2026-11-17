@@ -288,7 +288,7 @@
               <label>目标分集<select id="storyScriptTargetEpisode" data-story-script-target-episode><option value="">不指定（由 AI 拆解）</option>${episodes.map((episode) => `<option value="${storyEscape(episode.id)}" ${episode.id === targetEpisodeId ? "selected" : ""}>E${String(episode.episodeNo).padStart(2, "0")} · ${storyEscape(episode.title || "未命名剧集")}</option>`).join("")}</select></label>
               <label>目标分镜<select id="storyScriptTargetShot" data-story-script-target-shot ${!targetEpisodeId || storyState.scriptTargetLoading ? "disabled" : ""}><option value="">不指定分镜${targetEpisodeId ? "（整集）" : ""}</option>${targetShots.map((shot) => `<option value="${storyEscape(shot.id)}" ${shot.id === targetShotId ? "selected" : ""}>S${String(shot.shotNo).padStart(2, "0")} · ${storyEscape(shot.title || "未命名镜头")}</option>`).join("")}</select></label>
               <label>预计时长（秒）<input id="storyScriptDuration" type="number" min="0" max="86400" value="${Number(script?.estimatedDurationSeconds || 0) || ""}" placeholder="留空由 AI 规划" /></label>
-              <label>计划集数<input id="storyAnalysisTarget" type="number" min="1" max="50" value="${Number(storyState.detail?.project?.episodeTarget || 1)}" /></label>
+              <label>计划集数（可选）<input id="storyAnalysisTarget" type="number" min="0" max="50" value="" placeholder="留空由 AI 判断" /></label>
             </div>
             <label class="story-script-content">正文<textarea id="storyScriptContent" rows="16" maxlength="1500000" placeholder="粘贴完整小说、故事大纲或分集草案。建议先保存版本，再让 AI 拆解。">${storyEscape(script?.content || "")}</textarea></label>
             <div class="story-script-actions">
@@ -1044,7 +1044,7 @@
             <p>${storyEscape(project.description || "尚未填写项目说明。")}</p>
           </div>
           <div class="story-detail-head-actions">
-            <div class="story-detail-badges"><span>${storyEscape(project.aspectRatio)}</span><span>目标 ${project.episodeTarget} 集</span></div>
+            <div class="story-detail-badges"><span>${storyEscape(project.aspectRatio)}</span><span>${Number(project.episodeTarget || 0) > 0 ? `计划 ${Number(project.episodeTarget)} 集` : "集数由 AI 规划"}</span></div>
             <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>资产库</span></button>
           </div>
         </div>
@@ -1061,7 +1061,7 @@
         </div>
         <div class="story-tab-panel" data-story-tab-panel="episodes" ${storyState.detailTab === "episodes" ? "" : "hidden"}>
           <section class="story-section">
-            <div class="story-section-head"><div><p class="eyebrow">STORY TREE</p><h3>剧本 · 分集 · 分镜</h3></div><span>${episodes.length} / ${project.episodeTarget} 集</span></div>
+            <div class="story-section-head"><div><p class="eyebrow">STORY TREE</p><h3>剧本 · 分集 · 分镜</h3></div><span>${Number(project.episodeTarget || 0) > 0 ? `${episodes.length} / ${Number(project.episodeTarget)} 集` : `已拆出 ${episodes.length} 集 · AI 规划`}</span></div>
             <p class="story-tab-lead">剧本是根节点；AI 拆解后生成分集节点，分集下再生成 S01、S02 分镜。每镜的资产和提示词在右侧独立完成。</p>
             <div class="story-tree-layout">${storyTree}<div class="story-tree-workspace">${episodeWorkspace || emptyEpisodeWorkspace}</div></div>
           </section>
@@ -1212,7 +1212,7 @@
           name,
           description: storyEl("storyProjectDescription")?.value || "",
           aspectRatio: storyEl("storyProjectAspect")?.value || "9:16",
-          episodeTarget: Number(storyEl("storyProjectEpisodes")?.value || 1),
+          episodeTarget: Math.max(0, Number(storyEl("storyProjectEpisodes")?.value || 0) || 0),
         },
       });
       form.reset();
