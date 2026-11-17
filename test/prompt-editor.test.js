@@ -14,6 +14,14 @@ const part04 = fs.readFileSync(path.join(root, "platform.create.parts/part-04.js
 const part05 = fs.readFileSync(path.join(root, "platform.create.parts/part-05.js"), "utf8");
 const main = fs.readFileSync(path.join(root, "platform.main.js"), "utf8");
 
+function editorFunction(name, endMarker) {
+  const start = editorSource.indexOf(`function ${name}(`);
+  const end = editorSource.indexOf(endMarker, start);
+  assert.notEqual(start, -1, `missing ${name}`);
+  assert.notEqual(end, -1, `missing marker after ${name}`);
+  return new Function(`${editorSource.slice(start, end)}\nreturn ${name};`)();
+}
+
 function fakeElement(extra = {}) {
   const events = [];
   return Object.assign({
@@ -132,6 +140,16 @@ test("setting a rich prompt preserves @ media mentions exactly", () => {
   assert.equal(sandbox.setAdvancedPromptValue(prompt, { emitInput: false }), true);
   assert.equal(sandbox.getAdvancedPromptValue(), prompt);
   assert.equal(textarea.value, prompt);
+});
+
+test("rich mention decorations keep canonical labels whole with partial snapshots", () => {
+  const pattern = editorFunction("mentionPattern", "function inlineContentFromText(");
+  const imageLabels = Array.from({ length: 30 }, (_, index) => `@Image ${index + 1}`);
+  const videoLabels = Array.from({ length: 30 }, (_, index) => `@Video ${30 - index}`);
+  const text = imageLabels.map((label) => `傅斯年${label}低头`).join("")
+    + videoLabels.map((label) => `，沈津岁${label}耳尖`).join("");
+  const matches = [...text.matchAll(pattern(["@Image", "@Video", "@Audio", "@Document"]))];
+  assert.deepEqual(matches.map((match) => match[0]), [...imageLabels, ...videoLabels]);
 });
 
 test("rich mention support branches on editor selection while keeping textarea fallback", () => {

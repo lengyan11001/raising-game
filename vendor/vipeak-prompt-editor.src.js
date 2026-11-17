@@ -24,7 +24,12 @@ function mentionPattern(tokens = []) {
   const values = [...new Set(tokens.filter(Boolean))].sort((left, right) => right.length - left.length);
   if (!values.length) return null;
   const escaped = values.map((value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  return new RegExp(`(?:${escaped.join("|")})(?=$|[\\s.,;:!?()\\[\\]{}<>\uFF0C\u3002\uFF1B\uFF1A\uFF01\uFF1F\u3001])`, "g");
+  // Keep the canonical media label as one stable token. Snapshot labels can
+  // change while async uploads finish, and Chinese text often follows the
+  // number without a space; allowing only ASCII word boundaries prevents the
+  // decoration from ending at "@Image" and leaving " 1" uncolored.
+  const canonical = String.raw`@(?:Image|Video|Audio|Document) ?\d+`;
+  return new RegExp(`(?:${canonical}|${escaped.join("|")})(?![A-Za-z0-9_-])`, "g");
 }
 
 function inlineContentFromText(value = "") {
