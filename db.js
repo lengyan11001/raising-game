@@ -7331,6 +7331,11 @@ async function invalidateStoryEpisodeProductionPrompts(client, { projectId = "",
   );
 }
 
+function canonicalStoryAssetName(value = "") {
+  return String(value || "").trim().toLocaleLowerCase("zh-CN")
+    .replace(/[\s()（）\[\]【】{}<>《》·:：,，.。_\-—]/g, "");
+}
+
 async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", episodeId = "", assets = [] } = {}) {
   if (!dbEnabled()) return null;
   const parentId = String(projectId || "").trim();
@@ -7363,12 +7368,26 @@ async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", epis
       if (!name) continue;
       const description = String(raw?.description || "").trim().slice(0, 8000);
       const incomingMetadata = raw?.metadata && typeof raw.metadata === "object" && !Array.isArray(raw.metadata) ? raw.metadata : {};
-      const existing = await client.query(
+      let existing = await client.query(
         `SELECT * FROM app_story_assets
          WHERE project_id = $1 AND kind = $2 AND name = $3
          ORDER BY created_at ASC LIMIT 1`,
         [parentId, kind, name],
       );
+      if (!existing.rows[0]) {
+        const candidates = await client.query(
+          `SELECT * FROM app_story_assets
+           WHERE project_id = $1 AND kind = $2
+           ORDER BY created_at ASC`,
+          [parentId, kind],
+        );
+        const canonical = canonicalStoryAssetName(name);
+        const matched = canonical ? candidates.rows.find((item) => {
+          const candidate = canonicalStoryAssetName(item.name);
+          return candidate === canonical || (canonical.length >= 2 && candidate.length >= 2 && (candidate.includes(canonical) || canonical.includes(candidate)));
+        }) : null;
+        if (matched) existing = { rows: [matched] };
+      }
       let row;
       if (existing.rows[0]) {
         const old = existing.rows[0];
@@ -7382,7 +7401,9 @@ async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", epis
           || String(oldMetadata.imagePrompt || "") !== String(incomingMetadata.imagePrompt || "");
         if (definitionChanged) {
           delete metadata.approvedVariantId;
+          delete metadata.approvedSourceAssetId;
           delete metadata.approvedAt;
+          delete metadata.approvalMode;
           for (const affectedEpisodeId of episodeIds) changedEpisodeIds.add(affectedEpisodeId);
           await client.query(
             `UPDATE app_story_asset_variants
@@ -7510,6 +7531,70 @@ async function approveStoryAssetVariantInDb({ projectId = "", ownerUserId = "", 
        WHERE id = $1 AND project_id = $2
        RETURNING *`,
       [String(assetId || ""), String(projectId || ""), JSON.stringify({ approvedVariantId: String(variantId || ""), approvedAt: new Date().toISOString() })],
+    );
+    const variantResult = await client.query(`SELECT * FROM app_story_asset_variants WHERE id = $1`, [String(variantId || "")]);
+    await client.query("COMMIT");
+    return {
+      asset: assetResult.rows[0] ? storyAssetFromRow(assetResult.rows[0]) : null,
+      variant: variantResult.rows[0] ? storyAssetVariantFromRow(variantResult.rows[0]) : null,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function useStoryAssetVariantInDb({ projectId = "", ownerUserId = "", assetId = "", variantId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const target = await client.query(
+      `SELECT a.*
+       FROM app_story_assets a
+       JOIN app_story_projects p ON p.id = a.project_id
+       WHERE a.id = $1 AND a.project_id = $2 AND p.owner_user_id = $3
+       FOR UPDATE`,
+      [String(assetId || ""), String(projectId || ""), String(ownerUserId || "")],
+    );
+    if (!target.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const source = await client.query(
+      `SELECT av.*, a.kind AS source_kind, a.name AS source_name
+       FROM app_story_asset_variants av
+       JOIN app_story_assets a ON a.id = av.asset_id
+       JOIN app_story_projects p ON p.id = a.project_id
+       WHERE av.id = $1 AND a.project_id = $2 AND p.owner_user_id = $3
+         AND av.status = 'approved'
+       FOR UPDATE`,
+      [String(variantId || ""), String(projectId || ""), String(ownerUserId || "")],
+    );
+    if (!source.rows.length || String(source.rows[0].source_kind || "") !== String(target.rows[0].kind || "")) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    await client.query(
+      `UPDATE app_story_asset_variants
+       SET status = 'ready', updated_at = NOW()
+       WHERE asset_id = $1 AND status = 'approved'`,
+      [String(assetId || "")],
+    );
+    const assetResult = await client.query(
+      `UPDATE app_story_assets
+       SET status = 'approved', metadata = metadata || $3::jsonb, updated_at = NOW()
+       WHERE id = $1 AND project_id = $2
+       RETURNING *`,
+      [String(assetId || ""), String(projectId || ""), JSON.stringify({
+        approvedVariantId: String(variantId || ""),
+        approvedSourceAssetId: String(source.rows[0].asset_id || ""),
+        approvedAt: new Date().toISOString(),
+        approvalMode: "reused",
+      })],
     );
     const variantResult = await client.query(`SELECT * FROM app_story_asset_variants WHERE id = $1`, [String(variantId || "")]);
     await client.query("COMMIT");
@@ -12025,6 +12110,7 @@ module.exports = {
   createStoryAssetVariantInDb,
   updateStoryAssetVariantInDb,
   approveStoryAssetVariantInDb,
+  useStoryAssetVariantInDb,
   listStoryPromptVersionsFromDb,
   createStoryPromptVersionInDb,
   listStoryGenerationRefsFromDb,

@@ -335,6 +335,45 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(css, /\.story-shot-action-buttons \{/);
 });
 
+test("shot assets generate, regenerate, approve, and reuse materials in place", () => {
+  const story = read("platform.story.js");
+  const css = read("platform.css");
+  const db = read("db.js");
+  const handlers = read("server.parts/part-03.js");
+  const routes = read("server.parts/part-42.js");
+
+  const workspace = story.slice(story.indexOf("function renderStoryShotWorkspace("), story.indexOf("function storyShotFilterKey("));
+  assert.match(workspace, /storyDisplayAssetVariant\(asset\)/);
+  assert.match(workspace, /data-story-media-image/);
+  assert.match(workspace, /data-story-generate-asset=/);
+  assert.match(workspace, /generated \? "重新生成" : "生成图片"/);
+  assert.match(workspace, /data-story-approve-variant=/);
+  assert.match(workspace, /data-story-reuse-variant=/);
+  assert.match(workspace, /data-story-use-variant=/);
+  assert.match(workspace, /资产库只用于查看全项目记录/);
+  assert.doesNotMatch(workspace, /在资产库审核|图片在资产库中审核定稿/);
+
+  const library = story.slice(story.indexOf("function renderStoryAssetLibraryModal("), story.indexOf("function storyShotPromptMatchesModel("));
+  assert.match(library, /assetLibraryExpandedAssetId/);
+  assert.match(library, /const displayVariants = expanded \? expandedVariants : cover \? \[cover\] : \[\]/);
+  assert.match(library, /data-story-library-expand-asset/);
+  assert.match(library, /data-story-media-fallback/);
+  assert.match(library, /assetLibraryMessage/);
+  assert.match(story, /function storyReusableAssetVariants[\s\S]*variant\.status !== "approved"[\s\S]*sourceAsset\.kind === asset\.kind/);
+  assert.match(story, /addEventListener\("error"[\s\S]*img\[data-story-media-image\]/);
+
+  assert.match(db, /function canonicalStoryAssetName\(/);
+  assert.match(db, /async function useStoryAssetVariantInDb\(/);
+  assert.match(db, /approvedSourceAssetId[\s\S]*approvalMode: "reused"/);
+  assert.match(db, /candidate\.includes\(canonical\) \|\| canonical\.includes\(candidate\)/);
+  assert.match(handlers, /function storyApprovedVariantForAsset[\s\S]*variants\.find\(\(variant\) => variant\.id === approvedId/);
+  assert.match(handlers, /async function handleUseStoryAssetVariant\(/);
+  assert.match(routes, /storyAssetVariantUseMatch[\s\S]*handleUseStoryAssetVariant/);
+  assert.match(css, /\.story-shot-workspace-asset-visual \{/);
+  assert.match(css, /\.story-shot-asset-reuse \{/);
+  assert.match(css, /\.story-library-message \{/);
+});
+
 test("story asset images use refreshed authenticated media URLs instead of persisted signed URLs", () => {
   const handlers = read("server.parts/part-03.js");
   const generation = read("server.parts/part-41.js");

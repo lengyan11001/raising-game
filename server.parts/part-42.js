@@ -781,6 +781,11 @@ async function handleRequest(req, res) {
       return await handleApproveStoryAssetVariant(req, res, decodeURIComponent(storyAssetVariantApproveMatch[1]), decodeURIComponent(storyAssetVariantApproveMatch[2]), decodeURIComponent(storyAssetVariantApproveMatch[3]));
     }
 
+    const storyAssetVariantUseMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/assets\/([^/]+)\/use-variant\/?$/);
+    if (req.method === "POST" && storyAssetVariantUseMatch) {
+      return await handleUseStoryAssetVariant(req, res, decodeURIComponent(storyAssetVariantUseMatch[1]), decodeURIComponent(storyAssetVariantUseMatch[2]));
+    }
+
     const storyAssetVariantMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/assets\/([^/]+)\/variants\/([^/]+)\/?$/);
     if (req.method === "PUT" && storyAssetVariantMatch) {
       return await handleUpdateStoryAssetVariant(req, res, decodeURIComponent(storyAssetVariantMatch[1]), decodeURIComponent(storyAssetVariantMatch[2]), decodeURIComponent(storyAssetVariantMatch[3]));

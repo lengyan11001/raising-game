@@ -388,6 +388,7 @@ const {
   createStoryAssetVariantInDb,
   updateStoryAssetVariantInDb,
   approveStoryAssetVariantInDb,
+  useStoryAssetVariantInDb,
   listStoryPromptVersionsFromDb,
   createStoryPromptVersionInDb,
   listStoryGenerationRefsFromDb,

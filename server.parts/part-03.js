@@ -1072,7 +1072,7 @@ function storyShotUsesAsset(asset = {}, shot = {}) {
 function storyApprovedVariantForAsset(asset = {}, variants = []) {
   const approvedId = String(asset.metadata?.approvedVariantId || "");
   const assetVariants = variants.filter((variant) => variant.assetId === asset.id);
-  return assetVariants.find((variant) => variant.id === approvedId && variant.status === "approved")
+  return variants.find((variant) => variant.id === approvedId && variant.status === "approved")
     || assetVariants.find((variant) => variant.status === "approved")
     || null;
 }
@@ -1604,6 +1604,46 @@ async function handleApproveStoryAssetVariant(req, res, projectId = "", assetId 
     ok: true,
     ...approved,
     variant: storyAssetVariantClientView(approved.variant),
+  });
+}
+
+async function handleUseStoryAssetVariant(req, res, projectId = "", assetId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req, 32 * 1024);
+  const variantId = storyInputText(body.variantId, 160);
+  if (!variantId) return sendJson(res, 400, { ok: false, code: "STORY_ASSET_VARIANT_REQUIRED", message: "请选择已定稿素材。" });
+  const reused = await useStoryAssetVariantInDb({ projectId, ownerUserId: auth.user.id, assetId, variantId });
+  if (!reused) return sendJson(res, 404, { ok: false, code: "STORY_ASSET_VARIANT_NOT_FOUND", message: "未找到可复用的已定稿素材，或素材类型不匹配。" });
+  const episodeIds = storyTextList(reused.asset?.metadata?.episodeIds || [], 100, 80);
+  if (episodeIds.length) {
+    const [episodes, allAssets, allVariants] = await Promise.all([
+      listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id }),
+      listStoryAssetsFromDb({ projectId, ownerUserId: auth.user.id }),
+      listStoryAssetVariantsFromDb({ projectId, ownerUserId: auth.user.id }),
+    ]);
+    for (const episodeId of episodeIds) {
+      const episode = (episodes || []).find((item) => item.id === episodeId);
+      if (!episode) continue;
+      const episodeAssets = (allAssets || []).filter((asset) => storyAssetBelongsToEpisode(asset, episode));
+      if (!episodeAssets.length || episodeAssets.some((asset) => !storyAssetDesignReady(asset, allVariants || []))) continue;
+      await updateStoryEpisodeInDb({
+        projectId,
+        ownerUserId: auth.user.id,
+        episodeId,
+        title: episode.title,
+        synopsis: episode.synopsis,
+        status: "assets_ready",
+        durationSeconds: episode.durationSeconds,
+        metadata: { ...(episode.metadata || {}), assetsApprovedAt: new Date().toISOString() },
+      });
+    }
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    ...reused,
+    variant: storyAssetVariantClientView(reused.variant),
   });
 }
 
