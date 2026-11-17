@@ -42,6 +42,11 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-17-story-legacy-manuscript-group-v1",
+    description: "Group legacy script rows created before manuscript lineage by project and title",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",
@@ -319,6 +324,28 @@ const STORY_MANUSCRIPT_LINEAGE_DDL = Object.freeze([
      ON app_story_episodes (project_id, source_manuscript_id, episode_no);`,
 ]);
 
+const STORY_LEGACY_MANUSCRIPT_GROUP_DDL = Object.freeze([
+  `WITH legacy_manuscripts AS (
+     SELECT id,
+            first_value(id) OVER (
+              PARTITION BY project_id, title
+              ORDER BY version_no ASC, created_at ASC, id ASC
+            ) AS canonical_manuscript_id
+     FROM app_story_script_versions
+     WHERE manuscript_id = id
+   )
+   UPDATE app_story_script_versions sv
+   SET manuscript_id = legacy_manuscripts.canonical_manuscript_id
+   FROM legacy_manuscripts
+   WHERE sv.id = legacy_manuscripts.id
+     AND sv.manuscript_id = sv.id;`,
+  `UPDATE app_story_episodes e
+   SET source_manuscript_id = sv.manuscript_id
+   FROM app_story_script_versions sv
+   WHERE e.source_script_version_id = sv.id
+     AND e.source_manuscript_id <> sv.manuscript_id;`,
+]);
+
 async function runStatements(client, statements) {
   for (const statement of statements) await client.query(statement);
 }
@@ -495,6 +522,8 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
         await runStatements(schemaLockClient, STORY_SCRIPT_TARGETING_DDL);
       } else if (migration.version === "2026-11-17-story-manuscript-lineage-v1") {
         await runStatements(schemaLockClient, STORY_MANUSCRIPT_LINEAGE_DDL);
+      } else if (migration.version === "2026-11-17-story-legacy-manuscript-group-v1") {
+        await runStatements(schemaLockClient, STORY_LEGACY_MANUSCRIPT_GROUP_DDL);
       } else {
         throw new Error(`Unknown schema migration: ${migration.version}`);
       }
