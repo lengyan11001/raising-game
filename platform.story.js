@@ -34,6 +34,7 @@
     assetLibraryShots: [],
     assetLibraryPreviewAssetId: "",
     assetLibraryMessage: "",
+    revisionRequest: null,
     imageModel: "qwen-image3",
     videoModel: "seedance-nsfw",
     videoDuration: 5,
@@ -675,7 +676,7 @@
     const selectedVideoModel = videoModels.find((model) => model.id === storyState.videoModel) || videoModels[0] || { id: storyState.videoModel, label: storyState.videoModel };
     const optimizerModel = storyState.optimizerModel || optimizerModels[0]?.id || "";
     const promptReady = storyShotPromptMatchesModel(shot, selectedVideoModel.id, storyState.promptResolution);
-    const canGenerateVideo = confirmed && promptReady && assetsApproved && !storyState.action;
+    const canGenerateVideo = promptReady && assetsApproved && !storyState.action;
     const generationRefs = (Array.isArray(storyState.detail?.generationRefs) ? storyState.detail.generationRefs : [])
       .filter((ref) => ref.shotId === shot.id && ref.kind === "video")
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
@@ -766,12 +767,12 @@
             </div>
             <div class="story-shot-prompt-block ${promptReady ? "is-ready" : shot.videoPrompt ? "is-stale" : ""}">
               <div><strong>最终视频提示词</strong><small>${promptReady ? `已按 ${storyEscape(selectedVideoModel.label)} · ${storyEscape(storyState.promptResolution)} 优化` : shot.videoPrompt ? "模型或分辨率已变化，需要刷新" : "等待资产定稿后由 AI 生成"}</small></div>
-              ${shot.videoPrompt ? `<pre>${storyEscape(shot.videoPrompt)}</pre>` : `<p>先确认资产清单并完成图片定稿，再按所选模型优化此镜提示词。</p>`}
+              ${shot.videoPrompt ? `<pre>${storyEscape(shot.videoPrompt)}</pre>` : `<p>完成图片定稿后，再按所选模型优化此镜提示词。</p>`}
               <button type="button" data-story-plan-shot-prompt="${storyEscape(shot.id)}" ${assetsApproved && selectedVideoModel.promptOptimizer && optimizerModel && !storyState.action ? "" : "disabled"}><i data-lucide="wand-sparkles"></i><span>${shot.videoPrompt ? "按当前模型刷新此镜提示词" : "AI 生成本镜视频提示词"}</span></button>
             </div>
             <div class="story-shot-generation-gate ${canGenerateVideo ? "is-ready" : ""}">
               <strong>${canGenerateVideo ? "可以生成视频" : "生成门禁未通过"}</strong>
-              <span>${!confirmed ? "先确认此镜资产清单。" : !assetsApproved ? `还需定稿 ${assets.length - approvedAssets.length} 个资产图。` : !promptReady ? "请按当前视频模型和分辨率优化提示词。" : "资产、提示词和模型均已就绪。"}</span>
+              <span>${!assetsApproved ? `还需定稿 ${assets.length - approvedAssets.length} 个资产图。` : !promptReady ? "请按当前视频模型和分辨率优化提示词。" : "资产、提示词和模型均已就绪。"}</span>
             </div>
             <button class="story-create-button story-shot-generate-video" type="button" data-story-generate-shot-video="${storyEscape(shot.id)}" ${canGenerateVideo ? "" : "disabled"}><i data-lucide="${storyState.action === "generate-video" ? "loader-circle" : "clapperboard"}"></i><span>${storyState.action === "generate-video" ? "视频生成中…" : "生成视频"}</span></button>
             <p class="story-message">${storyEscape(storyState.actionMessage || "")}</p>
@@ -793,6 +794,18 @@
     if (matched.length) return [...new Set(matched)].slice(0, 12);
     const declared = storyTextList(asset.metadata?.shotNos || []).map((value) => Number(value)).filter(Number.isFinite);
     return [...new Set(declared.map((value) => `S${String(value).padStart(2, "0")}`))];
+  }
+
+  function renderStoryRevisionModal() {
+    const request = storyState.revisionRequest;
+    if (!request) return "";
+    return `<div class="story-revision-backdrop" data-story-close-revision>
+      <section class="story-revision-modal" role="dialog" aria-modal="true" aria-labelledby="storyRevisionTitle">
+        <header><div><p class="eyebrow">REVISION BRIEF</p><h3 id="storyRevisionTitle">${storyEscape(request.title || "补充修改意见")}</h3><p>${storyEscape(request.message || "")}</p></div><button class="story-icon-button" type="button" data-story-close-revision title="关闭"><i data-lucide="x"></i></button></header>
+        <label>修改意见<textarea id="storyRevisionFeedback" rows="6" maxlength="4000" placeholder="例如：人物脸部更瘦一些，西装改为深灰色，场景增加窗外夜景；保留原有构图和身份特征。"></textarea></label>
+        <footer><small>重新生成会结合这次意见，而不是重复上一次提示词。</small><div><button class="story-secondary-button" type="button" data-story-close-revision>取消</button><button class="story-create-button" type="button" data-story-submit-revision><i data-lucide="refresh-cw"></i><span>带着修改意见重新生成</span></button></div></footer>
+      </section>
+    </div>`;
   }
 
   function renderStoryAssetLibraryModal() {
@@ -1053,6 +1066,7 @@
             <div class="story-tree-layout">${storyTree}<div class="story-tree-workspace">${episodeWorkspace || emptyEpisodeWorkspace}</div></div>
           </section>
         </div>
+        ${renderStoryRevisionModal()}
         ${renderStoryAssetLibraryModal()}
       </div>`;
     storyRefreshIcons();
@@ -1854,15 +1868,55 @@
     }, Math.max(0, Number(delay) || 0));
   }
 
-  async function createStoryAssetImageVariant(asset = {}) {
+  function openStoryRevisionRequest(request = {}) {
+    storyState.revisionRequest = {
+      kind: String(request.kind || ""),
+      itemId: String(request.itemId || ""),
+      shotId: String(request.shotId || ""),
+      title: String(request.title || "补充修改意见"),
+      message: String(request.message || ""),
+    };
+    renderStoryDetail();
+    requestAnimationFrame(() => storyEl("storyRevisionFeedback")?.focus());
+  }
+
+  function closeStoryRevisionRequest() {
+    if (!storyState.revisionRequest) return;
+    storyState.revisionRequest = null;
+    renderStoryDetail();
+  }
+
+  async function submitStoryRevisionRequest() {
+    const request = storyState.revisionRequest;
+    if (!request) return;
+    const feedback = String(storyEl("storyRevisionFeedback")?.value || "").trim();
+    if (!feedback) {
+      storyState.actionMessage = "请填写本次重新生成要修改的地方。";
+      renderStoryDetail();
+      requestAnimationFrame(() => storyEl("storyRevisionFeedback")?.focus());
+      return;
+    }
+    storyState.revisionRequest = null;
+    if (request.kind === "asset") {
+      await generateStoryAssetImage(request.itemId, request.shotId, feedback);
+    } else if (request.kind === "prompt") {
+      await planStoryEpisodePrompts(request.shotId, feedback);
+    }
+  }
+
+  async function createStoryAssetImageVariant(asset = {}, revisionFeedback = "") {
     const projectId = storyState.selectedId;
     const episodeId = storyState.selectedEpisodeId;
     if (!projectId || !episodeId || !asset.id) return;
     const models = Array.isArray(storyState.productionModels?.image) ? storyState.productionModels.image : [];
     const modelId = storyState.imageModel || models[0]?.id || "qwen-image3";
     const model = models.find((item) => item.id === modelId) || models[0] || { id: modelId, label: modelId };
-    const prompt = String(asset.metadata?.imagePrompt || asset.description || "").trim();
-    if (!prompt) throw new Error(`${asset.name} 缺少设计图提示词，请先重新提取资产。`);
+    const basePrompt = String(asset.metadata?.imagePrompt || asset.description || "").trim();
+    if (!basePrompt) throw new Error(`${asset.name} 缺少设计图提示词，请先重新提取资产。`);
+    const prompt = [
+      basePrompt,
+      revisionFeedback ? `本次重新生成的修改要求：${revisionFeedback}` : "",
+    ].filter(Boolean).join("\n\n");
     const payload = await requestJson("/api/advanced/generate", {
       method: "POST",
       body: {
@@ -1871,7 +1925,7 @@
         resolution: model.resolution || "2K",
         ratio: model.ratio || storyState.detail?.project?.aspectRatio || "3:4",
         duration: 1,
-        params: { createKind: "story-asset", projectId, episodeId, storyAssetId: asset.id, storyImageModel: model.id },
+        params: { createKind: "story-asset", projectId, episodeId, storyAssetId: asset.id, storyImageModel: model.id, revisionFeedback },
       },
     });
     const taskId = payload.taskId || payload.task?.taskId || payload.record?.taskId || "";
@@ -1885,7 +1939,7 @@
         provider: model.id,
         generationRecordId: taskId,
         status: "generating",
-        metadata: { model: model.id, modelLabel: model.label, episodeId },
+        metadata: { model: model.id, modelLabel: model.label, episodeId, revisionFeedback },
       },
     });
     const variant = created.variant;
@@ -2045,7 +2099,7 @@
     }
   }
 
-  async function generateStoryAssetImage(assetId = "", shotId = "") {
+  async function generateStoryAssetImage(assetId = "", shotId = "", revisionFeedback = "") {
     const asset = storyEpisodeAssets(selectedStoryEpisode() || {}).find((item) => item.id === assetId);
     if (!asset || storyState.action) return;
     const shot = shotId ? storyState.shots.find((item) => item.id === shotId) : null;
@@ -2054,12 +2108,22 @@
       renderStoryDetail();
       return;
     }
+    if (storyAssetHasGeneratedImage(asset) && !revisionFeedback) {
+      openStoryRevisionRequest({
+        kind: "asset",
+        itemId: asset.id,
+        shotId,
+        title: `重新生成「${asset.name}」`,
+        message: "上一次结果不会自动变化。请说明这次要改什么，AI 会带着修改要求重新生成。",
+      });
+      return;
+    }
     storyState.action = "generate-asset";
     storyState.generatingAssetId = asset.id;
     storyState.actionMessage = `AI 正在生成「${asset.name}」的资产设计图…`;
     renderStoryDetail();
     try {
-      await createStoryAssetImageVariant(asset);
+      await createStoryAssetImageVariant(asset, revisionFeedback);
       await loadStoryDetail(storyState.selectedId);
       storyState.episodeTab = "production";
       storyState.actionMessage = `「${asset.name}」设计图已生成，可在当前分镜直接设为定稿。`;
@@ -2081,11 +2145,6 @@
     const assets = storyShotAssets(episode, shot);
     const models = Array.isArray(storyState.productionModels?.video) ? storyState.productionModels.video : [];
     const model = models.find((item) => item.id === storyState.videoModel) || models[0] || { id: storyState.videoModel, label: storyState.videoModel };
-    if (!storyShotAssetsConfirmed(shot)) {
-      storyState.actionMessage = "请先确认此镜的资产清单。";
-      renderStoryDetail();
-      return;
-    }
     if (!assets.length || !assets.every((asset) => storyAssetHasApprovedImage(asset))) {
       storyState.actionMessage = "请先在当前分镜定稿全部资产图。";
       renderStoryDetail();
@@ -2255,7 +2314,7 @@
     }
   }
 
-  async function planStoryEpisodePrompts(targetShotId = "") {
+  async function planStoryEpisodePrompts(targetShotId = "", revisionFeedback = "") {
     const projectId = storyState.selectedId;
     const episode = selectedStoryEpisode();
     if (!projectId || !episode || storyState.action) return;
@@ -2266,6 +2325,15 @@
     if (!shots.length) {
       storyState.actionMessage = "请先生成本集分镜。";
       renderStoryDetail();
+      return;
+    }
+    if (!revisionFeedback && shots.some((shot) => String(shot.videoPrompt || "").trim())) {
+      openStoryRevisionRequest({
+        kind: "prompt",
+        shotId: requestedShotId,
+        title: requestedShotId ? "刷新此镜提示词" : "批量刷新本集提示词",
+        message: "已有提示词不会自动变好。请说明这次要调整什么，AI 会在上一版基础上按意见重写。",
+      });
       return;
     }
     const videoModel = storyEl("storyVideoModel")?.value || storyState.videoModel;
@@ -2290,7 +2358,7 @@
         try {
           const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/prompts/plan`, {
             method: "POST",
-            body: { provider: videoModel, optimizerModel, resolution, shotId: shot.id },
+            body: { provider: videoModel, optimizerModel, resolution, shotId: shot.id, revisionFeedback },
           });
           modelLabel = payload.model?.label || modelLabel;
           const savedShot = payload.shots?.[0];
@@ -2456,7 +2524,9 @@
       if (button) loadStoryDetail(button.dataset.storyProjectId || "");
     });
     storyEl("storyProjectDetail")?.addEventListener("click", (event) => {
-      if (event.target.classList?.contains("story-asset-library-backdrop") || event.target.closest("button[data-story-close-asset-library]")) closeStoryAssetLibrary();
+      if (event.target.classList?.contains("story-revision-backdrop") || event.target.closest("button[data-story-close-revision]")) closeStoryRevisionRequest();
+      else if (event.target.closest("[data-story-submit-revision]")) submitStoryRevisionRequest();
+      else if (event.target.classList?.contains("story-asset-library-backdrop") || event.target.closest("button[data-story-close-asset-library]")) closeStoryAssetLibrary();
       else if (event.target.closest("[data-story-open-asset-library]")) openStoryAssetLibrary();
       else if (event.target.closest("[data-story-library-preview-close]")) {
         storyState.assetLibraryPreviewAssetId = "";

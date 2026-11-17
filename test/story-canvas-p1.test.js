@@ -104,8 +104,8 @@ test("story P1 uses a script-episode-shot tree with confirmation-gated assets", 
   assert.match(story, /data-story-confirm-shot-assets/);
   assert.match(story, /data-story-generate-shot-assets/);
   assert.match(story, /data-story-plan-shot-prompt/);
-  assert.match(story, /function planStoryEpisodePrompts\(targetShotId = ""\)/);
-  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: shot\.id \}/);
+  assert.match(story, /function planStoryEpisodePrompts\(targetShotId = "", revisionFeedback = ""\)/);
+  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: shot\.id, revisionFeedback \}/);
   const openLibrary = story.slice(story.indexOf("async function openStoryAssetLibrary("), story.indexOf("function closeStoryAssetLibrary("));
   assert.doesNotMatch(openLibrary, /advanced\/generate|createStoryAssetImageVariant|\/variants/);
   assert.match(story, /data-story-tab="\$\{tab\.id\}"/);
@@ -301,6 +301,9 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /AI 提取本集资产/);
   assert.match(story, /补齐 \$\{missingImageAssets\.length\} 个资产图/);
   assert.match(story, /storyAssetsNeedingImage/);
+  assert.match(story, /function openStoryRevisionRequest[\s\S]*storyRevisionFeedback/);
+  assert.match(story, /storyAssetHasGeneratedImage\(asset\) && !revisionFeedback[\s\S]*openStoryRevisionRequest/);
+  assert.match(story, /本次重新生成的修改要求：\$\{revisionFeedback\}/);
   assert.match(story, /function storyAssetHasApprovedImage[\s\S]*storyAssetVariantImageUrl\(approved\)/);
   assert.match(story, /assets\.every\(\(asset\) => storyAssetHasApprovedImage\(asset\)\)/);
   assert.match(story, /function storyVariantStatusLabel[\s\S]*可审核/);
@@ -321,7 +324,7 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /\/variants\/\$\{encodeURIComponent\(variantId\)\}\/approve/);
   assert.match(story, /\/prompts\/plan/);
   assert.match(story, /for \(let index = 0; index < shots\.length; index \+= 1\)/);
-  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: shot\.id \}/);
+  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: shot\.id, revisionFeedback \}/);
   assert.match(story, /promptMatchesModel \? "已按当前模型优化"[\s\S]*模型已变，需刷新[\s\S]*待优化/);
   assert.match(story, /cdnImageUrl/);
   assert.match(story, /createKind: "story-asset"[\s\S]*storyAssetId: asset\.id/);
@@ -443,6 +446,8 @@ test("story video jobs bind approved asset IDs and sync completed backend record
   assert.match(story, /firstFrameAssetId: limited\[0\]\.assetId/);
   assert.doesNotMatch(story, /storyGenerationReferenceImageUrl|upstreamUrlForProtectedGenerationMedia|UPSTREAM_REFERENCE_NOT_PUBLIC/);
   assert.match(story, /duration,[\s\S]*\.\.\.mediaParams,[\s\S]*params: \{/);
+  assert.match(story, /const canGenerateVideo = promptReady && assetsApproved && !storyState\.action/);
+  assert.doesNotMatch(story, /async function generateStoryShotVideo[\s\S]{0,900}if \(!storyShotAssetsConfirmed\(shot\)\)/);
   assert.match(story, /storyApprovedAssetReferences\(episode, shot\)/);
   assert.match(story, /if \(!Object\.keys\(mediaParams\)\.length\)[\s\S]*已阻止无素材生成/);
   assert.doesNotMatch(story, /await pollStoryVideoGenerationRecord\(taskId\)[\s\S]*loadStoryDetail\(projectId\)[\s\S]*视频已生成/);
