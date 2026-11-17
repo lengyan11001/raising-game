@@ -17,6 +17,13 @@
 - Verification: focused auth/UI/service-worker/canvas tests 72/72; syntax, `npm run check:undef`, and `git diff --check` pass. Browser preview checked at 320x500: controls fit, modal body scrolls, and the password eye control remains visible.
 - Full `npm test`: 1389 pass / 9 fail / 2 skipped. The failures are the pre-existing serializer baseline and unrelated `server.parts/part-45.js` Seedance optimizer WIP. No deployment was performed.
 
+## 2026-11-17 Step DL: Story detail header merged into the global top row
+
+- User rejected the previous compact toolbar because it still sat below the large global `STORY WORKBENCH / 剧集 / description` header. The detail view now reuses the global header itself: `← 剧集`, project name, inline script/episode/asset/shot/aspect counts, and the asset-library action all occupy that single row.
+- Removed the inner detail toolbar entirely, so the detail card starts with the workspace tabs. Detail mode also reduces the story shell's top padding from 28px to 14px; the normal project-library header is restored when returning to the library.
+- Because the global header is now rerendered by view, refresh-project and create-project click handling moved to the delegated story click handler. All other story interactions remain unchanged.
+- Verification: `node --check platform.story.js`, `npm run check:undef`, `git diff --check`, and `node --test test/story-canvas-p1.test.js` (18/18) pass.
+
 ## 2026-11-17 Step DK: Compact story planning toolbar and AI-owned shot count
 
 - The story detail header is now a single compact line: a `剧集` back button, project title, inline counts for script versions / episodes / assets / shots / aspect ratio, and the asset-library action. The old project eyebrow, description, status, and oversized metric cards no longer consume vertical space.

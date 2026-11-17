@@ -123,6 +123,7 @@
   function renderStoryProjectList() {
     const host = storyEl("storyProjectList");
     if (!host) return;
+    renderStoryWindowHeader();
     storySyncVisibility();
     if (storyState.view !== "library") return;
     if (storyState.loading && !storyState.projects.length) {
@@ -160,6 +161,46 @@
     const badge = storyEl("storyContractBadge");
     const contract = detail?.contracts || storyState.contract;
     if (badge) badge.textContent = contract?.version ? `P1 · ${contract.version}` : "P1 · 契约未加载";
+  }
+
+  function renderStoryWindowHeader() {
+    const head = document.querySelector(".story-library-head");
+    if (!head) return;
+    const title = head.querySelector(".story-library-title");
+    const actions = head.querySelector(".story-library-actions");
+    if (!title || !actions) return;
+    const project = storyState.detail?.project || storyState.projects.find((item) => item.id === storyState.selectedId) || null;
+    const isDetail = storyState.view === "detail" && project;
+    head.closest(".story-shell")?.classList.toggle("is-detail", Boolean(isDetail));
+    head.classList.toggle("is-detail", Boolean(isDetail));
+    if (isDetail) {
+      title.innerHTML = `
+        <button class="story-back-button story-inline-back" data-story-back type="button"><i data-lucide="arrow-left"></i><span>剧集</span></button>
+        <div class="story-project-inline-head">
+          <h2>${storyEscape(project.name || "未命名剧集")}</h2>
+          <div class="story-project-inline-stats">
+            <span><b>${Number(project.scriptVersionCount || 0)}</b> 文稿</span>
+            <span><b>${Number(project.episodeCount || 0)}</b> 集</span>
+            <span><b>${Number(project.assetCount || 0)}</b> 资产</span>
+            <span><b>${Number(project.shotCount || 0)}</b> 分镜</span>
+            <span>${storyEscape(project.aspectRatio || "9:16")}</span>
+          </div>
+        </div>`;
+      actions.innerHTML = `
+        <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>资产库</span></button>
+        <button class="story-icon-button" type="button" data-story-refresh-detail title="刷新项目" aria-label="刷新项目"><i data-lucide="refresh-cw"></i></button>`;
+    } else {
+      title.innerHTML = `
+        <span class="story-kicker"><i data-lucide="clapperboard"></i> STORY WORKBENCH · ADMIN</span>
+        <h2>剧集</h2>
+        <p>文稿、剧集、角色与场景集中管理。</p>`;
+      actions.innerHTML = `
+        <span class="story-contract-badge" id="storyContractBadge">P1 · 加载中</span>
+        <button class="story-icon-button" id="storyRefreshProjects" type="button" title="刷新项目" aria-label="刷新项目"><i data-lucide="refresh-cw"></i></button>
+        <button class="story-create-button" id="storyCreateProjectToggle" type="button"><i data-lucide="plus"></i><span>新建项目</span></button>`;
+      renderStoryContract();
+    }
+    storyRefreshIcons();
   }
 
   const STORY_DETAIL_TABS = [
@@ -928,6 +969,7 @@
   function renderStoryDetail() {
     const host = storyEl("storyProjectDetail");
     if (!host) return;
+    renderStoryWindowHeader();
     renderStoryContract(storyState.detail);
     storySyncVisibility();
     if (storyState.view !== "detail") return;
@@ -1019,20 +1061,6 @@
       </section>`;
     host.innerHTML = `
       <div class="story-detail-panel">
-        <div class="story-project-toolbar">
-          <button class="story-back-button" data-story-back type="button"><i data-lucide="arrow-left"></i><span>剧集</span></button>
-          <div class="story-project-toolbar-main">
-            <h2>${storyEscape(project.name)}</h2>
-            <div class="story-project-inline-stats">
-              <span><b>${Number(project.scriptVersionCount || 0)}</b> 文稿</span>
-              <span><b>${Number(project.episodeCount || 0)}</b> 集</span>
-              <span><b>${Number(project.assetCount || 0)}</b> 资产</span>
-              <span><b>${Number(project.shotCount || 0)}</b> 分镜</span>
-              <span>${storyEscape(project.aspectRatio)}</span>
-            </div>
-          </div>
-          <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>资产库</span></button>
-        </div>
         ${renderStoryDetailTabs()}
         <div class="story-tab-panel" data-story-tab-panel="script" ${storyState.detailTab === "script" ? "" : "hidden"}>
           ${renderStoryScriptSection()}
@@ -2502,8 +2530,6 @@
       }
     });
     storyEl("storyProjectForm")?.addEventListener("submit", createStoryProject);
-    storyEl("storyRefreshProjects")?.addEventListener("click", () => loadStoryProjects(storyState.view === "detail" ? storyState.selectedId : ""));
-    storyEl("storyCreateProjectToggle")?.addEventListener("click", () => setStoryCreateOpen(!storyState.createOpen));
     storyEl("storyCreateProjectClose")?.addEventListener("click", () => setStoryCreateOpen(false));
     storyEl("storyProjectList")?.addEventListener("click", (event) => {
       const create = event.target.closest("[data-story-create-open]");
@@ -2528,6 +2554,8 @@
         renderStoryDetail();
       }
       else if (event.target.closest("[data-story-refresh-detail]")) loadStoryProjects(storyState.selectedId);
+      else if (event.target.closest("#storyRefreshProjects")) loadStoryProjects(storyState.view === "detail" ? storyState.selectedId : "");
+      else if (event.target.closest("#storyCreateProjectToggle")) setStoryCreateOpen(!storyState.createOpen);
       else if (event.target.closest("[data-story-back]")) openStoryLibrary();
       else if (event.target.closest("[data-story-tab]")) setStoryDetailTab(event.target.closest("[data-story-tab]")?.dataset.storyTab || "");
       else if (event.target.closest("[data-story-close-episode]")) closeStoryEpisode();
