@@ -240,8 +240,10 @@ test("story episodes and durations are AI-planned unless the user explicitly ove
   assert.match(story, /analysisDurationDirty = true/);
   assert.match(html, /预计集数（可选）[\s\S]*留空由 AI 判断/);
   assert.match(css, /\.story-script-fields \{[^}]*grid-template-columns: minmax\(190px, 1\.7fr\) repeat\(3, minmax\(112px, 1fr\)\)/);
-  assert.match(css, /\.story-library-head\.is-detail \{[^}]*margin-bottom: 10px/);
-  assert.match(css, /\.story-shell\.is-detail \{ padding-top: 14px; \}/);
+  assert.match(css, /\.story-library-head\.is-detail \{[^}]*min-height: 34px[^}]*margin-bottom: 6px/);
+  assert.match(css, /\.story-shell\.is-detail \{ margin-top: -8px; padding-top: 0; \}/);
+  assert.match(css, /\.story-library-head\.is-detail \.story-project-inline-head h2 \{[^}]*margin: 0[^}]*line-height: 1/);
+  assert.match(css, /\.story-detail \{ min-width: 0; padding: 0; \}/);
   assert.match(db, /episode_target INTEGER NOT NULL DEFAULT 0/);
   assert.match(db, /ALTER COLUMN episode_target SET DEFAULT 0/);
 });

@@ -15513,15 +15513,15 @@ body.app-keyboard-open {
     #111014;
 }
 .story-shell { width: min(100%, 1580px); margin: 0 auto; padding: 28px 32px 64px; }
-.story-shell.is-detail { padding-top: 14px; }
+.story-shell.is-detail { margin-top: -8px; padding-top: 0; }
 .story-library-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
 .story-library-title { min-width: 0; }
-.story-library-head.is-detail { align-items: center; gap: 14px; margin-bottom: 10px; }
+.story-library-head.is-detail { min-height: 34px; align-items: center; gap: 14px; margin-bottom: 6px; }
 .story-library-head.is-detail .story-library-title { display: flex; flex: 1 1 auto; align-items: center; gap: 12px; }
 .story-library-head.is-detail .story-library-actions { gap: 7px; }
 .story-inline-back { flex: 0 0 auto; }
 .story-project-inline-head { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: 14px; }
-.story-project-inline-head h2 { min-width: 0; margin: 0; overflow: hidden; color: #f7f3f8; font-size: clamp(19px, 2vw, 25px); font-weight: 740; letter-spacing: -.035em; text-overflow: ellipsis; white-space: nowrap; }
+.story-library-head.is-detail .story-project-inline-head h2 { min-width: 0; margin: 0; overflow: hidden; color: #f7f3f8; font-size: 22px; font-weight: 740; letter-spacing: -.035em; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
 .story-project-inline-stats { display: flex; min-width: 0; align-items: center; gap: 7px; overflow: hidden; color: #8f8594; font-size: 9px; white-space: nowrap; }
 .story-project-inline-stats span { display: inline-flex; align-items: baseline; gap: 3px; }
 .story-project-inline-stats span + span { padding-left: 7px; border-left: 1px solid rgba(255, 255, 255, .09); }
@@ -15596,7 +15596,7 @@ body.app-keyboard-open {
 .story-empty-project-mark { color: var(--story-pink); font-size: 36px; font-weight: 200; line-height: 1; }
 .story-empty-project strong { font-size: 15px; font-weight: 650; }
 .story-empty-project small { color: var(--story-muted); font-size: 11px; }
-.story-detail { min-width: 0; }
+.story-detail { min-width: 0; padding: 0; }
 .story-detail-panel { padding: 20px; background: rgba(255, 255, 255, .022); border: 1px solid var(--story-line); border-radius: 13px; }
 .story-detail-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .story-detail-topbar > span { color: #796f80; font: 650 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; }
