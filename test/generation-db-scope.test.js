@@ -59,8 +59,8 @@ test("legacy full snapshots use one pooled connection and skip unused tables", (
   assert.match(block, /const client = await getPool\(\)\.connect\(\)/);
   assert.match(block, /finally \{\s*client\.release\(\);/);
   assert.doesNotMatch(block, /Promise\.all\(\[/);
-  assert.match(block, /const users = scopedAccount/);
-  assert.match(block, /const sessions = scopedAccount/);
+  assert.match(block, /if \(scopedAccount\)/);
+  assert.match(block, /jsonb_agg\(to_jsonb\(t\)/);
   assert.doesNotMatch(block, /SELECT \* FROM app_admin_home_items/);
   assert.doesNotMatch(block, /SELECT \* FROM app_support_messages/);
 });
@@ -98,20 +98,23 @@ test("authenticated snapshots scope account tables while admin keeps full reads"
   const end = db.indexOf("async function replaceAppDbTables(", start);
   const block = db.slice(start, end);
 
-  assert.ok(start > 0 && end > start);
+  const scopedStart = block.indexOf("if (scopedAccount) {");
+  const scopedEnd = block.indexOf("} else {", scopedStart);
+  const scoped = block.slice(scopedStart, scopedEnd);
+  assert.ok(scopedStart > 0 && scopedEnd > scopedStart);
   assert.match(part02, /accountUserId: String\(options\.accountUserId \|\| ""\)\.trim\(\)/);
   assert.match(part02, /includeAllAccountData: options\.includeAllAccountData === true/);
   assert.match(auth, /accountUserId: includeAllAccountData \? "" : user\.id/);
-  assert.match(block, /SELECT \* FROM app_users WHERE id = \$1 AND deleted_at IS NULL/);
-  assert.match(block, /SELECT \* FROM app_sessions WHERE user_id = \$1/);
-  assert.match(block, /SELECT \* FROM app_wallet_orders WHERE user_id = \$1/);
-  assert.match(block, /SELECT \* FROM app_referral_withdrawals WHERE user_id = \$1/);
-  assert.match(block, /SELECT \* FROM app_credit_ledger WHERE user_id = \$1/);
-  assert.match(block, /SELECT \* FROM app_user_characters WHERE user_id = \$1/);
-  assert.match(block, /SELECT \* FROM app_user_unlocks WHERE user_id = \$1/);
+  assert.equal((scoped.match(/await readRows\(/g) || []).length, 1);
+  assert.match(scoped, /jsonb_agg\(to_jsonb\(t\) ORDER BY t\.created_at ASC\).*?FROM app_users/);
+  assert.match(scoped, /jsonb_agg\(to_jsonb\(t\) ORDER BY t\.created_at ASC\).*?FROM app_sessions/);
+  assert.match(scoped, /jsonb_agg\(to_jsonb\(t\) ORDER BY t\.created_at DESC\).*?FROM app_wallet_orders/);
+  assert.match(scoped, /jsonb_agg\(to_jsonb\(t\) ORDER BY t\.created_at DESC\).*?FROM app_referral_withdrawals/);
+  assert.match(scoped, /FROM app_credit_ledger WHERE user_id = \$1 ORDER BY created_at DESC LIMIT 1000/);
+  assert.match(scoped, /FROM app_user_characters t WHERE t\.user_id = \$1/);
+  assert.match(scoped, /FROM app_user_unlocks t WHERE t\.user_id = \$1/);
   assert.match(block, /includeAllAccountData === true \|\| !accountUserId/);
-  assert.match(block, /scopedAccount\s*\? await readRows\(`SELECT \* FROM app_users WHERE id = \$1/);
-  assert.match(block, /: await readRows\(`SELECT \* FROM app_users WHERE deleted_at IS NULL/);
+  assert.match(block, /users = await readRows\(`SELECT \* FROM app_users WHERE deleted_at IS NULL/);
 });
 
 test("referral pages explicitly retain cross-user account summaries", () => {

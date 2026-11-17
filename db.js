@@ -2624,35 +2624,59 @@ async function readAppDbFromTables(defaultDb = {}, options = {}) {
   try {
     const readRows = async (sql, params = []) => (await client.query(sql, params)).rows;
     // Authenticated requests only need the signed-in account's rows. Keep the
-    // legacy full snapshot behind an explicit opt-in for admin and system jobs;
-    // otherwise the auth path transfers the entire users/orders/characters/
-    // unlocks history on every request and competes with live traffic.
-    const users = scopedAccount
-      ? await readRows(`SELECT * FROM app_users WHERE id = $1 AND deleted_at IS NULL ORDER BY created_at ASC`, [accountUserId])
-      : await readRows(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`);
-    const sessions = scopedAccount
-      ? await readRows(`SELECT * FROM app_sessions WHERE user_id = $1 ORDER BY created_at ASC`, [accountUserId])
-      : await readRows(`SELECT * FROM app_sessions ORDER BY created_at ASC`);
-    const walletOrders = scopedAccount
-      ? await readRows(`SELECT * FROM app_wallet_orders WHERE user_id = $1 ORDER BY created_at DESC`, [accountUserId])
-      : await readRows(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`);
-    const referralWithdrawals = scopedAccount
-      ? await readRows(`SELECT * FROM app_referral_withdrawals WHERE user_id = $1 ORDER BY created_at DESC`, [accountUserId])
-      : await readRows(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`);
-    const creditLedger = scopedAccount
-      ? await readRows(`SELECT * FROM app_credit_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1000`, [accountUserId])
-      : await readRows(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`);
-    const userAssets = !includeUserAssets
-      ? []
-      : userAssetsUserId
-        ? await readRows(`SELECT * FROM app_user_assets WHERE user_id = $1 ORDER BY created_at DESC`, [userAssetsUserId])
-        : await readRows(`SELECT * FROM app_user_assets ORDER BY created_at DESC`);
-    const userCharacters = scopedAccount
-      ? await readRows(`SELECT * FROM app_user_characters WHERE user_id = $1 ORDER BY created_at DESC`, [accountUserId])
-      : await readRows(`SELECT * FROM app_user_characters ORDER BY created_at DESC`);
-    const userUnlocks = scopedAccount
-      ? await readRows(`SELECT * FROM app_user_unlocks WHERE user_id = $1 ORDER BY created_at DESC`, [accountUserId])
-      : await readRows(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`);
+    // legacy full snapshot behind an explicit opt-in for admin and system jobs.
+    // The scoped path is assembled by PostgreSQL in one round trip so a normal
+    // page request does not spend eight pool queries rebuilding account state.
+    let users;
+    let sessions;
+    let walletOrders;
+    let referralWithdrawals;
+    let creditLedger;
+    let userAssets;
+    let userCharacters;
+    let userUnlocks;
+    if (scopedAccount) {
+      const assetUserId = userAssetsUserId || accountUserId;
+      const scopedParams = [accountUserId];
+      const scopedAssetSql = includeUserAssets
+        ? (scopedParams.push(assetUserId), `COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_user_assets t WHERE t.user_id = $2), '[]'::jsonb)`)
+        : `'[]'::jsonb`;
+      const snapshotRows = await readRows(`
+        SELECT
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at ASC) FROM app_users t WHERE t.id = $1 AND t.deleted_at IS NULL), '[]'::jsonb) AS "users",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at ASC) FROM app_sessions t WHERE t.user_id = $1), '[]'::jsonb) AS "sessions",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_wallet_orders t WHERE t.user_id = $1), '[]'::jsonb) AS "walletOrders",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_referral_withdrawals t WHERE t.user_id = $1), '[]'::jsonb) AS "referralWithdrawals",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM (
+            SELECT * FROM app_credit_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1000
+          ) t), '[]'::jsonb) AS "creditLedger",
+          ${scopedAssetSql} AS "userAssets",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_user_characters t WHERE t.user_id = $1), '[]'::jsonb) AS "userCharacters",
+          COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC) FROM app_user_unlocks t WHERE t.user_id = $1), '[]'::jsonb) AS "userUnlocks"
+      `, scopedParams);
+      const snapshot = snapshotRows[0] || {};
+      users = snapshot.users || [];
+      sessions = snapshot.sessions || [];
+      walletOrders = snapshot.walletOrders || [];
+      referralWithdrawals = snapshot.referralWithdrawals || [];
+      creditLedger = snapshot.creditLedger || [];
+      userAssets = snapshot.userAssets || [];
+      userCharacters = snapshot.userCharacters || [];
+      userUnlocks = snapshot.userUnlocks || [];
+    } else {
+      users = await readRows(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`);
+      sessions = await readRows(`SELECT * FROM app_sessions ORDER BY created_at ASC`);
+      walletOrders = await readRows(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`);
+      referralWithdrawals = await readRows(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`);
+      creditLedger = await readRows(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`);
+      userAssets = !includeUserAssets
+        ? []
+        : userAssetsUserId
+          ? await readRows(`SELECT * FROM app_user_assets WHERE user_id = $1 ORDER BY created_at DESC`, [userAssetsUserId])
+          : await readRows(`SELECT * FROM app_user_assets ORDER BY created_at DESC`);
+      userCharacters = await readRows(`SELECT * FROM app_user_characters ORDER BY created_at DESC`);
+      userUnlocks = await readRows(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`);
+    }
     // Admin home items and support messages have dedicated paginated readers.
     // They were previously queried here and then discarded by readDb(), wasting
     // two sequential round trips and transferring payloads nobody consumed.
