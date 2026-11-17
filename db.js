@@ -7079,11 +7079,13 @@ async function listStoryEpisodesFromDb({ projectId = "", ownerUserId = "" } = {}
   return rows.map(storyEpisodeFromRow);
 }
 
-async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "", episodeNo = 0, title = "", synopsis = "", status = "draft", durationSeconds = 0, metadata = {} } = {}) {
+async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "", sourceScriptVersionId = "", sourceManuscriptId = "", episodeNo = 0, title = "", synopsis = "", status = "draft", durationSeconds = 0, metadata = {} } = {}) {
   if (!dbEnabled()) return null;
   const episodeId = String(id || "").trim();
   const parentId = String(projectId || "").trim();
   const ownerId = String(ownerUserId || "").trim();
+  const scriptVersionId = String(sourceScriptVersionId || "").trim();
+  const manuscriptId = String(sourceManuscriptId || "").trim();
   if (!episodeId || !parentId || !ownerId) return null;
   await ensureSchema();
   const client = await getPool().connect();
@@ -7101,16 +7103,18 @@ async function createStoryEpisodeInDb({ id = "", projectId = "", ownerUserId = "
     let nextNo = Math.max(0, Number(episodeNo || 0) || 0);
     if (!nextNo) {
       const next = await client.query(
-        `SELECT COALESCE(MAX(episode_no), 0) + 1 AS next_no FROM app_story_episodes WHERE project_id = $1`,
-        [parentId],
+        `SELECT COALESCE(MAX(episode_no), 0) + 1 AS next_no
+         FROM app_story_episodes
+         WHERE project_id = $1 AND ($2 = '' OR source_manuscript_id = $2)`,
+        [parentId, manuscriptId],
       );
       nextNo = Math.max(1, Number(next.rows[0]?.next_no || 1) || 1);
     }
     const inserted = await client.query(
-      `INSERT INTO app_story_episodes(id, project_id, episode_no, title, synopsis, status, duration_seconds, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+      `INSERT INTO app_story_episodes(id, project_id, source_script_version_id, source_manuscript_id, episode_no, title, synopsis, status, duration_seconds, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
        RETURNING *`,
-      [episodeId, parentId, nextNo, String(title || ""), String(synopsis || ""), String(status || "draft"), Math.max(0, Number(durationSeconds || 0) || 0), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {})],
+      [episodeId, parentId, scriptVersionId, manuscriptId, nextNo, String(title || ""), String(synopsis || ""), String(status || "draft"), Math.max(0, Number(durationSeconds || 0) || 0), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {})],
     );
     row = inserted.rows[0];
     await client.query(
@@ -7364,6 +7368,54 @@ async function createStoryScriptVersionInDb({ id = "", projectId = "", ownerUser
     );
     row = inserted.rows[0];
     await client.query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return row ? storyScriptVersionFromRow(row) : null;
+}
+
+async function deleteStoryScriptVersionFromDb({ projectId = "", ownerUserId = "", scriptVersionId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const targetId = String(scriptVersionId || "").trim();
+  if (!parentId || !ownerId || !targetId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  let row;
+  try {
+    await client.query("BEGIN");
+    const project = await client.query(
+      `SELECT id FROM app_story_projects WHERE id = $1 AND owner_user_id = $2 FOR UPDATE`,
+      [parentId, ownerId],
+    );
+    if (!project.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const deletedEpisodes = await client.query(
+      `DELETE FROM app_story_episodes
+       WHERE project_id = $1 AND source_script_version_id = $2
+       RETURNING id`,
+      [parentId, targetId],
+    );
+    if (deletedEpisodes.rows.length) {
+      await client.query(
+        `DELETE FROM app_story_canvas_links
+         WHERE project_id = $1 AND scope_type = 'episode' AND scope_id = ANY($2::text[])`,
+        [parentId, deletedEpisodes.rows.map((item) => item.id)],
+      );
+    }
+    const deleted = await client.query(
+      `DELETE FROM app_story_script_versions WHERE id = $1 AND project_id = $2 RETURNING *`,
+      [targetId, parentId],
+    );
+    row = deleted.rows[0];
+    if (row) await client.query(`UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1`, [parentId]);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -8090,6 +8142,19 @@ async function deleteStoryEpisodeFromDb({ projectId = "", ownerUserId = "", epis
     client.release();
   }
   return row ? storyEpisodeFromRow(row) : null;
+}
+
+async function deleteStoryProjectFromDb({ projectId = "", ownerUserId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const targetId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!targetId || !ownerId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `DELETE FROM app_story_projects WHERE id = $1 AND owner_user_id = $2 RETURNING *`,
+    [targetId, ownerId],
+  );
+  return rows[0] ? storyProjectFromRow(rows[0]) : null;
 }
 
 async function listStoryCanvasLinksFromDb({ projectId = "", ownerUserId = "" } = {}) {
@@ -12264,6 +12329,7 @@ module.exports = {
   replaceStoryShotsInDb,
   listStoryScriptVersionsFromDb,
   createStoryScriptVersionInDb,
+  deleteStoryScriptVersionFromDb,
   listStoryAssetsFromDb,
   listStoryAssetVariantsFromDb,
   upsertStoryAssetPlanInDb,
@@ -12278,6 +12344,7 @@ module.exports = {
   updateStoryGenerationRefInDb,
   importStoryAnalysisInDb,
   deleteStoryEpisodeFromDb,
+  deleteStoryProjectFromDb,
   listStoryCanvasLinksFromDb,
   findUserUnlockInDb,
   normalizeApiSubtokenRecord,

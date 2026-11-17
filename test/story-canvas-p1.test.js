@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
@@ -13,6 +14,66 @@ function handlerBody(source, name) {
   assert.notEqual(start, -1, `${name} missing`);
   return source.slice(start, source.indexOf("\n}\n", start));
 }
+
+function storyNumberingHelpers() {
+  const source = read("server.parts/part-03.js");
+  const start = source.indexOf("function storyStartEpisodeNoForScript(");
+  const end = source.indexOf("async function analyzeStoryScript(", start);
+  assert.notEqual(start, -1, "storyStartEpisodeNoForScript missing");
+  assert.notEqual(end, -1, "analyzeStoryScript missing");
+  const context = {};
+  vm.runInNewContext(`${source.slice(start, end)}\nthis.storyStartEpisodeNoForScript = storyStartEpisodeNoForScript; this.storyRenumberAnalysis = storyRenumberAnalysis;`, context);
+  return context;
+}
+
+function storyEmptyProjectHelpers() {
+  const source = read("platform.story.js");
+  const functionSource = (name, nextName) => {
+    const start = source.indexOf(`function ${name}(`);
+    const end = source.indexOf(`function ${nextName}(`, start);
+    assert.notEqual(start, -1, `${name} missing`);
+    assert.notEqual(end, -1, `${nextName} missing`);
+    return source.slice(start, end);
+  };
+  const context = {
+    storyState: { action: "" },
+    storyEscape: (value = "") => String(value || ""),
+    storyPlanningEpisodeTargetValue: () => "",
+    storyPlanningDurationValue: () => "",
+  };
+  const snippets = [
+    functionSource("storyScriptTextStats", "storyScriptEpisodeRange"),
+    functionSource("storyScriptEpisodeRange", "storyDurationMinutesValue"),
+    functionSource("renderStoryAnalysisControls", "renderStoryAnalysisSection"),
+  ].join("\n");
+  vm.runInNewContext(`${snippets}\nthis.storyScriptTextStats = storyScriptTextStats; this.storyScriptEpisodeRange = storyScriptEpisodeRange; this.renderStoryAnalysisControls = renderStoryAnalysisControls;`, context);
+  return context;
+}
+
+test("new empty projects render the analysis controls without a selected script", () => {
+  const { storyScriptTextStats, storyScriptEpisodeRange, renderStoryAnalysisControls } = storyEmptyProjectHelpers();
+  const stats = storyScriptTextStats(null);
+  assert.equal(stats.characters, 0);
+  assert.equal(stats.paragraphs, 0);
+  assert.equal(storyScriptEpisodeRange(null), "尚未拆集");
+  const html = renderStoryAnalysisControls(null);
+  assert.match(html, /当前录入段：未选择剧本/);
+  assert.match(html, /data-story-analyze[^>]*disabled/);
+});
+
+test("story continuation numbering starts after the manuscript and re-analysis keeps its segment range", () => {
+  const { storyStartEpisodeNoForScript, storyRenumberAnalysis } = storyNumberingHelpers();
+  const episodes = [
+    { id: "e1", episodeNo: 1, sourceScriptVersionId: "v1", sourceManuscriptId: "m1" },
+    { id: "e2", episodeNo: 2, sourceScriptVersionId: "v1", sourceManuscriptId: "m1" },
+    { id: "e3", episodeNo: 3, sourceScriptVersionId: "v1", sourceManuscriptId: "m1" },
+  ];
+  assert.equal(storyStartEpisodeNoForScript({ id: "new" }, []), 1);
+  assert.equal(storyStartEpisodeNoForScript({ id: "v2", manuscriptId: "m1" }, episodes), 4);
+  assert.equal(storyStartEpisodeNoForScript({ id: "v1", manuscriptId: "m1" }, episodes), 1);
+  const renumbered = storyRenumberAnalysis({ episodes: [{ title: "A" }, { title: "B" }] }, 4);
+  assert.deepEqual(renumbered.episodes.map((episode) => episode.episodeNo), [4, 5]);
+});
 
 test("story P1 script, analyze, import, and delete APIs are admin-only routes", () => {
   const handlers = read("server.parts/part-03.js");
@@ -51,6 +112,19 @@ test("story P1 data functions stay PostgreSQL-only and enforce project ownership
   assert.match(db, /async function deleteStoryEpisodeFromDb[\s\S]*DELETE FROM app_story_episodes[\s\S]*DELETE FROM app_story_canvas_links/);
   assert.match(db, /async function listStoryScriptVersionsFromDb[\s\S]*p\.owner_user_id = \$2/);
   assert.doesNotMatch(handlerBody(read("server.parts/part-03.js"), "handleImportStoryAnalysis"), /writeFile|data\/.*\.json/i);
+});
+
+test("story deletion has protected project and script routes with hierarchy cleanup", () => {
+  const handlers = read("server.parts/part-03.js");
+  const routes = read("server.parts/part-42.js");
+  const db = read("db.js");
+  for (const name of ["handleDeleteStoryProject", "handleDeleteStoryScript"]) {
+    assert.match(handlerBody(handlers, name), /requireAdmin\(req, res, \{ loadDb: false \}\)/, `${name} must require admin`);
+  }
+  assert.match(routes, /storyProjectScriptMatch[\s\S]*req\.method === "DELETE"[\s\S]*handleDeleteStoryScript/);
+  assert.match(routes, /storyProjectMatch[\s\S]*req\.method === "DELETE"[\s\S]*handleDeleteStoryProject/);
+  assert.match(db, /async function deleteStoryProjectFromDb[\s\S]*DELETE FROM app_story_projects WHERE id = \$1 AND owner_user_id = \$2/);
+  assert.match(db, /async function deleteStoryScriptVersionFromDb[\s\S]*DELETE FROM app_story_episodes[\s\S]*source_script_version_id = \$2[\s\S]*DELETE FROM app_story_script_versions/);
 });
 
 test("story P1 frontend implements script version, analysis preview, import, and episode deletion", () => {
@@ -134,6 +208,11 @@ test("story creation keeps manuscripts and versions independent while retaining 
   assert.match(story, /function selectStoryScriptVersion\(/);
   assert.match(story, /event\.target\.closest\("\[data-story-script-id\]"\)/);
   assert.match(story, /function renderStoryManuscriptCard\(/);
+  assert.match(story, /function renderStoryManuscriptReader\(/);
+  assert.match(story, /class="story-script-layout story-manuscript-workspace"/);
+  assert.match(story, /readonly aria-label="当前剧本正文"/);
+  assert.match(css, /\.story-manuscript-reader \{/);
+  assert.match(css, /\.story-manuscript-sidebar \.story-manuscript-list \{/);
   assert.match(story, /function storyManuscriptGroups\(/);
   assert.match(story, /collapsedManuscriptIds: \[\]/);
   assert.match(story, /collapsedEpisodeIds: \[\]/);
@@ -143,17 +222,24 @@ test("story creation keeps manuscripts and versions independent while retaining 
   assert.match(story, /function toggleStoryEpisode[\s\S]*collapsedEpisodeIds/);
   const openEpisode = story.slice(story.indexOf("async function openStoryEpisode("), story.indexOf("function closeStoryEpisode("));
   assert.match(openEpisode, /sameEpisode && episodeExpanded[\s\S]*collapsedEpisodeIds\.push\(id\)[\s\S]*return/);
+  assert.match(openEpisode, /selectStoryManuscriptById\(manuscriptId, episode\?\.sourceScriptVersionId \|\| ""\)/);
   assert.match(story, /sameManuscript && manuscriptExpanded[\s\S]*collapsedManuscriptIds\.push\(manuscriptId\)/);
   assert.match(story, /data-story-analysis-target-episodes/);
   assert.match(story, /data-story-analysis-duration/);
-  assert.match(story, /mode: storyState\.scriptCreateMode/);
+  assert.match(story, /const mode = storyState\.scriptCreateMode === "continue" \? "continue" : "new"/);
+  assert.match(story, /body: \{[\s\S]*mode,[\s\S]*manuscriptId,[\s\S]*sourceScriptId: storyState\.scriptCreateSourceId/);
   assert.match(story, /sourceScriptId: storyState\.scriptCreateSourceId/);
+  assert.match(story, /scriptCreateManuscriptId: ""/);
+  assert.match(story, /episodeCreateManuscriptId: ""/);
+  assert.match(story, /episodeCreateScriptId: ""/);
   assert.match(story, /targetEpisodeCount,/);
   assert.match(story, /estimatedDurationSeconds,/);
   assert.match(story, /body: \{ analysis, scriptVersionId \}/);
   assert.match(story, /const scriptVersionId = storyState\.analysisScriptId \|\| selectedStoryScript\(\)\?\.id \|\| ""/);
-  assert.match(handlerBody(handlers, "handleCreateStoryScript"), /mode === "version"/);
-  assert.match(handlerBody(handlers, "handleCreateStoryScript"), /manuscriptId = mode === "version"/);
+  assert.match(handlerBody(handlers, "handleCreateStoryScript"), /requestedMode === "continue" \|\| requestedMode === "version" \? "continue" : "new"/);
+  assert.match(handlerBody(handlers, "handleCreateStoryScript"), /mode === "continue"[\s\S]*sourceScript\.manuscriptId \|\| sourceScript\.id/);
+  assert.match(handlerBody(handlers, "handleCreateStoryEpisode"), /sourceScriptVersionId: sourceScript\.id/);
+  assert.match(handlerBody(handlers, "handleCreateStoryEpisode"), /sourceManuscriptId,/);
   assert.match(handlerBody(handlers, "handleImportStoryAnalysis"), /sourceManuscriptId: sourceScript\.manuscriptId/);
   assert.match(db, /ADD COLUMN IF NOT EXISTS manuscript_id/);
   assert.match(db, /ADD COLUMN IF NOT EXISTS target_episode_count/);
@@ -163,8 +249,20 @@ test("story creation keeps manuscripts and versions independent while retaining 
   assert.match(db, /app_story_episodes_version_episode_uidx/);
   assert.match(story, /episodesByVersion/);
   assert.match(story, /sourceScriptVersionId/);
+  assert.match(story, /function storyScriptEpisodeRange\(/);
+  assert.match(story, /story-tree-segment/);
+  assert.match(story, /data-story-open-script-segment=/);
+  assert.match(story, /segmentActive \? " is-active" : ""/);
+  assert.match(story, /第 \$\{String\(version\.versionNo \|\| 1\)\.padStart\(2, "0"\)\} 段录入/);
+  assert.match(story, /此段尚未拆解/);
+  assert.match(handlers, /function storyStartEpisodeNoForScript\([\s\S]*ownEpisodeNos[\s\S]*manuscriptEpisodeNos/);
+  assert.match(handlers, /function storyRenumberAnalysis\(/);
+  assert.match(handlerBody(handlers, "handleAnalyzeStoryProject"), /const startEpisodeNo = storyStartEpisodeNoForScript\(script, existingEpisodes \|\| \[\]\)[\s\S]*startEpisodeNo,/);
   assert.match(db, /DROP CONSTRAINT IF EXISTS app_story_script_versions_project_id_version_no_key/);
   assert.match(db, /app_story_script_versions_manuscript_version_uidx/);
+  assert.match(db, /async function createStoryEpisodeInDb\(\{[^}]*sourceScriptVersionId[^}]*sourceManuscriptId/);
+  assert.match(db, /INSERT INTO app_story_episodes\(id, project_id, source_script_version_id, source_manuscript_id, episode_no/);
+  assert.match(db, /WHERE project_id = \$1 AND \(\$2 = '' OR source_manuscript_id = \$2\)/);
   assert.match(css, /\.story-manuscript-card \{/);
   assert.match(css, /\.story-script-modal \{/);
   assert.match(css, /\.story-tree-disclosure \{/);
@@ -247,14 +345,22 @@ test("story episodes and durations are AI-planned unless the user explicitly ove
   assert.match(story, /class="story-script-modal-planning"/);
   assert.match(story, /目标集数<em>可选<\/em>/);
   assert.match(story, /目标时长<em>可选<\/em>/);
-  assert.match(story, /参数留空时由 AI 根据原文完整短剧结构规划/);
+  assert.match(story, /本段目标集数<em>可选<\/em>[\s\S]*placeholder="AI 规划"/);
+  assert.match(story, /本段目标时长<em>可选<\/em>[\s\S]*placeholder="AI 规划"/);
+  assert.match(story, /续写段会自动从已有最大集号之后继续/);
   assert.match(story, /function renderStoryWindowHeader\(\)/);
   assert.match(story, /classList\.toggle\("is-detail"/);
   assert.match(story, /class="story-project-inline-head"/);
   assert.match(story, /class="story-project-inline-stats"/);
-  assert.match(story, /data-story-add-episode title="新增剧集"[\s\S]*<span>新增剧集<\/span>/);
+  assert.match(story, /data-story-add-episode[^>]*>[\s\S]*<span>新增分集<\/span>/);
   assert.doesNotMatch(story, /isDetail\)[\s\S]{0,500}data-story-create-open/);
   assert.match(story, /id="storyCreateProjectToggle"[\s\S]*<span>新增项目<\/span>/);
+  assert.match(story, /data-story-delete-project=/);
+  assert.match(story, /data-story-delete-script=/);
+  assert.match(story, /data-story-delete-episode=/);
+  assert.match(story, /data-story-delete-shot=/);
+  assert.match(story, /function deleteStoryProject\(/);
+  assert.match(story, /function deleteStoryScriptVersion\(/);
   assert.match(story, /document\.querySelector\("\.story-library-head"\)\?\.addEventListener\("click"/);
   assert.match(story, /function openStoryEpisodeCreate\(\)/);
   assert.match(story, /\[data-story-add-episode\][\s\S]*openStoryEpisodeCreate\(\)/);

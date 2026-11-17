@@ -1,4 +1,51 @@
-## 2026-11-17 Step DV: authenticated account snapshots scoped to current user
+## 2026-11-17 Step DY: story release plus scoped-auth optimization integrated and regression-tested
+
+- A concurrent Old deployment from another Codex session completed before this integration work: active `4174` is release `acd72972` (story scoped-deletion release), hot backup `4175` is `fd6ff3ca`, and all three Nginx upstreams are back to deterministic primary `4174` plus `backup 4175` rather than weighted traffic. No process was interrupted or deployment file edited directly.
+- The lightweight `/api/unlocks` optimization branch `d20359c7` was merged into the current story source line at integration commit `c51c5178`; both story functionality and endpoint-specific auth loading are retained.
+- Merging exposed that `server.parts/part-03.js` exceeded the enforced 2,500-line limit. `geoCoverageMetric` and `topGeoTags` were moved unchanged to the end of `server.parts/part-42.js`; `part-03.js` is now 2,489 lines and the source-split test passes.
+- Focused auth/session/security/unlocks/media/story/deploy tests pass `116/116`; Python deploy tests pass `39/39`; `check:undef`, syntax checks, and `git diff --check` pass.
+- Full suite: `1403 pass / 1 fail / 2 skipped`. The only failure remains the pre-existing serializer field-order assertion in `test/generation-record-list-refresh.test.js:385` (`resultAssetId` / `resultAssetIds` ordering), which predates the change and is not in the candidate path being validated.
+- Candidate-only release, runtime acceptance, benchmark, and promotion gates remain pending. Live was not touched.
+
+## 2026-11-17 Step DY: empty story project null-safe render
+
+- Reproduced the post-deletion/new-project regression from the code path: a project with zero scripts passes `null` into the analysis toolbar, where `storyScriptTextStats(null)` attempted to read `.content`.
+- Made script identity, text statistics, and episode-range helpers null-safe so an empty project renders its normal “未选择剧本” state instead of throwing.
+- Added a focused P1 regression test that executes those helpers plus the analysis toolbar with `null`, asserting zero stats and a disabled analyze action.
+- Verification: `test/story-canvas-p1.test.js` 21/21, `test/story-canvas-p0.test.js` 4/4, `npm run check:undef`, syntax checks, and `git diff --check` pass.
+- The unrelated dirty `server.parts/part-45.js` remains untouched and must stay out of the commit/release.
+
+## 2026-11-17 Step DX: deletion closure for every story creation level
+
+- Added matching delete entry points for every story creation level: project cards and project detail, current manuscript entry segment, episode tree rows, and shot tree rows.
+- Added admin-only `DELETE /api/story/projects/:projectId` and `DELETE /api/story/projects/:projectId/scripts/:scriptVersionId` routes.
+- Project deletion cascades through project-owned scripts, episodes, shots, assets, variants, prompts, generation references, and canvas links. Script-entry deletion removes only episodes produced by that entry segment and their dependent shots/prompts/generation references, leaving other entry segments intact.
+- All destructive actions require a confirmation that names the target and explains the cascade. The unrelated dirty `server.parts/part-45.js` remains excluded.
+- Verification: syntax checks, `test/story-canvas-p1.test.js` 20/20, `test/story-canvas-p0.test.js` 4/4, `npm run check:undef`, and `git diff --check` pass.
+- Source commit `fcbaf9e4` was built as platform release `acd72972f3c413e5fec02dc92e1573daac8bc2d3`, pushed to `platform-release`, and rolled out Old-only through `scripts/deploy_local.sh --site old`.
+- Deployment switched traffic `4175 -> 4174`; 1% and 5% canaries passed. Post-deploy checks returned `200` for `/api/health`, `/api/livez`, `/api/readyz`, `/`, and `/platform.html`; served `platform.story.js` hash matches local.
+
+## 2026-11-17 Step DW: restore manuscript list + full-text reader
+
+- Restored the manuscript workspace to a left-list/right-reader layout instead of full-width stacked cards.
+- Left column now lists manuscripts and their V01/V02/V03 segments; selecting a segment updates the right-side full original text, episode range, character/paragraph counts, target settings, and analysis status.
+- Right reader keeps the manuscript continuation and AI segmentation actions available without hiding the source text.
+- The add control in the manuscript header is now a compact plus-only button at the far right.
+- Added focused regression assertions for the two-column workspace, full-text reader, and compact add control.
+- Verification: `node --check platform.story.js`, focused story tests `19/19`, `npm run check:undef`, and `git diff --check` pass.
+- Static visual preview reviewed at `/tmp/story-layout-preview-2.png`; no production deployment performed.
+- Do not include unrelated dirty `server.parts/part-45.js` in any commit or release.
+
+## 2026-11-17 Step DV: staged manuscript entry interaction closure
+
+- Story creation now supports `新增独立剧本` and `延续已有剧本`; continuation segments append to one manuscript, start empty, and continue episode numbering after the manuscript maximum.
+- Episodes are owned by both `sourceManuscriptId` and `sourceScriptVersionId`; imports replace only the selected segment, while manual episode creation requires a manuscript and segment and rejects duplicate episode numbers within that manuscript.
+- `录入剧本` presents manuscripts, their V01/V02 segments, episode ranges, word counts, analysis controls, and a preview-before-write flow. `剧本结构` shows manuscript -> segment -> episode -> shot branches and owns `新增分集`.
+- Segment headers in `剧本结构` open that exact segment back in the analysis area; opening an old episode selects its source script version instead of silently switching to the latest version.
+- Focused verification: syntax checks, `test/story-canvas-p1.test.js`, `test/story-canvas-p0.test.js`, and `test/migration-runner.test.js` pass 31/31; `check:undef` and `git diff --check` pass.
+- Full suite: 1390 pass, 9 unrelated failures in generation serializer and W3 optimizer tests, 2 skipped. Do not include unrelated dirty `server.parts/part-45.js` in commits or releases.
+- No commit or deployment yet; show the diff and expected interaction to the user before release.
+## 2026-11-17 Step DS: authenticated account snapshots scoped to current user
 
 - Added `accountUserId` and `includeAllAccountData` to the database snapshot reader. Normal authenticated requests now read only the signed-in account's users, sessions, wallet orders, referral withdrawals, credit ledger, characters, unlocks, and assets instead of materializing all users and full account history on every request.
 - Admin flows still use the existing `includeAllUserAssets` full-read path. Referral summary, membership activation, referral wallet, and withdrawal creation explicitly opt into `includeAllAccountData: true` with `includeUserAssets: false` because they require cross-user commission summaries.
@@ -4846,3 +4893,11 @@ CODEX_TASK_STATE.md
 - Source commit `134bb9c9e1c0130948c57158be6ca85d1c3acc2d`; platform release `ffe0f684d2b88e56e6eb67099ed0061ce5c21f34`; pushed only `old-site` and `platform-release`.
 - Old-only deployment completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=ffe0f684...`. Public `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; release markers report `ffe0f684...`.
 - Online shot acceptance on project `白洁`, episode E01, shot S01: both asset images render at `80x108`; image requests include `thumb=1`, return `302` to `assets-cdn.123vips.com` with an OSS resize/WebP transform, and one measured thumbnail completed as `image/webp` at `7,452` bytes (`361x480`). Existing WIP files `CODEX_TASK_STATE.md` and `server.parts/part-45.js` remain outside the committed release.
+
+## 2026-11-17 Step DF: Staged manuscript deployment
+
+- Source commit `2e41d6b3cf1c9e20c5aa85383af1e9ba5d45c444`; platform release `bff17f27d0f2583d0f8f1f564f5372246c5b5e7d`; pushed only `old-site` and `platform-release`; remote `live-release` remains untouched.
+- Old-only deployment through `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=bff17f27...`.
+- Public `/api/health`, `/api/livez`, and `/api/readyz` all return HTTP `200`; livez/readyz report clean release `bff17f27d0f2583d0f8f1f564f5372246c5b5e7d`.
+- Deployed `platform.story.js` contains the staged manuscript controls `data-story-open-script-segment`, `延续已有剧本`, and `新增分集`.
+- The unrelated existing `server.parts/part-45.js` working-tree change remains preserved and was not committed or deployed.
