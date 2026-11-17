@@ -392,10 +392,10 @@
       <section class="story-structure">
         <div class="story-structure-head"><div><p class="eyebrow">STORY TREE</p><h3>剧本结构</h3></div><button class="story-icon-button" type="button" title="刷新项目结构" data-story-refresh-detail><i data-lucide="refresh-cw"></i></button></div>
         <div class="story-tree-root">
-          <button class="story-tree-script ${storyState.detailTab === "script" ? "is-active" : ""}" type="button" data-story-tab="script">
+          <div class="story-tree-script is-static">
             <span class="story-tree-node-mark"><i data-lucide="file-text"></i></span>
             <span class="story-tree-node-copy"><strong>${storyEscape(script?.title || "原始剧本")}</strong><small>${storyState.scripts.length} 个版本 · AI 拆解为分集</small></span>
-          </button>
+          </div>
           <div class="story-tree-branch">${nodes || `<div class="story-tree-loading">保存剧本并执行 AI 拆解后，这里会出现分集节点。</div>`}</div>
         </div>
       </section>`;
@@ -922,63 +922,35 @@
       const characters = Array.isArray(metadata.characters) ? metadata.characters.join("、") : "";
       const scenes = Array.isArray(metadata.scenes) ? metadata.scenes.join("、") : "";
       const isLocked = ["outline_locked", "shots_planned", "assets_planned", "assets_ready", "prompts_planned", "ready", "complete"].includes(String(selectedEpisode.status || ""));
-      const episodeAssets = storyEpisodeAssets(selectedEpisode);
-      const nextStageButton = `<button class="story-create-button" type="button" data-story-episode-view="production"><i data-lucide="arrow-right"></i><span>${episodeAssets.length ? "下一步：逐镜确认资产与提示词" : "下一步：AI 提取本集资产"}</span></button>`;
-      const shotRows = storyState.shots.length ? storyState.shots.map((shot) => `
-        <article class="story-shot-row">
-          <b>S${String(shot.shotNo).padStart(2, "0")}</b>
-          <div>
-            <strong>${storyEscape(shot.title || `镜头 ${shot.shotNo}`)}</strong>
-            <p>${storyEscape(shot.description || "尚未填写镜头描述。")}</p>
-            <small>${Number(shot.durationSeconds || 5)} 秒${shot.metadata?.shotSize ? ` · ${storyEscape(shot.metadata.shotSize)}` : ""}${shot.metadata?.camera ? ` · ${storyEscape(shot.metadata.camera)}` : ""}${shot.metadata?.location ? ` · ${storyEscape(shot.metadata.location)}` : ""}</small>
-            ${shot.metadata?.dialogue ? `<p class="story-shot-dialogue"><b>对白</b>${storyEscape(shot.metadata.dialogue)}</p>` : ""}
-          </div>
-          <button class="story-episode-delete" type="button" data-story-delete-shot="${storyEscape(shot.id)}" title="删除镜头" aria-label="删除镜头"><i data-lucide="trash-2"></i></button>
-        </article>`).join("") : `<div class="story-shot-ai-empty"><i data-lucide="sparkles"></i><div><strong>等待 AI 拆分镜</strong><p>锁定大纲后会自动生成镜头；如果中途失败，可以在这里重新执行。</p></div><button class="story-create-button" type="button" data-story-plan-shots ${isLocked ? "" : "disabled"}><span>AI 生成分镜</span></button></div>`;
+      const shotCount = Number(selectedEpisode.shotCount || storyState.shots.length || 0);
+      const shotPlanLabel = shotCount ? "重新 AI 分镜" : "AI 生成分镜";
       return `
         <section class="story-section story-episode-workspace">
-          <div class="story-workbench-head">
-            <button class="story-back-button" data-story-close-episode type="button"><i data-lucide="arrow-left"></i><span>返回分集</span></button>
-            <div><p class="eyebrow">EPISODE WORKBENCH</p><h3>E${String(selectedEpisode.episodeNo).padStart(2, "0")} · ${storyEscape(selectedEpisode.title || "未命名剧集")}</h3></div>
-            <span class="story-status-pill">${storyEscape(storyEpisodeStatusLabel(selectedEpisode.status))}</span>
-          </div>
-          <nav class="story-episode-stages" aria-label="本集制作阶段">
-            <button class="${storyState.episodeTab === "outline" ? "is-active" : ""}" data-story-episode-view="outline" type="button"><b>1</b>剧情大纲</button>
-            <button class="${storyState.episodeTab === "shots" ? "is-active" : ""}" data-story-episode-view="shots" type="button"><b>2</b>分镜清单</button>
-            <button class="${storyState.episodeTab === "production" ? "is-active" : ""}" data-story-episode-view="production" type="button"><b>3</b>资产与提示词</button>
-            <span><b>4</b>图片/视频<small>后续接入</small></span>
-          </nav>
-          ${storyState.episodeTab === "outline" ? `
-            <form class="story-episode-edit-form" id="storyEpisodeEditForm">
-              <label>集标题<input id="storyEpisodeEditTitle" maxlength="160" value="${storyEscape(selectedEpisode.title)}" /></label>
-              <label>时长（秒）<input id="storyEpisodeEditDuration" type="number" min="0" max="86400" value="${Number(selectedEpisode.durationSeconds || 0)}" /></label>
-              <label class="story-field-wide">单集大纲<textarea id="storyEpisodeEditSynopsis" rows="9" maxlength="8000">${storyEscape(selectedEpisode.synopsis)}</textarea></label>
-              <label class="story-field-wide">结尾钩子<textarea id="storyEpisodeEditHook" rows="3" maxlength="2000">${storyEscape(metadata.hook || "")}</textarea></label>
-              <label>出场角色<input id="storyEpisodeEditCharacters" value="${storyEscape(characters)}" placeholder="用顿号或逗号分隔" /></label>
-              <label>场景<input id="storyEpisodeEditScenes" value="${storyEscape(scenes)}" placeholder="用顿号或逗号分隔" /></label>
-              <div class="story-episode-edit-actions story-field-wide">
-                <p>先修正事实和人物动机，再锁定大纲。锁定后仍可调整，但会显示定稿状态。</p>
-                <button class="story-secondary-button" type="button" data-story-save-episode>保存修改</button>
-                <button class="story-create-button" type="button" data-story-lock-episode="${isLocked ? "draft" : "outline_locked"}">${isLocked ? "恢复草稿" : "锁定大纲，AI 拆分镜"}</button>
-              </div>
-            </form>` : storyState.episodeTab === "shots" ? `
-            <div class="story-shot-actions">
-              <div><p>AI 已按定稿大纲拆成可审核镜头。下一步由 AI 提取本集人物、场景和关键道具，再按所选出图模型生成设计图。</p><strong>${storyState.shots.length} 个镜头</strong></div>
+          <form class="story-episode-edit-form" id="storyEpisodeEditForm">
+            <label>集标题<input id="storyEpisodeEditTitle" maxlength="160" value="${storyEscape(selectedEpisode.title)}" /></label>
+            <label>时长（秒）<input id="storyEpisodeEditDuration" type="number" min="0" max="86400" value="${Number(selectedEpisode.durationSeconds || 0)}" /></label>
+            <label class="story-field-wide">单集大纲<textarea id="storyEpisodeEditSynopsis" rows="9" maxlength="8000">${storyEscape(selectedEpisode.synopsis)}</textarea></label>
+            <label class="story-field-wide">结尾钩子<textarea id="storyEpisodeEditHook" rows="3" maxlength="2000">${storyEscape(metadata.hook || "")}</textarea></label>
+            <label>出场角色<input id="storyEpisodeEditCharacters" value="${storyEscape(characters)}" placeholder="用顿号或逗号分隔" /></label>
+            <label>场景<input id="storyEpisodeEditScenes" value="${storyEscape(scenes)}" placeholder="用顿号或逗号分隔" /></label>
+            <div class="story-shot-actions story-field-wide">
+              <div><p>${shotCount ? `已生成 ${shotCount} 个分镜，可直接在左侧树中选择。` : "锁定大纲后由 AI 自动拆分镜。"}</p><strong>${shotCount} 个镜头</strong></div>
               <div class="story-shot-action-buttons">
-                <button class="story-secondary-button" type="button" data-story-plan-shots ${isLocked && !storyState.action ? "" : "disabled"}><i data-lucide="sparkles"></i><span>${storyState.shots.length ? "重新 AI 分镜" : "AI 生成分镜"}</span></button>
-                ${storyState.shots.length ? nextStageButton : ""}
+                <button class="story-secondary-button" type="button" data-story-save-episode ${storyState.action ? "disabled" : ""}>保存修改</button>
+                ${isLocked ? `<button class="story-secondary-button" type="button" data-story-plan-shots ${storyState.action ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${shotPlanLabel}</span></button>` : ""}
+                <button class="story-create-button" type="button" data-story-lock-episode="${isLocked ? "draft" : "outline_locked"}" ${storyState.action ? "disabled" : ""}>${isLocked ? "恢复草稿" : "锁定大纲，AI 拆分镜"}</button>
               </div>
             </div>
-            <div class="story-shot-list">${shotRows}</div>
-            ${storyState.action === "plan-shots" ? `<div class="story-list-state is-loading"><i data-lucide="loader-circle"></i>AI 正在拆分镜并写入 PostgreSQL…</div>` : ""}
-          <p class="story-message" id="storyEpisodeMessage">${storyEscape(storyState.actionMessage || "")}</p>
-          </section>` : renderStoryShotProduction(selectedEpisode)}
+            ${storyState.action === "plan-shots" ? `<div class="story-list-state is-loading story-field-wide"><i data-lucide="loader-circle"></i>AI 正在拆分镜并写入 PostgreSQL…</div>` : ""}
+            <p class="story-message story-field-wide" id="storyEpisodeMessage">${storyEscape(storyState.actionMessage || "")}</p>
+          </form>
+        </section>
         `;
     })() : "";
     const storyTree = renderStoryStructureTree(episodes, selectedEpisode);
     const emptyEpisodeWorkspace = `
       <section class="story-section story-tree-empty">
-        <div class="story-shot-ai-empty"><i data-lucide="git-branch"></i><div><strong>${episodes.length ? "从左侧选择一集继续制作" : "等待 AI 拆解出分集节点"}</strong><p>${episodes.length ? "分集节点下会显示 S01、S02 等分镜；每镜独立管理资产清单、图片提示词和视频提示词。" : "先保存剧本并执行 AI 拆解，确认写入后这里会生成下级分集节点。"}</p></div><button class="story-create-button" type="button" data-story-tab="script"><i data-lucide="file-text"></i><span>回到剧本</span></button></div>
+        <div class="story-shot-ai-empty"><i data-lucide="git-branch"></i><div><strong>${episodes.length ? "从左侧选择一集继续制作" : "等待 AI 拆解出分集节点"}</strong><p>${episodes.length ? "分集节点下会显示 S01、S02 等分镜；每镜独立管理资产清单、图片提示词和视频提示词。" : "先保存剧本并执行 AI 拆解，确认写入后这里会生成下级分集节点。"}</p></div></div>
         <form class="story-episode-form" id="storyEpisodeForm">
           <label>集标题<input id="storyEpisodeTitle" maxlength="160" placeholder="可选" /></label>
           <label>单集大纲<textarea id="storyEpisodeSynopsis" maxlength="8000" rows="3" placeholder="本集开场、发展、转折、结尾钩子与关键场景"></textarea></label>

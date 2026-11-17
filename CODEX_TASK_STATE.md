@@ -4609,3 +4609,12 @@ CODEX_TASK_STATE.md
 - Old-only deployment through `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4175 release=e4c2ead9...`. Public `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; livez/readyz report release `e4c2ead9cf019ca2d6a6323d4441ed34c1f12fb0`.
 - Browser acceptance after a hard reload passed: exactly two story tabs render (`创建文稿`, `分集分镜树`); the create form exposes target episode, episode-filtered target shot, and optional duration; selecting `S02` opens the dedicated shot workspace with shot context, the four required assets, model-specific optimized video prompt controls, and video generation gating. The shot workspace no longer contains `返回分集`, `剧情大纲`, or `分镜清单`.
 - The unrelated existing `server.parts/part-45.js` working-tree change remains preserved and was not committed or deployed.
+
+## 2026-11-17 Step CZ: Remove duplicate story navigation
+
+- Simplified the story tree so the script root is a static context node instead of a second button that reopened the script tab. Static roots no longer show pointer or hover styling.
+- Clicking an episode now clears any selected shot and opens one episode editor containing only title, duration, synopsis, hook, characters, scenes, save, outline lock, and AI shot-planning controls. The duplicate `返回分集`, stage tabs, in-panel shot roster, and extra production entry are no longer rendered there.
+- Shots remain the only tree children used to enter the dedicated shot workspace; all requested asset and video work stays in that shot-specific right-side workspace.
+- Removed the obsolete empty-workspace `回到剧本` button and the obsolete mobile back-button layout rule.
+- Verification: both story canvas suites pass `18/18`; `node --check platform.story.js`, `npm run check:undef`, and `git diff --check` pass. The unrelated `server.parts/part-45.js` change remains preserved and excluded.
+- Source commit and Old deployment are pending.

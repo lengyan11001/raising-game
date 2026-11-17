@@ -15687,8 +15687,9 @@ body.app-keyboard-open {
 .story-tree-root { margin-top: 10px; }
 .story-tree-branch { position: relative; margin-left: 13px; padding-left: 12px; border-left: 1px solid rgba(255, 79, 163, .2); }
 .story-tree-script, .story-tree-episode, .story-tree-shot { width: 100%; color: inherit; text-align: left; border: 0; cursor: pointer; }
+.story-tree-script.is-static { cursor: default; }
 .story-tree-script, .story-tree-episode { display: flex; align-items: center; gap: 8px; padding: 8px; background: #1b181d; border: 1px solid transparent; border-radius: 8px; }
-.story-tree-script:hover, .story-tree-episode:hover, .story-tree-script.is-active, .story-tree-node.is-selected > .story-tree-episode { background: rgba(255, 79, 163, .07); border-color: rgba(255, 79, 163, .24); }
+.story-tree-episode:hover, .story-tree-script.is-active, .story-tree-node.is-selected > .story-tree-episode { background: rgba(255, 79, 163, .07); border-color: rgba(255, 79, 163, .24); }
 .story-tree-node-mark { display: grid; flex: 0 0 auto; width: 32px; height: 32px; place-items: center; color: #ffadd0; background: rgba(255, 79, 163, .11); border-radius: 7px; font: 750 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .story-tree-node-mark svg { width: 14px; }
 .story-tree-node-copy { display: grid; flex: 1; min-width: 0; gap: 3px; }
@@ -15926,7 +15927,6 @@ body.app-keyboard-open {
   .story-episode-row > .story-status-pill { grid-column: 2; grid-row: 2; justify-self: start; }
   .story-episode-actions { grid-column: 2; grid-row: 3; justify-content: flex-start; flex-wrap: wrap; }
   .story-workbench-head { grid-template-columns: minmax(0, 1fr) auto; }
-  .story-workbench-head .story-back-button { grid-column: 1 / -1; justify-self: start; }
   .story-episode-edit-form,
   .story-shot-form { grid-template-columns: 1fr; }
   .story-episode-edit-actions { display: grid; grid-template-columns: 1fr; }
