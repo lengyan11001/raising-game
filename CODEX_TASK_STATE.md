@@ -1,3 +1,12 @@
+## 2026-11-17 Step DM: mobile Google login click feedback verified
+
+- Google Identity Services' iframe button now invokes `beginGoogleLoginFeedback`: it immediately shows `Opening Google authorization...`, marks the login control busy, and starts a 15-second watchdog.
+- If no Google authorization window appears, the watchdog clears busy state and shows `Google authorization did not open. Please try again.` The message area is an `aria-live` status region and is cleared whenever the login form is reset.
+- Source commit `d1c55201` is pushed to `old-site`; release snapshot `7dbb1fb6` is on `platform-release` and deployed to `123vips.com`. Active production port is `4174`; `/api/health` returned `{"ok":true}`.
+- Production mobile verification at 320x700, 390x844, and 430x900: GSI button click immediately displayed the opening status; the 390px test advanced to the no-response status after 15 seconds; modal content and status stayed visible without clipping. Viewport overrides were reset afterward.
+- Verification passed: syntax checks for `platform.google.js`, `platform.create.parts/part-06.js`, and `platform.copy.js`; `npm run check:undef`; `git diff --check`; focused regression suite 137/137 across mobile tool UX, workflow canvases, email auth, platform refresh performance, site profile, and advanced custom UI.
+- Uncommitted `server.parts/part-45.js` remains unrelated WIP and was not included in the source commit or deployment.
+
 ## 2026-11-17 Step DL: login stale-shell diagnosis and password visibility
 
 - One user's broken login screenshot does not match fresh production HTML. Production currently has separate Email code / Password tabs and `passwordLoginPanel` hidden by default, so the screenshot is a stale cached shell rather than the current renderer.
@@ -7,6 +16,13 @@
 - Asset suffix is now `login-modal-password-20261117-1` in `platform.html`, `platform.js`, and canvas assertions.
 - Verification: focused auth/UI/service-worker/canvas tests 72/72; syntax, `npm run check:undef`, and `git diff --check` pass. Browser preview checked at 320x500: controls fit, modal body scrolls, and the password eye control remains visible.
 - Full `npm test`: 1389 pass / 9 fail / 2 skipped. The failures are the pre-existing serializer baseline and unrelated `server.parts/part-45.js` Seedance optimizer WIP. No deployment was performed.
+
+## 2026-11-17 Step DL: Story detail header merged into the global top row
+
+- User rejected the previous compact toolbar because it still sat below the large global `STORY WORKBENCH / 剧集 / description` header. The detail view now reuses the global header itself: `← 剧集`, project name, inline script/episode/asset/shot/aspect counts, and the asset-library action all occupy that single row.
+- Removed the inner detail toolbar entirely, so the detail card starts with the workspace tabs. Detail mode also reduces the story shell's top padding from 28px to 14px; the normal project-library header is restored when returning to the library.
+- Because the global header is now rerendered by view, refresh-project and create-project click handling moved to the delegated story click handler. All other story interactions remain unchanged.
+- Verification: `node --check platform.story.js`, `npm run check:undef`, `git diff --check`, and `node --test test/story-canvas-p1.test.js` (18/18) pass.
 
 ## 2026-11-17 Step DK: Compact story planning toolbar and AI-owned shot count
 
