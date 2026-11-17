@@ -1,3 +1,11 @@
+## 2026-11-17 Step DV: authenticated account snapshots scoped to current user
+
+- Added `accountUserId` and `includeAllAccountData` to the database snapshot reader. Normal authenticated requests now read only the signed-in account's users, sessions, wallet orders, referral withdrawals, credit ledger, characters, unlocks, and assets instead of materializing all users and full account history on every request.
+- Admin flows still use the existing `includeAllUserAssets` full-read path. Referral summary, membership activation, referral wallet, and withdrawal creation explicitly opt into `includeAllAccountData: true` with `includeUserAssets: false` because they require cross-user commission summaries.
+- Existing `(user_id, created_at DESC)` indexes cover the scoped reads. No schema migration is required.
+- Verification on production source baseline `e46f6d04`: focused DB scope/auth/deploy tests pass `53/53`; `npm run check:undef` passes; `git diff --check` passes. Full suite reaches `1400 pass / 1 fail / 2 skipped`; the sole failure is the pre-existing `full serializer keeps its original field order...` test and reproduces on a clean detached `e46f6d04` checkout.
+- Next: commit this source change, build a platform release snapshot, deploy candidate-only to the idle Old instance, and validate before any explicit promotion. Live remains untouched.
+
 ## 2026-11-17 Step DU: story episodes scoped to script versions
 
 - Replaced manuscript-scoped episode ownership with script-version ownership. Re-importing V3 now deletes/replaces only V3 episodes; V1 and V2 episode sets remain intact even when they share `manuscript_id`.

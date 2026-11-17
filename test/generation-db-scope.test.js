@@ -59,8 +59,8 @@ test("legacy full snapshots use one pooled connection and skip unused tables", (
   assert.match(block, /const client = await getPool\(\)\.connect\(\)/);
   assert.match(block, /finally \{\s*client\.release\(\);/);
   assert.doesNotMatch(block, /Promise\.all\(\[/);
-  assert.match(block, /const users = await readRows/);
-  assert.match(block, /const sessions = await readRows/);
+  assert.match(block, /const users = scopedAccount/);
+  assert.match(block, /const sessions = scopedAccount/);
   assert.doesNotMatch(block, /SELECT \* FROM app_admin_home_items/);
   assert.doesNotMatch(block, /SELECT \* FROM app_support_messages/);
 });
@@ -79,12 +79,48 @@ test("authenticated requests load only the current user's media assets", () => {
   assert.ok(authStart > 0 && authEnd > authStart);
   assert.match(part02, /userAssetsUserId: String\(options\.userAssetsUserId \|\| ""\)\.trim\(\)/);
   assert.match(auth, /userAssetsUserId: options\.includeAllUserAssets \? "" : user\.id/);
+  assert.match(auth, /const includeAllAccountData = options\.includeAllAccountData === true \|\| options\.includeAllUserAssets === true/);
+  assert.match(auth, /accountUserId: includeAllAccountData \? "" : user\.id/);
+  assert.match(auth, /includeAllAccountData,/);
   assert.match(auth, /const session = await getSessionByTokenInDb\(token\)/);
   assert.match(auth, /const user = await getUserByIdInDb\(session\.userId\)/);
   assert.ok(auth.indexOf("getSessionByTokenInDb") < auth.indexOf("readAuthDb(user)"));
   assert.match(auth, /return \{ db: lightweightAuthDb\(\), user: null/);
   assert.match(readSnapshot, /SELECT \* FROM app_user_assets WHERE user_id = \$1 ORDER BY created_at DESC/);
   assert.match(part12, /includeAllUserAssets: true, \.\.\.options/);
+});
+
+test("authenticated snapshots scope account tables while admin keeps full reads", () => {
+  const db = read("db.js");
+  const part02 = read("server.parts/part-02.js");
+  const auth = read("server.parts/part-12.js");
+  const start = db.indexOf("async function readAppDbFromTables(");
+  const end = db.indexOf("async function replaceAppDbTables(", start);
+  const block = db.slice(start, end);
+
+  assert.ok(start > 0 && end > start);
+  assert.match(part02, /accountUserId: String\(options\.accountUserId \|\| ""\)\.trim\(\)/);
+  assert.match(part02, /includeAllAccountData: options\.includeAllAccountData === true/);
+  assert.match(auth, /accountUserId: includeAllAccountData \? "" : user\.id/);
+  assert.match(block, /SELECT \* FROM app_users WHERE id = \$1 AND deleted_at IS NULL/);
+  assert.match(block, /SELECT \* FROM app_sessions WHERE user_id = \$1/);
+  assert.match(block, /SELECT \* FROM app_wallet_orders WHERE user_id = \$1/);
+  assert.match(block, /SELECT \* FROM app_referral_withdrawals WHERE user_id = \$1/);
+  assert.match(block, /SELECT \* FROM app_credit_ledger WHERE user_id = \$1/);
+  assert.match(block, /SELECT \* FROM app_user_characters WHERE user_id = \$1/);
+  assert.match(block, /SELECT \* FROM app_user_unlocks WHERE user_id = \$1/);
+  assert.match(block, /includeAllAccountData === true \|\| !accountUserId/);
+  assert.match(block, /scopedAccount\s*\? await readRows\(`SELECT \* FROM app_users WHERE id = \$1/);
+  assert.match(block, /: await readRows\(`SELECT \* FROM app_users WHERE deleted_at IS NULL/);
+});
+
+test("referral pages explicitly retain cross-user account summaries", () => {
+  const part33 = read("server.parts/part-33.js");
+  const part34 = read("server.parts/part-34.js");
+  assert.match(part33, /async function handleReferralSummary[\s\S]*?includeAllAccountData: true, includeUserAssets: false/);
+  assert.match(part33, /async function handleRedeemMembershipActivationCode[\s\S]*?includeAllAccountData: true, includeUserAssets: false/);
+  assert.match(part34, /async function handleUpdateReferralWallet[\s\S]*?includeAllAccountData: true, includeUserAssets: false/);
+  assert.match(part34, /async function handleCreateReferralWithdrawal[\s\S]*?includeAllAccountData: true, includeUserAssets: false/);
 });
 
 test("admin support replies do not load the full application snapshot", () => {

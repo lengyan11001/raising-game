@@ -394,10 +394,13 @@ async function getAuth(req, options = {}) {
   // generation jobs for PostgreSQL pool connections.
   if (!token) return { db: lightweightAuthDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
   if (dbEnabled()) {
+    const includeAllAccountData = options.includeAllAccountData === true || options.includeAllUserAssets === true;
     const readAuthDb = async (user) => loadDb
       ? readDb({
         includeUserAssets: options.includeUserAssets !== false,
         userAssetsUserId: options.includeAllUserAssets ? "" : user.id,
+        accountUserId: includeAllAccountData ? "" : user.id,
+        includeAllAccountData,
       })
       : lightweightAuthDb();
     const loadCurrentUserAssets = loadDb && options.loadCurrentUserAssets === true;

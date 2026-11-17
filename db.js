@@ -2612,6 +2612,9 @@ async function readAppDbFromTables(defaultDb = {}, options = {}) {
   await ensureSchema();
   const includeUserAssets = options.includeUserAssets !== false;
   const userAssetsUserId = String(options.userAssetsUserId || "").trim();
+  const accountUserId = String(options.accountUserId || "").trim();
+  const includeAllAccountData = options.includeAllAccountData === true || !accountUserId;
+  const scopedAccount = !includeAllAccountData;
   // A full application snapshot used to issue every table query through the
   // shared pool at once. Two callers could therefore consume all 20 pool slots
   // before either one finished, starving auth, notifications, and generation.
@@ -2620,18 +2623,36 @@ async function readAppDbFromTables(defaultDb = {}, options = {}) {
   const client = await getPool().connect();
   try {
     const readRows = async (sql, params = []) => (await client.query(sql, params)).rows;
-    const users = await readRows(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`);
-    const sessions = await readRows(`SELECT * FROM app_sessions ORDER BY created_at ASC`);
-    const walletOrders = await readRows(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`);
-    const referralWithdrawals = await readRows(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`);
-    const creditLedger = await readRows(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`);
+    // Authenticated requests only need the signed-in account's rows. Keep the
+    // legacy full snapshot behind an explicit opt-in for admin and system jobs;
+    // otherwise the auth path transfers the entire users/orders/characters/
+    // unlocks history on every request and competes with live traffic.
+    const users = scopedAccount
+      ? await readRows(`SELECT * FROM app_users WHERE id = $1 AND deleted_at IS NULL ORDER BY created_at ASC`, [accountUserId])
+      : await readRows(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`);
+    const sessions = scopedAccount
+      ? await readRows(`SELECT * FROM app_sessions WHERE user_id = $1 ORDER BY created_at ASC`, [accountUserId])
+      : await readRows(`SELECT * FROM app_sessions ORDER BY created_at ASC`);
+    const walletOrders = scopedAccount
+      ? await readRows(`SELECT * FROM app_wallet_orders WHERE user_id = $1 ORDER BY created_at DESC`, [accountUserId])
+      : await readRows(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`);
+    const referralWithdrawals = scopedAccount
+      ? await readRows(`SELECT * FROM app_referral_withdrawals WHERE user_id = $1 ORDER BY created_at DESC`, [accountUserId])
+      : await readRows(`SELECT * FROM app_referral_withdrawals ORDER BY created_at DESC`);
+    const creditLedger = scopedAccount
+      ? await readRows(`SELECT * FROM app_credit_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1000`, [accountUserId])
+      : await readRows(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`);
     const userAssets = !includeUserAssets
       ? []
       : userAssetsUserId
         ? await readRows(`SELECT * FROM app_user_assets WHERE user_id = $1 ORDER BY created_at DESC`, [userAssetsUserId])
         : await readRows(`SELECT * FROM app_user_assets ORDER BY created_at DESC`);
-    const userCharacters = await readRows(`SELECT * FROM app_user_characters ORDER BY created_at DESC`);
-    const userUnlocks = await readRows(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`);
+    const userCharacters = scopedAccount
+      ? await readRows(`SELECT * FROM app_user_characters WHERE user_id = $1 ORDER BY created_at DESC`, [accountUserId])
+      : await readRows(`SELECT * FROM app_user_characters ORDER BY created_at DESC`);
+    const userUnlocks = scopedAccount
+      ? await readRows(`SELECT * FROM app_user_unlocks WHERE user_id = $1 ORDER BY created_at DESC`, [accountUserId])
+      : await readRows(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`);
     // Admin home items and support messages have dedicated paginated readers.
     // They were previously queried here and then discarded by readDb(), wasting
     // two sequential round trips and transferring payloads nobody consumed.
