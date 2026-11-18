@@ -165,10 +165,15 @@ test("Advanced results use a compact paged multi-column card grid", () => {
 });
 
 test("Generate parameter picker stays compact and selected chips show full labels", () => {
-  assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?width: min\(480px, calc\(100vw - 32px\)\)[\s\S]*?max-height: min\(52vh, 300px\)/);
-  assert.match(css, /\.advanced-parameter-options\.is-model-list \{[\s\S]*?gap: 8px/);
-  assert.match(css, /\.advanced-parameter-options\.is-model-list \.advanced-parameter-option \{[\s\S]*?min-height: 48px/);
-  assert.match(css, /\.advanced-parameter-option \{[\s\S]*?min-height: 30px;[\s\S]*?padding: 0 10px/);
+  assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?width: min\(420px, calc\(100vw - 24px\)\)[\s\S]*?max-height: min\(52dvh, 360px\)/);
+  assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="model"\] \{[\s\S]*?width: min\(440px, calc\(100vw - 24px\)\)/);
+  assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="mode"\] \{[\s\S]*?width: min\(380px, calc\(100vw - 24px\)\)/);
+  assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="ratio"\] \{[\s\S]*?width: min\(240px, calc\(100vw - 24px\)\)/);
+  assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="resolution"\] \{[\s\S]*?width: min\(280px, calc\(100vw - 24px\)\)/);
+  assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="duration"\] \{[\s\S]*?width: min\(360px, calc\(100vw - 24px\)\)/);
+  assert.match(css, /\.advanced-parameter-options\.is-model-list \{[\s\S]*?gap: 6px/);
+  assert.match(css, /\.advanced-parameter-options\.is-model-list \.advanced-parameter-option \{[\s\S]*?min-height: 44px/);
+  assert.match(css, /\.advanced-parameter-option \{[\s\S]*?min-height: 34px;[\s\S]*?padding: 0 12px/);
   assert.match(css, /\.advanced-parameter-chip-value \{[\s\S]*?overflow: visible;[\s\S]*?text-overflow: clip/);
   assert.match(create, /kind === "model" \? valueLabel :/);
   assert.match(create, /\$\{kind === "model" \? "" : `<i class="advanced-parameter-chip-caret" data-lucide="chevron-down"><\/i>`\}/);
@@ -177,16 +182,23 @@ test("Generate parameter picker stays compact and selected chips show full label
   assert.match(create, /\.site-head[\s\S]*?style\.position === "sticky"[\s\S]*?rect\.bottom \+ 8/);
   assert.match(create, /document\.body\.append\(panel\)/);
   assert.match(create, /panel\.style\.position = "fixed"/);
-  assert.match(create, /const heightCap = Math\.min\(300, Math\.floor\(viewport\.height \* 0\.52\)\)/);
-  assert.match(create, /let placement = "center"/);
+  assert.match(create, /function advancedParameterPanelWidthCap\(kind = ""\)/);
+  assert.match(create, /function advancedParameterPanelHeightCap\(kind = "", viewportHeight = window\.innerHeight\)/);
+  assert.match(create, /if \(kind === "ratio"\) return 240/);
+  assert.match(create, /if \(kind === "resolution"\) return 280/);
+  assert.match(create, /const widthCap = advancedParameterPanelWidthCap\(state\.advancedParameterOpen\)/);
+  assert.match(create, /const heightCap = advancedParameterPanelHeightCap\(state\.advancedParameterOpen, viewport\.height\)/);
+  assert.match(create, /let placement = "down"/);
   assert.match(create, /placement = "down"/);
   assert.match(create, /placement = "up"/);
   assert.match(create, /dataset\.advancedParameterPlacement = placement/);
+  assert.match(create, /dataset\.advancedParameterKind = kind/);
+  assert.match(create, /dataset\.advancedParameterScrollable = contentHeight > panelHeight \? "true" : "false"/);
   assert.match(create, /panel\.style\.maxHeight = `\$\{Math\.floor\(panelHeight\)\}px`/);
   assert.match(create, /selected\?\.scrollIntoView\?\.\(\{ block: "nearest" \}\)/);
   assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?box-sizing: border-box;[\s\S]*?position: fixed;[\s\S]*?z-index: 4000/);
   assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?overscroll-behavior: contain/);
-  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.advanced-parameter-panel \{[\s\S]*?position: fixed;[\s\S]*?width: min\(480px, calc\(100vw - 24px\)\)/);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*?\.advanced-parameter-panel \{[\s\S]*?width: min\(420px, calc\(100vw - 24px\)\)[\s\S]*?max-height: min\(52dvh, 340px\)/);
   assert.match(create, /path\.includes\(els\.advancedParameterPanel\)/);
   assert.match(main, /document\.addEventListener\("scroll", handleAdvancedParameterDocumentScroll, true\)/);
   assert.match(main, /window\.visualViewport\?\.addEventListener\("resize", scheduleAdvancedParameterPanelPosition\)/);

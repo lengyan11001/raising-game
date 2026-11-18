@@ -1224,6 +1224,8 @@ function closeAdvancedParameterPanel() {
     els.advancedParameterPanel.hidden = true;
     els.advancedParameterPanel.innerHTML = "";
     delete els.advancedParameterPanel.dataset.advancedParameterPlacement;
+    delete els.advancedParameterPanel.dataset.advancedParameterKind;
+    delete els.advancedParameterPanel.dataset.advancedParameterScrollable;
   }
   if (els.advancedParameterChips) els.advancedParameterChips.hidden = false;
   els.advancedParameterChips?.querySelectorAll("[data-advanced-parameter-open]").forEach((button) => {
@@ -1254,6 +1256,22 @@ function advancedParameterViewportTop(viewportTop = 12) {
   return overlaysViewportTop ? Math.max(minimumTop, rect.bottom + 8) : minimumTop;
 }
 
+function advancedParameterPanelWidthCap(kind = "") {
+  if (kind === "model") return 440;
+  if (kind === "mode") return 380;
+  if (kind === "ratio") return 240;
+  if (kind === "resolution") return 280;
+  if (kind === "duration") return 360;
+  if (kind === "size") return 200;
+  return 320;
+}
+
+function advancedParameterPanelHeightCap(kind = "", viewportHeight = window.innerHeight) {
+  const ratio = kind === "model" ? 0.5 : kind === "duration" ? 0.34 : 0.36;
+  const cap = kind === "model" ? 360 : kind === "duration" ? 180 : kind === "mode" ? 240 : 220;
+  return Math.max(120, Math.min(cap, Math.floor(viewportHeight * ratio)));
+}
+
 function positionAdvancedParameterPanel() {
   const panel = els.advancedParameterPanel;
   const chip = els.advancedParameterChips?.querySelector(`[data-advanced-parameter-open="${state.advancedParameterOpen}"]`);
@@ -1265,14 +1283,15 @@ function positionAdvancedParameterPanel() {
   const chipRect = chip.getBoundingClientRect();
   const viewport = advancedParameterViewportMetrics();
   const viewportGap = 12;
-  const panelGap = 10;
+  const panelGap = 8;
   const viewportLeft = viewport.left;
   const viewportRight = viewport.left + viewport.width;
   const viewportBottom = viewport.top + viewport.height;
   const viewportTop = advancedParameterViewportTop(viewport.top);
   const spaceBelow = Math.max(0, viewportBottom - viewportGap - chipRect.bottom - panelGap);
   const spaceAbove = Math.max(0, chipRect.top - panelGap - viewportTop);
-  const panelWidth = Math.min(480, Math.max(1, viewport.width - viewportGap * 2));
+  const widthCap = advancedParameterPanelWidthCap(state.advancedParameterOpen);
+  const panelWidth = Math.min(widthCap, Math.max(1, viewport.width - viewportGap * 2));
   const maxLeft = Math.max(viewportLeft + viewportGap, viewportRight - viewportGap - panelWidth);
 
   panel.style.position = "fixed";
@@ -1283,16 +1302,26 @@ function positionAdvancedParameterPanel() {
   panel.style.maxHeight = "none";
   panel.style.top = `${Math.round(viewportTop)}px`;
   const contentHeight = Math.ceil(panel.getBoundingClientRect().height);
-  const heightCap = Math.min(300, Math.floor(viewport.height * 0.52));
+  const heightCap = advancedParameterPanelHeightCap(state.advancedParameterOpen, viewport.height);
   const wantedHeight = Math.max(1, Math.min(contentHeight, heightCap));
-  let placement = "center";
-  let availableHeight = Math.max(1, viewportBottom - viewportGap - viewportTop);
+  const comfortableHeight = Math.min(wantedHeight, state.advancedParameterOpen === "duration" ? 104 : 168);
+  let placement = "down";
   if (spaceBelow >= wantedHeight) {
     placement = "down";
-    availableHeight = spaceBelow;
+  } else if (spaceBelow >= comfortableHeight) {
+    placement = "down";
   } else if (spaceAbove >= wantedHeight) {
     placement = "up";
-    availableHeight = spaceAbove;
+  } else if (spaceAbove >= comfortableHeight || spaceAbove > spaceBelow) {
+    placement = "up";
+  }
+  let availableHeight = placement === "up" ? spaceAbove : spaceBelow;
+  if (availableHeight < Math.min(72, wantedHeight)) {
+    const alternateHeight = placement === "up" ? spaceBelow : spaceAbove;
+    if (alternateHeight > availableHeight) {
+      placement = placement === "up" ? "down" : "up";
+      availableHeight = alternateHeight;
+    }
   }
   const panelHeight = Math.max(1, Math.floor(Math.min(wantedHeight, availableHeight)));
   const maxTop = Math.max(viewportTop, viewportBottom - viewportGap - panelHeight);
@@ -1302,6 +1331,7 @@ function positionAdvancedParameterPanel() {
       ? chipRect.top - panelGap - panelHeight
       : viewportTop + Math.max(0, (viewportBottom - viewportGap - viewportTop - panelHeight) / 2);
   panel.dataset.advancedParameterPlacement = placement;
+  panel.dataset.advancedParameterScrollable = contentHeight > panelHeight ? "true" : "false";
   panel.style.maxHeight = `${Math.floor(panelHeight)}px`;
   panel.style.top = `${Math.round(Math.min(Math.max(viewportTop, preferredTop), maxTop))}px`;
 }
@@ -1368,10 +1398,12 @@ function renderAdvancedParameterPanel(kind = "") {
   }
   els.advancedParameterPanel.hidden = false;
   els.advancedParameterPanel.innerHTML = body;
+  els.advancedParameterPanel.dataset.advancedParameterKind = kind;
   els.advancedParameterPanel.scrollTop = 0;
   delete els.advancedParameterPanel.dataset.advancedParameterPlacement;
   positionAdvancedParameterPanel();
   refreshIcons();
+  scheduleAdvancedParameterPanelPosition();
   if (modelList) {
     const selected = els.advancedParameterPanel.querySelector(".advanced-parameter-option.is-selected");
     selected?.scrollIntoView?.({ block: "nearest" });
