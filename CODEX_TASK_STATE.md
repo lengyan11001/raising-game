@@ -1,3 +1,9 @@
+## 2026-11-18 Step EK: Rename the main navigation Workflow entry to Canvas
+
+- Updated `nav.workflow` across all supported locales and the HTML fallback so the left main navigation reads Canvas / 画布 instead of Workflow / 工作流.
+- Locale labels: English `Canvas`, Vietnamese `Bảng vẽ`, Japanese `キャンバス`, Korean `캔버스`, Indonesian `Kanvas`, Chinese `画布`.
+- Verification: `node --check platform.copy.js`, all six translation entries inspected, `npm run check:undef`, and `git diff --check` passed. Deployment pending.
+
 ## 2026-11-18 Step EJ: Refund badge covers independent History and canvas result surfaces
 
 - User clarified this is not a second failed badge. Removed the extra failed badge from Advanced Result cards and kept only the green refund badge for records whose billing state is `refunded`.
