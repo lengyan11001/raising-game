@@ -1258,7 +1258,7 @@ function advancedParameterViewportTop(viewportTop = 12) {
 
 function advancedParameterPanelWidthCap(kind = "") {
   if (kind === "model") return 440;
-  if (kind === "mode") return 380;
+  if (kind === "mode") return 280;
   if (kind === "ratio") return 240;
   if (kind === "resolution") return 280;
   if (kind === "duration") return 360;
@@ -1273,7 +1273,7 @@ function advancedParameterPanelHeightCap(kind = "", viewportHeight = window.inne
 }
 
 function advancedParameterPanelContentFitWidth(panel, kind = "", maxWidth = 320) {
-  if (!panel || kind === "model" || kind === "duration") return maxWidth;
+  if (!panel || kind === "model" || kind === "mode" || kind === "duration") return maxWidth;
   const options = panel.querySelector(".advanced-parameter-options");
   if (!options) return maxWidth;
   const buttons = Array.from(options.querySelectorAll(":scope > .advanced-parameter-option"));
@@ -1381,6 +1381,7 @@ function renderAdvancedParameterPanel(kind = "") {
     return;
   }
   const current = String(select.value || "");
+  const modelList = kind === "model";
   let body = "";
   if (kind === "duration") {
     const numeric = options.map((item) => Number(item.value)).filter((value) => Number.isFinite(value) && value >= 0);
@@ -1407,7 +1408,6 @@ function renderAdvancedParameterPanel(kind = "") {
       </div>
     `;
   } else {
-    const modelList = kind === "model";
     body = `<div class="advanced-parameter-options${modelList ? " is-model-list" : ""}">
       ${options.map((item) => `
         <button class="advanced-parameter-option ${item.value === current ? "is-selected" : ""}" type="button" data-advanced-parameter-option-kind="${escapeHtml(kind)}" data-advanced-parameter-option-value="${escapeHtml(item.value)}">

@@ -1,6 +1,8 @@
 ## 2026-11-18 Step EF: Generate parameter popup compact widths
 
 - Current task is limited to the Generate parameter picker UI. Selection handling, regeneration, backfill, and model initialization logic are unchanged.
+- Follow-up mode popup fix: `mode` is now a 280px single-column list with full-width options, removing the trailing blank area for reference-video/first-last-frame choices. `advancedParameterContentFitWidth()` intentionally skips mode because full-width buttons already fill the panel. Also fixed `modelList` being scoped inside the non-duration branch while used after both branches, which caused a runtime `modelList is not defined` error whenever a parameter popup rendered.
+- Failed result refund marker: result cards whose `billingStatus` is `refunded` now show a high-contrast top-right `积分已退` / `Credits refunded` badge. The badge is included in the media identity so it appears as soon as a failed record is refunded.
 - `platform.create.parts/part-02.js` now assigns an advanced-parameter kind to the portaled popup and applies per-kind width/height caps. Current caps: model 440px, mode 380px, ratio 240px, resolution 280px, duration 360px, size 200px, default 320px.
 - `platform.css` adds the matching kind-specific widths, compact option spacing, refined dark popup styling, scrollbar treatment, reduced-motion support, and mobile viewport clamping.
 - Browser measurements passed at 1280x720, 1440x900, and 390x844. Ratio/resolution/duration render at 240/280/360px on desktop; mobile popups remain inside the 390px viewport. Popup placement still flips upward when needed.

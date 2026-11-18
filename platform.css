@@ -5518,6 +5518,7 @@ dialog.tool-download-modal {
   margin: 0;
 }
 .advanced-result-card {
+  position: relative;
   display: grid;
   gap: 7px;
   min-width: 0;
@@ -5526,6 +5527,32 @@ dialog.tool-download-modal {
   padding: 8px;
   background: rgba(255,255,255,.76);
   box-shadow: var(--soft-shadow);
+}
+.advanced-result-refund-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid rgba(52,211,153,.62);
+  border-radius: 999px;
+  color: #ecfdf5;
+  background: rgba(5,150,105,.94);
+  box-shadow: 0 6px 16px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.18);
+  font-size: .68rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.advanced-result-refund-badge svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
 }
 .advanced-result-card.is-running .advanced-result-media svg,
 .advanced-result-card.is-submitted .advanced-result-media svg {
@@ -11438,7 +11465,7 @@ select:focus,
   width: min(440px, calc(100vw - 24px));
 }
 .advanced-parameter-panel[data-advanced-parameter-kind="mode"] {
-  width: min(380px, calc(100vw - 24px));
+  width: min(280px, calc(100vw - 24px));
 }
 .advanced-parameter-panel[data-advanced-parameter-kind="ratio"] {
   width: min(240px, calc(100vw - 24px));
@@ -11517,6 +11544,14 @@ select:focus,
   font-size: .74rem;
   font-weight: 850;
   white-space: nowrap;
+}
+.advanced-parameter-panel[data-advanced-parameter-kind="mode"] .advanced-parameter-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.advanced-parameter-panel[data-advanced-parameter-kind="mode"] .advanced-parameter-option {
+  width: 100%;
+  justify-content: flex-start;
 }
 .advanced-parameter-options.is-model-list {
   display: grid;

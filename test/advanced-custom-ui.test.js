@@ -161,19 +161,25 @@ test("Advanced results use a compact paged multi-column card grid", () => {
   assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-form-card \{[\s\S]*?min-height: calc\(100dvh - 100px\);[\s\S]*?max-height: none;[\s\S]*?overflow: visible/);
   assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-fields \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(create, /class="advanced-result-actions"/);
+  assert.match(create, /const isRefunded = String\(record\.billingStatus \|\| ""\)\.toLowerCase\(\) === "refunded"/);
+  assert.match(create, /class="advanced-result-refund-badge"/);
+  assert.match(css, /\.advanced-result-card \{[\s\S]*?position: relative/);
+  assert.match(css, /\.advanced-result-refund-badge \{[\s\S]*?position: absolute;[\s\S]*?top: 8px;[\s\S]*?right: 8px/);
   assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
 });
 
 test("Generate parameter picker stays compact and selected chips show full labels", () => {
   assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?width: min\(420px, calc\(100vw - 24px\)\)[\s\S]*?max-height: min\(52dvh, 360px\)/);
   assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="model"\] \{[\s\S]*?width: min\(440px, calc\(100vw - 24px\)\)/);
-  assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="mode"\] \{[\s\S]*?width: min\(380px, calc\(100vw - 24px\)\)/);
+  assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="mode"\] \{[\s\S]*?width: min\(280px, calc\(100vw - 24px\)\)/);
   assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="ratio"\] \{[\s\S]*?width: min\(240px, calc\(100vw - 24px\)\)/);
   assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="resolution"\] \{[\s\S]*?width: min\(280px, calc\(100vw - 24px\)\)/);
   assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="duration"\] \{[\s\S]*?width: min\(360px, calc\(100vw - 24px\)\)/);
   assert.match(css, /\.advanced-parameter-options\.is-model-list \{[\s\S]*?gap: 6px/);
   assert.match(css, /\.advanced-parameter-options\.is-model-list \.advanced-parameter-option \{[\s\S]*?min-height: 44px/);
   assert.match(css, /\.advanced-parameter-option \{[\s\S]*?min-height: 34px;[\s\S]*?padding: 0 12px/);
+  assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="mode"\] \.advanced-parameter-options \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="mode"\] \.advanced-parameter-option \{[\s\S]*?width: 100%;[\s\S]*?justify-content: flex-start/);
   assert.match(css, /\.advanced-parameter-chip-value \{[\s\S]*?overflow: visible;[\s\S]*?text-overflow: clip/);
   assert.match(create, /kind === "model" \? valueLabel :/);
   assert.match(create, /\$\{kind === "model" \? "" : `<i class="advanced-parameter-chip-caret" data-lucide="chevron-down"><\/i>`\}/);
@@ -185,6 +191,7 @@ test("Generate parameter picker stays compact and selected chips show full label
   assert.match(create, /function advancedParameterPanelWidthCap\(kind = ""\)/);
   assert.match(create, /function advancedParameterPanelHeightCap\(kind = "", viewportHeight = window\.innerHeight\)/);
   assert.match(create, /function advancedParameterPanelContentFitWidth\(panel, kind = "", maxWidth = 320\)/);
+  assert.match(create, /kind === "model" \|\| kind === "mode" \|\| kind === "duration"/);
   assert.match(create, /rows\.set\(button\.offsetTop, row\)/);
   assert.match(create, /Math\.max\(\.\.\.Array\.from\(rows\.values\(\), \(row\) => row\.right - row\.left\)\)/);
   assert.match(create, /if \(kind === "ratio"\) return 240/);
@@ -198,6 +205,7 @@ test("Generate parameter picker stays compact and selected chips show full label
   assert.match(create, /placement = "up"/);
   assert.match(create, /dataset\.advancedParameterPlacement = placement/);
   assert.match(create, /dataset\.advancedParameterKind = kind/);
+  assert.match(create, /const modelList = kind === "model";[\s\S]*?let body/);
   assert.match(create, /dataset\.advancedParameterScrollable = contentHeight > panelHeight \? "true" : "false"/);
   assert.match(create, /panel\.style\.maxHeight = `\$\{Math\.floor\(panelHeight\)\}px`/);
   assert.match(create, /selected\?\.scrollIntoView\?\.\(\{ block: "nearest" \}\)/);
