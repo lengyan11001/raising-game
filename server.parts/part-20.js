@@ -1241,8 +1241,8 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(pollOnly ? {} : {
       usage: listGenerationRecordValue(record.usage || null),
     }),
-    error: publicModelText(recordError),
-    cdnError: publicModelText(record.cdnError || ""),
+    error: publicGenerationErrorMessage(recordError),
+    cdnError: publicGenerationErrorMessage(record.cdnError || ""),
     r2DownloadReady: generationRecordIsVideoOutput(record)
       ? Boolean(String(record.cdnVideoUrl || "").trim() && String(record.storageKey || "").trim())
       : generationRecordImageStorageReady(record),
