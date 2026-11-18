@@ -1001,6 +1001,8 @@ async function startStripeCheckoutForOrder(order, config, { requestOrigin = "", 
   if (order.promoCampaignId === "eleven-eleven-2026") {
     promoQuery.set("promo", "1111");
     if (order.promoCampaignSku) promoQuery.set("promo_sku", order.promoCampaignSku);
+  } else if (order.promoCampaignId === SEEDREAM55_CAMPAIGN.id) {
+    promoQuery.set("promo", "seedream55");
   }
   promoQuery.set("stripe_session_id", "{CHECKOUT_SESSION_ID}");
   params.set("success_url", `${origin}/?${promoQuery.toString()}#topups`);
@@ -1009,6 +1011,9 @@ async function startStripeCheckoutForOrder(order, config, { requestOrigin = "", 
     cancelQuery.set("promo", "1111");
     cancelQuery.set("promo_cancelled", "1");
     if (order.promoCampaignSku) cancelQuery.set("promo_sku", order.promoCampaignSku);
+  } else if (order.promoCampaignId === SEEDREAM55_CAMPAIGN.id) {
+    cancelQuery.set("promo", "seedream55");
+    cancelQuery.set("promo_cancelled", "1");
   }
   params.set("cancel_url", `${origin}/?${cancelQuery.toString()}#topups`);
   params.set("client_reference_id", order.id);
@@ -1130,6 +1135,9 @@ async function handleStartStripeCheckoutSession(req, res, orderId) {
     order.note = error.message || "Stripe checkout creation failed.";
     order.updatedAt = new Date().toISOString();
     await updateWalletOrderInDb(order).catch(() => {});
+    if (order.promoCampaignId === ELEVEN_ELEVEN_PROMO.id || order.promoCampaignId === SEEDREAM55_CAMPAIGN.id) {
+      await markPromotionPurchaseFailedInDb({ campaignId: order.promoCampaignId, orderId: order.id, status: "failed" }).catch(() => {});
+    }
     return sendJson(res, error.statusCode || 502, { ok: false, code: error.code || "STRIPE_CHECKOUT_FAILED", message: "Stripe checkout could not be created." });
   }
 }
@@ -1302,7 +1310,7 @@ async function handleStripeWebhook(req, res) {
     const failure = order.stripeFailureMessage || order.stripeFailureCode || (event.type === "checkout.session.expired" ? "Checkout session expired." : "Stripe payment failed.");
     order.note = String(failure).slice(0, 200);
     await updateWalletOrderInDb(order);
-    if (order.promoCampaignId === "eleven-eleven-2026") {
+    if (order.promoCampaignId === ELEVEN_ELEVEN_PROMO.id || order.promoCampaignId === SEEDREAM55_CAMPAIGN.id) {
       await markPromotionPurchaseFailedInDb({
         campaignId: order.promoCampaignId,
         orderId: order.id,

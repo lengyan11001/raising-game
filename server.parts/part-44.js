@@ -27,6 +27,26 @@ const ELEVEN_ELEVEN_PROMO = Object.freeze({
   }),
 });
 
+const SEEDREAM55_CAMPAIGN = Object.freeze({
+  id: "seedream55-2026",
+  enabled: process.env.SEEDREAM55_CAMPAIGN_ENABLED !== "0",
+  startsAt: Date.parse(process.env.SEEDREAM55_CAMPAIGN_STARTS_AT || "2026-11-18T00:00:00+08:00"),
+  endsAt: Date.parse(process.env.SEEDREAM55_CAMPAIGN_ENDS_AT || "2026-11-30T23:59:59+08:00"),
+  amount: 59.9,
+  originalAmount: 99,
+  reservationSeconds: 1500,
+});
+
+function seedream55CampaignOpen(now = Date.now()) {
+  return Boolean(
+    SEEDREAM55_CAMPAIGN.enabled &&
+    Number.isFinite(SEEDREAM55_CAMPAIGN.startsAt) &&
+    Number.isFinite(SEEDREAM55_CAMPAIGN.endsAt) &&
+    now >= SEEDREAM55_CAMPAIGN.startsAt &&
+    now <= SEEDREAM55_CAMPAIGN.endsAt
+  );
+}
+
 function elevenElevenSku(sku = "") {
   return ELEVEN_ELEVEN_PROMO.skus[String(sku || "").trim()] || null;
 }
@@ -191,6 +211,85 @@ async function createElevenElevenCheckout(req, res) {
   return sendJson(res, 200, { ok: true, reused: false, checkoutUrl: stripeCheckoutUrl(order.id, cashierBaseUrl), sku: sku.id, orderId: order.id });
 }
 
+async function createSeedream55CampaignCheckout(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "活动数据需要 PostgreSQL，当前服务未配置 DATABASE_URL。" });
+  if (!seedream55CampaignOpen()) {
+    return sendJson(res, 403, { ok: false, code: "CAMPAIGN_CLOSED", message: "本次活动已结束。" });
+  }
+  if (userHasCreatorMembership(auth.user)) {
+    return sendJson(res, 409, { ok: false, code: "MEMBERSHIP_ALREADY_ACTIVE", message: "您已开通会员，无需重复购买。" });
+  }
+  const cashierBaseUrl = stripeCheckoutBaseUrlForRequest(req);
+  const stripeConfig = stripeConfigForHost(cashierBaseUrl);
+  if (!stripeEnabled(stripeConfig)) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
+  const userId = auth.user.id;
+  const orderId = randomId("stripe");
+  const reserved = await reservePromotionPurchaseInDb({
+    campaignId: SEEDREAM55_CAMPAIGN.id,
+    sku: "member",
+    userId,
+    orderId,
+    reservationSeconds: SEEDREAM55_CAMPAIGN.reservationSeconds,
+  });
+  if (reserved.status === "purchased") {
+    return sendJson(res, 409, { ok: false, code: "PROMO_ALREADY_PURCHASED", message: "本活动会员权益每个账号限购一次。" });
+  }
+  if (reserved.status === "pending") {
+    const pendingOrder = reserved.purchase?.orderId ? await getWalletOrderByIdInDb(reserved.purchase.orderId) : null;
+    if (pendingOrder && pendingOrder.userId === userId && pendingOrder.status === "pending" && !stripeCheckoutSessionExpired(pendingOrder)) {
+      return sendJson(res, 200, { ok: true, reused: true, checkoutUrl: stripeCheckoutUrl(pendingOrder.id, cashierBaseUrl) });
+    }
+    return sendJson(res, 409, { ok: false, code: "PROMO_CHECKOUT_BUSY", message: "正在处理上一笔支付，请稍后再试。" });
+  }
+  if (reserved.status !== "reserved") {
+    return sendJson(res, 409, { ok: false, code: "PROMO_CHECKOUT_BUSY", message: "当前活动暂时无法下单，请稍后再试。" });
+  }
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const order = {
+    id: orderId,
+    tenantId: tenantOptions.tenant?.tenantId || DEFAULT_TENANT_ID,
+    userId,
+    paymentProvider: "stripe",
+    orderKind: "subscription",
+    promoId: SEEDREAM55_CAMPAIGN.id,
+    promoCampaignId: SEEDREAM55_CAMPAIGN.id,
+    promoCampaignName: "Seedream 5.5 限时特惠",
+    promoCampaignSku: "member",
+    baseAmount: SEEDREAM55_CAMPAIGN.amount,
+    baseAmountOriginal: SEEDREAM55_CAMPAIGN.originalAmount,
+    creditAmount: 0,
+    packageId: "",
+    packageCredits: 0,
+    billingPlanId: CREATOR_MEMBERSHIP_PLAN_ID,
+    billingPlanName: "Creator Membership (Lifetime)",
+    billingIntervalUnit: "lifetime",
+    billingIntervalCount: 1,
+    creditsPerUsd: walletCreditsPerUsd(config.wallet),
+    currency: STRIPE_CURRENCY.toUpperCase(),
+    payableAmount: SEEDREAM55_CAMPAIGN.amount,
+    payableAmountText: SEEDREAM55_CAMPAIGN.amount.toFixed(2),
+    asset: STRIPE_CURRENCY.toUpperCase(),
+    network: "Stripe",
+    chain: "stripe",
+    status: "pending",
+    sourceOrigin: pageOriginFromRequest(req),
+    cashierHost: normalizeHostname(cashierBaseUrl),
+    stripeAccountId: stripeConfig.accountId || "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    await createWalletOrderInDb(order);
+  } catch (error) {
+    await markPromotionPurchaseFailedInDb({ campaignId: SEEDREAM55_CAMPAIGN.id, orderId, status: "failed" }).catch(() => {});
+    throw error;
+  }
+  return sendJson(res, 200, { ok: true, reused: false, checkoutUrl: stripeCheckoutUrl(order.id, cashierBaseUrl), orderId: order.id });
+}
+
 
 async function handlePromotionPaymentRoutes(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/pay/stripe/config") {
@@ -203,6 +302,10 @@ async function handlePromotionPaymentRoutes(req, res, url) {
   }
   if (req.method === "POST" && url.pathname === "/api/promo/1111/checkout") {
     await createElevenElevenCheckout(req, res);
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/api/promo/seedream55/checkout") {
+    await createSeedream55CampaignCheckout(req, res);
     return true;
   }
   if (req.method === "GET" && url.pathname === "/api/promo/double-topup") {
