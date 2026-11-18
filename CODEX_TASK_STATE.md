@@ -5,7 +5,8 @@
 - Added campaign membership state, countdown, carousel infrastructure for future entries, login handling, Stripe checkout, success/cancel return handling, and single-activity dot suppression.
 - Added server-authoritative `seedream55-2026` checkout reservations and settlement/failure lifecycle handling through `POST /api/promo/seedream55/checkout`; the campaign is restricted to one membership purchase per account.
 - Verification passed: Seedream campaign tests `4/4`; workflow and side-navigation tests `44/44`; membership/Stripe tests `14/14`; `node --check` for changed client/server files, `npm run check:undef`, and `git diff --check`.
-- Source commit on `old-site`: `Add Seedream 5.5 campaign entry and checkout`. Deployment is still pending. Unrelated dirty file `server.parts/part-45.js` remains excluded from commit and release.
+- Source commit on `old-site`: `1a4dd5f7 Add Seedream 5.5 campaign entry and checkout`.
+- Built platform release `f1e5bb5fbde12797a7d0c01a79ed2d503dd781ca` from `1a4dd5f7` and deployed to Old with the rolling entrypoint (`4174 -> 4175`, canaries 1%/5%, `OLD_ROLLING_DEPLOY_OK`). `/api/health`, `/api/livez`, and `/api/readyz` return `200`; production serves the campaign card, local hero asset (`132231` bytes), and campaign CSS. Unrelated dirty file `server.parts/part-45.js` remains excluded from the commit; the release retains the previously committed version, matching `HEAD` exactly.
 
 ## 2026-11-18 Step EM: Desktop content aligns with the first navigation item
 
