@@ -1,3 +1,10 @@
+## 2026-11-18 Step EE: story-tree entry clicks independent from disclosure
+
+- Story-tree script/episode entry clicks now only select the manuscript or episode and open its content in the right pane. `openStoryEpisode()` no longer mutates any manuscript or episode expansion arrays; manuscript entries already only changed the selection.
+- Branch expansion remains unchanged when opening content. Only the explicit chevron disclosure buttons call `toggleStoryManuscript()` / `toggleStoryEpisode()`.
+- Added a regression assertion that `openStoryEpisode()` contains no expansion-state references. Verification passed: `node --check platform.story.js`, `node --check test/story-canvas-p1.test.js`, `node --test test/story-canvas-p1.test.js` (22/22), and `git diff --check`.
+- Source commit `6973d81b`; platform release `2769b7f2` built from it and pushed only to `platform-release`. `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK`; Old is active on port 4174 serving release `2769b7f26588e3980ce8ab9a38256a636bcc3178`. Public `/api/health` returns `{"ok":true}`, and the served `platform.story.js` contains the non-toggling `openStoryEpisode()` implementation.
+
 ## 2026-11-18 Step ED: Seedance BGM/audio-copyright failures
 
 - Read-only Old production PostgreSQL audit covered the last 30 days: 1,269 Seedance failures. Classification was content moderation 776, timeout/network/server 274, audio/BGM copyright 110, other 69, invalid parameter 40. The top raw errors were `output video may contain sensitive information` (516) and `output video may be related to copyright restrictions` (213); `output audio may be related to copyright restrictions` was 89 before nested-message deduplication. Over 90 days: 2,060 failed and 179 audio/BGM copyright. Therefore BGM/audio copyright is substantial but not the highest-frequency failure; content moderation is clearly highest.
