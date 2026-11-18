@@ -5,7 +5,9 @@
 - Set the server-side `seedream55-2026` campaign to `enabled: false`, so new campaign checkout is rejected while existing generation and historical purchase behavior remain intact.
 - Updated focused campaign coverage to assert the banner, benefits dialog, and checkout entry are offline.
 - Verification: `node --test test/seedream-campaign.test.js` passes 4/4; `node --check platform.ui.parts/part-07.js`, `node --check server.parts/part-44.js`, `npm run check:undef`, and `git diff --check` pass.
-- Pending: commit, build a platform release from the committed `old-site` integration state, deploy Old only, and verify production.
+- Source commit on `old-site`: `a62a25c7 Take Seedream banner campaign offline`.
+- Built platform release `6fcb888940f171ba1f86bb355737c25e97561d3f` from `a62a25c7`, pushed `old-site` and `platform-release`, and deployed Old through `scripts/deploy_local.sh --site old` (`4174 -> 4175`, canaries 1%/5%, `OLD_ROLLING_DEPLOY_OK`). Live was not deployed.
+- Production verification: `/api/health`, `/api/livez`, and `/api/readyz` return `200`; served HTML has no campaign banner/dialog/benefit copy; served `platform.ui.parts/part-07.js` has no Seedream campaign handler or checkout call; the Seedream 5.5 model option remains available.
 
 ## 2026-11-18 Step EN: Seedream 5.5 campaign entry and checkout flow
 
