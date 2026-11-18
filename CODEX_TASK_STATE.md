@@ -1,3 +1,10 @@
+## 2026-11-18 Step EI: Failed result cards get a visible status badge
+
+- User requested a corner badge for failed records in the Result tab. Added a red top-left `失败` / `Failed` badge for any failed Advanced result card. Refunded failures keep the separate green top-right `积分已退` badge.
+- Included refund state in the placeholder media identity so a refund that settles after the failed status still refreshes the badge without reloading successful media.
+- Focused verification passed: syntax check, advanced custom UI tests 2/2, `npm run check:undef`, and `git diff --check`. Deployment is pending.
+- Prior fix `59c99b4c` was released as platform `26399261` and deployed Old-only; active port `4175`. It keeps failed Advanced rows visible after reload.
+
 ## 2026-11-18 Step EH: Failed Advanced records remain visible after page reload
 
 - Reproduced with test01 on a fresh Chrome tab: `/api/generation-records` still includes `cgt-20261117151814-4ef410`, but the Result panel showed only the three successful records after reload. Clicking Refresh did not restore the failed row.
