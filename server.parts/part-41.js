@@ -244,7 +244,10 @@ async function handleAdminGenerationRecordMedia(req, res, taskId) {
     if (thumbnailUrl) {
       res.writeHead(302, {
         location: thumbnailUrl,
-        "cache-control": "private, max-age=3600",
+        // The redirect target carries its own short-lived object-storage
+        // signature. Never let the browser reuse this redirect longer than
+        // that signature, otherwise a later image load follows an expired URL.
+        "cache-control": "no-store",
         vary: "Accept",
       });
       res.end();

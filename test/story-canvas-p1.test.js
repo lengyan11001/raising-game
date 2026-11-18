@@ -620,6 +620,7 @@ test("generation record media supports cached image thumbnails", () => {
   assert.match(handlers, /wantsThumbnail && isImageGenerationRecord\(record\)/);
   assert.match(handlers, /makeOssSignedImageCdnUrl\(\{ key: storage\.key, process: "thumbnail", config: OSS \}\)/);
   assert.match(handlers, /location: thumbnailUrl/);
+  assert.match(handlers, /location: thumbnailUrl,[\s\S]*cache-control": "no-store"/);
   assert.match(handlers, /max-age=86400, immutable/);
 });
 
@@ -634,6 +635,7 @@ test("story asset images use refreshed authenticated media URLs instead of persi
   assert.match(story, /function storyAssetVariantImageUrl\(variant = \{\}\)[\s\S]*variant\.mediaUrl[\s\S]*metadata\?\.mediaUrl/);
   assert.match(story, /src="\$\{storyEscape\(storyAssetVariantThumbnailUrl\(variant\)\)\}"/);
   assert.match(story, /<a href="\$\{storyEscape\(imageUrl\)\}"[\s\S]*?<img src="\$\{storyEscape\(thumbnailUrl\)\}"/);
+  assert.match(story, /storyMediaFullRetry[\s\S]*searchParams\.delete\("thumb"\)/);
   assert.match(generation, /function generationRecordInlineMediaUrl\(target = \{\}\)/);
   assert.match(generation, /makeOssSignedCdnUrl\(\{[\s\S]*download: false/);
   assert.match(generation, /proxyRemoteMedia\(req, res, inlineUrl/);

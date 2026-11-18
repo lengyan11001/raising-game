@@ -3412,6 +3412,16 @@
         return;
       }
       if (!image?.matches?.("img[data-story-media-image]")) return;
+      const currentSrc = image.getAttribute("src") || "";
+      if (image.dataset.storyMediaFullRetry !== "1" && /[?&]thumb=1(?:&|$)/.test(currentSrc)) {
+        image.dataset.storyMediaFullRetry = "1";
+        try {
+          const fullUrl = new URL(currentSrc, window.location.href);
+          fullUrl.searchParams.delete("thumb");
+          image.src = `${fullUrl.pathname}${fullUrl.search}${fullUrl.hash}`;
+          return;
+        } catch {}
+      }
       image.hidden = true;
       const fallback = image.parentElement?.querySelector("[data-story-media-fallback]");
       if (fallback) fallback.hidden = false;
