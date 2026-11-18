@@ -776,6 +776,19 @@ async function handleRequest(req, res) {
       return await handlePlanStoryEpisodeAssets(req, res, decodeURIComponent(storyEpisodeAssetsPlanMatch[1]), decodeURIComponent(storyEpisodeAssetsPlanMatch[2]));
     }
 
+    const storyEpisodeAssetsMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/assets\/?$/);
+    if (req.method === "POST" && storyEpisodeAssetsMatch) {
+      return await handleCreateStoryAsset(req, res, decodeURIComponent(storyEpisodeAssetsMatch[1]), decodeURIComponent(storyEpisodeAssetsMatch[2]));
+    }
+
+    const storyAssetMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/assets\/([^/]+)\/?$/);
+    if (req.method === "PUT" && storyAssetMatch) {
+      return await handleUpdateStoryAsset(req, res, decodeURIComponent(storyAssetMatch[1]), decodeURIComponent(storyAssetMatch[2]));
+    }
+    if (req.method === "DELETE" && storyAssetMatch) {
+      return await handleDeleteStoryAsset(req, res, decodeURIComponent(storyAssetMatch[1]), decodeURIComponent(storyAssetMatch[2]));
+    }
+
     const storyAssetVariantsMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/assets\/([^/]+)\/variants\/?$/);
     if (req.method === "POST" && storyAssetVariantsMatch) {
       return await handleCreateStoryAssetVariant(req, res, decodeURIComponent(storyAssetVariantsMatch[1]), decodeURIComponent(storyAssetVariantsMatch[2]));

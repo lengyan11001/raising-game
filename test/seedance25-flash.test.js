@@ -19,6 +19,7 @@ const {
   normalizeAdvancedProvider,
   publicProviderLabel,
 } = require("../lib-providers");
+const { seedancePromptWithNoBgm } = require("../seedance-prompt");
 
 const root = path.resolve(__dirname, "..");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
@@ -78,7 +79,7 @@ test("builds the confirmed Flash multimodal payload with audio enabled by defaul
   assert.equal(payload.seed, 42);
   assert.equal("moderation" in payload, false);
   assert.deepEqual(payload.content, [
-    { type: "text", text: "Animate the references" },
+    { type: "text", text: seedancePromptWithNoBgm("Animate the references") },
     { type: "image_url", image_url: { url: image("one.png") }, role: "reference_image" },
     { type: "image_url", image_url: { url: image("two.png") }, role: "reference_image" },
     { type: "video_url", video_url: { url: video("motion.mp4") }, role: "reference_video" },
@@ -100,7 +101,7 @@ test("First + Last Frame uses frame roles and omits ratio", () => {
   assert.equal(normalizeSeedance25FlashMode("first-last-frame"), "first_last_frame");
   assert.equal("ratio" in payload, false);
   assert.deepEqual(payload.content, [
-    { type: "text", text: "Transition between the frames" },
+    { type: "text", text: seedancePromptWithNoBgm("Transition between the frames") },
     { type: "image_url", image_url: { url: image("first.png") }, role: "first_frame" },
     { type: "image_url", image_url: { url: image("last.png") }, role: "last_frame" },
   ]);

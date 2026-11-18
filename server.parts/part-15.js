@@ -7,6 +7,7 @@ function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body 
   const fallbackContent = Array.isArray(content) ? content : [];
   payload.model = String(firstPresent(source.model, MODEL_QUALITY));
   payload.content = requestedContent || fallbackContent;
+  payload.content = seedanceContentWithNoBgm(payload.content);
   payload.generate_audio = boolFromRequest(
     firstPresent(source.generate_audio, source.generateAudio),
     config.video?.generateAudio === true,

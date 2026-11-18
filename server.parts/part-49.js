@@ -146,7 +146,67 @@ function storyAnalysisContentStats(text = "") {
   return { hanCharacters, paragraphs, quotedLines: quotedLines.length, dialogueCharacters };
 }
 
-const STORY_SHOT_PLANNER_SYSTEM_PROMPT = `你是专业中文影视分镜师。请把已经定稿的单集大纲拆成可连续制作、可逐镜审核的镜头清单。
+const STORY_COVERAGE_PLANNER_SYSTEM_PROMPT = `你是中文短剧的分镜覆盖策划。先阅读本集简略大纲、节拍表和原文，列出必须被镜头覆盖的完整剧情节点，不写最终分镜。
+只输出合法 JSON 对象，不要 Markdown 或解释：
+{
+  "beats": [
+    {
+      "beatNo": 1,
+      "summary": "该节拍的单一核心事件",
+      "sourceBasis": "对应原文依据或逐字短句",
+      "characters": ["出场角色"],
+      "location": "场景",
+      "actionNodes": ["必须看见的连续动作"],
+      "dialogueNodes": ["必须保留的关键对白或旁白"],
+      "emotionNodes": ["情绪或关系变化"],
+      "minimumShots": 1,
+      "estimatedShotCount": 1
+    }
+  ],
+  "estimatedShotCount": 0,
+  "coverageNotes": "覆盖依据与风险"
+}
+规则：
+1. 以原文为主、简略大纲为索引，按时间顺序覆盖所有推动因果、关系变化和结尾钩子的节点；不能只复述大纲。
+2. 一个 actionNodes、dialogueNodes 或 emotionNodes 只写一个可视动作或信息变化。同一秒内不能塞入多个独立动作。
+3. 每个节拍给出 minimumShots 和 estimatedShotCount。节点越多镜头越多；禁止套用 10 镜模板，也不得为了省事把多个节拍合并。
+4. 原文没有依据的事件不得新增；引号对白只保留推进剧情的部分。
+5. 估算全部镜头数必须根据动作、对白、情绪节点的总量计算，而不是按常见短片模板。`;
+
+const STORY_SHOT_CRITIC_SYSTEM_PROMPT = `你是中文短剧分镜审稿人。请对照原文、节拍表和覆盖计划，审查候选分镜是否漏剧情、重复、镜头承载过多动作或时长不合理，并输出修订后的最终分镜。
+只输出合法 JSON 对象，不要 Markdown 或解释：
+{
+  "hook": "30-100个中文字符的结尾钩子",
+  "recommendedDurationSeconds": 0,
+  "coverageAudit": {
+    "coveredBeatNos": [1],
+    "missingBeats": [],
+    "overloadedShotNos": [],
+    "changes": ["本次修订说明"]
+  },
+  "shots": [
+    {
+      "shotNo": 1,
+      "title": "12字以内镜头标题",
+      "description": "80-220个中文字符的可执行分镜描述",
+      "durationSeconds": 5,
+      "shotSize": "远景/全景/中景/近景/特写",
+      "camera": "固定/推/拉/摇/移/跟/手持等",
+      "location": "具体场景",
+      "characters": ["出场角色"],
+      "dialogue": "对白、旁白或留空",
+      "storyBeat": "对应节拍和剧情推进"
+    }
+  ]
+}
+审查规则：
+1. 逐项检查覆盖计划的每个 actionNodes、dialogueNodes 和 emotionNodes。漏掉关键动作时补镜，不靠改写 description 假装覆盖。
+2. 一个镜头只能承担一个清晰动作或信息变化；发现多动作混装必须拆镜。重复镜头、无剧情推进的空镜和不符合原文动机的镜头要删除或修正。
+3. 保留原有人物关系、台词和结尾钩子。镜头数由覆盖计划与原文实际节点决定，禁止机械停在 10 镜。
+4. 所有 shotNo 连续唯一；durationSeconds 为 1-30 秒整数，总时长应接近本集目标时长上下 10%。
+5. 返回完整最终 shots，而不是只返回修改建议。`;
+
+const STORY_SHOT_PLANNER_SYSTEM_PROMPT = `你是专业中文影视分镜师。请依据原文、节拍表和覆盖计划，把已经定稿的单集拆成可连续制作、可逐镜审核的镜头清单。
 只输出一个合法 JSON 对象，不要 Markdown，不要代码围栏，不要解释。返回结构：
 {
   "hook": "如果输入钩子为空，补写30-100个中文字符的结尾钩子；否则原样返回",
@@ -162,19 +222,20 @@ const STORY_SHOT_PLANNER_SYSTEM_PROMPT = `你是专业中文影视分镜师。�
       "location": "具体场景",
       "characters": ["出场角色"],
       "dialogue": "对白、旁白或留空",
-      "storyBeat": "本镜承担的剧情推进"
+      "storyBeat": "B01｜本镜承担的剧情推进"
     }
   ]
 }
 规则：
-1. 严格按大纲时间顺序覆盖开场、发展、转折、结尾，不新增原文没有依据的主要事件，不改变人物关系和结果。
-2. 镜头数量必须按本集大纲的实际剧情密度决定，不得套用固定镜头数模板。先把大纲拆成连续可执行的动作/对白/情绪节点，再为每个节点安排镜头；所有 shotNo 连续且唯一。尤其禁止机械返回 10 个镜头：10 不是默认值，也不得因为常见模板停在 10；如果动作和对白节点少于 10 个就输出更少，如果节点多于 10 个就必须继续拆。
+1. 覆盖计划是结构契约；必须按它和原文时间顺序覆盖开场、发展、转折、结尾，不新增原文没有依据的主要事件，不改变人物关系和结果。
+2. 镜头数量必须按覆盖计划里的动作/对白/情绪节点总量决定，不得套用固定镜头数模板。为每个节点安排足够镜头；所有 shotNo 连续且唯一。尤其禁止机械返回 10 个镜头：10 不是默认值，也不得因为常见模板停在 10。
 3. 每个镜头只表现一个清晰的视觉动作或信息变化。description 必须写清景别、人物动作、环境、关键道具、情绪和与前后镜头的连续性。
 4. 充分使用输入的出场角色、场景和结尾钩子；必须有一个明确镜头落地钩子，不能只写在镜头外。
 5. dialogue 只保留能推动剧情或揭示人物关系的关键对白，禁止长篇复述。
 6. durationSeconds 为1-30的整数，所有镜头时长之和应接近本集目标时长，允许上下浮动10%。
 7. hook 必须具体、有画面感，承接本集最后动作并指向下一集。
-8. recommendedDurationSeconds 必须由你按全部镜头的实际可执行时长求和得出；如果输入的 episode 没有目标时长，就以这个值作为本集最终时长。不得默认输出 90 秒。`;
+8. recommendedDurationSeconds 必须由你按全部镜头的实际可执行时长求和得出；如果输入的 episode 没有目标时长，就以这个值作为本集最终时长。不得默认输出 90 秒。
+9. 分镜必须优先保留原文中的具体动作、关键对白和转折，不得只根据简略大纲自由发挥。`;
 
 function storyAssetBelongsToEpisode(asset = {}, episode = {}) {
   const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata : {};
@@ -267,6 +328,58 @@ function storyShotProductionPrompt({ project = {}, episode = {}, shot = {}, asse
   ].filter(Boolean).join("\n");
 }
 
+function storyShotTextNodes(value, maxItems = 24, maxLength = 500) {
+  const list = Array.isArray(value) ? value : (value ? String(value).split(/\n|[；;]/) : []);
+  return [...new Set(list.map((item) => storyInputText(item?.summary || item?.text || item, maxLength)).filter(Boolean))].slice(0, maxItems);
+}
+
+function storyRelevantScriptText({ episode = {}, sourceScript = {} } = {}) {
+  const content = String(sourceScript.content || "").trim();
+  if (!content) return "";
+  const metadata = episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {};
+  const startMarker = String(metadata.sourceSpan?.startMarker || "").trim();
+  const endMarker = String(metadata.sourceSpan?.endMarker || "").trim();
+  if (startMarker && endMarker && content.includes(startMarker) && content.includes(endMarker, content.indexOf(startMarker) + startMarker.length)) {
+    const startIndex = content.indexOf(startMarker);
+    const endIndex = content.indexOf(endMarker, startIndex + startMarker.length) + endMarker.length;
+    return content.slice(startIndex, endIndex).slice(0, 36000);
+  }
+  const excerpts = [...storyShotTextNodes(metadata.sourceExcerpts, 24, 2000), ...storyShotTextNodes((metadata.beatSheet || []).map((beat) => beat?.sourceQuote), 30, 2000)];
+  const uniqueExcerpts = [...new Set(excerpts.map((item) => item.trim()).filter(Boolean))];
+  if (content.length <= 36000) return content;
+  if (uniqueExcerpts.length) return uniqueExcerpts.join("\n\n").slice(0, 36000);
+  const paragraphs = content.split(/\n\s*\n|\n/).map((item) => item.trim()).filter(Boolean);
+  const terms = [...new Set(`${episode.title || ""}\n${episode.synopsis || ""}\n${metadata.hook || ""}\n${storyTextList(metadata.characters, 24, 80).join("、")}`
+    .match(/[\u3400-\u9fff]{2,8}/g) || [])].filter((term) => !["本集", "剧情", "人物", "场景", "故事", "然后", "此时", "已经"].includes(term)).slice(0, 80);
+  const scored = paragraphs.map((paragraph, index) => ({ paragraph, index, score: terms.reduce((total, term) => total + (paragraph.includes(term) ? 1 : 0), 0) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, 80)
+    .sort((a, b) => a.index - b.index);
+  return (scored.map((item) => item.paragraph).join("\n\n") || paragraphs.slice(0, 80).join("\n\n")).slice(0, 36000);
+}
+
+function storyCoverageFromModel(payload = {}) {
+  const root = payload?.data && typeof payload.data === "object" ? payload.data : payload;
+  const beats = (Array.isArray(root?.beats) ? root.beats : []).map((beat, index) => ({
+    beatNo: index + 1,
+    summary: storyInputText(beat?.summary || beat?.event || "", 800),
+    sourceBasis: storyInputText(beat?.sourceBasis || beat?.source || beat?.quote || "", 2400),
+    characters: storyTextList(beat?.characters, 24, 80),
+    location: storyInputText(beat?.location || beat?.scene || "", 160),
+    actionNodes: storyShotTextNodes(beat?.actionNodes || beat?.actions, 24, 500),
+    dialogueNodes: storyShotTextNodes(beat?.dialogueNodes || beat?.dialogue, 16, 1000),
+    emotionNodes: storyShotTextNodes(beat?.emotionNodes || beat?.emotions, 16, 500),
+    minimumShots: Math.max(1, Math.min(8, Math.round(Number(beat?.minimumShots || beat?.minimum_shots || 1) || 1))),
+    estimatedShotCount: Math.max(1, Math.min(30, Math.round(Number(beat?.estimatedShotCount || beat?.estimated_shot_count || 1) || 1))),
+  })).filter((beat) => beat.summary || beat.sourceBasis || beat.actionNodes.length).slice(0, 60);
+  return {
+    beats,
+    estimatedShotCount: Math.max(0, Math.min(300, Math.round(Number(root?.estimatedShotCount || root?.estimated_shot_count || beats.reduce((total, beat) => total + beat.estimatedShotCount, 0)) || 0))),
+    coverageNotes: storyInputText(root?.coverageNotes || root?.notes || "", 2000),
+  };
+}
+
 function storyShotsFromModel(payload = {}, episode = {}) {
   const root = payload?.data && typeof payload.data === "object" ? payload.data : payload;
   const rawShots = Array.isArray(root?.shots) ? root.shots : (Array.isArray(root?.storyboard) ? root.storyboard : []);
@@ -292,7 +405,7 @@ function storyShotsFromModel(payload = {}, episode = {}) {
   };
 }
 
-async function planStoryEpisodeShots({ project = {}, episode = {} } = {}) {
+async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript = {} } = {}) {
   const model = storyAnalyzerModel();
   if (!model) {
     throw Object.assign(new Error("AI 分镜模型尚未配置。"), { statusCode: 503, code: "MISSING_STORY_SHOT_MODEL" });
@@ -303,9 +416,11 @@ async function planStoryEpisodeShots({ project = {}, episode = {} } = {}) {
   const metadata = episode.metadata && typeof episode.metadata === "object" ? episode.metadata : {};
   const episodeDuration = Math.max(0, Number(episode.durationSeconds || 0) || 0);
   const synopsis = String(episode.synopsis || "").trim();
-  const contentStats = storyAnalysisContentStats(synopsis);
-  const actionSignals = (synopsis.match(/[，。！？；：]/g) || []).length;
-  const userPrompt = [
+  const sourceText = storyRelevantScriptText({ episode, sourceScript });
+  const sourceStats = storyAnalysisContentStats(sourceText || synopsis);
+  const beatSheet = Array.isArray(metadata.beatSheet) ? metadata.beatSheet : [];
+  const sourceExcerpts = storyShotTextNodes(metadata.sourceExcerpts, 24, 2000);
+  const context = [
     `项目：${String(project.name || "未命名项目")}`,
     `画幅：${String(project.aspectRatio || "9:16")}`,
     `集数：E${String(episode.episodeNo || 1).padStart(2, "0")}`,
@@ -314,54 +429,96 @@ async function planStoryEpisodeShots({ project = {}, episode = {} } = {}) {
     `出场角色：${storyTextList(metadata.characters, 30, 80).join("、") || "按大纲判断"}`,
     `场景：${storyTextList(metadata.scenes, 30, 100).join("、") || "按大纲判断"}`,
     `结尾钩子：${String(metadata.hook || "").trim() || "缺失，请根据本集结尾补写"}`,
-    `大纲统计信号：汉字约 ${contentStats.hanCharacters} 个，自然段约 ${contentStats.paragraphs} 个，引号对白约 ${contentStats.quotedLines} 段（约 ${contentStats.dialogueCharacters} 个汉字），句读转折约 ${actionSignals} 个。这些信号用于判断动作、对白和情绪节点数量；不要机械套用 10 镜。`,
-    "单集大纲开始",
+    `原文统计信号：汉字约 ${sourceStats.hanCharacters} 个，自然段约 ${sourceStats.paragraphs} 个，引号对白约 ${sourceStats.quotedLines} 段（约 ${sourceStats.dialogueCharacters} 个汉字）。不要机械套用 10 镜。`,
+    "简略大纲开始",
     synopsis,
-    "单集大纲结束",
-    "请先按时间顺序拆出动作/对白/情绪节点，再为节点安排镜头，最后严格输出约定 JSON。",
+    "简略大纲结束",
+    "节拍表 JSON",
+    JSON.stringify(beatSheet),
+    "原文关键摘录 JSON",
+    JSON.stringify(sourceExcerpts),
+    "本集对应原文开始",
+    sourceText || "原文不可用，只能依据简略大纲、节拍表和摘录规划。",
+    "本集对应原文结束",
   ].join("\n");
   const deadline = Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS;
   const usage = { attempts: 0 };
-  const raw = await promptOptimizerUpstreamRequest({
-    model: model.upstreamModel,
-    messages: [
-      { role: "system", content: STORY_SHOT_PLANNER_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    temperature: 0.2,
-    max_tokens: 6500,
-  }, {
-    deadline,
-    requestContext: { storyShotPlanner: true, projectId: project.id, episodeId: episode.id },
-    usage,
-    optimizerModel: model,
-  });
-  const text = qwen37FlashResponseText(raw);
-  const parsed = storyParseJsonObject(text);
+  const request = async (systemPrompt, userPrompt, maxTokens, requestContext) => {
+    const raw = await promptOptimizerUpstreamRequest({
+      model: model.upstreamModel,
+      messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+      temperature: 0.15,
+      max_tokens: maxTokens,
+    }, { deadline, requestContext: { ...requestContext, projectId: project.id, episodeId: episode.id }, usage, optimizerModel: model });
+    return { raw, text: qwen37FlashResponseText(raw) };
+  };
+  const coverageResult = await request(STORY_COVERAGE_PLANNER_SYSTEM_PROMPT, `${context}\n\n请先完成覆盖策划，严格输出约定 JSON。`, 5000, { storyShotCoverage: true });
+  const coverageParsed = storyParseJsonObject(coverageResult.text);
+  let coverage = storyCoverageFromModel(coverageParsed || {});
+  if (!coverage.beats.length) {
+    const fallbackBeats = beatSheet.map((beat, index) => ({
+      beatNo: index + 1,
+      summary: storyInputText(beat?.summary || beat, 800),
+      sourceBasis: storyInputText(beat?.sourceQuote || "", 2000),
+      characters: storyTextList(metadata.characters, 16, 80),
+      location: "",
+      actionNodes: [storyInputText(beat?.summary || beat, 500)].filter(Boolean),
+      dialogueNodes: [],
+      emotionNodes: storyInputText(beat?.dramaticPurpose || "", 500) ? [storyInputText(beat.dramaticPurpose, 500)] : [],
+      minimumShots: 1,
+      estimatedShotCount: 1,
+    })).filter((beat) => beat.summary);
+    coverage = fallbackBeats.length
+      ? { beats: fallbackBeats, estimatedShotCount: fallbackBeats.length, coverageNotes: "覆盖模型未返回有效 JSON，按节拍表降级规划。" }
+      : { beats: [{ beatNo: 1, summary: synopsis, sourceBasis: sourceText.slice(0, 2000), characters: [], location: "", actionNodes: [synopsis], dialogueNodes: [], emotionNodes: [], minimumShots: 1, estimatedShotCount: 1 }], estimatedShotCount: 1, coverageNotes: "覆盖模型未返回有效 JSON，按简略大纲降级规划。" };
+  }
+  const plannerPrompt = `${context}\n\n覆盖计划 JSON\n${JSON.stringify(coverage)}\n\n请严格按覆盖计划生成完整分镜，输出约定 JSON。`;
+  const plannerResult = await request(STORY_SHOT_PLANNER_SYSTEM_PROMPT, plannerPrompt, 7000, { storyShotPlanner: true });
+  const parsed = storyParseJsonObject(plannerResult.text);
   if (!parsed) {
     throw Object.assign(new Error("AI 分镜没有返回有效 JSON，请重试。"), {
       statusCode: 502,
       code: "STORY_SHOT_PLAN_INVALID_JSON",
-      responsePreview: String(text || "").slice(0, 600),
+      responsePreview: String(plannerResult.text || "").slice(0, 600),
     });
   }
-  const plan = storyShotsFromModel(parsed, episode);
-  if (!plan.shots.length) {
+  const candidatePlan = storyShotsFromModel(parsed, episode);
+  if (!candidatePlan.shots.length) {
     throw Object.assign(new Error("AI 分镜结果为空，请重试。"), { statusCode: 502, code: "STORY_SHOT_PLAN_EMPTY" });
   }
+  const criticPrompt = `${context}\n\n覆盖计划 JSON\n${JSON.stringify(coverage)}\n\n候选分镜 JSON\n${JSON.stringify({ hook: candidatePlan.hook, recommendedDurationSeconds: candidatePlan.recommendedDurationSeconds, shots: candidatePlan.shots })}\n\n请逐项审稿并返回完整最终分镜 JSON。`;
+  const criticResult = await request(STORY_SHOT_CRITIC_SYSTEM_PROMPT, criticPrompt, 7500, { storyShotCritic: true });
+  const criticParsed = storyParseJsonObject(criticResult.text);
+  const criticPlan = criticParsed ? storyShotsFromModel(criticParsed, episode) : { shots: [] };
+  const plan = criticPlan.shots.length ? criticPlan : candidatePlan;
+  if (!Number(plan.recommendedDurationSeconds || 0)) plan.recommendedDurationSeconds = plan.shots.reduce((total, shot) => total + shot.durationSeconds, 0);
+  const audit = {
+    sourceCharacters: sourceStats.hanCharacters,
+    sourceExcerptCount: sourceExcerpts.length,
+    beatSheetCount: beatSheet.length,
+    coverageBeatCount: coverage.beats.length,
+    estimatedShotCount: coverage.estimatedShotCount,
+    candidateShotCount: candidatePlan.shots.length,
+    finalShotCount: plan.shots.length,
+    criticApplied: Boolean(criticPlan.shots.length),
+    coverageNotes: coverage.coverageNotes,
+    criticAudit: criticParsed?.coverageAudit && typeof criticParsed.coverageAudit === "object" ? criticParsed.coverageAudit : {},
+  };
   console.info("[story-shot-plan]", JSON.stringify({
     projectId: project.id || "",
     episodeId: episode.id || "",
-    synopsisCharacters: contentStats.hanCharacters,
-    paragraphs: contentStats.paragraphs,
-    quotedLines: contentStats.quotedLines,
-    actionSignals,
+    sourceCharacters: sourceStats.hanCharacters,
+    sourceExcerptCount: sourceExcerpts.length,
+    beatSheetCount: beatSheet.length,
+    coverageBeatCount: coverage.beats.length,
+    estimatedShotCount: coverage.estimatedShotCount,
     targetDurationSeconds: episodeDuration,
     rawShotCount: Array.isArray(parsed?.shots) ? parsed.shots.length : (Array.isArray(parsed?.storyboard) ? parsed.storyboard.length : 0),
     normalizedShotCount: plan.shots.length,
     exactlyTen: plan.shots.length === 10,
+    criticApplied: audit.criticApplied,
   }));
-  return { ...plan, model: model.id, attempts: usage.attempts };
+  return { ...plan, audit, model: model.id, attempts: usage.attempts };
 }
 
 async function planStoryEpisodeAssets({ project = {}, episode = {}, shots = [] } = {}) {
@@ -428,6 +585,80 @@ async function planStoryEpisodeAssets({ project = {}, episode = {}, shots = [] }
     throw Object.assign(new Error("AI 资产规划结果为空，请重试。"), { statusCode: 502, code: "STORY_ASSET_PLAN_EMPTY" });
   }
   return { assets, model: model.id, attempts: usage.attempts };
+}
+
+function storyAssetMetadataFromBody(body = {}, existingMetadata = {}) {
+  const metadata = { ...(existingMetadata && typeof existingMetadata === "object" ? existingMetadata : {}) };
+  metadata.imagePrompt = storyInputText(body.imagePrompt, 8000);
+  metadata.continuity = storyInputText(body.continuity, 2000);
+  const episodeIds = new Set([
+    ...(Array.isArray(metadata.episodeIds) ? metadata.episodeIds.map(String) : []),
+    ...(Array.isArray(body.episodeIds) ? body.episodeIds.map(String) : []),
+    storyInputText(body.episodeId, 80),
+  ].map(String).filter(Boolean));
+  const shotNos = new Set([
+    ...storyTextList(metadata.shotNos, 80, 24).map(String),
+    ...storyTextList(body.shotNos, 80, 24).map(String),
+    body.shotNo === undefined || body.shotNo === null ? "" : String(body.shotNo),
+  ].filter(Boolean));
+  metadata.episodeIds = [...episodeIds];
+  metadata.shotNos = [...shotNos].map(Number).filter(Number.isFinite);
+  return metadata;
+}
+
+async function handleCreateStoryAsset(req, res, projectId = "", episodeId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const body = await readJson(req, 128 * 1024);
+  const episodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
+  const episode = (episodes || []).find((item) => item.id === episodeId);
+  if (!episode) return sendJson(res, 404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
+  const name = storyInputText(body.name, 200);
+  if (!name) return sendJson(res, 400, { ok: false, code: "STORY_ASSET_NAME_REQUIRED", message: "请填写资产名称。" });
+  const metadata = storyAssetMetadataFromBody({ ...body, episodeId }, {});
+  const asset = await createStoryAssetInDb({
+    id: randomId("story-asset"),
+    projectId,
+    ownerUserId: auth.user.id,
+    kind: storyInputText(body.kind, 40) || "character",
+    name,
+    description: storyInputText(body.description || body.imagePrompt, 8000),
+    metadata,
+  });
+  if (!asset) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "资产保存失败。" });
+  return sendJson(res, 201, { ok: true, asset });
+}
+
+async function handleUpdateStoryAsset(req, res, projectId = "", assetId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const body = await readJson(req, 128 * 1024);
+  const assets = await listStoryAssetsFromDb({ projectId, ownerUserId: auth.user.id });
+  const existing = (assets || []).find((item) => item.id === assetId);
+  if (!existing) return sendJson(res, 404, { ok: false, code: "STORY_ASSET_NOT_FOUND", message: "资产不存在。" });
+  const metadata = storyAssetMetadataFromBody(body, existing.metadata || {});
+  const asset = await updateStoryAssetInDb({
+    projectId,
+    ownerUserId: auth.user.id,
+    assetId,
+    kind: storyInputText(body.kind, 40) || existing.kind,
+    name: storyInputText(body.name, 200) || existing.name,
+    description: storyInputText(body.description, 8000) || existing.description,
+    metadata,
+  });
+  if (!asset) return sendJson(res, 404, { ok: false, code: "STORY_ASSET_NOT_FOUND", message: "资产不存在。" });
+  return sendJson(res, 200, { ok: true, asset });
+}
+
+async function handleDeleteStoryAsset(req, res, projectId = "", assetId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const deleted = await deleteStoryAssetInDb({ projectId, ownerUserId: auth.user.id, assetId });
+  if (!deleted) return sendJson(res, 404, { ok: false, code: "STORY_ASSET_NOT_FOUND", message: "资产不存在。" });
+  return sendJson(res, 200, { ok: true, deletedId: deleted });
 }
 
 async function optimizeStoryShotPrompt({ prompt = "", provider = "", providerLabel = "", duration = 5, resolution = "720p", optimizerModelId = "", references = [] } = {}) {

@@ -1,5 +1,7 @@
 "use strict";
 
+const { seedancePromptWithNoBgm } = require("./seedance-prompt");
+
 const SEEDANCE25_MODEL = "bytedance/seedance-2.5";
 const SEEDANCE25_MODES = Object.freeze(["omini", "first_last_frame"]);
 const SEEDANCE25_RATIOS = Object.freeze(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]);
@@ -102,7 +104,7 @@ function validateSeedance25Input(input = {}) {
 function buildSeedance25TaskPayload(input = {}, outerModel = "") {
   const normalized = validateSeedance25Input(input);
   const params = {
-    prompt: normalized.prompt,
+    prompt: seedancePromptWithNoBgm(normalized.prompt),
     duration: normalized.duration,
     resolution: normalized.resolution.toUpperCase(),
     aspect_ratio: normalized.ratio,

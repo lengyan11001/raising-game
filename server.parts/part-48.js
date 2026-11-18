@@ -631,7 +631,8 @@ function startSeedance25GenerationJob(job = {}) {
 }
 
 async function handleAdvancedSeedance25Generate(req, res, context = {}) {
-  const { auth, body, bodyParams, caseParams, selectedCase, config, prompt } = context;
+  const { auth, body, bodyParams, caseParams, selectedCase, config } = context;
+  const prompt = seedancePromptWithNoBgm(context.prompt);
   const provider = normalizeAdvancedProvider(context.provider || body.provider || bodyParams.provider || "seedance25");
   const direct = provider === SEEDANCE25_DIRECT_PROVIDER;
   const flash = provider === SEEDANCE25_FLASH_PROVIDER;

@@ -30,6 +30,10 @@ const {
   normalizeOptionalSeed,
 } = require("./seed-options");
 const {
+  seedanceContentWithNoBgm,
+  seedancePromptWithNoBgm,
+} = require("./seedance-prompt");
+const {
   SEEDANCE25_CNY_PER_POINT,
   SEEDANCE25_CNY_PER_USD,
   SEEDANCE25_MODEL,
@@ -388,6 +392,9 @@ const {
   listStoryAssetsFromDb,
   listStoryAssetVariantsFromDb,
   upsertStoryAssetPlanInDb,
+  createStoryAssetInDb,
+  updateStoryAssetInDb,
+  deleteStoryAssetInDb,
   createStoryAssetVariantInDb,
   updateStoryAssetVariantInDb,
   approveStoryAssetVariantInDb,

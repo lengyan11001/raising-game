@@ -4,6 +4,10 @@ const {
   SEEDANCE25_DIRECT_SEED_MAX,
   normalizeOptionalSeed,
 } = require("./seed-options");
+const {
+  seedanceContentWithNoBgm,
+  seedancePromptWithNoBgm,
+} = require("./seedance-prompt");
 
 const SEEDANCE25_FLASH_PROVIDER = "seedance25-flash";
 const SEEDANCE25_FLASH_LABEL = "Seedance 2.5 Flash";
@@ -123,7 +127,7 @@ function validateSeedance25FlashInput(input = {}) {
 function buildSeedance25FlashTaskPayload(input = {}, endpointId = SEEDANCE25_FLASH_ENDPOINT_ID) {
   const normalized = validateSeedance25FlashInput(input);
   const content = [];
-  if (normalized.prompt) content.push({ type: "text", text: normalized.prompt });
+  if (normalized.prompt) content.push({ type: "text", text: seedancePromptWithNoBgm(normalized.prompt) });
   if (normalized.mode === "first_last_frame") {
     content.push({ type: "image_url", image_url: { url: normalized.firstFrameAsset }, role: "first_frame" });
     content.push({ type: "image_url", image_url: { url: normalized.lastFrameAsset }, role: "last_frame" });
@@ -134,7 +138,7 @@ function buildSeedance25FlashTaskPayload(input = {}, endpointId = SEEDANCE25_FLA
   }
   const payload = {
     model: String(endpointId || SEEDANCE25_FLASH_ENDPOINT_ID).trim(),
-    content,
+    content: seedanceContentWithNoBgm(content),
     resolution: normalized.resolution,
     duration: normalized.duration,
     generate_audio: normalized.generateAudio,

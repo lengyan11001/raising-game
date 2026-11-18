@@ -879,7 +879,12 @@ const STORY_ANALYZER_SYSTEM_PROMPT = `你是专业中文影视编剧与制片拆
     {
       "episodeNo": 1,
       "title": "本集标题",
-      "synopsis": "本集可制作剧情大纲，建议300-900个中文字符；内容复杂的较长剧集可以更详细，必须包含具体事件、人物动机、场景推进、冲突转折与结果",
+      "synopsis": "本集简略大纲，建议120-320个中文字符；只写主线事件、场景推进、冲突转折和结果，不替代原文",
+      "beatSheet": [
+        {"summary": "节拍核心事件（一句话）", "sourceQuote": "支撑该节拍的原文逐字短句", "dramaticPurpose": "冲突/转折/情绪/钩子"}
+      ],
+      "sourceStartMarker": "本集在原文中的起始逐字短句（10-40字）", "sourceEndMarker": "本集在原文中的结束逐字短句（10-40字）",
+      "sourceExcerpts": ["每集4-8条按原文顺序摘录的关键原文，每条不超过300字，覆盖动作、对白、转折和结尾钩子"],
       "hook": "30-100个中文字符的结尾钩子",
       "durationSeconds": 0,
       "durationBasis": "本集时长依据：列出情节点数量、场景数、关键对白量和心理/动作转折，说明为什么需要这个秒数",
@@ -898,7 +903,7 @@ const STORY_ANALYZER_SYSTEM_PROMPT = `你是专业中文影视编剧与制片拆
 1. 先通读全文并按原文顺序覆盖剧情。通常一章或一个完整情节单元拆为一集；不要为了压缩集数把多章硬塞进一集，也不要把一集扩写成多集。
 2. 如果用户给了目标集数，就按要求拆分；没给目标集数时，由你根据剧情容量判断，totalEpisodeSuggestion 给出建议总集数。
 3. 第一版最多输出 30 集；如果建议总集数超过 30，先完整拆解前 30 集，并在 summary 末尾注明“本次拆解前30集”。
-4. 每集 synopsis 建议 300-900 个中文字符，并按本集实际剧情复杂度伸缩；不得为了凑长度注水，也不得把长集压成一句话。必须写清具体事件、人物动机、场景推进、关键冲突、转折与结果；按“开场 → 发展 → 转折 → 结尾”连续叙述。禁止用“矛盾升级”“经历波折”“最终化解”等空泛套话。
+4. 每集 synopsis 控制在 120-280 个中文字符，只保留主线因果和场景变化，是简略大纲而不是原文改写。beatSheet 按“开场 → 发展 → 转折 → 结尾”列 4-10 个节拍，每条只写一个核心事件并带 sourceQuote 原文依据；sourceStartMarker/sourceEndMarker 必须逐字取自原文，sourceExcerpts 只需 4-8 条关键摘录。禁止用“矛盾升级”“经历波折”“最终化解”等空泛套话。
 5. hook 必须承接本集结尾并指向下一集，30-100 个中文字符；不要把 hook 重复写进 synopsis 末尾。
 6. durationSeconds 必须由你按本集实际制作内容计算，不得使用固定模板，不得默认输出 90 秒。先列出本集需要保留的情节点、场景转换、关键对白和心理/动作转折，再判断完整讲清这些内容需要多少秒；如果短时长放不下，就延长本集或把内容拆成更多集，禁止为了压缩集数而删掉因果链。
 7. durationBasis 必须写明本集时长的计算依据，包含大概情节点数、场景数、关键对白量和主要转折点，不能写“节奏需要”之类空话。
@@ -943,13 +948,15 @@ function storyAnalysisFromModel(payload = {}) {
     const scenes = storyTextList(episode?.scenes || episode?.locations, 24, 100);
     const hook = storyInputText(episode?.hook || episode?.cliffhanger || "", 500);
     const durationBasis = storyInputText(episode?.durationBasis || episode?.duration_basis || "", 1200);
+    const beatSheet = (Array.isArray(episode?.beatSheet) ? episode.beatSheet : []).map((beat) => ({ summary: storyInputText(beat?.summary || beat?.beat || beat, 500), sourceQuote: storyInputText(beat?.sourceQuote || beat?.source_quote || beat?.quote || "", 2000), dramaticPurpose: storyInputText(beat?.dramaticPurpose || beat?.dramatic_purpose || beat?.purpose || "", 240) })).filter((beat) => beat.summary || beat.sourceQuote).slice(0, 30);
+    const sourceExcerpts = (Array.isArray(episode?.sourceExcerpts) ? episode.sourceExcerpts : []).map((item) => storyInputText(item, 2000)).filter(Boolean).slice(0, 24); const sourceSpan = { startMarker: storyInputText(episode?.sourceStartMarker || episode?.source_start_marker || "", 500), endMarker: storyInputText(episode?.sourceEndMarker || episode?.source_end_marker || "", 500) };
     return {
       episodeNo,
       title: storyInputText(episode?.title || `第 ${episodeNo} 集`, 160),
       synopsis: storyInputText(episode?.synopsis || episode?.summary || episode?.outline || "", 8000),
       status: "draft",
       durationSeconds: Math.max(0, Math.min(86400, Math.round(Number(episode?.durationSeconds || episode?.duration_seconds || 0) || 0))),
-      metadata: { hook, characters, scenes, durationBasis },
+      metadata: { hook, characters, scenes, durationBasis, beatSheet, sourceExcerpts, sourceSpan, outlineMode: "beat_sheet_v1" },
     };
   }).filter((episode) => episode.title || episode.synopsis).slice(0, 30);
   const characters = (Array.isArray(root.characters) ? root.characters : []).map((character) => {
@@ -1058,7 +1065,7 @@ async function analyzeStoryScript({ project = {}, script = {}, targetEpisodes = 
       { role: "user", content: userPrompt },
     ],
     temperature: 0.2,
-    max_tokens: 7000,
+    max_tokens: 9000,
   }, {
     deadline,
     requestContext: { storyAnalyzer: true, projectId: project.id, scriptVersionId: script.id, targetEpisodes: target, targetDurationSeconds: targetDuration, targetEpisodeId: script.targetEpisodeId || "", startEpisodeNo: episodeStart },
@@ -1095,7 +1102,7 @@ function storyAnalysisPayload(body = {}, startEpisodeNo = 0) {
     summary: storyInputText(raw.summary || analysis.summary, 3000),
     totalEpisodeSuggestion: analysis.totalEpisodeSuggestion,
     episodes: episodes.slice(0, 100),
-    assets: [...analysis.characters, ...analysis.scenes].slice(0, 200),
+    assets: [],
   };
 }
 
@@ -1386,14 +1393,17 @@ async function handlePlanStoryEpisodeShots(req, res, projectId = "", episodeId =
   if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
   const episodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
   const episode = (episodes || []).find((item) => item.id === episodeId);
+  const scripts = await listStoryScriptVersionsFromDb({ projectId, ownerUserId: auth.user.id });
+  const sourceScript = (scripts || []).find((script) => script.id === episode?.sourceScriptVersionId || (!episode?.sourceScriptVersionId && script.manuscriptId === episode?.sourceManuscriptId)) || {};
   if (!episode) return sendJson(res, 404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
   if (!["outline_locked", "shots_planned"].includes(String(episode.status || ""))) {
     return sendJson(res, 409, { ok: false, code: "STORY_OUTLINE_NOT_LOCKED", message: "请先锁定本集大纲，再由 AI 拆分镜。" });
   }
   try {
-    const result = await planStoryEpisodeShots({ project, episode });
+    const result = await planStoryEpisodeShots({ project, episode, sourceScript });
     const metadata = { ...(episode.metadata || {}) };
     if (result.hook) metadata.hook = result.hook;
+    if (result.audit) metadata.shotPlanAudit = result.audit;
     const episodePatch = { status: "shots_planned", metadata };
     if (Number(episode.durationSeconds || 0) <= 0 && Number(result.recommendedDurationSeconds || 0) > 0) {
       episodePatch.durationSeconds = result.recommendedDurationSeconds;
