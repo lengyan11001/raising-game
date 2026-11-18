@@ -1032,8 +1032,10 @@
       const status = String(ref.status || ref.metadata?.generationStatus || "queued");
       const failed = ["failed", "error", "canceled", "cancelled"].includes(status.toLowerCase());
       const videoUrl = failed ? "" : storyGenerationRefVideoUrl(ref);
+      const refundBadge = generationRefundBadgeHtml(ref, "story-shot-video-refund-badge");
       return `
         <article class="story-shot-video-result">
+          ${refundBadge}
           <div><strong>${storyEscape(ref.metadata?.modelLabel || ref.metadata?.model || selectedVideoModel.label)}</strong><span>${storyEscape(storyVariantStatusLabel(status))}</span></div>
           ${videoUrl ? `<video controls preload="metadata" src="${storyEscape(videoUrl)}" data-story-generation-video data-generation-record-id="${storyEscape(ref.generationRecordId || "")}"></video><a href="${storyEscape(videoUrl)}" data-story-generation-video-link target="_blank" rel="noopener">打开视频</a><span class="story-video-refresh-status" data-story-video-status hidden></span>` : `<p>${ref.status === "failed" ? storyEscape(ref.metadata?.error || "生成失败") : ["succeeded", "success", "completed", "complete"].includes(String(ref.status || ref.metadata?.generationStatus || "").toLowerCase()) ? "后台已完成，正在同步视频地址…" : "后台任务处理中，完成后会自动显示视频预览。"}</p>`}
           ${ref.generationRecordId ? `<small>记录 ${storyEscape(ref.generationRecordId)}</small>` : ""}
@@ -2353,6 +2355,8 @@
                 videoUrl,
                 posterUrl: record.posterUrl || record.coverUrl || "",
                 generationStatus: record.status || "succeeded",
+                billingStatus: generationRecordBillingStatus(record),
+                billing: record.billing?.status ? { status: record.billing.status } : undefined,
                 syncedAt: new Date().toISOString(),
               },
             });
@@ -2365,6 +2369,8 @@
               metadata: {
                 generationStatus: record.status || status,
                 mediaSyncPending: true,
+                billingStatus: generationRecordBillingStatus(record),
+                billing: record.billing?.status ? { status: record.billing.status } : undefined,
                 syncedAt: new Date().toISOString(),
               },
             });
@@ -2377,6 +2383,8 @@
               metadata: {
                 error: record.error || record.message || "视频生成失败。",
                 generationStatus: record.status || status,
+                billingStatus: generationRecordBillingStatus(record),
+                billing: record.billing?.status ? { status: record.billing.status } : undefined,
                 syncedAt: new Date().toISOString(),
               },
             });

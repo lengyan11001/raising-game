@@ -863,8 +863,9 @@ function renderWorkflowNodeResult(node = {}) {
   const isImage = ["imageDisplay", "imageGenerate"].includes(node.type);
   const url = isImage ? workflowNodeResultImage(node) : workflowNodeResultVideo(node);
   const poster = workflowNodePoster(node);
+  const refundBadge = generationRefundBadgeHtml(node.data?.record || node.data || {}, "workflow-node-refund-badge");
   if (url) {
-    return renderWorkflowPreviewThumb({
+    return `${refundBadge}${renderWorkflowPreviewThumb({
       url,
       poster,
       title: node.title || (isImage ? "Image result" : "Video result"),
@@ -873,9 +874,9 @@ function renderWorkflowNodeResult(node = {}) {
       ratio: node.data?.ratio || (isImage ? "1:1" : "16:9"),
       icon: "maximize-2",
       className: "workflow-node-result-media",
-    });
+    })}`;
   }
-  return `<div class="workflow-node-empty-result"><i data-lucide="${isImage ? "image" : "play"}"></i><span>生成结果会显示在这里</span></div>`;
+  return `${refundBadge}<div class="workflow-node-empty-result"><i data-lucide="${isImage ? "image" : "play"}"></i><span>生成结果会显示在这里</span></div>`;
 }
 
 function workflowSelectOptions(options = [], value = "") {

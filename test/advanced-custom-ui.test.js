@@ -161,16 +161,52 @@ test("Advanced results use a compact paged multi-column card grid", () => {
   assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-form-card \{[\s\S]*?min-height: calc\(100dvh - 100px\);[\s\S]*?max-height: none;[\s\S]*?overflow: visible/);
   assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-fields \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(create, /class="advanced-result-actions"/);
-  assert.match(create, /const billingStatus = String\(record\.billingStatus \|\| record\.billing\?\.status \|\| ""\)\.toLowerCase\(\)/);
-  assert.match(create, /const isRefunded = billingStatus === "refunded"/);
-  assert.match(create, /const isFailed = statusClass\(record\.status\) === "failed"/);
-  assert.match(create, /class="advanced-result-failed-badge"/);
-  assert.match(create, /class="advanced-result-refund-badge"/);
+  assert.match(create, /const refundBadge = generationRefundBadgeHtml\(record\)/);
+  assert.doesNotMatch(create, /class="advanced-result-failed-badge"/);
   assert.match(css, /\.advanced-result-card \{[\s\S]*?position: relative/);
-  assert.match(css, /\.advanced-result-failed-badge \{[\s\S]*?position: absolute;[\s\S]*?top: 8px;[\s\S]*?left: 8px/);
-  assert.match(css, /\.advanced-result-failed-badge \{[\s\S]*?background: rgba\(185,28,28,\.96\)/);
   assert.match(css, /\.advanced-result-refund-badge \{[\s\S]*?position: absolute;[\s\S]*?top: 8px;[\s\S]*?right: 8px/);
   assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
+});
+
+test("Refund badge is shared by history, Result tab, workflow canvas, and story shots", () => {
+  const workflowReact = fs.readFileSync(path.join(root, "platform.workflow-react.js"), "utf8");
+  const story = fs.readFileSync(path.join(root, "platform.story.js"), "utf8");
+  assert.match(ui, /function generationRecordBillingStatus\(record = \{\}\)/);
+  assert.match(ui, /source\.billing\?\.status \|\| source\.billingStatus/);
+  assert.match(ui, /function generationRefundBadgeHtml\(record = \{\}, className = ""\)/);
+  assert.match(create, /generationRefundBadgeHtml\(record\)/);
+  assert.match(create, /const refundBadge = generationRefundBadgeHtml\(record\)/);
+  assert.match(create, /\$\{advancedDownloadStatusPill\(record\)\}\$\{refundBadge\}/);
+  assert.match(ui, /generationRefundBadgeHtml\(node\.data\?\.record \|\| node\.data \|\| \{\}, "workflow-node-refund-badge"\)/);
+  assert.match(workflowReact, /function RefundBadge\(node\)/);
+  assert.match(workflowReact, /var record = node && node\.data && \(node\.data\.record \|\| node\.data\) \|\| \{\}/);
+  assert.match(workflowReact, /RefundBadge\(node\)\)/);
+  assert.match(story, /generationRefundBadgeHtml\(ref, "story-shot-video-refund-badge"\)/);
+  assert.match(platformExploreSource, /generationRefundBadgeHtml\(record, "history-detail-refund-badge"\)/);
+  assert.match(css, /\.workflow-node-result \{[\s\S]*?position: relative/);
+  assert.match(css, /\.workflow-node-result \.workflow-node-refund-badge \{[\s\S]*?top: 12px;[\s\S]*?right: 12px/);
+  assert.match(css, /\.workflow-react-host \.workflow-react-refund-badge \{[\s\S]*?position: absolute/);
+  assert.match(css, /\.story-shot-video-result \.story-shot-video-refund-badge/);
+  assert.match(css, /\.history-detail-section header \.history-detail-refund-badge \{[\s\S]*?position: static/);
+});
+
+test("Refund badge reads billing status from public and nested generation records", () => {
+  const helper = new Function(
+    "state",
+    "escapeHtml",
+    `${extractFunction(ui, "generationRecordBillingStatus")}
+${extractFunction(ui, "isGenerationRecordRefunded")}
+${extractFunction(ui, "generationRefundBadgeText")}
+${extractFunction(ui, "generationRefundBadgeHtml")}
+return { generationRecordBillingStatus, isGenerationRecordRefunded, generationRefundBadgeHtml };`,
+  )({ lang: "zh" }, (value) => String(value ?? ""));
+
+  assert.equal(helper.generationRecordBillingStatus({ billing: { status: "refunded" } }), "refunded");
+  assert.equal(helper.generationRecordBillingStatus({ metadata: { billingStatus: "Refunded" } }), "refunded");
+  assert.equal(helper.isGenerationRecordRefunded({ record: { billing: { status: "refunded" } } }), true);
+  assert.equal(helper.isGenerationRecordRefunded({ billing: { status: "settled" } }), false);
+  assert.match(helper.generationRefundBadgeHtml({ billing: { status: "refunded" } }), /积分已退/);
+  assert.equal(helper.generationRefundBadgeHtml({ status: "failed" }), "");
 });
 
 test("Advanced result history includes failed records without media", () => {
