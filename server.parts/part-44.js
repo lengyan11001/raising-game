@@ -29,7 +29,7 @@ const ELEVEN_ELEVEN_PROMO = Object.freeze({
 
 const SEEDREAM55_CAMPAIGN = Object.freeze({
   id: "seedream55-2026",
-  enabled: process.env.SEEDREAM55_CAMPAIGN_ENABLED !== "0",
+  enabled: false,
   startsAt: Date.parse(process.env.SEEDREAM55_CAMPAIGN_STARTS_AT || "2026-11-18T00:00:00+08:00"),
   endsAt: Date.parse(process.env.SEEDREAM55_CAMPAIGN_ENDS_AT || "2026-11-30T23:59:59+08:00"),
   amount: 59.9,

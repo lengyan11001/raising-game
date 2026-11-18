@@ -1,3 +1,12 @@
+## 2026-11-18 Step EO: Temporarily take the Seedream 5.5 banner campaign offline
+
+- User requested that the banner campaign just launched on 123vip be taken offline first, then clarified that its membership benefits must be off as well.
+- Removed the sidebar campaign banner, campaign dialog, benefit content, checkout button, countdown, and client-side campaign behavior from the site shell. The Seedream 5.5 model remains available in image generation under normal credit billing.
+- Set the server-side `seedream55-2026` campaign to `enabled: false`, so new campaign checkout is rejected while existing generation and historical purchase behavior remain intact.
+- Updated focused campaign coverage to assert the banner, benefits dialog, and checkout entry are offline.
+- Verification: `node --test test/seedream-campaign.test.js` passes 4/4; `node --check platform.ui.parts/part-07.js`, `node --check server.parts/part-44.js`, `npm run check:undef`, and `git diff --check` pass.
+- Pending: commit, build a platform release from the committed `old-site` integration state, deploy Old only, and verify production.
+
 ## 2026-11-18 Step EN: Seedream 5.5 campaign entry and checkout flow
 
 - Added the Seedream 5.5 campaign card below the main sidebar navigation and a responsive campaign dialog. The local hero asset is byte-for-byte identical to the embedded image in `/Users/x042/Desktop/seedream5.5活动页设计.html` (1200x745, SHA-256 `161e9d760a7a29e184ede5b33ffdd273d6a686212c9181315e115510fe167d86`).
@@ -7,6 +16,16 @@
 - Verification passed: Seedream campaign tests `4/4`; workflow and side-navigation tests `44/44`; membership/Stripe tests `14/14`; `node --check` for changed client/server files, `npm run check:undef`, and `git diff --check`.
 - Source commit on `old-site`: `1a4dd5f7 Add Seedream 5.5 campaign entry and checkout`.
 - Built platform release `f1e5bb5fbde12797a7d0c01a79ed2d503dd781ca` from `1a4dd5f7` and deployed to Old with the rolling entrypoint (`4174 -> 4175`, canaries 1%/5%, `OLD_ROLLING_DEPLOY_OK`). `/api/health`, `/api/livez`, and `/api/readyz` return `200`; production serves the campaign card, local hero asset (`132231` bytes), and campaign CSS. Unrelated dirty file `server.parts/part-45.js` remains excluded from the commit; the release retains the previously committed version, matching `HEAD` exactly.
+
+## 2026-11-18 Step EN: Story asset thumbnails recover from redirect failures
+
+- Production asset `8d44c69e-4aa2-40d4-ad85-eb93d4bf102d` showed “图片加载失败，可重新生成” even though generation record `img-20261118173143-56cda6` succeeded and the media endpoint returned `200`.
+- Root cause: thumbnail requests used a `302` redirect to a short-lived signed OSS image URL, but the redirect itself was cached for one hour. Once cached, a browser could keep following an expired target. The UI also showed the fallback immediately on the first thumbnail error with no full-image retry.
+- Thumbnail redirects now use `cache-control: no-store`; the story image error handler retries once without `thumb=1`, loading the original full media URL before showing the failure fallback.
+- A second cause made generated images appear to fail instantly: the shot workspace allowed a first-time generation click before that shot's asset list was confirmed, then the client returned locally with “请先确认此镜的资产清单”. The button is now disabled and labeled `先确认资产清单` until confirmation; already-generated images can still be regenerated without repeating that gate.
+- Changed files: `server.parts/part-41.js`, `platform.story.js`, `test/story-canvas-p1.test.js`. Source commits `51822f10` and `d36e1fd3`. Focused story tests pass 23/23; syntax, `npm run check:undef`, and `git diff --check` pass.
+- Built platform release `63b043ab72058441811b2b28ad217e5de104adef` and deployed Old through the rolling entrypoint (`4175 -> 4174`, canaries 1%/5%, `OLD_ROLLING_DEPLOY_OK`). Production health endpoints return 200; the served story client contains the new gate; the known 白洁 thumbnail now redirects with `cache-control: no-store` and follows to `200 image/webp` (3,846 bytes), while full media returns `200 image/png` (3,746,165 bytes).
+- Unrelated dirty `server.parts/part-45.js` remains excluded.
 
 ## 2026-11-18 Step EM: Desktop content aligns with the first navigation item
 
@@ -4977,6 +4996,20 @@ CODEX_TASK_STATE.md
 - Source commit `a2bc241c0b36570b464d3fe817454cc45bbdc615`; platform release `46d74138dbbb4347da6aa6e1722d2a20a740b2df`; only `platform-release` was pushed. Remote `live-release` remains untouched.
 - Old-only deployment through `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=46d74138...`. Public `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; livez/readyz report release `46d74138dbbb4347da6aa6e1722d2a20a740b2df`. Public `platform.story.js` contains the new story-tree, per-shot confirmation, and asset-library filters.
 - The unrelated existing `server.parts/part-45.js` working-tree change remains preserved and was not committed or deployed.
+
+## 2026-11-18 Step EA: Short-video import CSV
+
+- Located the Short Video admin import implementation at `/Users/x042/Documents/ChatGPT/short video/huanggua-app/public/assets/admin-console-20261113.js`; `prepareFolderImport()` reads sourceId from column 2, source video path from column 5, remote URL from column 6, title/caption from column 7, pipe-separated tags from column 8, and author from column 9.
+- Fetched the public Huangua feed (175 current videos) and matched metadata for 89 of the 100 downloaded files. The remaining 11 are no longer present in the public feed, so their original captured titles were retained without inventing tags.
+- Generated `/Users/x042/Downloads/huanggua-videos-100/import.csv` with 100 data rows, valid `videos/*.mp4` paths, original URLs, titles, empty source tags where the source has none, authors, likes, flags, poster URLs, and original metadata.
+- Validation passed: 100 local MP4 files, 100 unique CSV source IDs/files, every referenced file exists, every title is non-empty and at most 30 characters, and the header row is blank in the three positional columns the admin parser treats as data.
+
+## 2026-11-18 Step EB: Second short-video batch
+
+- Created `/Users/x042/Downloads/huanggua-videos-50-new-20261118` and fetched the current Huangua public feed, excluding all 100 URLs from the first batch.
+- Downloaded the first 50 unseen videos as `videos/001.mp4` through `videos/050.mp4`; all 50 completed with MP4 validation, exact Content-Length checks, no duplicate SHA-256, no overlap with the first batch, and a maximum file size below the admin's 100 MB limit.
+- Generated `manifest.json`, `feed-details.json`, `selected-details.json`, `videos.json`, and the admin-ready `import.csv`.
+- Validation passed: 50 manifest entries, 50 CSV rows, 50 unique source IDs/files, every referenced file exists, no duplicate video hashes, and all titles/captions are present. The source feed returned no tags for these first 50 new items, so the tag column remains empty rather than inventing values.
 
 ## 2026-11-17 Step DA: Target-aware script creation and dedicated shot workspace
 
