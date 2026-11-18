@@ -169,6 +169,33 @@ test("Advanced results use a compact paged multi-column card grid", () => {
   assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
 });
 
+test("Advanced result history includes failed records without media", () => {
+  const state = {
+    historyRecords: [
+      { taskId: "advanced-failed", status: "failed", source: "advanced-video", kind: "advanced-video" },
+      { taskId: "scene-failed", status: "failed", source: "user-character", kind: "main-video" },
+      { taskId: "advanced-done", status: "succeeded", source: "advanced-video", kind: "advanced-video" },
+    ],
+  };
+  const fallback = new Function(
+    "state",
+    "isPendingGenerationRecord",
+    "isSucceededGenerationStatus",
+    "generationVideoUrl",
+    "generationImageResultUrl",
+    "generationPosterUrl",
+    `${extractFunction(create, "advancedResultHistoryFallbackRecords")}\nreturn advancedResultHistoryFallbackRecords();`,
+  )(
+    state,
+    () => false,
+    (status) => ["succeeded", "success", "done", "completed"].includes(String(status || "").toLowerCase()),
+    () => "",
+    () => "",
+    () => "",
+  );
+  assert.deepEqual(fallback.map((record) => record.taskId), ["advanced-failed", "advanced-done"]);
+});
+
 test("Generate parameter picker stays compact and selected chips show full labels", () => {
   assert.match(css, /\.advanced-parameter-panel \{[\s\S]*?width: min\(420px, calc\(100vw - 24px\)\)[\s\S]*?max-height: min\(52dvh, 360px\)/);
   assert.match(css, /\.advanced-parameter-panel\[data-advanced-parameter-kind="model"\] \{[\s\S]*?width: min\(440px, calc\(100vw - 24px\)\)/);
