@@ -163,8 +163,12 @@ test("Advanced results use a compact paged multi-column card grid", () => {
   assert.match(create, /class="advanced-result-actions"/);
   assert.match(create, /const billingStatus = String\(record\.billingStatus \|\| record\.billing\?\.status \|\| ""\)\.toLowerCase\(\)/);
   assert.match(create, /const isRefunded = billingStatus === "refunded"/);
+  assert.match(create, /const isFailed = statusClass\(record\.status\) === "failed"/);
+  assert.match(create, /class="advanced-result-failed-badge"/);
   assert.match(create, /class="advanced-result-refund-badge"/);
   assert.match(css, /\.advanced-result-card \{[\s\S]*?position: relative/);
+  assert.match(css, /\.advanced-result-failed-badge \{[\s\S]*?position: absolute;[\s\S]*?top: 8px;[\s\S]*?left: 8px/);
+  assert.match(css, /\.advanced-result-failed-badge \{[\s\S]*?background: rgba\(185,28,28,\.96\)/);
   assert.match(css, /\.advanced-result-refund-badge \{[\s\S]*?position: absolute;[\s\S]*?top: 8px;[\s\S]*?right: 8px/);
   assert.match(css, /\.advanced-result-actions \.history-download \{[\s\S]*?flex: 1 1 96px/);
 });

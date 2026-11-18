@@ -5554,6 +5554,32 @@ dialog.tool-download-modal {
   height: 13px;
   flex: 0 0 auto;
 }
+.advanced-result-failed-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid rgba(252,165,165,.72);
+  border-radius: 999px;
+  color: #fff7f7;
+  background: rgba(185,28,28,.96);
+  box-shadow: 0 6px 16px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.16);
+  font-size: .68rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.advanced-result-failed-badge svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
 .advanced-result-card.is-running .advanced-result-media svg,
 .advanced-result-card.is-submitted .advanced-result-media svg {
   animation: spin 1.2s linear infinite;

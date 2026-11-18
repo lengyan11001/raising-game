@@ -895,6 +895,7 @@ function advancedResultMediaIdentity({
   textResult = "",
   status = "",
   ratio = "",
+  isRefunded = false,
 } = {}) {
   if (resultExpired) return JSON.stringify(["expired"]);
   if (imageUrls.length) {
@@ -909,7 +910,7 @@ function advancedResultMediaIdentity({
     ]);
   }
   if (textResult) return JSON.stringify(["text", textResult]);
-  return JSON.stringify(["placeholder", status]);
+  return JSON.stringify(["placeholder", status, Boolean(isRefunded)]);
 }
 
 function advancedResultPosterFailed(record = {}) {
@@ -1158,6 +1159,7 @@ function advancedResultCardView(record = {}, index = 0) {
   const advancedDownloadDisabled = !canAdvancedDownload || advancedDownloadState === "preparing";
   const billingStatus = String(record.billingStatus || record.billing?.status || "").toLowerCase();
   const isRefunded = billingStatus === "refunded";
+  const isFailed = statusClass(record.status) === "failed";
   const mediaBody = resultExpired
     ? `<div class="advanced-result-media is-placeholder is-expired"><img src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="内容已经过期" loading="lazy" decoding="async" /><span class="generation-expired-label">内容已经过期</span></div>`
     : imageUrl
@@ -1170,7 +1172,10 @@ function advancedResultCardView(record = {}, index = 0) {
   const refundBadge = isRefunded
     ? `<span class="advanced-result-refund-badge" title="${escapeHtml(state.lang === "zh" ? "生成失败，积分已退回" : "Generation failed; credits refunded")}"><i data-lucide="badge-check" aria-hidden="true"></i>${escapeHtml(state.lang === "zh" ? "积分已退" : "Credits refunded")}</span>`
     : "";
-  const media = `${refundBadge}${mediaBody}`;
+  const failedBadge = isFailed
+    ? `<span class="advanced-result-failed-badge" title="${escapeHtml(state.lang === "zh" ? "生成失败" : "Generation failed")}"><i data-lucide="circle-alert" aria-hidden="true"></i>${escapeHtml(state.lang === "zh" ? "失败" : "Failed")}</span>`
+    : "";
+  const media = `${failedBadge}${refundBadge}${mediaBody}`;
   const meta = `
     <strong>${escapeHtml(publicModelText(publicGenerationDisplayTitle(record, "Generation")))}</strong>
     <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
@@ -1203,6 +1208,7 @@ function advancedResultCardView(record = {}, index = 0) {
     // changes on a card that already has media must not touch its <img>.
     status: statusClass(record.status) === "failed" ? "failed" : status,
     ratio,
+    isFailed,
     isRefunded,
   });
   const metaKey = JSON.stringify([
