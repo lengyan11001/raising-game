@@ -5183,6 +5183,14 @@ dialog.tool-download-modal {
 .advanced-asset-panel {
   gap: 12px;
 }
+.advanced-side-panel {
+  position: sticky;
+  top: 78px;
+  max-height: calc(100dvh - 96px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
 .advanced-mobile-tabs {
   display: none;
 }
@@ -11733,7 +11741,13 @@ select:focus,
   .gallery-advanced-grid.is-case-list { grid-template-columns: 1fr; }
   .copy-card, .advanced-workspace, .topup-strip { grid-template-columns: 1fr; }
   .advanced-workspace.is-create-custom { grid-template-columns: 1fr; }
-  .advanced-form-card { position: static; }
+  .advanced-form-card,
+  .advanced-side-panel {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    scrollbar-gutter: auto;
+  }
   .advanced-preset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .advanced-asset-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .asset-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -12924,10 +12938,10 @@ body.wan30-launch-visible .site-head { top: 0; }
 }
 .api-doc-nav {
   position: sticky;
-  top: 18px;
+  top: 78px;
   display: grid;
   gap: 18px;
-  max-height: calc(100vh - 36px);
+  max-height: calc(100dvh - 96px);
   overflow: auto;
   padding: 16px;
   border: 1px solid rgba(255,255,255,.09);
