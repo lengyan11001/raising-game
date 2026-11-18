@@ -1,3 +1,12 @@
+## 2026-11-18 Step EF: Generate parameter popup compact widths
+
+- Current task is limited to the Generate parameter picker UI. Selection handling, regeneration, backfill, and model initialization logic are unchanged.
+- `platform.create.parts/part-02.js` now assigns an advanced-parameter kind to the portaled popup and applies per-kind width/height caps. Current caps: model 440px, mode 380px, ratio 240px, resolution 280px, duration 360px, size 200px, default 320px.
+- `platform.css` adds the matching kind-specific widths, compact option spacing, refined dark popup styling, scrollbar treatment, reduced-motion support, and mobile viewport clamping.
+- Browser measurements passed at 1280x720, 1440x900, and 390x844. Ratio/resolution/duration render at 240/280/360px on desktop; mobile popups remain inside the 390px viewport. Popup placement still flips upward when needed.
+- Verification passed: `node --check platform.create.parts/part-02.js`, `node --check platform.js`, `npm run check:undef`, `git diff --check`, and the focused test `Generate parameter picker stays compact and selected chips show full labels` (1/1).
+- Do not commit the unrelated existing change in `server.parts/part-45.js`. Deployment and production validation are still pending.
+
 ## 2026-11-18 Step EE: story-tree entry clicks independent from disclosure
 
 - Story-tree script/episode entry clicks now only select the manuscript or episode and open its content in the right pane. `openStoryEpisode()` no longer mutates any manuscript or episode expansion arrays; manuscript entries already only changed the selection.

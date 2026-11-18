@@ -11406,40 +11406,90 @@ select:focus,
   color: rgba(247,247,251,.44) !important;
 }
 .advanced-parameter-panel {
+  --advanced-parameter-panel-edge: 12px;
   box-sizing: border-box;
   position: fixed;
   left: 0;
   top: 12px;
   z-index: 4000;
   display: grid;
-  gap: 8px;
-  width: min(480px, calc(100vw - 32px));
-  max-height: min(52vh, 300px);
+  gap: 9px;
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(52dvh, 360px);
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 12px;
-  border: 1px solid rgba(255,255,255,.14);
-  border-radius: 16px;
+  scrollbar-gutter: stable;
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 18px;
   color: var(--text);
-  background: #151518;
-  box-shadow: 0 24px 64px rgba(0,0,0,.52), inset 0 1px 0 rgba(255,255,255,.04);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.055), transparent 44%),
+    rgba(18,18,23,.98);
+  box-shadow:
+    0 28px 72px rgba(0,0,0,.64),
+    0 8px 24px rgba(0,0,0,.26),
+    inset 0 1px 0 rgba(255,255,255,.055);
+  backdrop-filter: blur(18px) saturate(1.16);
+  transform-origin: top left;
+  animation: advanced-parameter-panel-in .14s ease-out;
+}
+.advanced-parameter-panel[data-advanced-parameter-kind="model"] {
+  width: min(440px, calc(100vw - 24px));
+}
+.advanced-parameter-panel[data-advanced-parameter-kind="mode"] {
+  width: min(380px, calc(100vw - 24px));
+}
+.advanced-parameter-panel[data-advanced-parameter-kind="ratio"] {
+  width: min(240px, calc(100vw - 24px));
+}
+.advanced-parameter-panel[data-advanced-parameter-kind="resolution"] {
+  width: min(280px, calc(100vw - 24px));
+}
+.advanced-parameter-panel[data-advanced-parameter-kind="duration"] {
+  width: min(360px, calc(100vw - 24px));
+}
+.advanced-parameter-panel[data-advanced-parameter-kind="size"] {
+  width: min(200px, calc(100vw - 24px));
+}
+.advanced-parameter-panel[data-advanced-parameter-placement="up"] {
+  transform-origin: bottom left;
+}
+.advanced-parameter-panel::-webkit-scrollbar {
+  width: 8px;
+}
+.advanced-parameter-panel::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(255,255,255,.18);
+  background-clip: padding-box;
+}
+@media (prefers-reduced-motion: reduce) {
+  .advanced-parameter-panel { animation: none; }
 }
 .advanced-parameter-panel[hidden] {
   display: none !important;
 }
+.advanced-parameter-panel[data-advanced-parameter-placement="down"] {
+  transform-origin: top left;
+}
+@keyframes advanced-parameter-panel-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .advanced-parameter-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 6px;
 }
 .advanced-parameter-option {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-height: 30px;
+  min-height: 34px;
   max-width: 100%;
-  padding: 0 10px;
+  padding: 0 12px;
   border: 1px solid rgba(255,255,255,.1);
   border-radius: 999px;
   color: rgba(247,247,251,.86);
@@ -11471,13 +11521,13 @@ select:focus,
 .advanced-parameter-options.is-model-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
+  gap: 6px;
 }
 .advanced-parameter-options.is-model-list .advanced-parameter-option {
   justify-content: flex-start;
-  min-height: 48px;
-  padding: 0 14px;
-  border-radius: 10px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
 }
 .advanced-parameter-options.is-model-list .advanced-parameter-option strong {
   flex: 1;
@@ -11507,7 +11557,9 @@ select:focus,
   display: grid;
   grid-template-columns: auto minmax(120px, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: 10px 12px;
+  min-height: 76px;
+  padding: 2px 4px;
 }
 .advanced-parameter-duration-readout strong {
   display: inline-flex;
@@ -11560,14 +11612,10 @@ select:focus,
     max-width: 100%;
   }
   .advanced-parameter-panel {
-    position: fixed;
-    left: 12px;
-    right: auto;
-    top: 12px;
-    bottom: auto;
-    width: min(480px, calc(100vw - 24px));
-    max-height: min(52dvh, 300px);
-    padding: 13px;
+    width: min(420px, calc(100vw - 24px));
+    max-height: min(52dvh, 340px);
+    padding: 10px;
+    border-radius: 16px;
   }
   .advanced-parameter-options {
     grid-template-columns: minmax(0, 1fr);
