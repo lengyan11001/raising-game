@@ -14,6 +14,12 @@
 - User reported that the mode and resolution popups still leave excess empty space on the right. Production inspection confirmed mode had one short option inside a 380px panel and resolution had three short options inside a 280px panel.
 - Added `advancedParameterPanelContentFitWidth()` in `platform.create.parts/part-02.js`. Non-model, non-duration option popups now measure their buttons and shrink to the actual one-line content width, with an 18rem minimum and the existing per-kind caps as maxima. Model and duration popups retain their fixed caps.
 
+## 2026-11-18 Step EF: episode click exits shot workspace
+
+- Opening a story episode after viewing one of its shots now always clears `selectedShotId` before rendering. This makes an episode click return the right pane to the episode workspace instead of leaving the shot workspace open.
+- Tree disclosure state is still untouched by entry clicks; only explicit chevrons expand or collapse. Regression coverage in `test/story-canvas-p1.test.js` passed 22/22, along with syntax and `git diff --check`.
+- Source commit `f9600675`; platform release `ef262364` deployed Old-only through `scripts/deploy_local.sh --site old` with `OLD_ROLLING_DEPLOY_OK`. The first attempt found both 4174 and 4175 active in all three Nginx upstreams; the repository transaction restored 4174 primary / 4175 backup before the successful rolling deploy. Old now serves release `ef262364` on port 4175; `/api/health` returns `{"ok":true}`, and the served `platform.story.js` contains the unconditional shot-selection reset.
+
 ## 2026-11-18 Step EE: story-tree entry clicks independent from disclosure
 
 - Story-tree script/episode entry clicks now only select the manuscript or episode and open its content in the right pane. `openStoryEpisode()` no longer mutates any manuscript or episode expansion arrays; manuscript entries already only changed the selection.
