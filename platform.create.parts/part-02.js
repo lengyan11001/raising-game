@@ -1272,6 +1272,20 @@ function advancedParameterPanelHeightCap(kind = "", viewportHeight = window.inne
   return Math.max(120, Math.min(cap, Math.floor(viewportHeight * ratio)));
 }
 
+function advancedParameterPanelContentFitWidth(panel, kind = "", maxWidth = 320) {
+  if (!panel || kind === "model" || kind === "duration") return maxWidth;
+  const options = panel.querySelector(".advanced-parameter-options");
+  if (!options) return maxWidth;
+  const buttons = Array.from(options.querySelectorAll(":scope > .advanced-parameter-option"));
+  if (!buttons.length) return maxWidth;
+  const optionStyle = window.getComputedStyle(options);
+  const gap = Number.parseFloat(optionStyle.columnGap || optionStyle.gap) || 0;
+  const buttonsWidth = buttons.reduce((total, button) => total + button.getBoundingClientRect().width, 0);
+  const chromeWidth = Math.max(0, panel.getBoundingClientRect().width - options.getBoundingClientRect().width);
+  const contentWidth = Math.ceil(buttonsWidth + gap * Math.max(0, buttons.length - 1) + chromeWidth);
+  return Math.min(maxWidth, Math.max(180, contentWidth));
+}
+
 function positionAdvancedParameterPanel() {
   const panel = els.advancedParameterPanel;
   const chip = els.advancedParameterChips?.querySelector(`[data-advanced-parameter-open="${state.advancedParameterOpen}"]`);
@@ -1291,7 +1305,10 @@ function positionAdvancedParameterPanel() {
   const spaceBelow = Math.max(0, viewportBottom - viewportGap - chipRect.bottom - panelGap);
   const spaceAbove = Math.max(0, chipRect.top - panelGap - viewportTop);
   const widthCap = advancedParameterPanelWidthCap(state.advancedParameterOpen);
-  const panelWidth = Math.min(widthCap, Math.max(1, viewport.width - viewportGap * 2));
+  const availableWidth = Math.min(widthCap, Math.max(1, viewport.width - viewportGap * 2));
+
+  panel.style.width = `${Math.floor(availableWidth)}px`;
+  const panelWidth = advancedParameterPanelContentFitWidth(panel, state.advancedParameterOpen, availableWidth);
   const maxLeft = Math.max(viewportLeft + viewportGap, viewportRight - viewportGap - panelWidth);
 
   panel.style.position = "fixed";
