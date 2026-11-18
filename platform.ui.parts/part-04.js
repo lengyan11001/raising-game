@@ -923,6 +923,37 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function generationRecordBillingStatus(record = {}) {
+  const sources = [record, record?.record, record?.metadata, record?.generationRecord];
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    const status = source.billing?.status || source.billingStatus || "";
+    if (String(status || "").trim()) return String(status).trim().toLowerCase();
+  }
+  return "";
+}
+
+function isGenerationRecordRefunded(record = {}) {
+  return generationRecordBillingStatus(record) === "refunded";
+}
+
+function generationRefundBadgeText(record = {}) {
+  const zh = typeof state !== "undefined" && state?.lang === "zh";
+  return {
+    label: zh ? "积分已退" : "Credits refunded",
+    title: isGenerationRecordRefunded(record)
+      ? (zh ? "生成失败，积分已退回" : "Generation failed; credits refunded")
+      : "",
+  };
+}
+
+function generationRefundBadgeHtml(record = {}, className = "") {
+  if (!isGenerationRecordRefunded(record)) return "";
+  const copy = generationRefundBadgeText(record);
+  const extraClass = String(className || "").trim();
+  return `<span class="advanced-result-refund-badge generation-refund-badge${extraClass ? ` ${escapeHtml(extraClass)}` : ""}" title="${escapeHtml(copy.title)}"><i data-lucide="badge-check" aria-hidden="true"></i>${escapeHtml(copy.label)}</span>`;
+}
+
 function sessionDeviceId() {
   try {
     let deviceId = localStorage.getItem(SESSION_DEVICE_KEY) || "";

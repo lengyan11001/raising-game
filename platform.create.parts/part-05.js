@@ -829,6 +829,7 @@ function renderHistory(records = []) {
     const advancedDownloadState = advancedDownloadUiState(record);
     const advancedDownloadLabel = advancedDownloadButtonLabel(record);
     const advancedDownloadDisabled = !canAdvancedDownload || advancedDownloadState === "preparing";
+    const refundBadge = generationRefundBadgeHtml(record);
     const isUndressHistory = isTenantTool("undress");
     const recordStatusClass = statusClass(record.status);
     const recordStatusLabel = statusLabel(record.status);
@@ -921,7 +922,7 @@ function renderHistory(records = []) {
             </button>
             <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
           ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="${imageLoading}" fetchpriority="${imageFetchPriority}" decoding="async" />` : textResult ? `<div class="history-result-text">${escapeHtml(textResult)}</div>` : `<div class="history-placeholder"><i data-lucide="${recordStatusIcon}"></i><span>${escapeHtml(recordStatusLabel)}</span></div>`}
-          ${advancedDownloadStatusPill(record)}
+          ${advancedDownloadStatusPill(record)}${refundBadge}
         </div>
         ${isUndressHistory ? `<div class="undress-history-footer">
           ${undressResultActions}

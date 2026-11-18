@@ -4195,6 +4195,7 @@ function openHistoryDetail(index) {
       <header>
         <strong>${escapeHtml(t("history.result"))}</strong>
         <span>${escapeHtml(record.taskId || "")}</span>
+        ${generationRefundBadgeHtml(record, "history-detail-refund-badge")}
         ${advancedDownloadStatusPill(record, { detail: true })}
         ${canDownload ? `
           <button class="history-download history-detail-download" type="button" data-history-detail-download>

@@ -275,6 +275,18 @@
     );
   }
 
+  function RefundBadge(node) {
+    var record = node && node.data && (node.data.record || node.data) || {};
+    var refunded = typeof window.isGenerationRecordRefunded === "function"
+      ? window.isGenerationRecordRefunded(record)
+      : String(record.billing && record.billing.status || record.billingStatus || "").toLowerCase() === "refunded";
+    if (!refunded) return null;
+    var copy = typeof window.generationRefundBadgeText === "function"
+      ? window.generationRefundBadgeText(record)
+      : { label: "积分已退", title: "生成失败，积分已退回" };
+    return h("span", { className: "workflow-react-refund-badge", title: copy.title || "" }, icon("badge-check"), copy.label || "积分已退");
+  }
+
   function Preview(node, url, kind) {
     if (!url) {
       return h("div", { className: "workflow-react-empty-result" },
@@ -439,7 +451,7 @@
     return h("article", { className: "workflow-react-card is-generation is-image-generation " + (selected ? "is-selected" : ""), "data-workflow-react-node": node.id },
       Header(node, node.title || model.label || "Image generation", "image", h(React.Fragment, null, runButton, deleteAction(node))),
       h("div", { className: "workflow-react-model-line" }, h("span", null, model.label || "Image model"), h("strong", null, (typeof window.workflowCostLabel === "function" ? window.workflowCostLabel(node) : "0") + " 积分")),
-      h("div", { className: "workflow-react-result" }, result ? Preview(node, result.url, result.kind) : h("div", { className: "workflow-react-empty-result" }, icon("image"), h("span", null, "生成结果会显示在这里"))),
+      h("div", { className: "workflow-react-result" }, result ? Preview(node, result.url, result.kind) : h("div", { className: "workflow-react-empty-result" }, icon("image"), h("span", null, "生成结果会显示在这里")), RefundBadge(node)),
       selected ? h("div", { className: "workflow-react-editor" },
         h("label", { className: "nodrag workflow-react-prompt-field", onPointerDown: stopNodeEvent }, h("span", null, "提示词"), textArea(node, node.data && node.data.prompt, "描述你想生成的图片...")),
         h("div", { className: "workflow-react-fields" },
@@ -480,7 +492,7 @@
     return h("article", { className: "workflow-react-card is-generation is-video-generation " + (selected ? "is-selected" : ""), "data-workflow-react-node": node.id },
       Header(node, node.title || model.label || "Video generation", "video", h(React.Fragment, null, runButton, deleteAction(node))),
       h("div", { className: "workflow-react-model-line" }, h("span", null, model.label || "Video model"), h("strong", null, (typeof window.workflowCostLabel === "function" ? window.workflowCostLabel(node) : "0") + " 积分")),
-      h("div", { className: "workflow-react-result" }, result ? Preview(node, result.url, result.kind) : h("div", { className: "workflow-react-empty-result" }, icon("play"), h("span", null, "生成结果会显示在这里"))),
+      h("div", { className: "workflow-react-result" }, result ? Preview(node, result.url, result.kind) : h("div", { className: "workflow-react-empty-result" }, icon("play"), h("span", null, "生成结果会显示在这里")), RefundBadge(node)),
       selected ? h("div", { className: "workflow-react-editor" },
         h("label", { className: "nodrag workflow-react-prompt-field", onPointerDown: stopNodeEvent }, h("span", null, "提示词"), textArea(node, node.data && node.data.prompt, "描述你想生成的视频..."),
           typeof window.isWanPromptOptimizerProvider === "function" && window.isWanPromptOptimizerProvider(model.id)

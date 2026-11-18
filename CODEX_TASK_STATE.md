@@ -1,3 +1,10 @@
+## 2026-11-18 Step EJ: Refund badge covers independent History and canvas result surfaces
+
+- User clarified this is not a second failed badge. Removed the extra failed badge from Advanced Result cards and kept only the green refund badge for records whose billing state is `refunded`.
+- Centralized refund detection/rendering so `billing.status`, `billingStatus`, and nested record/metadata shapes all resolve consistently.
+- Wired the refund badge across Advanced Result cards, the independent History tab cards and detail modal, standard workflow canvas result nodes, React workflow result cards, and story-shot video results. Story generation sync now preserves refund state on the generation ref.
+- Verification passed: syntax checks, focused Advanced refund tests 3/3, story canvas suite 22/22, `npm run check:undef`, and `git diff --check`. The focused workflow suite still has pre-existing source-split failures unrelated to this change. Deployment is pending.
+
 ## 2026-11-18 Step EI: Failed result cards get a visible status badge
 
 - User requested a corner badge for failed records in the Result tab. Added a red top-left `失败` / `Failed` badge for any failed Advanced result card. Refunded failures keep the separate green top-right `积分已退` badge.
