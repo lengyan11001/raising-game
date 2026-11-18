@@ -1,4 +1,53 @@
+## 2026-11-18 Step ED: Seedance BGM/audio-copyright failures
+
+- Read-only Old production PostgreSQL audit covered the last 30 days: 1,269 Seedance failures. Classification was content moderation 776, timeout/network/server 274, audio/BGM copyright 110, other 69, invalid parameter 40. The top raw errors were `output video may contain sensitive information` (516) and `output video may be related to copyright restrictions` (213); `output audio may be related to copyright restrictions` was 89 before nested-message deduplication. Over 90 days: 2,060 failed and 179 audio/BGM copyright. Therefore BGM/audio copyright is substantial but not the highest-frequency failure; content moderation is clearly highest.
+- Added `seedance-prompt.js`, which idempotently appends an English no-BGM constraint while preserving the user's exact prompt and `@image1`/`@video1` ordering. Applied it to the Seedance 2.5 gateway, direct NSFW, Flash, APIX/APIZ/Ignex, official Ark-compatible preparation, gateway reference content, and advanced Seedance prompt paths.
+- Added a specific Chinese customer error for `output audio may be related to copyright restrictions`, explaining that automatically generated BGM commonly triggers it, that the platform now forbids BGM, and to retry with audio disabled if needed. The same mapping was added to legacy cached errors in the canvas.
+- Relevant changed files: `seedance-prompt.js`, `seedance25.js`, `seedance25-direct.js`, `seedance25-flash.js`, `lib-providers.js`, `platform.workflow-react.js`, `server.parts/part-01.js`, `part-14.js`, `part-15.js`, `part-24.js`, `part-29.js`, `part-48.js`, `test/seedance-no-bgm.test.js`, `test/seedance25.test.js`, `test/seedance25-direct.test.js`, `test/seedance25-flash.test.js`, `test/public-generation-errors.test.js`, `test/advanced-custom-ui.test.js`.
+- Verification: focused Seedance/BGM/error tests `34/34`, advanced canvas tests `44/44`, syntax checks for all changed JS, `npm run check:undef`, and `git diff --check` pass. Full suite after the seedance test assertion update is expected at 1,402 pass / 9 fail / 2 skipped; the nine failures are the known serializer field-order and existing dirty prompt-optimizer baselines. Deployment pending.
+
+## 2026-11-18 Step EC: user-facing generation failure messages
+
+- Public generation serialization now translates raw provider errors into short, actionable Chinese messages for quota, moderation, copyright, rate limit, timeout/network, auth, and invalid parameters. Unknown provider errors fall back to a generic refund/retry message instead of exposing English upstream text.
+- Admin generation views still expose the original raw `record.error` and `cdnError` for diagnosis. The canvas also re-translates legacy raw errors already cached in browser state and localizes task status labels.
+- Added `test/public-generation-errors.test.js`; focused tests pass `12/12`, `npm run check:undef`, syntax checks, and `git diff --check` pass. Full suite reached `1399 pass / 9 fail / 2 skipped`; failures are the known serializer field-order baseline plus the existing dirty prompt-optimizer/story baseline, unrelated to this change.
+- Follow-up source commit `1bfff2f6a7d39cfcefa565c06fa7ce27bfb01cd2` narrowed quota classification so provider phrases like "not enough tokens" do not incorrectly tell users to recharge; platform release `2e31cbbdef023bcb8d703527308fb3055348ae2c` was pushed with `old-site` and `platform-release` only.
+- Old-only rolling deployment completed: `OLD_ROLLING_DEPLOY_OK active_port=4174 release=2e31cbbd...`. Public `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`, readiness reports clean release `2e31cbbd...`, and deployed `platform.workflow-react.js` contains the Chinese error/status mapping. Live remained untouched.
+
+## 2026-11-18 Step EB: shot-scoped AI asset planning and user asset CRUD
+
+- Confirmed the latest production episode had 11 shots but no asset planning run. Its 13 project assets were legacy analysis assets with empty `metadata.episodeIds` and `metadata.shotNos`, so no shot could match them.
+- Story analysis no longer creates global placeholder assets. After AI shot planning, the frontend immediately calls the episode asset planner; the planner extracts character, scene, and prop requirements per shot and persists `episodeIds` plus `shotNos`.
+- Added shot-level asset creation, editing, and deletion APIs and UI. Users can maintain name, kind, visual continuity, continuity constraints, and image prompt directly in the current shot, then generate design images explicitly.
+- Added PostgreSQL create/update/delete asset functions, route wiring, asset editor modal, shot-card controls, and confirmation invalidation after asset definition changes.
+- Story tree entry clicks now only select/open content; branch expansion is controlled exclusively by the disclosure buttons. This prevents clicking an already selected episode or manuscript from collapsing the branch and blocking access to its detail.
+- Verification passed: syntax checks for all changed server/client files, `npm run check:undef`, `git diff --check`, and `test/story-canvas-p1.test.js` (`22/22`). No deployment performed.
+- Relevant changed files: `db.js`, `platform.story.js`, `platform.css`, `server.parts/part-01.js`, `server.parts/part-03.js`, `server.parts/part-42.js`, `server.parts/part-49.js`, `test/story-canvas-p1.test.js`.
+
+## 2026-11-18 Step EA: source-anchored story shot planning
+
+- Story analysis now stores a concise 120-320 character outline plus PostgreSQL episode metadata containing an ordered beat sheet and exact source excerpts. Legacy episodes remain compatible and are planned against their fetched source script version.
+- Shot planning now uses three AI passes: coverage planning from the source/beat sheet, full shot generation from that coverage contract, and a critic pass that repairs omissions, duplicate beats, overloaded shots, and duration issues before saving. Audit counts are persisted in `episode.metadata.shotPlanAudit`.
+- The shot-plan route loads the episode's source script version and passes it into planning; it no longer relies only on the compressed episode synopsis. If coverage/critic JSON fails, planning falls back safely instead of adding a new hard failure point.
+- Verification passed: `node --check` for changed server parts/tests, `npm run check:undef`, `git diff --check`, story/workflow focused suite `71/71`, and `test/story-canvas-p1.test.js` `21/21`. Full suite reached `1396 pass / 9 fail / 2 skipped`; eight failures are the existing dirty `server.parts/part-45.js` prompt-optimizer baseline and one is the known serializer field-order baseline. No deployment performed.
+- Changed files: `server.parts/part-03.js`, `server.parts/part-49.js`, `test/story-canvas-p1.test.js`. Unrelated dirty files (`server.parts/part-45.js`, user-activation notes already in this state file) were left untouched.
+
 ## 2026-11-18 Step DZ: admin ticket page single-screen layout
+
+## 2026-11-18 User activation analysis
+
+- Read-only production PostgreSQL analysis completed. Scope: non-deleted `app_users`, excluding admins; generation records exclude `payload.deletedAt`.
+- User base: 1,145 records, 986 non-deleted, 983 normal users. Historical generators: 349 normal users (35.5%). Registration sources: direct 413 (211 ever generated), Google 295 (67), Email 157 (30), unknown 106 (38), Telegram 5 (3).
+- The observed "only a few dozen" is daily distinct generating users, not task volume: in the last 30 days there were 241 generating users and 15,242 generation records; daily distinct generators are about 44-66 while daily records are about 442-760.
+- First-generation speed is good once unlocked: 259 users generated within 24h of registration, 316 within 7d, 337 within 30d; median delay for first generation is about 0.8h.
+- Primary funnel break: 668/983 normal users currently have 0 credits and only 65 ever generated (9.7%). Conversion by current balance is 91.3% under 100, 91.4% at 100-499, 92.8% at 500-1499, 83.5% at 1500-4999, and 93.0% at 5000+. Only 9 of the 668 zero-credit users have any credit-ledger activity, so most never received starting credits rather than spending them down.
+- Current registration paths (Google/Email/Telegram) create users with `credits: 0`; this is the largest actionable cause.
+- Retained power users are strong: last-30-day generators average 63.2 records (median 30); 148 generated more than 20 records; top 10 users account for 29.7% of records.
+- Main products in the last 30 days: advanced-video 12,081 records/229 users; advanced-image 1,719/98; asset-image 1,041/79. Top providers: advanced-seedance 6,314/174; advanced-wan30 2,664/120; advanced-seedance-nsfw 2,468/106; advanced-seedream5-image 1,505/85.
+- Failure rates worth fixing: Seedance NSFW 20.3%, Qwen Image 3 27.8%, Seedance 9.8%, Seedream 5 7.7%, Wan 3.0 6.0%.
+- Sleepers: `undress.14vips.com` has 117 registrations and 62 historical generators, but only 6 generated in the last 30 days. This is a high-intent re-engagement segment.
+- Recommended priority: (P0) one-time, low-cost first-generation entitlement plus a registration-success CTA that lands directly in a prefilled first generation; (P1) targeted recall for users who previously generated and still have balance, especially legacy-domain users; (P2) reduce first-video friction and repair high-failure providers; (P3) add registration-to-first-generation funnel events so page-level drop-off can be measured.
+- No code, database, or deployment changes were made for this analysis.
 
 - Fixed the admin support-ticket workspace trapping users at the bottom of a double-scroll page. The route now marks `.adm-content` as `is-ticket-workspace`, removing outer-page scrolling while the ticket list and conversation thread keep their own bounded internal scrolling.
 - Added single-screen grid sizing and compacted the ticket header/toolbar. Desktop uses the full available admin height with `min-height: 0`; widths up to `860px` retain the existing vertical fallback.

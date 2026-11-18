@@ -7638,6 +7638,110 @@ async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", epis
   return saved;
 }
 
+async function createStoryAssetInDb({ id = "", projectId = "", ownerUserId = "", kind = "character", name = "", description = "", metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const assetName = String(name || "").trim().slice(0, 200);
+  if (!parentId || !ownerId || !assetName) return null;
+  await ensureSchema();
+  const cleanKind = ["character", "scene", "prop", "style", "audio"].includes(String(kind || "").trim()) ? String(kind).trim() : "character";
+  const { rows } = await query(
+    `INSERT INTO app_story_assets(id, project_id, kind, name, description, status, metadata)
+     SELECT $1, p.id, $4, $5, $6, 'planned', $7::jsonb
+     FROM app_story_projects p
+     WHERE p.id = $2 AND p.owner_user_id = $3
+     RETURNING *`,
+    [String(id || crypto.randomUUID()), parentId, ownerId, cleanKind, assetName, String(description || "").slice(0, 8000), JSON.stringify(metadata && typeof metadata === "object" ? metadata : {})],
+  );
+  return rows[0] ? storyAssetFromRow(rows[0]) : null;
+}
+
+async function updateStoryAssetInDb({ projectId = "", ownerUserId = "", assetId = "", kind = "", name = "", description = "", metadata = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const targetId = String(assetId || "").trim();
+  if (!parentId || !ownerId || !targetId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  let saved = null;
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query(
+      `SELECT a.* FROM app_story_assets a
+       JOIN app_story_projects p ON p.id = a.project_id
+       WHERE a.id = $1 AND a.project_id = $2 AND p.owner_user_id = $3
+       FOR UPDATE`,
+      [targetId, parentId, ownerId],
+    );
+    if (!existing.rows[0]) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const old = existing.rows[0];
+    const oldMetadata = old.metadata && typeof old.metadata === "object" ? old.metadata : {};
+    const incomingMetadata = metadata && typeof metadata === "object" ? metadata : {};
+    const nextMetadata = { ...oldMetadata, ...incomingMetadata };
+    const definitionChanged = String(old.kind || "") !== String(kind || old.kind || "")
+      || String(old.name || "") !== String(name || old.name || "")
+      || String(old.description || "") !== String(description || old.description || "")
+      || String(oldMetadata.imagePrompt || "") !== String(nextMetadata.imagePrompt || oldMetadata.imagePrompt || "");
+    if (definitionChanged) {
+      delete nextMetadata.approvedVariantId;
+      delete nextMetadata.approvedSourceAssetId;
+      delete nextMetadata.approvedAt;
+      delete nextMetadata.approvalMode;
+      await client.query(
+        `UPDATE app_story_asset_variants SET status = CASE WHEN status = 'approved' THEN 'ready' ELSE status END, updated_at = NOW() WHERE asset_id = $1`,
+        [targetId],
+      );
+    }
+    const updated = await client.query(
+      `UPDATE app_story_assets
+       SET kind = $3, name = $4, description = $5, status = $6, metadata = $7::jsonb, updated_at = NOW()
+       WHERE id = $1 AND project_id = $2
+       RETURNING *`,
+      [
+        targetId,
+        parentId,
+        ["character", "scene", "prop", "style", "audio"].includes(String(kind || old.kind || "").trim()) ? String(kind || old.kind).trim() : "character",
+        String(name || old.name || "").trim().slice(0, 200),
+        String(description || old.description || "").slice(0, 8000),
+        definitionChanged ? "planned" : String(old.status || "planned"),
+        JSON.stringify(nextMetadata),
+      ],
+    );
+    saved = updated.rows[0] ? storyAssetFromRow(updated.rows[0]) : null;
+    const episodeIds = Array.isArray(nextMetadata.episodeIds) ? nextMetadata.episodeIds.map(String).filter(Boolean) : [];
+    if (episodeIds.length) await invalidateStoryEpisodeProductionPrompts(client, { projectId: parentId, episodeIds });
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return saved;
+}
+
+async function deleteStoryAssetInDb({ projectId = "", ownerUserId = "", assetId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  const targetId = String(assetId || "").trim();
+  if (!parentId || !ownerId || !targetId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `DELETE FROM app_story_assets a
+     USING app_story_projects p
+     WHERE a.id = $1 AND a.project_id = $2 AND p.id = a.project_id AND p.owner_user_id = $3
+     RETURNING a.id`,
+    [targetId, parentId, ownerId],
+  );
+  return rows[0] ? String(rows[0].id || "") : null;
+}
+
 async function createStoryAssetVariantInDb({ id = "", projectId = "", ownerUserId = "", assetId = "", name = "", description = "", status = "draft", metadata = {} } = {}) {
   if (!dbEnabled()) return null;
   const parentId = String(projectId || "").trim();
@@ -12333,6 +12437,9 @@ module.exports = {
   listStoryAssetsFromDb,
   listStoryAssetVariantsFromDb,
   upsertStoryAssetPlanInDb,
+  createStoryAssetInDb,
+  updateStoryAssetInDb,
+  deleteStoryAssetInDb,
   createStoryAssetVariantInDb,
   updateStoryAssetVariantInDb,
   approveStoryAssetVariantInDb,

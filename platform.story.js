@@ -48,6 +48,7 @@
     assetLibraryPreviewAssetId: "",
     assetLibraryMessage: "",
     revisionRequest: null,
+    assetEditor: null,
     imageModel: "qwen-image3",
     videoModel: "seedance-nsfw",
     videoDuration: 5,
@@ -934,9 +935,13 @@
               return `<div class="story-shot-asset-row">
                 <div><span>${storyEscape(storyAssetKindLabel(asset.kind))}</span><strong>${storyEscape(asset.name)}</strong><small>${approved ? "已定稿" : generated ? "设计图待审核" : "未出图"}</small></div>
                 <details><summary>设计图提示词</summary><p>${storyEscape(asset.metadata?.imagePrompt || asset.description || "AI 尚未补写设计图提示词。")}</p></details>
-                <button type="button" data-story-generate-asset="${storyEscape(asset.id)}" data-story-generate-asset-shot="${storyEscape(shot.id)}" ${confirmed && !generated && !storyState.action ? "" : "disabled"}>${generated ? "已出图" : "生成此资产"}</button>
+                <div class="story-shot-asset-row-actions">
+                  <button type="button" data-story-generate-asset="${storyEscape(asset.id)}" data-story-generate-asset-shot="${storyEscape(shot.id)}" ${confirmed && !generated && !storyState.action ? "" : "disabled"}>${generated ? "已出图" : "生成此资产"}</button>
+                  <button type="button" data-story-edit-asset="${storyEscape(asset.id)}" data-story-asset-shot="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}>编辑</button>
+                  <button class="is-danger" type="button" data-story-delete-asset="${storyEscape(asset.id)}" data-story-asset-shot="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}>删除</button>
+                </div>
               </div>`;
-            }).join("") : `<div class="story-shot-assets-empty">AI 尚未为此镜提取资产。先执行“提取本集资产”，再逐镜确认清单。</div>`}
+            }).join("") : `<div class="story-shot-assets-empty"><span>AI 尚未为此镜提取资产。</span><button type="button" data-story-add-shot-asset="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}>手动新增资产</button></div>`}
           </div>
           <div class="story-shot-prompt-block ${promptReady ? "is-ready" : shot.videoPrompt ? "is-stale" : ""}">
             <div><strong>视频提示词</strong><small>${promptReady ? "已按当前模型优化" : shot.videoPrompt ? "模型已变，需刷新" : "等待资产定稿后生成"}</small></div>
@@ -1013,6 +1018,8 @@
           <label class="story-shot-asset-prompt"><span>AI 建议图片提示词</span><p>${storyEscape(prompt)}</p></label>
           <div class="story-shot-workspace-asset-actions">
             <button type="button" data-story-generate-asset="${storyEscape(asset.id)}" data-story-generate-asset-shot="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}>${storyState.generatingAssetId === asset.id ? "生成中…" : generated ? "重新生成" : "生成图片"}</button>
+            <button class="is-edit" type="button" data-story-edit-asset="${storyEscape(asset.id)}" data-story-asset-shot="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}>编辑</button>
+            <button class="is-danger" type="button" data-story-delete-asset="${storyEscape(asset.id)}" data-story-asset-shot="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}>删除</button>
             ${displayVariant && displayVariant.status !== "approved" ? `<button class="is-approve" type="button" data-story-approve-variant="${storyEscape(displayVariant.id)}" data-story-asset-id="${storyEscape(asset.id)}" ${storyState.action ? "disabled" : ""}>${storyState.action === "approve-asset" ? "正在定稿…" : "设为定稿"}</button>` : ""}
           </div>
           ${reusableVariants.length ? `<div class="story-shot-asset-reuse"><select data-story-reuse-variant="${storyEscape(asset.id)}"><option value="">选择已有定稿素材</option>${reusableVariants.map((variant) => {
@@ -1055,7 +1062,10 @@
           <section class="story-shot-workspace-card">
             <div class="story-shot-workspace-card-head">
               <div><p class="eyebrow">SHOT ASSETS</p><h4>本镜所需资产</h4></div>
-              <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>打开全局资产库</span></button>
+              <div class="story-shot-workspace-card-head-actions">
+                <button class="story-secondary-button" type="button" data-story-add-shot-asset="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}><i data-lucide="plus"></i><span>新增资产</span></button>
+                <button class="story-secondary-button" type="button" data-story-open-asset-library><i data-lucide="library"></i><span>全局资产库</span></button>
+              </div>
             </div>
             <p class="story-shot-workspace-hint">这里直接完成本镜资产生成、重生成、定稿和复用已有素材。资产库只用于查看全项目记录。</p>
             <div class="story-shot-workspace-assets">${assetRows}</div>
@@ -1157,6 +1167,25 @@
         <header><div><p class="eyebrow">REVISION BRIEF</p><h3 id="storyRevisionTitle">${storyEscape(request.title || "补充修改意见")}</h3><p>${storyEscape(request.message || "")}</p></div><button class="story-icon-button" type="button" data-story-close-revision title="关闭"><i data-lucide="x"></i></button></header>
         <label>修改意见<textarea id="storyRevisionFeedback" rows="6" maxlength="4000" placeholder="例如：人物脸部更瘦一些，西装改为深灰色，场景增加窗外夜景；保留原有构图和身份特征。"></textarea></label>
         <footer><small>重新生成会结合这次意见，而不是重复上一次提示词。</small><div><button class="story-secondary-button" type="button" data-story-close-revision>取消</button><button class="story-create-button" type="button" data-story-submit-revision><i data-lucide="refresh-cw"></i><span>带着修改意见重新生成</span></button></div></footer>
+      </section>
+    </div>`;
+  }
+
+  function renderStoryAssetEditorModal() {
+    const editor = storyState.assetEditor;
+    if (!editor) return "";
+    const isEdit = editor.mode === "edit";
+    return `<div class="story-revision-backdrop" data-story-close-asset-editor>
+      <section class="story-revision-modal story-asset-edit-modal" role="dialog" aria-modal="true" aria-labelledby="storyAssetEditorTitle">
+        <header><div><p class="eyebrow">SHOT ASSET</p><h3 id="storyAssetEditorTitle">${isEdit ? "编辑分镜资产" : "新增分镜资产"}</h3><p>资产只属于当前分镜，确认后再生成设计图。名称、外观描述和提示词都可以由你修改。</p></div><button class="story-icon-button" type="button" data-story-close-asset-editor title="关闭"><i data-lucide="x"></i></button></header>
+        <div class="story-asset-edit-grid">
+          <label>类型<select id="storyAssetEditorKind">${[["character", "角色"], ["scene", "场景"], ["prop", "道具"], ["style", "风格"], ["audio", "声音"]].map(([value, label]) => `<option value="${value}" ${value === editor.kind ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+          <label>资产名<input id="storyAssetEditorName" maxlength="200" value="${storyEscape(editor.name)}" placeholder="例如：白洁、校长办公室、私人名片" /></label>
+          <label class="story-field-wide">外观与连续性<textarea id="storyAssetEditorDescription" rows="4" maxlength="8000" placeholder="年龄、脸型、发型、服装、材质、光线、场景陈设，以及跨镜必须保持一致的识别特征">${storyEscape(editor.description)}</textarea></label>
+          <label class="story-field-wide">跨镜连续性约束<textarea id="storyAssetEditorContinuity" rows="2" maxlength="2000" placeholder="例如：白洁始终穿酒红色丝质吊带裙，低盘发；校长办公室保持暖黄台灯和深色书柜">${storyEscape(editor.continuity)}</textarea></label>
+          <label class="story-field-wide">设计图提示词<textarea id="storyAssetEditorImagePrompt" rows="4" maxlength="8000" placeholder="可直接交给出图模型的完整提示词；留空时使用外观与连续性描述">${storyEscape(editor.imagePrompt)}</textarea></label>
+        </div>
+        <footer><small>保存后只会绑定到当前分镜。AI 重新提取资产时，会保留并重新确认这里的内容。</small><div><button class="story-secondary-button" type="button" data-story-close-asset-editor>取消</button><button class="story-create-button" type="button" data-story-save-asset ${storyState.action ? "disabled" : ""}><i data-lucide="save"></i><span>${isEdit ? "保存资产" : "新增资产"}</span></button></div></footer>
       </section>
     </div>`;
   }
@@ -1405,6 +1434,7 @@
         </div>
         ${renderStoryScriptCreateModal()}
         ${renderStoryRevisionModal()}
+        ${renderStoryAssetEditorModal()}
         ${renderStoryAssetLibraryModal()}
       </div>`;
     storyRefreshIcons();
@@ -1815,13 +1845,6 @@
     const id = String(episodeId || "");
     if (!id) return;
     const sameEpisode = storyState.selectedEpisodeId === id;
-    const episodeExpanded = storyState.expandedEpisodeIds.includes(id) && !storyState.collapsedEpisodeIds.includes(id);
-    if (sameEpisode && episodeExpanded) {
-      storyState.expandedEpisodeIds = storyState.expandedEpisodeIds.filter((item) => item !== id);
-      if (!storyState.collapsedEpisodeIds.includes(id)) storyState.collapsedEpisodeIds.push(id);
-      renderStoryDetail();
-      return;
-    }
     const episode = (storyState.detail?.episodes || []).find((item) => item.id === id);
     const manuscriptId = String(episode?.sourceManuscriptId || "");
     if (manuscriptId) {
@@ -1910,7 +1933,19 @@
       storyState.detail.episodes = (storyState.detail.episodes || []).map((item) => item.id === episode.id
         ? { ...item, ...payload.episode, shotCount: payload.shots?.length || 0 }
         : item);
-      storyState.actionMessage = `AI 分镜完成 · ${payload.shots?.length || 0} 个镜头 · ${payload.model || "分析模型"}`;
+      let assetCount = 0;
+      let assetWarning = "";
+      try {
+        const assetPayload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/assets/plan`, { method: "POST" });
+        assetCount = Array.isArray(assetPayload.assets) ? assetPayload.assets.length : 0;
+      } catch (error) {
+        assetWarning = error.message || String(error);
+      }
+      await loadStoryDetail(projectId);
+      await loadStoryEpisodeShots(episode.id);
+      storyState.actionMessage = assetWarning
+        ? `AI 分镜完成 · ${payload.shots?.length || 0} 个镜头；资产提取失败：${assetWarning}`
+        : `AI 分镜完成 · ${payload.shots?.length || 0} 个镜头 · 已提取并绑定 ${assetCount} 个分镜资产`;
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -2416,6 +2451,133 @@
     }
   }
 
+  function openStoryAssetEditor({ mode = "create", assetId = "", shotId = "" } = {}) {
+    const episode = selectedStoryEpisode();
+    const shot = storyState.shots.find((item) => item.id === shotId)
+      || storyState.shots.find((item) => item.id === storyState.selectedShotId);
+    if (!episode || !shot) {
+      storyState.actionMessage = "请先选择一集和一个分镜，再维护资产。";
+      renderStoryDetail();
+      return;
+    }
+    const asset = mode === "edit" ? storyState.assets.find((item) => item.id === assetId) : null;
+    if (mode === "edit" && !asset) {
+      storyState.actionMessage = "没有找到要编辑的资产，请刷新后重试。";
+      renderStoryDetail();
+      return;
+    }
+    storyState.assetEditor = {
+      mode: mode === "edit" ? "edit" : "create",
+      assetId: asset?.id || "",
+      episodeId: episode.id,
+      shotId: shot.id,
+      shotNo: Number(shot.shotNo || 0),
+      kind: asset?.kind || "character",
+      name: asset?.name || "",
+      description: asset?.description || "",
+      continuity: asset?.metadata?.continuity || "",
+      imagePrompt: asset?.metadata?.imagePrompt || "",
+    };
+    renderStoryDetail();
+    requestAnimationFrame(() => storyEl("storyAssetEditorName")?.focus());
+  }
+
+  function closeStoryAssetEditor() {
+    if (!storyState.assetEditor) return;
+    storyState.assetEditor = null;
+    renderStoryDetail();
+  }
+
+  async function saveStoryAssetEditor() {
+    const editor = storyState.assetEditor;
+    const projectId = storyState.selectedId;
+    if (!editor || !projectId || storyState.action) return;
+    const name = String(storyEl("storyAssetEditorName")?.value || "").trim();
+    const kind = String(storyEl("storyAssetEditorKind")?.value || editor.kind || "character");
+    const description = String(storyEl("storyAssetEditorDescription")?.value || "").trim();
+    const continuity = String(storyEl("storyAssetEditorContinuity")?.value || "").trim();
+    const imagePrompt = String(storyEl("storyAssetEditorImagePrompt")?.value || "").trim();
+    if (!name) {
+      storyState.actionMessage = "请填写资产名。";
+      renderStoryDetail();
+      return;
+    }
+    if (!description && !imagePrompt) {
+      storyState.actionMessage = "请至少填写外观与连续性，或设计图提示词。";
+      renderStoryDetail();
+      return;
+    }
+    const existing = storyState.assets.find((item) => item.id === editor.assetId);
+    const shotNos = [...new Set([
+      ...(Array.isArray(existing?.metadata?.shotNos) ? existing.metadata.shotNos : []),
+      editor.shotNo,
+    ].map(Number).filter(Number.isFinite))];
+    const body = {
+      kind,
+      name,
+      description: description || imagePrompt,
+      imagePrompt: imagePrompt || description,
+      continuity,
+      episodeId: editor.episodeId,
+      episodeIds: [editor.episodeId],
+      shotNo: editor.shotNo,
+      shotNos,
+    };
+    storyState.action = editor.mode === "edit" ? "update-asset" : "create-asset";
+    storyState.actionMessage = editor.mode === "edit" ? "正在保存资产修改…" : "正在新增分镜资产…";
+    renderStoryDetail();
+    try {
+      if (editor.mode === "edit") {
+        await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(editor.assetId)}`, {
+          method: "PUT",
+          body,
+        });
+      } else {
+        await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(editor.episodeId)}/assets`, {
+          method: "POST",
+          body,
+        });
+      }
+      storyState.assetEditor = null;
+      storyState.selectedShotId = editor.shotId;
+      await loadStoryDetail(projectId);
+      await loadStoryEpisodeShots(editor.episodeId);
+      await clearStoryShotAssetConfirmation(editor.shotId);
+      storyState.episodeTab = "production";
+      storyState.actionMessage = editor.mode === "edit" ? `已保存资产「${name}」。` : `已把资产「${name}」加入当前分镜。`;
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+    } finally {
+      storyState.action = "";
+      renderStoryDetail();
+    }
+  }
+
+  async function deleteStoryAsset(assetId = "") {
+    const projectId = storyState.selectedId;
+    const asset = storyState.assets.find((item) => item.id === String(assetId || ""));
+    if (!projectId || !asset || storyState.action) return;
+    if (!window.confirm(`删除分镜资产「${asset.name}」？对应的设计图变体也会删除。`)) return;
+    const shotId = storyState.selectedShotId;
+    storyState.action = "delete-asset";
+    storyState.actionMessage = `正在删除资产「${asset.name}」…`;
+    renderStoryDetail();
+    try {
+      await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(asset.id)}`, { method: "DELETE" });
+      await loadStoryDetail(projectId);
+      if (storyState.selectedEpisodeId) await loadStoryEpisodeShots(storyState.selectedEpisodeId);
+      storyState.selectedShotId = shotId;
+      await clearStoryShotAssetConfirmation(shotId);
+      storyState.episodeTab = "production";
+      storyState.actionMessage = `已删除资产「${asset.name}」。`;
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+    } finally {
+      storyState.action = "";
+      renderStoryDetail();
+    }
+  }
+
   async function createStoryAssetImageVariant(asset = {}, revisionFeedback = "") {
     const projectId = storyState.selectedId;
     const episodeId = storyState.selectedEpisodeId;
@@ -2545,6 +2707,12 @@
       if (!shot.metadata?.assetsConfirmedAt) continue;
       await saveStoryShotState(shot, { assetsConfirmedAt: null, assetsConfirmedCount: 0 }).catch(() => null);
     }
+  }
+
+  async function clearStoryShotAssetConfirmation(shotId = "") {
+    const shot = storyState.shots.find((item) => item.id === String(shotId || ""));
+    if (!shot?.metadata?.assetsConfirmedAt) return;
+    await saveStoryShotState(shot, { assetsConfirmedAt: null, assetsConfirmedCount: 0 }).catch(() => null);
   }
 
   async function confirmStoryShotAssets(shotId = "") {
@@ -3093,6 +3261,14 @@
     });
     storyEl("storyProjectDetail")?.addEventListener("click", (event) => {
       if (event.target.classList?.contains("story-script-modal-backdrop") || event.target.closest("button[data-story-close-script-modal]")) closeStoryScriptCreate();
+      else if ((event.target.classList?.contains("story-revision-backdrop") && event.target.dataset.storyCloseAssetEditor !== undefined) || event.target.closest("button[data-story-close-asset-editor]")) closeStoryAssetEditor();
+      else if (event.target.closest("[data-story-add-shot-asset]")) openStoryAssetEditor({ mode: "create", shotId: event.target.closest("[data-story-add-shot-asset]")?.dataset.storyAddShotAsset || "" });
+      else if (event.target.closest("[data-story-edit-asset]")) {
+        const button = event.target.closest("[data-story-edit-asset]");
+        openStoryAssetEditor({ mode: "edit", assetId: button?.dataset.storyEditAsset || "", shotId: button?.dataset.storyAssetShot || "" });
+      }
+      else if (event.target.closest("[data-story-delete-asset]")) deleteStoryAsset(event.target.closest("[data-story-delete-asset]")?.dataset.storyDeleteAsset || "");
+      else if (event.target.closest("[data-story-save-asset]")) saveStoryAssetEditor();
       else if (event.target.closest("[data-story-delete-project]")) deleteStoryProject(event.target.closest("[data-story-delete-project]")?.dataset.storyDeleteProject || "");
       else if (event.target.closest("[data-story-delete-script]")) deleteStoryScriptVersion(
         event.target.closest("[data-story-delete-script]")?.dataset.storyDeleteScript || "",
@@ -3121,16 +3297,7 @@
       }
       else if (event.target.closest("[data-story-select-manuscript]")) {
         const manuscriptId = event.target.closest("[data-story-select-manuscript]")?.dataset.storySelectManuscript || "";
-        const sameManuscript = storyState.selectedManuscriptId === manuscriptId;
-        const manuscriptExpanded = storyState.expandedManuscriptIds.includes(manuscriptId) && !storyState.collapsedManuscriptIds.includes(manuscriptId);
         selectStoryManuscriptById(manuscriptId);
-        if (sameManuscript && manuscriptExpanded) {
-          storyState.expandedManuscriptIds = storyState.expandedManuscriptIds.filter((item) => item !== manuscriptId);
-          if (!storyState.collapsedManuscriptIds.includes(manuscriptId)) storyState.collapsedManuscriptIds.push(manuscriptId);
-        } else {
-          storyState.collapsedManuscriptIds = storyState.collapsedManuscriptIds.filter((item) => item !== manuscriptId);
-          if (!storyState.expandedManuscriptIds.includes(manuscriptId)) storyState.expandedManuscriptIds.push(manuscriptId);
-        }
         renderStoryDetail();
       }
       else if (event.target.closest("[data-story-toggle-manuscript]")) toggleStoryManuscript(event.target.closest("[data-story-toggle-manuscript]")?.dataset.storyToggleManuscript || "");

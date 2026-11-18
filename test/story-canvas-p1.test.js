@@ -221,9 +221,13 @@ test("story creation keeps manuscripts and versions independent while retaining 
   assert.match(story, /function toggleStoryManuscript[\s\S]*collapsedManuscriptIds/);
   assert.match(story, /function toggleStoryEpisode[\s\S]*collapsedEpisodeIds/);
   const openEpisode = story.slice(story.indexOf("async function openStoryEpisode("), story.indexOf("function closeStoryEpisode("));
-  assert.match(openEpisode, /sameEpisode && episodeExpanded[\s\S]*collapsedEpisodeIds\.push\(id\)[\s\S]*return/);
+  assert.doesNotMatch(openEpisode, /sameEpisode && episodeExpanded/);
+  assert.doesNotMatch(openEpisode, /collapsedEpisodeIds\.push\(id\)/);
+  assert.match(openEpisode, /storyState\.selectedEpisodeId = id/);
   assert.match(openEpisode, /selectStoryManuscriptById\(manuscriptId, episode\?\.sourceScriptVersionId \|\| ""\)/);
-  assert.match(story, /sameManuscript && manuscriptExpanded[\s\S]*collapsedManuscriptIds\.push\(manuscriptId\)/);
+  const manuscriptClick = story.slice(story.indexOf('event.target.closest("[data-story-select-manuscript]")'), story.indexOf('event.target.closest("[data-story-toggle-manuscript]")'));
+  assert.doesNotMatch(manuscriptClick, /collapsedManuscriptIds\.push/);
+  assert.match(manuscriptClick, /selectStoryManuscriptById\(manuscriptId\)/);
   assert.match(story, /data-story-analysis-target-episodes/);
   assert.match(story, /data-story-analysis-duration/);
   assert.match(story, /const mode = storyState\.scriptCreateMode === "continue" \? "continue" : "new"/);
@@ -283,11 +287,14 @@ test("story creation keeps manuscripts and versions independent while retaining 
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.story-shot-workspace-grid \{ grid-template-columns: 1fr;/);
 });
 
-test("story analyzer requests production-length episode outlines", () => {
+test("story analyzer produces concise outlines with source-anchored beat sheets", () => {
   const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
-  assert.match(handlers, /本集可制作剧情大纲，建议300-900个中文字符/);
+  assert.match(handlers, /本集简略大纲，建议120-320个中文字符/);
+  assert.match(handlers, /"beatSheet"/);
+  assert.match(handlers, /"sourceExcerpts"/);
+  assert.match(handlers, /sourceStartMarker[\s\S]*sourceEndMarker/);
+  assert.match(handlers, /sourceQuote 原文依据/);
   assert.match(handlers, /通常一章或一个完整情节单元拆为一集/);
-  assert.match(handlers, /不得把长集压成一句话/);
   assert.match(handlers, /开场 → 发展 → 转折 → 结尾/);
   assert.match(handlers, /repairStoryAnalysisHooks/);
   assert.match(handlers, /缺少结尾钩子/);
@@ -322,8 +329,14 @@ test("story episode workbench persists outline edits and AI-planned shots", () =
   assert.match(db, /async function listStoryShotsFromDb[\s\S]*p\.owner_user_id = \$3[\s\S]*ORDER BY s\.shot_no ASC/);
   assert.match(db, /async function createStoryShotInDb[\s\S]*SELECT COALESCE\(MAX\(shot_no\), 0\) \+ 1/);
   assert.match(handlers, /STORY_SHOT_PLANNER_SYSTEM_PROMPT/);
+  assert.match(handlers, /STORY_COVERAGE_PLANNER_SYSTEM_PROMPT/);
+  assert.match(handlers, /STORY_SHOT_CRITIC_SYSTEM_PROMPT/);
   assert.match(handlers, /recommendedDurationSeconds/);
-  assert.match(handlers, /镜头数量必须按本集大纲的实际剧情密度决定/);
+  assert.match(handlers, /覆盖计划是结构契约/);
+  assert.match(handlers, /本集对应原文开始/);
+  assert.match(handlers, /planStoryEpisodeShots\(\{ project, episode, sourceScript \}\)/);
+  assert.match(handlers, /criticPlan\.shots\.length \? criticPlan : candidatePlan/);
+  assert.match(handlers, /metadata\.shotPlanAudit = result\.audit/);
   assert.match(handlers, /不得默认输出 90 秒/);
   assert.match(db, /async function replaceStoryShotsInDb[\s\S]*DELETE FROM app_story_shots/);
   assert.match(db, /async function replaceStoryShotsInDb[\s\S]*duration_seconds = COALESCE\(\$5::int, duration_seconds\)/);
@@ -416,6 +429,9 @@ test("story production pipeline gates approved assets before model-optimized pro
     "handleCreateStoryAssetVariant",
     "handleUpdateStoryAssetVariant",
     "handleApproveStoryAssetVariant",
+    "handleCreateStoryAsset",
+    "handleUpdateStoryAsset",
+    "handleDeleteStoryAsset",
     "handlePlanStoryEpisodePrompts",
   ]) {
     assert.match(handlerBody(handlers, name), /requireAdmin\(req, res, \{ loadDb: false \}\)/, `${name} must require admin without loading the full app snapshot`);
@@ -425,6 +441,8 @@ test("story production pipeline gates approved assets before model-optimized pro
     /storyAssetVariantsMatch[\s\S]*handleCreateStoryAssetVariant/,
     /storyAssetVariantMatch[\s\S]*handleUpdateStoryAssetVariant/,
     /storyAssetVariantApproveMatch[\s\S]*handleApproveStoryAssetVariant/,
+    /storyEpisodeAssetsMatch[\s\S]*handleCreateStoryAsset/,
+    /storyAssetMatch[\s\S]*handleUpdateStoryAsset[\s\S]*handleDeleteStoryAsset/,
     /storyEpisodePromptsPlanMatch[\s\S]*handlePlanStoryEpisodePrompts/,
   ]) assert.match(routes, route);
   for (const fn of [
@@ -433,6 +451,9 @@ test("story production pipeline gates approved assets before model-optimized pro
     "createStoryAssetVariantInDb",
     "updateStoryAssetVariantInDb",
     "approveStoryAssetVariantInDb",
+    "createStoryAssetInDb",
+    "updateStoryAssetInDb",
+    "deleteStoryAssetInDb",
     "createStoryPromptVersionInDb",
   ]) {
     assert.match(db, new RegExp(`async function ${fn}\\(`), `db function ${fn}`);
@@ -453,6 +474,38 @@ test("story production pipeline gates approved assets before model-optimized pro
   assert.match(handlers, /const targetShotId = storyInputText\(body\.shotId, 120\)/);
   assert.match(handlers, /const promptShots = targetShotId[\s\S]*shots\.filter\(\(shot\) => shot\.id === targetShotId\)/);
   assert.match(handlers, /createStoryPromptVersionInDb\(\{[\s\S]*prompt: optimized\.optimizedPrompt/);
+});
+
+test("shot planning binds AI assets to shots and users can add, edit, and delete them", () => {
+  const story = read("platform.story.js");
+  const css = read("platform.css");
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const routes = read("server.parts/part-42.js");
+  const db = read("db.js");
+  assert.match(handlers, /assets: \[\],/);
+  const generateShots = story.slice(story.indexOf("async function generateStoryEpisodeShots("), story.indexOf("async function saveStoryEpisode("));
+  assert.match(generateShots, /\/shots\/plan[\s\S]*\/assets\/plan/);
+  assert.match(generateShots, /已提取并绑定 \$\{assetCount\} 个分镜资产/);
+  assert.match(story, /function openStoryAssetEditor\(/);
+  assert.match(story, /function saveStoryAssetEditor\(/);
+  assert.match(story, /function deleteStoryAsset\(/);
+  assert.match(story, /data-story-add-shot-asset/);
+  assert.match(story, /data-story-edit-asset/);
+  assert.match(story, /data-story-delete-asset/);
+  assert.match(story, /data-story-save-asset/);
+  assert.match(story, /shotNos/);
+  assert.match(story, /episodeIds: \[editor\.episodeId\]/);
+  assert.match(routes, /storyEpisodeAssetsMatch[\s\S]*method === "POST"[\s\S]*handleCreateStoryAsset/);
+  assert.match(routes, /storyAssetMatch[\s\S]*method === "PUT"[\s\S]*handleUpdateStoryAsset/);
+  assert.match(routes, /storyAssetMatch[\s\S]*method === "DELETE"[\s\S]*handleDeleteStoryAsset/);
+  for (const fn of ["createStoryAssetInDb", "updateStoryAssetInDb", "deleteStoryAssetInDb"]) {
+    assert.match(db, new RegExp(`async function ${fn}\\(`));
+  }
+  assert.match(db, /INSERT INTO app_story_assets\(id, project_id, kind, name, description, status, metadata\)/);
+  assert.match(db, /DELETE FROM app_story_assets a[\s\S]*p\.owner_user_id = \$3/);
+  assert.match(css, /\.story-asset-edit-grid \{/);
+  assert.match(css, /\.story-shot-workspace-card-head-actions \{/);
+  assert.match(css, /\.story-shot-workspace-asset-actions button\.is-danger \{/);
 });
 
 test("story shot prompt source never injects the episode hook into every shot", () => {
