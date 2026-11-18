@@ -1278,11 +1278,16 @@ function advancedParameterPanelContentFitWidth(panel, kind = "", maxWidth = 320)
   if (!options) return maxWidth;
   const buttons = Array.from(options.querySelectorAll(":scope > .advanced-parameter-option"));
   if (!buttons.length) return maxWidth;
-  const optionStyle = window.getComputedStyle(options);
-  const gap = Number.parseFloat(optionStyle.columnGap || optionStyle.gap) || 0;
-  const buttonsWidth = buttons.reduce((total, button) => total + button.getBoundingClientRect().width, 0);
-  const chromeWidth = Math.max(0, panel.getBoundingClientRect().width - options.getBoundingClientRect().width);
-  const contentWidth = Math.ceil(buttonsWidth + gap * Math.max(0, buttons.length - 1) + chromeWidth);
+  const rows = new Map();
+  for (const button of buttons) {
+    const row = rows.get(button.offsetTop) || { left: Infinity, right: 0 };
+    row.left = Math.min(row.left, button.offsetLeft);
+    row.right = Math.max(row.right, button.offsetLeft + button.offsetWidth);
+    rows.set(button.offsetTop, row);
+  }
+  const widestRow = Math.max(...Array.from(rows.values(), (row) => row.right - row.left));
+  const chromeWidth = Math.max(0, panel.offsetWidth - options.offsetWidth);
+  const contentWidth = Math.ceil(widestRow + chromeWidth + 2);
   return Math.min(maxWidth, Math.max(180, contentWidth));
 }
 
