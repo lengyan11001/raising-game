@@ -13,6 +13,8 @@
 
 - User reported that the mode and resolution popups still leave excess empty space on the right. Production inspection confirmed mode had one short option inside a 380px panel and resolution had three short options inside a 280px panel.
 - Added `advancedParameterPanelContentFitWidth()` in `platform.create.parts/part-02.js`. Non-model, non-duration option popups now measure their buttons and shrink to the actual one-line content width, with an 18rem minimum and the existing per-kind caps as maxima. Model and duration popups retain their fixed caps.
+- The first measurement summed every button, so a wrapped mode picker always exceeded its cap and stayed 380px. The fitter now groups buttons by `offsetTop` and uses the widest rendered row, allowing wrapped mode/ratio popups to shrink without changing where options wrap.
+- Focused regression test now asserts row-grouped measurement. Verification passed: `node --check platform.create.parts/part-02.js`, `node --check platform.js`, `npm run check:undef`, `git diff --check`, and the focused advanced parameter picker test (1/1).
 
 ## 2026-11-18 Step EF: episode click exits shot workspace
 

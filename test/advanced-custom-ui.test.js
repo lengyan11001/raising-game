@@ -185,6 +185,8 @@ test("Generate parameter picker stays compact and selected chips show full label
   assert.match(create, /function advancedParameterPanelWidthCap\(kind = ""\)/);
   assert.match(create, /function advancedParameterPanelHeightCap\(kind = "", viewportHeight = window\.innerHeight\)/);
   assert.match(create, /function advancedParameterPanelContentFitWidth\(panel, kind = "", maxWidth = 320\)/);
+  assert.match(create, /rows\.set\(button\.offsetTop, row\)/);
+  assert.match(create, /Math\.max\(\.\.\.Array\.from\(rows\.values\(\), \(row\) => row\.right - row\.left\)\)/);
   assert.match(create, /if \(kind === "ratio"\) return 240/);
   assert.match(create, /if \(kind === "resolution"\) return 280/);
   assert.match(create, /const widthCap = advancedParameterPanelWidthCap\(state\.advancedParameterOpen\)/);
