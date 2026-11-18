@@ -493,6 +493,7 @@ function routeFromHash() {
     a.classList.toggle("is-active", a.dataset.route === route.id);
   });
   els.pageTitle.textContent = route.title;
+  els.adminContent.classList.remove("is-ticket-workspace");
   els.adminContent.innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
   document.body.classList?.remove("is-nav-open");
   els.appView.classList?.remove("is-nav-open");
@@ -4113,6 +4114,7 @@ async function renderSupportTickets(pageArg = null, limitArg = null) {
   const tickets = Array.isArray(payload.tickets) ? payload.tickets : [];
   sessionStorage.setItem("admTicketsPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
 
+  els.adminContent.classList.add("is-ticket-workspace");
   els.adminContent.innerHTML = `
     <section class="adm-page adm-ticket-page">
       <div class="adm-page-head adm-ticket-page-head">

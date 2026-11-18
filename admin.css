@@ -226,6 +226,7 @@ a { color: inherit; text-decoration: none; }
   overflow-y: auto;
   background: var(--adm-bg);
 }
+.adm-content.is-ticket-workspace { overflow: hidden; }
 
 .adm-mobile-only { display: none; }
 
@@ -2431,8 +2432,18 @@ body.has-adm-media-preview { overflow: hidden; }
 /* ============ support tickets ============ */
 .adm-ticket-page,
 .adm-notice-page { --adm-ticket-glow: rgba(255, 84, 133, 0.13); }
+.adm-ticket-page {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  gap: 12px;
+  overflow: hidden;
+}
 .adm-ticket-page-head,
 .adm-notice-page-head { align-items: flex-start; }
+.adm-ticket-page .adm-ticket-page-head { flex: 0 0 auto; }
+.adm-ticket-page-head h1 { margin: 0 0 4px; font-size: clamp(1.3rem, 1.8vw, 1.65rem); line-height: 1.15; }
+.adm-ticket-page-head p { margin: 0; color: var(--adm-muted); font-size: 0.78rem; line-height: 1.45; }
 .adm-ticket-eyebrow {
   display: inline-flex;
   align-items: center;
@@ -2459,7 +2470,7 @@ body.has-adm-media-preview { overflow: hidden; }
 }
 .adm-ticket-total strong { color: var(--adm-ink); font-size: 0.96rem; }
 .adm-ticket-toolbar {
-  padding: 12px 14px;
+  padding: 10px 12px;
   border: 1px solid var(--adm-line);
   border-radius: var(--adm-radius-lg);
   background:
@@ -2487,7 +2498,8 @@ body.has-adm-media-preview { overflow: hidden; }
 .adm-ticket-shell {
   display: grid;
   grid-template-columns: minmax(290px, 36%) minmax(0, 1fr);
-  min-height: min(660px, calc(100vh - 280px));
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid var(--adm-line);
   border-radius: 18px;
@@ -2497,7 +2509,9 @@ body.has-adm-media-preview { overflow: hidden; }
 .adm-ticket-list-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
   border-right: 1px solid var(--adm-line);
   background: rgba(16, 12, 24, 0.66);
 }
@@ -2578,6 +2592,7 @@ body.has-adm-media-preview { overflow: hidden; }
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background:
     radial-gradient(circle at 95% 3%, rgba(154, 108, 255, 0.08), transparent 26%),
     rgba(22, 17, 33, 0.58);
@@ -2698,7 +2713,9 @@ body.has-adm-media-preview { overflow: hidden; }
 @media (max-width: 860px) {
   .adm-ticket-page-head,
   .adm-notice-page-head { gap: 10px; }
-  .adm-ticket-shell { grid-template-columns: 1fr; min-height: auto; }
+  .adm-content.is-ticket-workspace { overflow-y: auto; }
+  .adm-ticket-page { height: auto; min-height: 100%; overflow: visible; }
+  .adm-ticket-shell { grid-template-columns: 1fr; height: auto; min-height: auto; }
   .adm-ticket-list-panel { max-height: 360px; border-right: 0; border-bottom: 1px solid var(--adm-line); }
   .adm-ticket-detail { min-height: 520px; }
   .adm-notice-layout { grid-template-columns: 1fr; }
