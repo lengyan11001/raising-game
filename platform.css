@@ -9787,6 +9787,9 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   background: linear-gradient(145deg, rgba(255,79,163,.055), #141418 42%, #101013);
   box-shadow: 0 12px 30px rgba(0,0,0,.18);
 }
+.access-panel > #apiDocsUnlockedContent > .token-card {
+  margin-top: 0;
+}
 .access-panel .token-card strong,
 .access-panel .subtoken-main code,
 .access-panel .subtoken-created code {
