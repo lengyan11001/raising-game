@@ -1148,7 +1148,8 @@ function advancedResultCardView(record = {}, index = 0) {
   const advancedDownloadState = advancedDownloadUiState(record);
   const advancedDownloadLabel = advancedDownloadButtonLabel(record);
   const advancedDownloadDisabled = !canAdvancedDownload || advancedDownloadState === "preparing";
-  const isRefunded = String(record.billingStatus || "").toLowerCase() === "refunded";
+  const billingStatus = String(record.billingStatus || record.billing?.status || "").toLowerCase();
+  const isRefunded = billingStatus === "refunded";
   const mediaBody = resultExpired
     ? `<div class="advanced-result-media is-placeholder is-expired"><img src="${escapeHtml(generationExpiredPlaceholderUrl())}" alt="内容已经过期" loading="lazy" decoding="async" /><span class="generation-expired-label">内容已经过期</span></div>`
     : imageUrl

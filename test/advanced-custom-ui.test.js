@@ -161,7 +161,8 @@ test("Advanced results use a compact paged multi-column card grid", () => {
   assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-form-card \{[\s\S]*?min-height: calc\(100dvh - 100px\);[\s\S]*?max-height: none;[\s\S]*?overflow: visible/);
   assert.match(css, /@media \(min-width: 761px\)[\s\S]*?\.advanced-workspace\.is-create-custom \.advanced-fields \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(create, /class="advanced-result-actions"/);
-  assert.match(create, /const isRefunded = String\(record\.billingStatus \|\| ""\)\.toLowerCase\(\) === "refunded"/);
+  assert.match(create, /const billingStatus = String\(record\.billingStatus \|\| record\.billing\?\.status \|\| ""\)\.toLowerCase\(\)/);
+  assert.match(create, /const isRefunded = billingStatus === "refunded"/);
   assert.match(create, /class="advanced-result-refund-badge"/);
   assert.match(css, /\.advanced-result-card \{[\s\S]*?position: relative/);
   assert.match(css, /\.advanced-result-refund-badge \{[\s\S]*?position: absolute;[\s\S]*?top: 8px;[\s\S]*?right: 8px/);
