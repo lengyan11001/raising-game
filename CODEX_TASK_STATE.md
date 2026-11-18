@@ -1,3 +1,10 @@
+## 2026-11-18 Step EG: Refund badge reads public billing shape
+
+- User reported failed records still had no refund badge. Root cause: `publicGenerationRecord()` exposes refund state as `record.billing.status`, while the result card only checked `record.billingStatus`, so refunded failures never matched.
+- Updated `advancedResultCardView()` to accept either `record.billingStatus` or `record.billing?.status`; refund/regeneration behavior is unchanged.
+- Focused verification passed: `node --check platform.create.parts/part-01.js`, `node --test --test-name-pattern "Advanced results use" test/advanced-custom-ui.test.js` (1/1), `npm run check:undef`, and `git diff --check`.
+- Do not commit the unrelated existing change in `server.parts/part-45.js`. Deployment and production badge verification are pending in this step.
+
 ## 2026-11-18 Step EF: Generate parameter popup compact widths
 
 - Current task is limited to the Generate parameter picker UI. Selection handling, regeneration, backfill, and model initialization logic are unchanged.
