@@ -1849,11 +1849,7 @@
     const manuscriptId = String(episode?.sourceManuscriptId || "");
     if (manuscriptId) {
       selectStoryManuscriptById(manuscriptId, episode?.sourceScriptVersionId || "");
-      storyState.collapsedManuscriptIds = storyState.collapsedManuscriptIds.filter((item) => item !== manuscriptId);
-      if (!storyState.expandedManuscriptIds.includes(manuscriptId)) storyState.expandedManuscriptIds.push(manuscriptId);
     }
-    storyState.collapsedEpisodeIds = storyState.collapsedEpisodeIds.filter((item) => item !== id);
-    if (!storyState.expandedEpisodeIds.includes(id)) storyState.expandedEpisodeIds.push(id);
     storyState.selectedEpisodeId = id;
     storyState.episodeTab = storyEpisodeTabId(view);
     if (!sameEpisode) {
