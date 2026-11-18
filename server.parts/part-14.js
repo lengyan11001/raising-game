@@ -1351,7 +1351,7 @@ function seedanceContentFromReferences({
   referenceAudioAssetUris = [],
   body = {},
 } = {}) {
-  const content = [{ type: "text", text: String(prompt || "").trim() }];
+  const content = [{ type: "text", text: seedancePromptWithNoBgm(prompt) }];
   if (firstFrameAssetUri) {
     content.push({
       type: "image_url",

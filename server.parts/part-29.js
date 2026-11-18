@@ -273,6 +273,7 @@ async function handleAdvancedGenerate(req, res) {
     }
   }
   if (isVideoReplacementRequest && provider !== "z-image-spicy-pro") prompt = VIDEO_REPLACE_PROMPT;
+  if (provider === "seedance") prompt = seedancePromptWithNoBgm(prompt);
   if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER, SEEDANCE25_FLASH_PROVIDER].includes(provider)) {
     return sendAdvancedRequestFailure(req, res, auth, {
       body: mergedBody,

@@ -26,6 +26,10 @@ test("provider failures are translated into actionable Chinese messages", () => 
     publicGenerationErrorMessage("not enough tokens for this request"),
     "生成失败，本次如已扣积分会自动退回。请调整提示词或参考素材后重试，仍有问题请联系客服。",
   );
+  assert.equal(
+    publicGenerationErrorMessage("The request failed because the output audio may be related to copyright restrictions."),
+    "生成结果中的音频触发版权限制，通常是自动生成的背景音乐（BGM）导致。平台已加入禁止生成 BGM 的约束，请重新生成；如仍失败，请关闭“生成音频”后再试。",
+  );
 });
 
 test("friendly Chinese errors remain readable and URLs are stripped", () => {

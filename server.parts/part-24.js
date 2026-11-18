@@ -953,7 +953,7 @@ async function gatewaySeedanceBodyFromReferences({
   });
   const gatewayBody = {
     provider: "seedance",
-    prompt,
+    prompt: seedancePromptWithNoBgm(prompt),
     ratio: directPayload.ratio,
     resolution: directPayload.resolution,
     duration: directPayload.duration,

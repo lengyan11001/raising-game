@@ -9,6 +9,7 @@ const {
   seedance25TaskFailureMessage,
   validateSeedance25Input,
 } = require("../seedance25");
+const { seedancePromptWithNoBgm } = require("../seedance-prompt");
 
 test("reports the nested upstream Seedance failure instead of a generic message", () => {
   assert.equal(seedance25TaskFailureMessage({
@@ -27,7 +28,7 @@ const OUTER_MODEL = SEEDANCE25_MODEL;
 function baseInput(overrides = {}) {
   return {
     mode: "omini",
-    prompt: "Use Image 1 as the subject.",
+    prompt: seedancePromptWithNoBgm("Use Image 1 as the subject."),
     ratio: "9:16",
     resolution: "480p",
     duration: 4,
@@ -53,7 +54,7 @@ test("multimodal payload preserves ordered media and supported parameters", () =
 
   assert.equal(payload.model, OUTER_MODEL);
   assert.deepEqual(payload.params, {
-    prompt: "Use Image 1 as the subject.",
+    prompt: seedancePromptWithNoBgm("Use Image 1 as the subject."),
     duration: 4,
     resolution: "480P",
     aspect_ratio: "9:16",
@@ -69,10 +70,9 @@ test("multimodal payload preserves ordered media and supported parameters", () =
 test("multimodal payload preserves exact @ media mentions in the prompt", () => {
   const prompt = "@image1 把 @image2 举在空中，保持 @video1 的镜头运动";
   const payload = buildSeedance25TaskPayload(baseInput({ prompt }), OUTER_MODEL);
-  assert.equal(payload.params.prompt, prompt);
-  assert.equal(payload.params.prompt.includes("@image1"), true);
-  assert.equal(payload.params.prompt.includes("@image2"), true);
-  assert.equal(payload.params.prompt.includes("@video1"), true);
+  assert.equal(payload.params.prompt, seedancePromptWithNoBgm(prompt));
+  assert.equal(payload.params.prompt.startsWith(prompt), true);
+  assert.match(payload.params.prompt, /Do not generate background music \(BGM\)/);
 });
 
 test("unsupported legacy edit and extend modes are rejected", () => {

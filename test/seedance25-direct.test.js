@@ -11,6 +11,7 @@ const {
   directPurchaseUsdPerSecond,
   validateSeedance25DirectInput,
 } = require("../seedance25-direct");
+const { seedancePromptWithNoBgm } = require("../seedance-prompt");
 
 const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
 
@@ -101,10 +102,9 @@ test("direct payload preserves exact @ media mentions in the prompt", () => {
     duration: 8,
   }, "ep-test");
   const text = payload.content.find((item) => item.type === "text");
-  assert.equal(text.text, prompt);
-  assert.equal(text.text.includes("@image1"), true);
-  assert.equal(text.text.includes("@image2"), true);
-  assert.equal(text.text.includes("@video1"), true);
+  assert.equal(text.text, seedancePromptWithNoBgm(prompt));
+  assert.equal(text.text.startsWith(prompt), true);
+  assert.match(text.text, /Do not generate background music \(BGM\)/);
 });
 
 test("direct reference mode accepts audio-only media", () => {

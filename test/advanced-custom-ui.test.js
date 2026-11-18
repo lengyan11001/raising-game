@@ -829,7 +829,7 @@ test("video prompts are forwarded without a system negative prompt", () => {
   assert.doesNotMatch(server, /DEFAULT_VIDEO_NEGATIVE_PROMPT/);
   assert.doesNotMatch(server, /appendDefaultVideoNegativePrompt/);
   assert.doesNotMatch(server, /Negative prompt: extra fingers/);
-  assert.match(server, /function seedanceContentFromReferences\([\s\S]*?const content = \[\{ type: "text", text: String\(prompt \|\| ""\)\.trim\(\) \}\]/);
+  assert.match(server, /function seedanceContentFromReferences\([\s\S]*?const content = \[\{ type: "text", text: seedancePromptWithNoBgm\(prompt\) \}\]/);
   assert.match(server, /const request = buildAliyunVideoRequest\(\{[\s\S]*?prompt,[\s\S]*?media: upstreamMedia/);
   assert.match(server, /const submittedFinalPrompt = finalPrompt/);
 });

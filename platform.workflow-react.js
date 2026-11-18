@@ -235,6 +235,7 @@
   function userFacingGenerationError(value) {
     var raw = String(value || "").replace(/https?:\/\/\S+/gi, "").replace(/\s+/g, " ").trim();
     if (!raw) return "";
+    if (/output.?audio.*copyright|outputaudiocopyright|output video contains.*(?:bgm|music)|background music.*copyright|生成结果.*背景音乐.*版权/i.test(raw)) return "生成结果中的音频触发版权限制，通常是自动生成的背景音乐（BGM）导致。平台已加入禁止生成 BGM 的约束，请重新生成；如仍失败，请关闭“生成音频”后再试。";
     if (/copyright|infring(?:e|ement)|版权|侵权/i.test(raw)) return "参考素材可能涉及版权限制，请更换素材后重试。";
     if (/content.?policy|moderation|safety|sensitive|nsfw|violat|prohibited|inappropriate|blocked|risk.?control|审核|违规|敏感|违法|色情|涉黄|内容不(?:合规|安全)/i.test(raw)) return "内容审核未通过，请调整提示词或参考素材后重试。";
     if (/rate.?limit|too many requests|429\b|限流|请求过于频繁/i.test(raw)) return "当前生成请求较多，请稍后再试。";
