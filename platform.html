@@ -134,21 +134,6 @@
           <span data-i18n="nav.history">History</span>
         </button>
       </nav>
-      <section class="side-campaign-carousel" data-campaign-carousel aria-label="活动">
-        <div class="side-campaign-track" data-campaign-track>
-          <button class="side-campaign-card" type="button" data-campaign-open="seedream55" aria-label="查看 Seedream 5.5 限时活动">
-            <img src="./assets/campaigns/seedream-5-5.jpg" alt="" width="1200" height="745" loading="lazy" decoding="async" />
-            <span class="side-campaign-shade" aria-hidden="true"></span>
-            <span class="side-campaign-flag" data-seedream-campaign-flag>限时特惠</span>
-            <span class="side-campaign-copy">
-              <strong>Seedream 5.5</strong>
-              <em data-seedream-campaign-promo>会员免费使用</em>
-              <small>图片模型 全新上线</small>
-            </span>
-          </button>
-        </div>
-        <div class="side-campaign-dots" role="tablist" aria-label="活动切换"></div>
-      </section>
       <nav class="side-utility-nav" aria-label="Community and support">
         <a class="side-utility-link" href="https://t.me/VipeakAILab" target="_blank" rel="noopener noreferrer" data-direct-url="https://t.me/VipeakAILab" data-analytics-event="telegram_channel_click" data-analytics-location="side_nav">
           <i data-lucide="send"></i>
@@ -299,109 +284,6 @@
           <button id="doubleTopupPayBtn" class="double-topup-pay" type="button">去充值</button>
           <small>重复下单不会再次赠送，多出的订单按原来的充值比例到账。</small>
         </form>
-      </dialog>
-      <dialog id="seedreamCampaignDialog" class="seedream-campaign-dialog" aria-labelledby="seedreamCampaignTitle">
-        <div class="seedream-campaign-hero">
-          <img src="./assets/campaigns/seedream-5-5.jpg" alt="" width="1200" height="745" decoding="async" />
-          <span class="seedream-campaign-hero-shade" aria-hidden="true"></span>
-          <button class="seedream-campaign-close" id="seedreamCampaignCloseBtn" type="button" aria-label="关闭活动">✕</button>
-          <div class="seedream-campaign-hero-copy">
-            <span>图片模型 全新上线</span>
-            <h2 id="seedreamCampaignTitle">Seedream 5.5</h2>
-            <strong>会员免费使用</strong>
-          </div>
-        </div>
-        <div class="seedream-campaign-body">
-          <div class="seedream-campaign-benefits">
-            <p class="seedream-campaign-eyebrow">会员权益</p>
-            <div class="seedream-campaign-benefit-list">
-              <div class="seedream-campaign-benefit is-hot">
-              <div class="seedream-campaign-benefit-head">
-                <span class="seedream-campaign-check">✓</span>
-                <strong>Seedream 5.5 图片模型</strong>
-                <em>免费</em>
-              </div>
-              <p>开通会员即可无限次使用该图片模型，生成不再消耗积分</p>
-              </div>
-              <div class="seedream-campaign-benefit is-gold">
-              <div class="seedream-campaign-benefit-head">
-                <span class="seedream-campaign-gift">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="#f6c26b" stroke-width="2" aria-hidden="true">
-                    <path d="M4 10h16v10H4z" /><path d="M2.5 7h19v3h-19z" /><path d="M12 7v13" />
-                    <path d="M12 7S10.6 3.5 8.6 3.5A2 2 0 0 0 8.6 7z" />
-                    <path d="M12 7s1.4-3.5 3.4-3.5A2 2 0 0 1 15.4 7z" />
-                  </svg>
-                </span>
-                <strong>会员充值永久加赠</strong>
-                <em>最高 20%</em>
-              </div>
-              <p>充值即赠积分 · 会员专享</p>
-              <div class="seedream-campaign-rows">
-                <span><i>充 $100</i><b>12,000 积分 <em>+2,000</em></b></span>
-                <span><i>充 $200</i><b>24,000 积分 <em>+4,000</em></b></span>
-                <span><i>充 $500</i><b>60,000 积分 <em>+10,000</em></b></span>
-              </div>
-              </div>
-              <div class="seedream-campaign-benefit">
-                <span class="seedream-campaign-check">✓</span>
-                <div><strong>会员身份永久有效</strong><p>一次开通长期有效，无需续费、不会到期；后续新增的会员专属权益同步享有</p></div>
-              </div>
-            </div>
-          </div>
-          <div class="seedream-campaign-checkout">
-            <div class="seedream-campaign-price">
-              <div><span>$</span><strong>59.9</strong><em>/ 永久</em></div>
-              <b>一次付费 · 终身有效</b>
-              <p>原价 <s>$99</s><em>省 $39.1</em></p>
-            </div>
-            <button class="seedream-campaign-cta" id="seedreamCampaignBuyBtn" type="button">立即开通 $59.9</button>
-            <p class="seedream-campaign-status" id="seedreamCampaignStatus" role="status" hidden></p>
-            <div class="seedream-campaign-countdown">
-              <span id="seedreamCampaignCountdownLabel">限时特惠 · 距活动结束</span>
-              <div aria-live="polite">
-                <b id="seedreamCampaignDays">--</b><i class="u">天</i>
-                <b id="seedreamCampaignHours">--</b><i>:</i>
-                <b id="seedreamCampaignMinutes">--</b><i>:</i>
-                <b id="seedreamCampaignSeconds">--</b>
-              </div>
-            </div>
-            <div class="seedream-campaign-payments">
-              <span>支持支付方式</span>
-              <div>
-                <b>
-                  <svg viewBox="0 0 32 32" aria-hidden="true">
-                    <rect width="32" height="32" rx="9" fill="#1aad19" />
-                    <path d="M13.1 7.4c-4.2 0-7.6 2.8-7.6 6.3 0 2 1.1 3.8 2.9 5l-.7 2.4 2.8-1.4c.8.2 1.7.3 2.6.3h.5c-.1-.5-.2-1-.2-1.5 0-3.3 3.2-5.9 7.1-5.9h.5c-.7-2.9-4.2-5.2-7.9-5.2z" fill="#fff" />
-                    <circle cx="10.6" cy="12.1" r="1.15" fill="#1aad19" />
-                    <circle cx="15.6" cy="12.1" r="1.15" fill="#1aad19" />
-                    <path d="M27 19.9c0-2.6-2.5-4.6-5.6-4.6s-5.6 2.1-5.6 4.6 2.5 4.6 5.6 4.6c.7 0 1.4-.1 2.1-.3l2.1 1.1-.5-1.9c1.2-.9 1.9-2.2 1.9-3.5z" fill="#fff" />
-                    <circle cx="19.9" cy="19.1" r=".95" fill="#1aad19" />
-                    <circle cx="23.5" cy="19.1" r=".95" fill="#1aad19" />
-                  </svg>
-                  <i>微信支付</i>
-                </b>
-                <b>
-                  <svg viewBox="0 0 32 32" aria-hidden="true">
-                    <rect width="32" height="32" rx="9" fill="#1677ff" />
-                    <path d="M23.4 17.3c-1.5-.6-3.2-1.1-4.8-1.5.5-1.1.9-2.3 1.2-3.6h-3.4v-1.6h4.3v-.9h-4.3V7.6h-2.2v2.1h-4.4v.9h4.4v1.6H10v1.5h6.6c-.2.9-.5 1.8-.8 2.6-1.6-.4-3.2-.7-4.4-.6-2.7.2-4.6 1.8-4.6 4 0 2.3 2 4 4.6 4 2.3 0 4.3-1.2 5.8-3.3 1.6.8 3.3 1.8 4.9 2.8l1.3-1.6c-1.5-1-3.2-1.9-4.9-2.7.3-.6.5-1.1.7-1.7 1.9.5 3.8 1.1 5.5 1.8l.7-1.6zM12.2 20.6c-1.6 0-2.7-.9-2.7-2.1s1.1-2.1 2.7-2.1c.8 0 1.7.2 2.6.5-1.1 1.7-1.9 2.5-2.6 3.7z" fill="#fff" />
-                  </svg>
-                  <i>支付宝</i>
-                </b>
-                <b>
-                  <svg viewBox="0 0 32 32" aria-hidden="true">
-                    <rect width="32" height="32" rx="9" fill="#f59e0b" />
-                    <rect x="5.5" y="9.5" width="21" height="13" rx="2.6" fill="#fff" />
-                    <rect x="5.5" y="12.6" width="21" height="2.9" fill="#f59e0b" />
-                    <rect x="9" y="18.4" width="6.4" height="1.7" rx=".85" fill="#f59e0b" opacity=".5" />
-                    <rect x="21.2" y="18.2" width="3.1" height="2.1" rx="1" fill="#f59e0b" opacity=".75" />
-                  </svg>
-                  <i>信用卡</i>
-                </b>
-              </div>
-            </div>
-            <p class="seedream-campaign-terms">开通即代表同意会员服务条款<br />权益仅限 Seedream 5.5 图片模型<br />其他模型按原价计费</p>
-          </div>
-        </div>
       </dialog>
       <dialog id="elevenElevenDialog" class="eleven-eleven-dialog">
         <div id="elevenElevenMain" class="eleven-eleven-view">
