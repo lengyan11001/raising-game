@@ -848,8 +848,10 @@ async function bootstrap() {
     startGenerationRecordMediaRecoveryScheduler();
     startGenerationRecordResultAssetMediaBackfillScheduler();
     startChatLiveSettlementScheduler();
-    startStoryShotPlanWorker();
   }
+  /* Story shot-plan jobs use both PostgreSQL scheduler and row leases, so a
+     rolling candidate can own the worker without duplicating execution. */
+  startStoryShotPlanWorker();
   /* Durable submit workers are promotion-gated independently from generic
      background scans. PostgreSQL leases still enforce one owner per tick. */
   startPlatformGenerationSubmitWorker();
