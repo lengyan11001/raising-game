@@ -1844,18 +1844,15 @@
   async function openStoryEpisode(episodeId = "", view = "outline") {
     const id = String(episodeId || "");
     if (!id) return;
-    const sameEpisode = storyState.selectedEpisodeId === id;
     const episode = (storyState.detail?.episodes || []).find((item) => item.id === id);
     const manuscriptId = String(episode?.sourceManuscriptId || "");
     if (manuscriptId) {
       selectStoryManuscriptById(manuscriptId, episode?.sourceScriptVersionId || "");
     }
     storyState.selectedEpisodeId = id;
+    storyState.selectedShotId = "";
     storyState.episodeTab = storyEpisodeTabId(view);
-    if (!sameEpisode) {
-      storyState.selectedShotId = "";
-      storyState.shots = storyEpisodeShotsFromCache(id);
-    }
+    storyState.shots = storyEpisodeShotsFromCache(id);
     storyState.action = "";
     storyState.actionMessage = "";
     renderStoryDetail();
