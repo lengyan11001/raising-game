@@ -5,7 +5,9 @@
 - `platform.css` adds the matching kind-specific widths, compact option spacing, refined dark popup styling, scrollbar treatment, reduced-motion support, and mobile viewport clamping.
 - Browser measurements passed at 1280x720, 1440x900, and 390x844. Ratio/resolution/duration render at 240/280/360px on desktop; mobile popups remain inside the 390px viewport. Popup placement still flips upward when needed.
 - Verification passed: `node --check platform.create.parts/part-02.js`, `node --check platform.js`, `npm run check:undef`, `git diff --check`, and the focused test `Generate parameter picker stays compact and selected chips show full labels` (1/1).
-- Do not commit the unrelated existing change in `server.parts/part-45.js`. Deployment and production validation are still pending.
+- Do not commit the unrelated existing change in `server.parts/part-45.js`.
+- Source commit `9a15ef6b` was pushed to `old-site`; platform release `ab793e1a` was built from it and pushed only to `platform-release`. `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK`; Old is active on port 4175 serving release `ab793e1a7383fd73996244cbb4834ad3128e1c0e`.
+- Production `/api/health`, `/api/livez`, and `/api/readyz` all return healthy. Deployed production measurements confirm mode 380px, ratio 240px, resolution 280px, and duration 360px, all within the current viewport.
 
 ## 2026-11-18 Step EE: story-tree entry clicks independent from disclosure
 
