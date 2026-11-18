@@ -441,7 +441,7 @@ async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript 
     sourceText || "原文不可用，只能依据简略大纲、节拍表和摘录规划。",
     "本集对应原文结束",
   ].join("\n");
-  const deadline = Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS;
+  const deadline = Date.now() + 9 * 60 * 1000;
   const usage = { attempts: 0 };
   const request = async (systemPrompt, userPrompt, maxTokens, requestContext) => {
     const startedAt = Date.now();

@@ -1914,7 +1914,7 @@
     if (!jobId) throw new Error("AI 分镜任务没有返回任务编号，请重试。");
     const startedAt = Date.now();
     let lastStatus = created.job?.status || "queued";
-    while (Date.now() - startedAt < 5 * 60 * 1000) {
+    while (Date.now() - startedAt < 10 * 60 * 1000) {
       storyState.actionMessage = lastStatus === "processing"
         ? "AI 正在拆解分镜：覆盖剧情节点、生成镜头、复核连续性。页面可以保持打开，无需重试。"
         : "AI 分镜已排队，正在等待后台开始处理…";
