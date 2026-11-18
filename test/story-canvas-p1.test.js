@@ -531,6 +531,7 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /storyAssetsNeedingImage/);
   assert.match(story, /function openStoryRevisionRequest[\s\S]*storyRevisionFeedback/);
   assert.match(story, /storyAssetHasGeneratedImage\(asset\) && !revisionFeedback[\s\S]*openStoryRevisionRequest/);
+  assert.match(story, /!storyShotAssetsConfirmed\(shot\) && !storyAssetHasGeneratedImage\(asset\)/);
   assert.match(story, /本次重新生成的修改要求：\$\{revisionFeedback\}/);
   assert.match(story, /function storyAssetHasApprovedImage[\s\S]*storyAssetVariantImageUrl\(approved\)/);
   assert.match(story, /assets\.every\(\(asset\) => storyAssetHasApprovedImage\(asset\)\)/);
@@ -578,8 +579,9 @@ test("shot assets generate, regenerate, approve, and reuse materials in place", 
   assert.match(workspace, /storyAssetVariantThumbnailUrl\(displayVariant \|\| \{\}\)/);
   assert.match(workspace, /data-story-media-image/);
   assert.match(workspace, /data-story-generate-asset=/);
-  assert.match(workspace, /generated \? "重新生成" : "生成图片"/);
-  assert.match(workspace, /data-story-generate-asset-shot="[\s\S]*?\$\{storyState\.action \? "disabled" : ""\}/);
+  assert.match(workspace, /const canGenerateAsset = generated \|\| confirmed/);
+  assert.match(workspace, /generated[\s\S]*?\? "重新生成"[\s\S]*?: confirmed[\s\S]*?\? "生成图片"[\s\S]*?: "先确认资产清单"/);
+  assert.match(workspace, /data-story-generate-asset-shot="[\s\S]*?\$\{storyState\.action \|\| !canGenerateAsset \? "disabled" : ""\}/);
   assert.match(workspace, /data-story-approve-variant=/);
   assert.match(workspace, /data-story-reuse-variant=/);
   assert.match(workspace, /data-story-use-variant=/);

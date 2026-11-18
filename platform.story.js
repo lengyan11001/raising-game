@@ -1006,6 +1006,14 @@
       const imageUrl = storyAssetVariantThumbnailUrl(displayVariant || {});
       const reusableVariants = storyReusableAssetVariants(asset);
       const prompt = asset.metadata?.imagePrompt || asset.description || "AI 尚未补写图片提示词。";
+      const canGenerateAsset = generated || confirmed;
+      const generateAssetLabel = storyState.generatingAssetId === asset.id
+        ? "生成中…"
+        : generated
+          ? "重新生成"
+          : confirmed
+            ? "生成图片"
+            : "先确认资产清单";
       return `
         <article class="story-shot-workspace-asset ${approved ? "is-approved" : ""}">
           <div class="story-shot-workspace-asset-head">
@@ -1017,7 +1025,7 @@
           </div>
           <label class="story-shot-asset-prompt"><span>AI 建议图片提示词</span><p>${storyEscape(prompt)}</p></label>
           <div class="story-shot-workspace-asset-actions">
-            <button type="button" data-story-generate-asset="${storyEscape(asset.id)}" data-story-generate-asset-shot="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}>${storyState.generatingAssetId === asset.id ? "生成中…" : generated ? "重新生成" : "生成图片"}</button>
+            <button type="button" data-story-generate-asset="${storyEscape(asset.id)}" data-story-generate-asset-shot="${storyEscape(shot.id)}" title="${canGenerateAsset ? "" : "先确认此镜资产清单，再生成第一版设计图"}" ${storyState.action || !canGenerateAsset ? "disabled" : ""}>${generateAssetLabel}</button>
             <button class="is-edit" type="button" data-story-edit-asset="${storyEscape(asset.id)}" data-story-asset-shot="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}>编辑</button>
             <button class="is-danger" type="button" data-story-delete-asset="${storyEscape(asset.id)}" data-story-asset-shot="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}>删除</button>
             ${displayVariant && displayVariant.status !== "approved" ? `<button class="is-approve" type="button" data-story-approve-variant="${storyEscape(displayVariant.id)}" data-story-asset-id="${storyEscape(asset.id)}" ${storyState.action ? "disabled" : ""}>${storyState.action === "approve-asset" ? "正在定稿…" : "设为定稿"}</button>` : ""}
@@ -2811,7 +2819,7 @@
     const asset = storyEpisodeAssets(selectedStoryEpisode() || {}).find((item) => item.id === assetId);
     if (!asset || storyState.action) return;
     const shot = shotId ? storyState.shots.find((item) => item.id === shotId) : null;
-    if (shot && !storyShotAssetsConfirmed(shot)) {
+    if (shot && !storyShotAssetsConfirmed(shot) && !storyAssetHasGeneratedImage(asset)) {
       storyState.actionMessage = "请先确认此镜的资产清单，再生成设计图。";
       renderStoryDetail();
       return;
