@@ -4772,8 +4772,6 @@ dialog.tool-download-modal {
   align-content: start;
 }
 .advanced-form-card {
-  position: sticky;
-  top: 78px;
   box-shadow: var(--soft-shadow);
 }
 .advanced-create-switch {
@@ -5182,14 +5180,6 @@ dialog.tool-download-modal {
 .advanced-side-panel,
 .advanced-asset-panel {
   gap: 12px;
-}
-.advanced-side-panel {
-  position: sticky;
-  top: 78px;
-  max-height: calc(100dvh - 96px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
 }
 .advanced-mobile-tabs {
   display: none;
@@ -13248,7 +13238,8 @@ body.wan30-launch-visible .site-head { top: 0; }
   }
 
   main {
-    padding: 8px var(--content-gutter) 40px;
+    margin-top: -13px;
+    padding: 0 var(--content-gutter) 40px;
   }
 
   .site-head {
