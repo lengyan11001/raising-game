@@ -3,7 +3,9 @@
 - Fixed the admin support-ticket workspace trapping users at the bottom of a double-scroll page. The route now marks `.adm-content` as `is-ticket-workspace`, removing outer-page scrolling while the ticket list and conversation thread keep their own bounded internal scrolling.
 - Added single-screen grid sizing and compacted the ticket header/toolbar. Desktop uses the full available admin height with `min-height: 0`; widths up to `860px` retain the existing vertical fallback.
 - Verification passed: `node --check admin.js`, `node --test test/support-notifications.test.js` (7/7), `npm run check:undef`, and `git diff --check`. Temporary 1280×720 and 1024×720 browser checks showed `scrollHeight === clientHeight` for the page body while ticket list/thread overflowed only inside their panels.
-- Pending: commit only `admin.css`, `admin.js`, `test/support-notifications.test.js`, and this state file; build/push the platform release and deploy Old-only via `scripts/deploy_local.sh --site old`. Unrelated `server.parts/part-45.js` remains untouched and excluded.
+- Source commit `a1505fff791f1e3b99534c4fc5dae7cf88706fdf`; platform release `85f09ea9eab4e8e0fb44873995413ee55e3673a0`; pushed only `old-site` and `platform-release`; remote `live-release` remains untouched.
+- Old-only deployment through `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=85f09ea9...`. Public `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`, and the deployed admin CSS/JS contain the ticket-workspace layout markers.
+- Unrelated `server.parts/part-45.js` remains untouched and excluded from the commit and release.
 
 ## 2026-11-17 Step DY: story release plus scoped-auth optimization integrated and regression-tested
 
