@@ -709,3 +709,21 @@ test("story video jobs bind approved asset IDs and sync completed backend record
   assert.match(generation, /resultAssetId: String\(record\.resultAssetId \|\| ""\)/);
   assert.match(generation, /resultAssetIds: Array\.isArray\(record\.resultAssetIds\)/);
 });
+
+test("story shot-plan jobs use durable async storage and a rolling-safe worker", () => {
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const routes = read("server.parts/part-42.js");
+  const db = read("db.js");
+  const bootstrap = read("server.parts/part-43.js");
+  const story = read("platform.story.js");
+  assert.match(handlers, /enqueueStoryShotPlanJobInDb\(\{[\s\S]*return sendJson\(res, 202/);
+  assert.match(handlers, /claimNextStoryShotPlanJobsInDb\(\{ limit, leaseMs: 5 \* 60 \* 1000, claimToken \}\)/);
+  assert.match(routes, /shots\\\/plan\\\/jobs\\\/\(\[\^\/\]\+\)/);
+  assert.match(db, /CREATE TABLE IF NOT EXISTS app_story_shot_plan_jobs/);
+  assert.match(story, /async function waitForStoryShotPlanJob[\s\S]*window\.setTimeout\(resolve, 2000\)/);
+  assert.match(bootstrap, /startChatLiveSettlementScheduler\(\);\n  \}[\s\S]*?startStoryShotPlanWorker\(\);/);
+  assert.doesNotMatch(
+    bootstrap.match(/if \(BACKGROUND_SCHEDULERS_ENABLED\) \{[\s\S]*?startChatLiveSettlementScheduler\(\);\n  \}/)?.[0] || "",
+    /startStoryShotPlanWorker\(\);/,
+  );
+});
