@@ -1400,31 +1400,28 @@ async function handlePlanStoryEpisodeShots(req, res, projectId = "", episodeId =
     return sendJson(res, 409, { ok: false, code: "STORY_OUTLINE_NOT_LOCKED", message: "请先锁定本集大纲，再由 AI 拆分镜。" });
   }
   try {
-    const result = await planStoryEpisodeShots({ project, episode, sourceScript });
-    const metadata = { ...(episode.metadata || {}) };
-    if (result.hook) metadata.hook = result.hook;
-    if (result.audit) metadata.shotPlanAudit = result.audit;
-    const episodePatch = { status: "shots_planned", metadata };
-    if (Number(episode.durationSeconds || 0) <= 0 && Number(result.recommendedDurationSeconds || 0) > 0) {
-      episodePatch.durationSeconds = result.recommendedDurationSeconds;
-      metadata.durationBasis = `按 AI 分镜节点计算：共 ${result.shots.length} 个镜头，总时长 ${result.recommendedDurationSeconds} 秒。`;
-    }
-    const saved = await replaceStoryShotsInDb({
+    const queued = await enqueueStoryShotPlanJobInDb({
       projectId,
       episodeId,
       ownerUserId: auth.user.id,
-      shots: result.shots,
-      episodePatch,
     });
-    if (!saved) {
-      return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "分镜保存失败。" });
+    if (!queued?.job) {
+      return sendJson(res, 503, { ok: false, code: "STORY_SHOT_PLAN_QUEUE_FAILED", message: "AI 分镜任务创建失败，请重试。" });
     }
-    return sendJson(res, 200, {
+    const job = queued.job;
+    return sendJson(res, 202, {
       ok: true,
-      model: result.model,
-      attempts: result.attempts,
-      episode: saved.episode,
-      shots: saved.shots,
+      reused: queued.reused === true,
+      job: {
+        id: job.id,
+        status: job.status,
+        attempts: job.attempts,
+        maxAttempts: job.maxAttempts,
+        errorCode: job.errorCode,
+        errorMessage: job.errorMessage,
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+      },
     });
   } catch (error) {
     console.warn("[story-shot-plan-failed]", JSON.stringify({
@@ -1440,6 +1437,34 @@ async function handlePlanStoryEpisodeShots(req, res, projectId = "", episodeId =
       message: error.message || "AI 分镜失败，请重试。",
     });
   }
+}
+
+async function handleGetStoryShotPlanJob(req, res, projectId = "", episodeId = "", jobId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const job = await getStoryShotPlanJobInDb({
+    id: jobId,
+    ownerUserId: auth.user.id,
+    projectId,
+    episodeId,
+  });
+  if (!job) return sendJson(res, 404, { ok: false, code: "STORY_SHOT_PLAN_JOB_NOT_FOUND", message: "AI 分镜任务不存在或已过期。" });
+  return sendJson(res, 200, {
+    ok: true,
+    job: {
+      id: job.id,
+      status: job.status,
+      attempts: job.attempts,
+      maxAttempts: job.maxAttempts,
+      errorCode: job.errorCode,
+      errorMessage: job.errorMessage,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      completedAt: job.completedAt,
+      result: job.status === "completed" ? job.result : null,
+    },
+  });
 }
 
 async function handlePlanStoryEpisodeAssets(req, res, projectId = "", episodeId = "") {

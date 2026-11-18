@@ -827,6 +827,17 @@ async function handleRequest(req, res) {
       return await handlePlanStoryEpisodeShots(req, res, decodeURIComponent(storyEpisodeShotsPlanMatch[1]), decodeURIComponent(storyEpisodeShotsPlanMatch[2]));
     }
 
+    const storyEpisodeShotsPlanJobMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/shots\/plan\/jobs\/([^/]+)\/?$/);
+    if (req.method === "GET" && storyEpisodeShotsPlanJobMatch) {
+      return await handleGetStoryShotPlanJob(
+        req,
+        res,
+        decodeURIComponent(storyEpisodeShotsPlanJobMatch[1]),
+        decodeURIComponent(storyEpisodeShotsPlanJobMatch[2]),
+        decodeURIComponent(storyEpisodeShotsPlanJobMatch[3]),
+      );
+    }
+
     const storyShotMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/shots\/([^/]+)\/?$/);
     if (req.method === "PUT" && storyShotMatch) {
       return await handleUpdateStoryShot(req, res, decodeURIComponent(storyShotMatch[1]), decodeURIComponent(storyShotMatch[2]), decodeURIComponent(storyShotMatch[3]));

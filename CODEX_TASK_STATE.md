@@ -1,8 +1,16 @@
+## 2026-11-18 Step EL: AI storyboard regeneration no longer waits behind Cloudflare
+
+- Production `projectId=story-1794927854882-c519d928`, `episodeId=dee36e55-0d23-4eaa-b85d-3b9a400424a9`: `POST /shots/plan` was held open while storyboard planning made three sequential AI calls. Nginx logged `499` after the client disconnected; the backend later reached `PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT`/`503`, and Cloudflare surfaced `524`. A direct minimal Papaya request still returned `200` in about 1.1s, so this was request-duration/connection handling, not a dead provider.
+- Added durable PostgreSQL-backed `app_story_shot_plan_jobs` with leased claims. `POST /shots/plan` now only enqueues and returns `202`; the background worker runs coverage, storyboard, and critic phases, then saves the shots and completes the job. The frontend polls the new job endpoint every two seconds and reports the real terminal error instead of holding a Cloudflare-bound request open.
+- New schema migration: `2026-11-18-story-shot-plan-jobs-v1`, wired through runtime schema, readiness, and `ops/run-db-migrations.js` (including the job table and indexes).
+- Verification passed: syntax checks for all changed server/runtime files, `npm run check:undef`, `git diff --check`, and focused migration/story/prompt tests `41/41`.
+- Deployment pending. Unrelated dirty file `server.parts/part-45.js` remains excluded from this change.
+
 ## 2026-11-18 Step EK: Rename the main navigation Workflow entry to Canvas
 
 - Updated `nav.workflow` across all supported locales and the HTML fallback so the left main navigation reads Canvas / 画布 instead of Workflow / 工作流.
 - Locale labels: English `Canvas`, Vietnamese `Bảng vẽ`, Japanese `キャンバス`, Korean `캔버스`, Indonesian `Kanvas`, Chinese `画布`.
-- Verification: `node --check platform.copy.js`, all six translation entries inspected, `npm run check:undef`, and `git diff --check` passed. Deployment pending.
+- Verification: `node --check platform.copy.js`, all six translation entries inspected, `npm run check:undef`, and `git diff --check` passed. Source commit `264fc82c`; platform release `e9874da7` deployed Old-only through the required rolling entrypoint. Active port is `4174`; `/api/health` and `/api/readyz` return 200 with the new release marker, and production `platform.copy.js` contains all six translated `nav.workflow` labels.
 
 ## 2026-11-18 Step EJ: Refund badge covers independent History and canvas result surfaces
 
@@ -5016,6 +5024,13 @@ CODEX_TASK_STATE.md
 - This is only a local development environment. No production or remote TG Box server was started, accessed, or deployed.
 - Formalization gate: replace local SQLite with PostgreSQL via `DATABASE_URL` and validate PostgreSQL-compatible SQL/migrations before any production deployment. The repository's current `deploy/docker-compose.prod.yml` still provisions MySQL, so it must not be used unchanged under the workspace data-storage rule.
 - Current local `.env` still has empty `TG_API_ID` / `TG_API_HASH`; Telegram login, QR, and session import remain unavailable until real API credentials are configured.
+
+## 2026-11-18 Step DG: TG Box local launcher hardened
+
+- User saw `Failed to fetch` in the open dashboard. Both local listeners were absent; this was a service-process failure rather than an API response error.
+- Plain `nohup` children were reaped when the terminal invocation ended. Local services are now submitted through user `launchd` jobs `com.tgbox.local.api` and `com.tgbox.local.web`, with output logs in `/tmp/tgbox-runtime/`.
+- Backend health is 200, frontend is 200, and login through the Vite proxy returns 200. The dashboard was reloaded in the in-app browser and rendered successfully.
+- Local stop commands are `launchctl remove com.tgbox.local.api` and `launchctl remove com.tgbox.local.web`. These are development-only user services and do not constitute a production deployment.
 
 ## 2026-11-17 Step DE: Story shot asset thumbnails
 
