@@ -52,6 +52,11 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-18-story-shot-plan-jobs-v1",
+    description: "Create durable story shot-plan jobs for asynchronous AI storyboard generation",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",
@@ -358,6 +363,33 @@ const STORY_VERSION_EPISODE_OWNERSHIP_DDL = Object.freeze([
      WHERE source_script_version_id <> '';`,
 ]);
 
+const STORY_SHOT_PLAN_JOBS_DDL = Object.freeze([
+  `CREATE TABLE IF NOT EXISTS app_story_shot_plan_jobs (
+     id TEXT PRIMARY KEY,
+     project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+     episode_id TEXT NOT NULL REFERENCES app_story_episodes(id) ON DELETE CASCADE,
+     owner_user_id TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'queued',
+     claim_token TEXT NOT NULL DEFAULT '',
+     lease_until TIMESTAMPTZ,
+     attempts INTEGER NOT NULL DEFAULT 0,
+     max_attempts INTEGER NOT NULL DEFAULT 2,
+     result JSONB,
+     error_code TEXT NOT NULL DEFAULT '',
+     error_message TEXT NOT NULL DEFAULT '',
+     available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     started_at TIMESTAMPTZ,
+     completed_at TIMESTAMPTZ,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+  `CREATE INDEX IF NOT EXISTS app_story_shot_plan_jobs_ready_idx
+     ON app_story_shot_plan_jobs (status, available_at, created_at)
+     WHERE status IN ('queued', 'retry');`,
+  `CREATE INDEX IF NOT EXISTS app_story_shot_plan_jobs_owner_idx
+     ON app_story_shot_plan_jobs (owner_user_id, project_id, episode_id, created_at DESC);`,
+]);
+
 async function runStatements(client, statements) {
   for (const statement of statements) await client.query(statement);
 }
@@ -538,6 +570,8 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
         await runStatements(schemaLockClient, STORY_LEGACY_MANUSCRIPT_GROUP_DDL);
       } else if (migration.version === "2026-11-17-story-version-episode-ownership-v1") {
         await runStatements(schemaLockClient, STORY_VERSION_EPISODE_OWNERSHIP_DDL);
+      } else if (migration.version === "2026-11-18-story-shot-plan-jobs-v1") {
+        await runStatements(schemaLockClient, STORY_SHOT_PLAN_JOBS_DDL);
       } else {
         throw new Error(`Unknown schema migration: ${migration.version}`);
       }

@@ -485,7 +485,7 @@ test("shot planning binds AI assets to shots and users can add, edit, and delete
   const routes = read("server.parts/part-42.js");
   const db = read("db.js");
   assert.match(handlers, /assets: \[\],/);
-  const generateShots = story.slice(story.indexOf("async function generateStoryEpisodeShots("), story.indexOf("async function saveStoryEpisode("));
+  const generateShots = story.slice(story.indexOf("async function waitForStoryShotPlanJob("), story.indexOf("async function saveStoryEpisode("));
   assert.match(generateShots, /\/shots\/plan[\s\S]*\/assets\/plan/);
   assert.match(generateShots, /已提取并绑定 \$\{assetCount\} 个分镜资产/);
   assert.match(story, /function openStoryAssetEditor\(/);

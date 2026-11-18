@@ -1908,6 +1908,33 @@
     renderStoryDetail();
   }
 
+  async function waitForStoryShotPlanJob(projectId = "", episodeId = "") {
+    const created = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/shots/plan`, { method: "POST" });
+    const jobId = created.job?.id || "";
+    if (!jobId) throw new Error("AI 分镜任务没有返回任务编号，请重试。");
+    const startedAt = Date.now();
+    let lastStatus = created.job?.status || "queued";
+    while (Date.now() - startedAt < 5 * 60 * 1000) {
+      storyState.actionMessage = lastStatus === "processing"
+        ? "AI 正在拆解分镜：覆盖剧情节点、生成镜头、复核连续性。页面可以保持打开，无需重试。"
+        : "AI 分镜已排队，正在等待后台开始处理…";
+      renderStoryDetail();
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/shots/plan/jobs/${encodeURIComponent(jobId)}`);
+      const job = payload.job || {};
+      lastStatus = job.status || lastStatus;
+      if (lastStatus === "completed") {
+        return job.result || {};
+      }
+      if (lastStatus === "failed") {
+        const error = new Error(job.errorMessage || "AI 分镜失败，请重试。");
+        error.code = job.errorCode || "STORY_SHOT_PLAN_FAILED";
+        throw error;
+      }
+    }
+    throw new Error("AI 分镜仍在后台执行。请稍后刷新本集查看结果。");
+  }
+
   async function generateStoryEpisodeShots({ confirmReplace = true } = {}) {
     const projectId = storyState.selectedId;
     const episode = selectedStoryEpisode();
@@ -1923,7 +1950,7 @@
     storyState.episodeTab = "shots";
     renderStoryDetail();
     try {
-      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/shots/plan`, { method: "POST" });
+      const payload = await waitForStoryShotPlanJob(projectId, episode.id);
       storyState.shots = Array.isArray(payload.shots) ? payload.shots : [];
       storyState.detail.episodes = (storyState.detail.episodes || []).map((item) => item.id === episode.id
         ? { ...item, ...payload.episode, shotCount: payload.shots?.length || 0 }
@@ -1987,7 +2014,7 @@
         storyState.actionMessage = "大纲已定稿，AI 正在拆分镜，通常需要几十秒…";
         storyState.episodeTab = "shots";
         renderStoryDetail();
-        const planPayload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/shots/plan`, { method: "POST" });
+        const planPayload = await waitForStoryShotPlanJob(projectId, episode.id);
         storyState.shots = Array.isArray(planPayload.shots) ? planPayload.shots : [];
         storyState.detail.episodes = (storyState.detail.episodes || []).map((item) => item.id === episode.id
           ? { ...item, ...planPayload.episode, shotCount: planPayload.shots?.length || 0 }

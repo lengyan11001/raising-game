@@ -848,6 +848,7 @@ async function bootstrap() {
     startGenerationRecordMediaRecoveryScheduler();
     startGenerationRecordResultAssetMediaBackfillScheduler();
     startChatLiveSettlementScheduler();
+    startStoryShotPlanWorker();
   }
   /* Durable submit workers are promotion-gated independently from generic
      background scans. PostgreSQL leases still enforce one owner per tick. */
@@ -870,6 +871,7 @@ async function shutdownGracefully(signal = "SIGTERM") {
   markStopping(processReadiness);
   httpShutdownGate.begin();
   stopPlatformGenerationSubmitWorker();
+  stopStoryShotPlanWorker();
   const startedAt = Date.now();
   const pendingSubmissions = beginGenerationSubmissionDrain();
   console.log("[graceful-shutdown-start]", { signal, pendingSubmissions });

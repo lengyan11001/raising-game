@@ -1762,6 +1762,29 @@ async function ensureSchemaInner({ client = null } = {}) {
   `);
   await run(`CREATE INDEX IF NOT EXISTS app_story_shots_episode_idx ON app_story_shots (episode_id, shot_no ASC);`);
   await run(`
+    CREATE TABLE IF NOT EXISTS app_story_shot_plan_jobs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES app_story_projects(id) ON DELETE CASCADE,
+      episode_id TEXT NOT NULL REFERENCES app_story_episodes(id) ON DELETE CASCADE,
+      owner_user_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'queued',
+      claim_token TEXT NOT NULL DEFAULT '',
+      lease_until TIMESTAMPTZ,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 2,
+      result JSONB,
+      error_code TEXT NOT NULL DEFAULT '',
+      error_message TEXT NOT NULL DEFAULT '',
+      available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_shot_plan_jobs_ready_idx ON app_story_shot_plan_jobs (status, available_at, created_at) WHERE status IN ('queued', 'retry');`);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_shot_plan_jobs_owner_idx ON app_story_shot_plan_jobs (owner_user_id, project_id, episode_id, created_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_story_prompt_versions (
       id TEXT PRIMARY KEY,
       shot_id TEXT NOT NULL REFERENCES app_story_shots(id) ON DELETE CASCADE,
@@ -7317,6 +7340,179 @@ async function replaceStoryShotsInDb({ projectId = "", episodeId = "", ownerUser
   }
 }
 
+function storyShotPlanJobFromRow(row = {}) {
+  if (!row) return null;
+  return {
+    id: String(row.id || ""),
+    projectId: String(row.project_id || ""),
+    episodeId: String(row.episode_id || ""),
+    ownerUserId: String(row.owner_user_id || ""),
+    status: String(row.status || "queued"),
+    claimToken: String(row.claim_token || ""),
+    leaseUntil: row.lease_until || null,
+    attempts: Number(row.attempts || 0),
+    maxAttempts: Number(row.max_attempts || 2),
+    result: row.result && typeof row.result === "object" ? row.result : null,
+    errorCode: String(row.error_code || ""),
+    errorMessage: String(row.error_message || ""),
+    availableAt: row.available_at || null,
+    startedAt: row.started_at || null,
+    completedAt: row.completed_at || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+async function enqueueStoryShotPlanJobInDb({ projectId = "", episodeId = "", ownerUserId = "", maxAttempts = 2 } = {}) {
+  if (!dbEnabled()) return null;
+  const parentId = String(projectId || "").trim();
+  const targetEpisodeId = String(episodeId || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!parentId || !targetEpisodeId || !ownerId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const scope = await client.query(
+      `SELECT e.id FROM app_story_episodes e
+       JOIN app_story_projects p ON p.id = e.project_id
+       WHERE e.id = $1 AND e.project_id = $2 AND p.owner_user_id = $3
+       FOR UPDATE`,
+      [targetEpisodeId, parentId, ownerId],
+    );
+    if (!scope.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const existing = await client.query(
+      `SELECT * FROM app_story_shot_plan_jobs
+       WHERE project_id = $1 AND episode_id = $2 AND owner_user_id = $3
+         AND status IN ('queued', 'retry', 'processing')
+         AND (status <> 'processing' OR lease_until IS NULL OR lease_until > NOW())
+       ORDER BY created_at DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [parentId, targetEpisodeId, ownerId],
+    );
+    if (existing.rows.length) {
+      await client.query("COMMIT");
+      return { reused: true, job: storyShotPlanJobFromRow(existing.rows[0]) };
+    }
+    const attempts = Math.max(1, Math.min(5, Math.trunc(Number(maxAttempts) || 2)));
+    const inserted = await client.query(
+      `INSERT INTO app_story_shot_plan_jobs(
+         id, project_id, episode_id, owner_user_id, status, attempts, max_attempts, available_at, created_at, updated_at
+       )
+       VALUES ($1, $2, $3, $4, 'queued', 0, $5, NOW(), NOW(), NOW())
+       RETURNING *`,
+      [crypto.randomUUID(), parentId, targetEpisodeId, ownerId, attempts],
+    );
+    await client.query("COMMIT");
+    return { reused: false, job: storyShotPlanJobFromRow(inserted.rows[0]) };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getStoryShotPlanJobInDb({ id = "", ownerUserId = "", projectId = "", episodeId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const jobId = String(id || "").trim();
+  const ownerId = String(ownerUserId || "").trim();
+  if (!jobId || !ownerId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_story_shot_plan_jobs
+     WHERE id = $1 AND owner_user_id = $2
+       AND ($3 = '' OR project_id = $3)
+       AND ($4 = '' OR episode_id = $4)
+     LIMIT 1`,
+    [jobId, ownerId, String(projectId || "").trim(), String(episodeId || "").trim()],
+  );
+  return rows[0] ? storyShotPlanJobFromRow(rows[0]) : null;
+}
+
+async function claimNextStoryShotPlanJobsInDb({ limit = 1, leaseMs = 5 * 60 * 1000, claimToken = "" } = {}) {
+  if (!dbEnabled()) return { claimToken: "", jobs: [] };
+  await ensureSchema();
+  const count = Math.max(1, Math.min(5, Math.trunc(Number(limit) || 1)));
+  const lease = Math.max(30_000, Math.min(15 * 60 * 1000, Math.trunc(Number(leaseMs) || 5 * 60 * 1000)));
+  const token = String(claimToken || crypto.randomUUID()).trim().slice(0, 120);
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `UPDATE app_story_shot_plan_jobs
+       SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'retry' END,
+           claim_token = '',
+           lease_until = NULL,
+           error_code = CASE WHEN attempts >= max_attempts THEN 'STORY_SHOT_PLAN_LEASE_EXPIRED' ELSE error_code END,
+           error_message = CASE WHEN attempts >= max_attempts THEN 'AI 分镜任务执行超时，请重试。' ELSE error_message END,
+           available_at = CASE WHEN attempts >= max_attempts THEN 'infinity'::timestamptz ELSE NOW() END,
+           completed_at = CASE WHEN attempts >= max_attempts THEN NOW() ELSE NULL END,
+           updated_at = NOW()
+       WHERE status = 'processing' AND lease_until IS NOT NULL AND lease_until < NOW()`,
+    );
+    const selected = await client.query(
+      `SELECT * FROM app_story_shot_plan_jobs
+       WHERE status IN ('queued', 'retry') AND available_at <= NOW()
+       ORDER BY created_at ASC
+       LIMIT $1
+       FOR UPDATE SKIP LOCKED`,
+      [count],
+    );
+    const jobs = [];
+    for (const row of selected.rows) {
+      const updated = await client.query(
+        `UPDATE app_story_shot_plan_jobs
+         SET status = 'processing', claim_token = $2, lease_until = NOW() + ($3::int * INTERVAL '1 millisecond'),
+             attempts = attempts + 1, started_at = COALESCE(started_at, NOW()), updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [row.id, token, lease],
+      );
+      jobs.push(storyShotPlanJobFromRow(updated.rows[0]));
+    }
+    await client.query("COMMIT");
+    return { claimToken: token, jobs };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function completeStoryShotPlanJobInDb({ id = "", claimToken = "", result = {} } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_story_shot_plan_jobs
+     SET status = 'completed', claim_token = '', lease_until = NULL, result = $3::jsonb,
+         error_code = '', error_message = '', completed_at = NOW(), updated_at = NOW()
+     WHERE id = $1 AND status = 'processing' AND claim_token = $2
+     RETURNING *`,
+    [String(id || ""), String(claimToken || ""), JSON.stringify(result && typeof result === "object" ? result : {})],
+  );
+  return rows[0] ? storyShotPlanJobFromRow(rows[0]) : null;
+}
+
+async function failStoryShotPlanJobInDb({ id = "", claimToken = "", code = "", message = "" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `UPDATE app_story_shot_plan_jobs
+     SET status = 'failed', claim_token = '', lease_until = NULL, error_code = $3, error_message = $4,
+         available_at = 'infinity'::timestamptz, completed_at = NOW(), updated_at = NOW()
+     WHERE id = $1 AND status = 'processing' AND claim_token = $2
+     RETURNING *`,
+    [String(id || ""), String(claimToken || ""), String(code || "STORY_SHOT_PLAN_FAILED").slice(0, 120), String(message || "").slice(0, 2000)],
+  );
+  return rows[0] ? storyShotPlanJobFromRow(rows[0]) : null;
+}
+
 async function listStoryScriptVersionsFromDb({ projectId = "", ownerUserId = "" } = {}) {
   if (!dbEnabled()) return null;
   const parentId = String(projectId || "").trim();
@@ -9780,6 +9976,7 @@ const SCHEMA_MIGRATION_KEYS = Object.freeze([
   "2026-11-17-story-manuscript-lineage-v1",
   "2026-11-17-story-legacy-manuscript-group-v1",
   "2026-11-17-story-version-episode-ownership-v1",
+  "2026-11-18-story-shot-plan-jobs-v1",
 ]);
 const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
 const REQUIRED_SCHEMA_TABLES = Object.freeze([
@@ -9803,6 +10000,7 @@ const REQUIRED_SCHEMA_TABLES = Object.freeze([
   "app_story_assets",
   "app_story_asset_variants",
   "app_story_shots",
+  "app_story_shot_plan_jobs",
   "app_story_prompt_versions",
   "app_story_generation_refs",
   "app_story_canvas_links",
@@ -12431,6 +12629,11 @@ module.exports = {
   updateStoryShotInDb,
   deleteStoryShotFromDb,
   replaceStoryShotsInDb,
+  enqueueStoryShotPlanJobInDb,
+  getStoryShotPlanJobInDb,
+  claimNextStoryShotPlanJobsInDb,
+  completeStoryShotPlanJobInDb,
+  failStoryShotPlanJobInDb,
   listStoryScriptVersionsFromDb,
   createStoryScriptVersionInDb,
   deleteStoryScriptVersionFromDb,

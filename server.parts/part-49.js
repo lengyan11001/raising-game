@@ -444,13 +444,42 @@ async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript 
   const deadline = Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS;
   const usage = { attempts: 0 };
   const request = async (systemPrompt, userPrompt, maxTokens, requestContext) => {
-    const raw = await promptOptimizerUpstreamRequest({
-      model: model.upstreamModel,
-      messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-      temperature: 0.15,
-      max_tokens: maxTokens,
-    }, { deadline, requestContext: { ...requestContext, projectId: project.id, episodeId: episode.id }, usage, optimizerModel: model });
-    return { raw, text: qwen37FlashResponseText(raw) };
+    const startedAt = Date.now();
+    const phase = Object.keys(requestContext || {})[0] || "storyShotPlan";
+    console.info("[story-shot-plan-phase-start]", JSON.stringify({
+      projectId: project.id || "",
+      episodeId: episode.id || "",
+      phase,
+      promptCharacters: String(systemPrompt || "").length + String(userPrompt || "").length,
+      maxTokens,
+    }));
+    try {
+      const raw = await promptOptimizerUpstreamRequest({
+        model: model.upstreamModel,
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+        temperature: 0.15,
+        max_tokens: maxTokens,
+      }, { deadline, requestContext: { ...requestContext, projectId: project.id, episodeId: episode.id }, usage, optimizerModel: model });
+      const text = qwen37FlashResponseText(raw);
+      console.info("[story-shot-plan-phase-complete]", JSON.stringify({
+        projectId: project.id || "",
+        episodeId: episode.id || "",
+        phase,
+        elapsedMs: Date.now() - startedAt,
+        responseCharacters: String(text || "").length,
+      }));
+      return { raw, text };
+    } catch (error) {
+      console.warn("[story-shot-plan-phase-failed]", JSON.stringify({
+        projectId: project.id || "",
+        episodeId: episode.id || "",
+        phase,
+        elapsedMs: Date.now() - startedAt,
+        code: error.code || "",
+        statusCode: error.statusCode || 0,
+      }));
+      throw error;
+    }
   };
   const coverageResult = await request(STORY_COVERAGE_PLANNER_SYSTEM_PROMPT, `${context}\n\n请先完成覆盖策划，严格输出约定 JSON。`, 5000, { storyShotCoverage: true });
   const coverageParsed = storyParseJsonObject(coverageResult.text);
@@ -519,6 +548,134 @@ async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript 
     criticApplied: audit.criticApplied,
   }));
   return { ...plan, audit, model: model.id, attempts: usage.attempts };
+}
+
+async function executeStoryShotPlanJob(job = {}) {
+  const projectId = String(job.projectId || "").trim();
+  const episodeId = String(job.episodeId || "").trim();
+  const ownerUserId = String(job.ownerUserId || "").trim();
+  if (!projectId || !episodeId || !ownerUserId) {
+    throw Object.assign(new Error("AI 分镜任务参数不完整。"), { statusCode: 400, code: "STORY_SHOT_PLAN_JOB_INVALID" });
+  }
+  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId });
+  if (!project) {
+    throw Object.assign(new Error("剧集项目不存在。"), { statusCode: 404, code: "STORY_PROJECT_NOT_FOUND" });
+  }
+  const episodes = await listStoryEpisodesFromDb({ projectId, ownerUserId });
+  const episode = (episodes || []).find((item) => item.id === episodeId);
+  if (!episode) {
+    throw Object.assign(new Error("剧集不存在。"), { statusCode: 404, code: "STORY_EPISODE_NOT_FOUND" });
+  }
+  if (!["outline_locked", "shots_planned"].includes(String(episode.status || ""))) {
+    throw Object.assign(new Error("请先锁定本集大纲，再由 AI 拆分镜。"), { statusCode: 409, code: "STORY_OUTLINE_NOT_LOCKED" });
+  }
+  const scripts = await listStoryScriptVersionsFromDb({ projectId, ownerUserId });
+  const sourceScript = (scripts || []).find((script) => script.id === episode.sourceScriptVersionId || (!episode.sourceScriptVersionId && script.manuscriptId === episode.sourceManuscriptId)) || {};
+  const result = await planStoryEpisodeShots({ project, episode, sourceScript });
+  const metadata = { ...(episode.metadata || {}) };
+  if (result.hook) metadata.hook = result.hook;
+  if (result.audit) metadata.shotPlanAudit = result.audit;
+  const episodePatch = { status: "shots_planned", metadata };
+  if (Number(episode.durationSeconds || 0) <= 0 && Number(result.recommendedDurationSeconds || 0) > 0) {
+    episodePatch.durationSeconds = result.recommendedDurationSeconds;
+    metadata.durationBasis = `按 AI 分镜节点计算：共 ${result.shots.length} 个镜头，总时长 ${result.recommendedDurationSeconds} 秒。`;
+  }
+  const saved = await replaceStoryShotsInDb({
+    projectId,
+    episodeId,
+    ownerUserId,
+    shots: result.shots,
+    episodePatch,
+  });
+  if (!saved) {
+    throw Object.assign(new Error("分镜保存失败。"), { statusCode: 503, code: "DATABASE_UNAVAILABLE" });
+  }
+  return {
+    model: result.model,
+    attempts: result.attempts,
+    episode: saved.episode,
+    shots: saved.shots,
+  };
+}
+
+const STORY_SHOT_PLAN_WORKER_INTERVAL_MS = 1500;
+let storyShotPlanWorkerTimer = null;
+let storyShotPlanWorkerKickoffTimer = null;
+let storyShotPlanWorkerRunning = false;
+
+async function processStoryShotPlanQueue(limit = 1) {
+  const claimToken = `story-shot-plan-${process.pid}-${crypto.randomUUID()}`;
+  const claimed = await claimNextStoryShotPlanJobsInDb({ limit, leaseMs: 5 * 60 * 1000, claimToken });
+  const results = [];
+  for (const job of claimed.jobs || []) {
+    const startedAt = Date.now();
+    try {
+      const result = await executeStoryShotPlanJob(job);
+      const completed = await completeStoryShotPlanJobInDb({ id: job.id, claimToken, result });
+      results.push({ id: job.id, status: completed?.status || "completed", elapsedMs: Date.now() - startedAt });
+      console.info("[story-shot-plan-job-complete]", JSON.stringify({
+        jobId: job.id,
+        projectId: job.projectId,
+        episodeId: job.episodeId,
+        shotCount: result.shots?.length || 0,
+        attempts: job.attempts,
+        elapsedMs: Date.now() - startedAt,
+      }));
+    } catch (error) {
+      await failStoryShotPlanJobInDb({
+        id: job.id,
+        claimToken,
+        code: error.code || "STORY_SHOT_PLAN_FAILED",
+        message: error.message || String(error),
+      }).catch((failureError) => {
+        console.error("[story-shot-plan-job-fail-persist-error]", job.id, failureError.message || failureError);
+      });
+      results.push({ id: job.id, status: "failed", code: error.code || "", elapsedMs: Date.now() - startedAt });
+      console.warn("[story-shot-plan-job-failed]", JSON.stringify({
+        jobId: job.id,
+        projectId: job.projectId,
+        episodeId: job.episodeId,
+        code: error.code || "",
+        statusCode: error.statusCode || 0,
+        message: String(error.message || error).slice(0, 240),
+        elapsedMs: Date.now() - startedAt,
+      }));
+    }
+  }
+  return { claimed: claimed.jobs?.length || 0, results };
+}
+
+async function runStoryShotPlanWorkerTick(reason = "timer") {
+  if (storyShotPlanWorkerRunning) return { skipped: true };
+  storyShotPlanWorkerRunning = true;
+  try {
+    return await runWithSchedulerLease("story-shot-plan-worker", async () => {
+      const result = await processStoryShotPlanQueue(1);
+      if (result.claimed) console.info("[story-shot-plan-worker]", JSON.stringify({ reason, ...result }));
+      return result;
+    }, {
+      connect: () => getSchedulerPool().connect(),
+      onError: (error) => console.error("[story-shot-plan-worker-lease-failed]", error.message || error),
+    });
+  } finally {
+    storyShotPlanWorkerRunning = false;
+  }
+}
+
+function startStoryShotPlanWorker() {
+  if (storyShotPlanWorkerTimer) return true;
+  storyShotPlanWorkerKickoffTimer = setTimeout(() => runStoryShotPlanWorkerTick("startup"), 1200);
+  storyShotPlanWorkerKickoffTimer.unref?.();
+  storyShotPlanWorkerTimer = setInterval(() => runStoryShotPlanWorkerTick("timer"), STORY_SHOT_PLAN_WORKER_INTERVAL_MS);
+  storyShotPlanWorkerTimer.unref?.();
+  return true;
+}
+
+function stopStoryShotPlanWorker() {
+  if (storyShotPlanWorkerKickoffTimer) clearTimeout(storyShotPlanWorkerKickoffTimer);
+  if (storyShotPlanWorkerTimer) clearInterval(storyShotPlanWorkerTimer);
+  storyShotPlanWorkerKickoffTimer = null;
+  storyShotPlanWorkerTimer = null;
 }
 
 async function planStoryEpisodeAssets({ project = {}, episode = {}, shots = [] } = {}) {
