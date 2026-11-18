@@ -181,7 +181,12 @@ test("admin UI provides ticket workstation and notification configuration", () =
   assert.match(supportBlock, /adminUnreadCount/);
   assert.match(supportBlock, /querySelector\("#ticketThread"\)/);
   assert.match(supportBlock, /submit\.disabled = true/);
+  assert.match(supportBlock, /classList\.add\("is-ticket-workspace"\)/);
+  assert.match(js, /classList\.remove\("is-ticket-workspace"\)/);
   assert.match(css, /\.adm-ticket-shell/);
+  assert.match(css, /\.adm-content\.is-ticket-workspace\s*\{\s*overflow:\s*hidden;\s*\}/);
+  assert.match(css, /\.adm-ticket-page\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+  assert.match(css, /\.adm-ticket-shell\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;/s);
   assert.match(css, /\.adm-ticket-bubble/);
   assert.match(css, /\.adm-notice-preview-panel/);
 });

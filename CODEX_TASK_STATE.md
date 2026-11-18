@@ -1,3 +1,10 @@
+## 2026-11-18 Step DZ: admin ticket page single-screen layout
+
+- Fixed the admin support-ticket workspace trapping users at the bottom of a double-scroll page. The route now marks `.adm-content` as `is-ticket-workspace`, removing outer-page scrolling while the ticket list and conversation thread keep their own bounded internal scrolling.
+- Added single-screen grid sizing and compacted the ticket header/toolbar. Desktop uses the full available admin height with `min-height: 0`; widths up to `860px` retain the existing vertical fallback.
+- Verification passed: `node --check admin.js`, `node --test test/support-notifications.test.js` (7/7), `npm run check:undef`, and `git diff --check`. Temporary 1280×720 and 1024×720 browser checks showed `scrollHeight === clientHeight` for the page body while ticket list/thread overflowed only inside their panels.
+- Pending: commit only `admin.css`, `admin.js`, `test/support-notifications.test.js`, and this state file; build/push the platform release and deploy Old-only via `scripts/deploy_local.sh --site old`. Unrelated `server.parts/part-45.js` remains untouched and excluded.
+
 ## 2026-11-17 Step DY: story release plus scoped-auth optimization integrated and regression-tested
 
 - A concurrent Old deployment from another Codex session completed before this integration work: active `4174` is release `acd72972` (story scoped-deletion release), hot backup `4175` is `fd6ff3ca`, and all three Nginx upstreams are back to deterministic primary `4174` plus `backup 4175` rather than weighted traffic. No process was interrupted or deployment file edited directly.
