@@ -768,16 +768,24 @@ function syncAdvancedResultTaskId() {
 
 function advancedResultHistoryFallbackRecords() {
   return (Array.isArray(state.historyRecords) ? state.historyRecords : [])
-    .filter((record) => (
-      isPendingGenerationRecord(record)
-      || isSucceededGenerationStatus(record?.status)
-      || generationVideoUrl(record)
-      || generationImageResultUrl(record)
-      || generationPosterUrl(record)
-      || record?.downloadUrl
-      || record?.textResult
-      || record?.responseText
-    ));
+    .filter((record) => {
+      const status = String(record?.status || "").toLowerCase();
+      const recordType = `${record?.source || ""} ${record?.kind || ""}`.toLowerCase();
+      // Failed Advanced tasks have no media yet, but they still belong in the
+      // Result list. Scope this exception to Advanced records so unrelated
+      // scene/home failures do not leak into this panel.
+      const failedAdvancedRecord = ["failed", "error", "cancelled", "canceled", "rejected"].includes(status)
+        && recordType.includes("advanced");
+      return isPendingGenerationRecord(record)
+        || isSucceededGenerationStatus(record?.status)
+        || failedAdvancedRecord
+        || generationVideoUrl(record)
+        || generationImageResultUrl(record)
+        || generationPosterUrl(record)
+        || record?.downloadUrl
+        || record?.textResult
+        || record?.responseText;
+    });
 }
 
 function advancedResultKind(record = {}) {

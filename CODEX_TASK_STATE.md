@@ -1,3 +1,11 @@
+## 2026-11-18 Step EH: Failed Advanced records remain visible after page reload
+
+- Reproduced with test01 on a fresh Chrome tab: `/api/generation-records` still includes `cgt-20261117151814-4ef410`, but the Result panel showed only the three successful records after reload. Clicking Refresh did not restore the failed row.
+- Root cause: `advancedResultHistoryFallbackRecords()` only admitted pending/successful records or records with media. A failed Advanced task has neither status nor media, so it disappeared on reload until an in-memory detail record existed.
+- Updated the fallback to include failed/error/cancelled/canceled/rejected records whose source/kind is Advanced, while still excluding unrelated home/scene failures.
+- Added regression coverage: `Advanced result history includes failed records without media`. Focused tests 2/2, syntax, `npm run check:undef`, and `git diff --check` pass. Full `advanced-custom-ui` is 33 pass / 12 baseline failures from unrelated WIP `server.parts/part-45.js`; do not commit that file.
+- Refund badge production verification before this follow-up: current test01 page had one `.advanced-result-refund-badge` element. Deployment of this visibility fix is pending.
+
 ## 2026-11-18 Step EG: Refund badge reads public billing shape
 
 - User reported failed records still had no refund badge. Root cause: `publicGenerationRecord()` exposes refund state as `record.billing.status`, while the result card only checked `record.billingStatus`, so refunded failures never matched.
