@@ -22,6 +22,10 @@ test("provider failures are translated into actionable Chinese messages", () => 
     publicGenerationErrorMessage("insufficient balance"),
     "生成额度不足，请充值或稍后再试。",
   );
+  assert.equal(
+    publicGenerationErrorMessage("not enough tokens for this request"),
+    "生成失败，本次如已扣积分会自动退回。请调整提示词或参考素材后重试，仍有问题请联系客服。",
+  );
 });
 
 test("friendly Chinese errors remain readable and URLs are stripped", () => {

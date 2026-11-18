@@ -202,7 +202,7 @@ function publicGenerationErrorMessage(value = "") {
   if (/rate.?limit|too many requests|429\b|限流|请求过于频繁/i.test(raw)) {
     return "当前生成请求较多，请稍后再试。";
   }
-  if (/insufficient|not enough|balance|credits? (?:insufficient|exhausted)|quota|payment|billing|402\b|余额|额度|欠费|积分不足/i.test(raw)) {
+  if (/insufficient (?:balance|credits?|quota)|balance (?:is )?(?:insufficient|low|zero)|not enough (?:balance|credits?|quota)|out of credits|quota exceeded|payment required|billing|402\b|余额|额度|欠费|积分不足/i.test(raw)) {
     return "生成额度不足，请充值或稍后再试。";
   }
   if (/timeout|timed out|etimedout|econnreset|socket hang up|network|fetch failed|eai_again|enotfound|502\b|503\b|504\b|网络|超时/i.test(raw)) {
