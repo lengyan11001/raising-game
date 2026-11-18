@@ -1,3 +1,12 @@
+## 2026-11-18 Step EN: Seedream 5.5 campaign entry and checkout flow
+
+- Added the Seedream 5.5 campaign card below the main sidebar navigation and a responsive campaign dialog. The local hero asset is byte-for-byte identical to the embedded image in `/Users/x042/Desktop/seedream5.5活动页设计.html` (1200x745, SHA-256 `161e9d760a7a29e184ede5b33ffdd273d6a686212c9181315e115510fe167d86`).
+- The modal layout, typography, colors, spacing, pricing, benefit cards, payment methods, countdown, close button, animation, and mobile breakpoint now map directly to the supplied design rather than an independently composed style. At 390x844 it renders as a 366.6px single-column modal with internal scrolling, no page-level horizontal overflow, and complete access to payment methods and terms.
+- Added campaign membership state, countdown, carousel infrastructure for future entries, login handling, Stripe checkout, success/cancel return handling, and single-activity dot suppression.
+- Added server-authoritative `seedream55-2026` checkout reservations and settlement/failure lifecycle handling through `POST /api/promo/seedream55/checkout`; the campaign is restricted to one membership purchase per account.
+- Verification passed: Seedream campaign tests `4/4`; workflow and side-navigation tests `44/44`; membership/Stripe tests `14/14`; `node --check` for changed client/server files, `npm run check:undef`, and `git diff --check`.
+- Source commit on `old-site`: `Add Seedream 5.5 campaign entry and checkout`. Deployment is still pending. Unrelated dirty file `server.parts/part-45.js` remains excluded from commit and release.
+
 ## 2026-11-18 Step EM: Desktop content aligns with the first navigation item
 
 - User clarification: desktop content must line up with the first sidebar item (`探索`), not stick under the top header. The generation form and Assets/Result panel must not remain pinned while scrolling.

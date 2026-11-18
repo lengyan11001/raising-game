@@ -43,7 +43,7 @@
   // React Flow is loaded as a deferred module. Bind its URL to an explicit
   // canvas version as well as the shell hash, otherwise a service worker or
   // stale edge cache can keep serving an older canvas bundle indefinitely.
-  const CANVAS_ASSET_VERSION = "login-modal-password-20261117-1";
+  const CANVAS_ASSET_VERSION = "seedream-campaign-20261118-3";
   const cacheSuffix = (() => {
     try {
       return new URL(baseUrl, window.location.href).search || "";

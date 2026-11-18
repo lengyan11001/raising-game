@@ -586,6 +586,8 @@ async function settleWalletOrderPaymentUnlocked(db, order, config, meta = {}) {
   const now = new Date().toISOString();
   if (order.promoCampaignId === ELEVEN_ELEVEN_PROMO.id) {
     await markPromotionPurchasePaidInDb({ campaignId: ELEVEN_ELEVEN_PROMO.id, orderId: order.id });
+  } else if (order.promoCampaignId === SEEDREAM55_CAMPAIGN.id) {
+    await markPromotionPurchasePaidInDb({ campaignId: SEEDREAM55_CAMPAIGN.id, orderId: order.id });
   }
   if (order.status === "paid") {
     return { settled: false, user: (db.users || []).find((u) => u.id === order.userId) || null };

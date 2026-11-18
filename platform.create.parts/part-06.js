@@ -344,6 +344,7 @@ function renderMembershipCard() {
   if (!els.membershipCard) return;
   els.membershipCard.hidden = !membershipProgramEnabled();
   if (els.topupMembershipLink) els.topupMembershipLink.hidden = !membershipProgramEnabled() || creatorMembershipActive();
+  if (typeof updateSeedreamCampaignMembership === "function") updateSeedreamCampaignMembership();
   if (!membershipProgramEnabled()) return;
   const active = creatorMembershipActive();
   if (els.membershipState) {
