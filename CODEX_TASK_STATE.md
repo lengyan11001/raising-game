@@ -2,7 +2,7 @@
 
 - Updated `nav.workflow` across all supported locales and the HTML fallback so the left main navigation reads Canvas / 画布 instead of Workflow / 工作流.
 - Locale labels: English `Canvas`, Vietnamese `Bảng vẽ`, Japanese `キャンバス`, Korean `캔버스`, Indonesian `Kanvas`, Chinese `画布`.
-- Verification: `node --check platform.copy.js`, all six translation entries inspected, `npm run check:undef`, and `git diff --check` passed. Deployment pending.
+- Verification: `node --check platform.copy.js`, all six translation entries inspected, `npm run check:undef`, and `git diff --check` passed. Source commit `264fc82c`; platform release `e9874da7` deployed Old-only through the required rolling entrypoint. Active port is `4174`; `/api/health` and `/api/readyz` return 200 with the new release marker, and production `platform.copy.js` contains all six translated `nav.workflow` labels.
 
 ## 2026-11-18 Step EJ: Refund badge covers independent History and canvas result surfaces
 
