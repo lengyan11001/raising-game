@@ -529,6 +529,7 @@ const {
   publicProviderLabel,
   publicGenerationDisplayLabel,
   publicModelText,
+  publicGenerationErrorMessage,
   publicModelKey,
   publicModelValue,
   slimGenerationRecordValue,
