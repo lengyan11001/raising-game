@@ -1,3 +1,14 @@
+## 2026-11-18 Step EM: Desktop content aligns with the first navigation item
+
+- User clarification: desktop content must line up with the first sidebar item (`探索`), not stick under the top header. The generation form and Assets/Result panel must not remain pinned while scrolling.
+- Removed the desktop sticky offset from `.advanced-form-card` and removed sticky/max-height/overflow behavior from `.advanced-side-panel`; both now stay in normal document flow.
+- Tuned the desktop `main` top offset to `-5px`, placing `探索`, generation form, and side panel at the same `55px` top on a 1895px-wide production viewport.
+- Fixed the remaining `#access` gap: the first token card had an `18px` top margin that collapsed through its parent. The access page's first token card now has `margin-top: 0`, and production measures `探索` and `.access-panel` at `55px`.
+- Production regression checks at `123vips.com`: history, characters, referral, chat, and access all align at `55px`; the cases page intentionally starts below its visible same-style selector. Generation scroll test moved form and side panel to `-546px` while the header stayed sticky, proving the panels no longer pin to the header.
+- The API documentation sidebar intentionally remains sticky inside the access page; its initial content still aligns with `探索`.
+- Source commits `fcc2b468` and `cc96e38e`; platform release `487e26e24a6bd68f41ea03dc3b78252851b97c98` deployed Old through the required rolling entrypoint. Active port is `4175`; production CSS hash observed as `5ce2760d128c`.
+- Verification passed: `node --check platform.ui.parts/part-01.js`, `git diff --check`, release snapshot build, rolling deployment, live DOM measurements, and visual screenshots. Unrelated dirty file `server.parts/part-45.js` remains excluded.
+
 ## 2026-11-18 Step EL: AI storyboard regeneration no longer waits behind Cloudflare
 
 - Production `projectId=story-1794927854882-c519d928`, `episodeId=dee36e55-0d23-4eaa-b85d-3b9a400424a9`: `POST /shots/plan` was held open while storyboard planning made three sequential AI calls. Nginx logged `499` after the client disconnected; the backend later reached `PROMPT_OPTIMIZER_UPSTREAM_TIMEOUT`/`503`, and Cloudflare surfaced `524`. A direct minimal Papaya request still returned `200` in about 1.1s, so this was request-duration/connection handling, not a dead provider.
