@@ -744,12 +744,18 @@ function storyAssetVariantClientView(variant = {}) {
   if (!variant || typeof variant !== "object") return variant;
   const metadata = variant.metadata && typeof variant.metadata === "object" ? { ...variant.metadata } : {};
   const generationRecordId = String(metadata.generationRecordId || "").trim();
-  const mediaUrl = generationRecordId ? adminGenerationMediaUrl(generationRecordId) : "";
+  const status = String(variant.status || "").toLowerCase();
+  const mediaReady = !["generating", "failed", "error", "canceled", "cancelled"].includes(status);
+  const mediaUrl = generationRecordId && mediaReady ? adminGenerationMediaUrl(generationRecordId) : "";
   if (mediaUrl) metadata.mediaUrl = mediaUrl;
+  else if (!mediaReady) {
+    delete metadata.mediaUrl;
+    delete metadata.imageUrl;
+  }
   return {
     ...variant,
     metadata,
-    mediaUrl: mediaUrl || String(variant.mediaUrl || metadata.mediaUrl || metadata.imageUrl || ""),
+    mediaUrl: mediaReady ? mediaUrl || String(variant.mediaUrl || metadata.mediaUrl || metadata.imageUrl || "") : "",
   };
 }
 
