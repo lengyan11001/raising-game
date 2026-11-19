@@ -173,7 +173,9 @@
   function cacheElements() {
     Object.assign(els, {
       reminder: byId("couponReminderBar"),
+      reminderIcon: byId("couponReminderIcon"),
       reminderTitle: byId("couponReminderTitle"),
+      reminderBadge: byId("couponReminderBadge"),
       reminderText: byId("couponReminderText"),
       reminderAction: byId("couponReminderAction"),
       dialog: byId("couponClaimDialog"),
@@ -314,25 +316,35 @@
     const coupon = entry.coupon;
     const pending = entry.type === "pending";
     const threshold = money(coupon.threshold ?? DEFAULT_COUPON.threshold);
+    els.reminder.classList.toggle("is-pending", pending);
+    els.reminder.classList.toggle("is-claimed", !pending);
+    if (els.reminderIcon) els.reminderIcon.textContent = pending ? "🎟" : "✓";
     if (els.reminderTitle) {
       els.reminderTitle.textContent = pending
         ? copy("$5 new-user coupon", "$5 新用户券")
         : copy("$5 coupon claimed", "$5 现金券已领");
     }
+    if (els.reminderBadge) {
+      els.reminderBadge.hidden = pending;
+      els.reminderBadge.textContent = copy("Use soon", "尽快使用");
+    }
     if (els.reminderText) {
-      els.reminderText.textContent = pending
-        ? copy(
+      els.reminderText.innerHTML = pending
+        ? safeHtml(copy(
             `${money(coupon.face_value ?? DEFAULT_COUPON.face_value)} off orders over ${threshold}`,
             `满 ${threshold} 可用 · 待领取`,
-          )
+          ))
         : copy(
-            `${countdownDetailText(coupon.expire_at)} left · Orders over ${threshold}`,
-            `剩余 ${countdownDetailText(coupon.expire_at)} · 满 ${threshold} 可用`,
+            `Remaining <b>${countdownDetailText(coupon.expire_at)}</b> · Orders over ${threshold}`,
+            `剩余 <b>${countdownDetailText(coupon.expire_at)}</b> · 满 ${threshold} 可用`,
           );
     }
-    if (els.reminderAction) els.reminderAction.textContent = pending
-      ? copy("Claim", "立即领取")
-      : copy("Use coupon", "去使用");
+    if (els.reminderAction) {
+      els.reminderAction.textContent = pending
+        ? copy("Claim", "立即领取")
+        : copy("Use coupon", "去使用");
+      els.reminderAction.classList.toggle("is-primary", pending);
+    }
   }
 
   function couponCenterStatus(coupon = {}) {
@@ -468,6 +480,8 @@
     const threshold = money(coupon.threshold ?? DEFAULT_COUPON.threshold);
     const pending = entry.type === "pending";
     els.topupEntry.hidden = false;
+    els.topupEntry.classList.toggle("is-pending", pending);
+    els.topupEntry.classList.toggle("is-claimed", !pending);
     els.topupEntry.innerHTML = `
       <div class="coupon-topup-icon" aria-hidden="true">${pending ? "🎟" : "✓"}</div>
       <div class="coupon-topup-copy">
@@ -475,9 +489,9 @@
           <strong>${safeHtml(pending ? copy("New-user coupon", "新用户专享券") : copy("$5 cash coupon claimed", "$5 现金券已领"))}</strong>
           <span>${safeHtml(pending ? copy(`${face} OFF`, `${face} 立减`) : copy("Use soon", "尽快使用"))}</span>
         </div>
-        <small data-coupon-entry-desc>${safeHtml(pending
-          ? copy(`Orders over ${threshold}. Valid for 7 days after claiming.`, `满 ${threshold} 可用 · 领取后 7 天有效`)
-          : copy(`${countdownDetailText(coupon.expire_at)} left · Orders over ${threshold}`, `剩余 ${countdownDetailText(coupon.expire_at)} · 满 ${threshold} 可用`))}</small>
+        <small data-coupon-entry-desc>${pending
+          ? safeHtml(copy(`Orders over ${threshold}. Valid for 7 days after claiming.`, `满 ${threshold} 可用 · 领取后 7 天有效`))
+          : copy(`Remaining <b>${countdownDetailText(coupon.expire_at)}</b> · Orders over ${threshold}`, `剩余 <b>${countdownDetailText(coupon.expire_at)}</b> · 满 ${threshold} 可用`)}</small>
       </div>
       <button class="coupon-topup-btn ${pending ? "is-primary" : ""}" type="button" data-coupon-entry-action>
         ${safeHtml(pending ? copy("Claim now", "立即领取") : copy("Use coupon", "去使用"))}

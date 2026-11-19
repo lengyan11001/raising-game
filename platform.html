@@ -8,9 +8,9 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=coupon-20261119-9" />
-    <link rel="stylesheet" href="./platform.checkin.css?v=coupon-20261119-9" />
-    <link rel="stylesheet" href="./platform.coupon.css?v=coupon-20261119-9" />
+    <link rel="stylesheet" href="./platform.css?v=coupon-20261119-10" />
+    <link rel="stylesheet" href="./platform.checkin.css?v=coupon-20261119-10" />
+    <link rel="stylesheet" href="./platform.coupon.css?v=coupon-20261119-10" />
     <link rel="stylesheet" href="./platform.prompt-editor.css?v=main-site-compat-20261111-1" />
     <script src="./platform.vitals.js?v=main-site-compat-20261111-1" defer></script>
     <script>
@@ -1771,10 +1771,13 @@
     <script>
       window.VIPEAK_PROMPT_EDITOR_MODE = "rich";
     </script>
-    <div class="coupon-reminder" id="couponReminderBar" hidden>
-      <div class="coupon-reminder-icon" aria-hidden="true">🎟</div>
+    <div class="coupon-reminder is-pending" id="couponReminderBar" hidden>
+      <div class="coupon-reminder-icon" id="couponReminderIcon" aria-hidden="true">🎟</div>
       <div class="coupon-reminder-copy">
-        <strong id="couponReminderTitle">New user coupon</strong>
+        <div class="coupon-reminder-heading">
+          <strong id="couponReminderTitle">New user coupon</strong>
+          <span class="coupon-reminder-badge" id="couponReminderBadge" hidden>Use soon</span>
+        </div>
         <span id="couponReminderText">Claim it before topping up.</span>
       </div>
       <button class="coupon-reminder-action" id="couponReminderAction" type="button">Claim</button>
@@ -1799,6 +1802,6 @@
       </section>
     </dialog>
 
-    <script src="./platform.js?v=coupon-20261119-9"></script>
+    <script src="./platform.js?v=coupon-20261119-10"></script>
   </body>
 </html>

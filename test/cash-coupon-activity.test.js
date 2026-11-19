@@ -387,7 +387,8 @@ test("cash coupon uses the approved popup, reminder, and top-up entry surfaces",
   assert.match(frontend, /pending\s*\? copy\("Claim", "立即领取"\)\s*: copy\("Use coupon", "去使用"\)/);
   assert.match(frontend, /function renderCouponTopupEntry/);
   assert.match(frontend, /function countdownDetailText/);
-  assert.match(frontend, /剩余 \$\{countdownDetailText\(coupon\.expire_at\)\}/);
+  assert.match(frontend, /剩余 <b>\$\{countdownDetailText\(coupon\.expire_at\)\}<\/b> · 满 \$\{threshold\} 可用/);
+  assert.match(css, /\.coupon-reminder\s*\{[^}]*width:\s*min\(352px, calc\(100vw - 28px\)\)/);
   assert.match(frontend, /if \(isHomeTab\(\)\) showCouponDialog\(\)/);
   assert.match(frontend, /coupon_expired_notice_shown/);
   assert.match(frontend, /function claimCoupon/);
@@ -520,8 +521,8 @@ test("coupon email reminders are register-only, deliver useful content, and use 
 });
 
 test("coupon assets are exposed by the runtime and release snapshot", () => {
-  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-9/);
-  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-9/);
+  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-10/);
+  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-10/);
   assert.match(read("platform.js"), /"platform\.coupon\.js"/);
   assert.match(read("server.parts/part-01.js"), /"platform\.coupon\.css"/);
   assert.match(read("site-http.js"), /"\/platform\.coupon\.css"/);

@@ -1,3 +1,9 @@
+## 2026-11-19 Step FB: Cash coupon UI matched directly to supplied design
+
+- The claimed persistent reminder was still a wide custom pill. It is now the supplied 352px coupon card: 13px/15px padding, 38px green check icon, 12.5px title, green `尽快使用` badge, 10.5px countdown row, and ghost `去使用` action. The pending reminders remain the supplied 999px pill.
+- The claimed Top Up coupon card was aligned to the package values: 352px width, 13px gap, 13px/15px padding, 12px/800 action text, and the package shadow. The claim and claim-success dialogs already used the supplied 396px card values; all three states were rendered locally and compared against the screenshots.
+- Cache version is now `coupon-20261119-10`. Verification passed: `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, coupon tests `19/19`, check-in tests `12/12`, and scoped `git diff --check`.
+
 ## 2026-11-19 Step FA: Coupon entry on 123vip.fans landing
 
 - User reports `test01` still cannot see the coupon entry after refresh. Browser inspection shows the signed-in `https://123vip.fans/#home` landing page renders `Create` but has no coupon reminder, while `https://123vips.com/` already shows the claimed coupon entry.
@@ -5248,6 +5254,15 @@ CODEX_TASK_STATE.md
 - Fixed reminder-query starvation by excluding coupons whose final pending/expiry reminder was already sent from the oldest-100 candidate window. Also moved coupon reminders outside the generic scheduler gate so they run on promoted HTTP instances while every tick remains PostgreSQL-leased. Source commit `75b8546e68de06a4b8b60bc16715c47a34a9ed28`; platform release `9e157a6bf2618d0f7a25b4075902bd30ef062bf6`; pushed only `old-site` and `platform-release`. Old-only rolling deploy completed with `OLD_ROLLING_DEPLOY_OK active_port=4175 release=9e157a6b...`.
 - Production verification: `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; `/platform.coupon.css` and `/platform.coupon.js` return `200`; anonymous `/api/coupon/list` returns `401`; PostgreSQL contains `coupon_template`, `user_coupon`, and `coupon_email_reminder`; `app_catalog_migration_state` contains `2026-11-19-cash-coupon-v1`; `NEWUSER_30_5OFF` template exists.
 - Existing unrelated dirty story/optimizer files remain excluded from both coupon commits and the release.
+
+## 2026-11-19 Step EW: Adult story source-action coverage gate (in progress)
+
+- Offline Plan 7 (`/tmp/story-adult-plan-7.json`) produced 24 shots / 181 seconds with complete dialogue, speaker, timing and beat audits, but it is not production-ready.
+- Confirmed duplicate: S14 repeats the touch/setup already performed by S13 before S15 starts the actual next action.
+- Confirmed missing ending: S24 stops after `拉起裙子` and drops `找了卷卫生纸擦了擦湿乎乎的下身`.
+- More important gap: the existing narrative audit only proves beat/dialogue grounding, not source-action coverage. Key continuous actions from P02-P04, P06, P10-P12, P18, P20-P24, P26, P28 and P29 are absent from the executable shot list.
+- Current fix target: add clause-level source-action extraction/audit, insert missing action shots in source order, then rerun duplicate, location, timing, dialogue and grounding audits before accepting a plan.
+- No deployment and no production project/database writes are allowed in this step. Continue only with local source, tests, and read-only model audit outputs.
 
 ## 2026-11-19 Step EV: Adult story end-to-end validation (in progress)
 
