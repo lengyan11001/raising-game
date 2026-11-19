@@ -1,9 +1,18 @@
+## 2026-11-19 Step FE: Add canvas results to the asset library
+
+- Canvas image/video result nodes now expose an add-to-assets action immediately before download. The action is enabled only when the result node has a generation `taskId` and reuses the existing owner-scoped `POST /api/generation-records/:taskId/add-asset` endpoint.
+- Added `window.addWorkflowNodeResultToAssets(nodeId)`: it handles the request, updates `state.userAssets` immediately, reports already-added results idempotently, and logs a user-facing failure without changing the generation result.
+- Updated the shared React node layout, image/video result nodes, canvas CSS, compiled `workflow-react/dist/canvas.js`, and workflow regression coverage. Generation nodes remain unchanged with no asset action.
+- Verification passed: workflow canvas suite `41/41`, `node --check platform.ui.parts/part-06.js`, `npm run check:undef`, production webpack build (existing size warnings only), and scoped `git diff --check`. Deployment is pending.
+
 ## 2026-11-19 Step FD: Refresh keeps claimed coupon entry visible immediately
 
 - Reproduced the reported disappearance on `123vips.com`: after a full refresh, `test01` was signed in and `/api/coupon/list` still returned the valid status-1 coupon, but `#couponReminderBar` and `#couponTopupEntry` stayed hidden until the 30-second coupon poll ran.
 - Root cause was initialization order. `platform.coupon.js` ran its first account sync before `bootstrap()/loadMe()` restored `state.user`; `setUser()` did not notify the coupon module, so the entry waited for the next scheduled poll.
 - `platform.ui.parts/part-01.js` now forces `window.refreshCouponSession({ force: true })` whenever `setUser()` detects a changed user. Login, refresh/session restore, logout, and account switching therefore update the coupon entry immediately without changing claim, lock, payment, settlement, or expiry workflows.
 - Added cash-coupon regression coverage for the session-restore hook. Focused checks passed: syntax checks, undefined-reference check, cash-coupon tests `21/21`, check-in tests `12/12`, and scoped `git diff --check`.
+- Source commit `c08e80c6` was pushed to `old-site`; platform release `1189666b` was built from it and pushed only to `platform-release`. `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK`; Old is active on port 4175 serving release `1189666b95c3cdcf33139af5719fdd663f938bf3`.
+- Production health is healthy. A full `test01` browser refresh now shows both the claimed reminder and top-up coupon entry immediately after `test01` restores, without waiting for the 30-second poll. Three consecutive production refreshes on `https://123vips.com/` and a refresh on `https://123vip.fans/#home` all kept both entries visible.
 
 ## 2026-11-19 Step FC: Pending-payment coupon remains visible
 
