@@ -2,7 +2,6 @@
   "use strict";
 
   const MODAL_SHOWN_KEY = "coupon_modal_shown_date";
-  const REMINDER_DISMISSED_KEY = "coupon_reminder_dismissed_date";
   const EXPIRED_NOTICE_KEY_PREFIX = "coupon_expired_notice_shown";
   const DEFAULT_COUPON = Object.freeze({ face_value: 500, threshold: 3000, scope: "recharge,membership" });
 
@@ -177,7 +176,6 @@
       reminderTitle: byId("couponReminderTitle"),
       reminderText: byId("couponReminderText"),
       reminderAction: byId("couponReminderAction"),
-      reminderClose: byId("couponReminderClose"),
       dialog: byId("couponClaimDialog"),
       dialogBody: byId("couponDialogBody"),
       topupEntry: byId("couponTopupEntry"),
@@ -309,25 +307,32 @@
 
   function renderCouponReminder() {
     if (!els.reminder) return;
-    const coupon = pendingCoupon();
-    const dismissedToday = readStorage(REMINDER_DISMISSED_KEY) === shanghaiDateKey();
-    const visible = Boolean(isHomeTab() && coupon && !dismissedToday && !els.dialog?.open && !els.centerDialog?.open);
+    const entry = couponEntryState();
+    const visible = Boolean(isHomeTab() && entry && !els.dialog?.open && !els.centerDialog?.open);
     els.reminder.hidden = !visible;
-    if (!visible || !coupon) return;
+    if (!visible || !entry) return;
+    const coupon = entry.coupon;
+    const pending = entry.type === "pending";
     const threshold = money(coupon.threshold ?? DEFAULT_COUPON.threshold);
-    if (els.reminderTitle) els.reminderTitle.textContent = copy("$5 new-user coupon", "$5 新用户券");
-    if (els.reminderText) {
-      els.reminderText.textContent = copy(
-        `${money(coupon.face_value ?? DEFAULT_COUPON.face_value)} off orders over ${threshold}`,
-        `满 ${threshold} 可用 · 待领取`,
-      );
+    if (els.reminderTitle) {
+      els.reminderTitle.textContent = pending
+        ? copy("$5 new-user coupon", "$5 新用户券")
+        : copy("$5 coupon claimed", "$5 现金券已领");
     }
-    if (els.reminderAction) els.reminderAction.textContent = copy("Claim", "立即领取");
-  }
-
-  function dismissCouponReminder() {
-    writeStorage(REMINDER_DISMISSED_KEY, shanghaiDateKey());
-    renderCouponReminder();
+    if (els.reminderText) {
+      els.reminderText.textContent = pending
+        ? copy(
+            `${money(coupon.face_value ?? DEFAULT_COUPON.face_value)} off orders over ${threshold}`,
+            `满 ${threshold} 可用 · 待领取`,
+          )
+        : copy(
+            `${countdownDetailText(coupon.expire_at)} left · Orders over ${threshold}`,
+            `剩余 ${countdownDetailText(coupon.expire_at)} · 满 ${threshold} 可用`,
+          );
+    }
+    if (els.reminderAction) els.reminderAction.textContent = pending
+      ? copy("Claim", "立即领取")
+      : copy("Use coupon", "去使用");
   }
 
   function couponCenterStatus(coupon = {}) {
@@ -342,7 +347,7 @@
   function renderCouponCenterNav() {
     const signedIn = Boolean(appUser()?.id);
     if (els.centerNav) els.centerNav.hidden = !signedIn;
-    if (els.centerNavDot) els.centerNavDot.hidden = !signedIn || !hasPendingCoupon();
+    if (els.centerNavDot) els.centerNavDot.hidden = !signedIn || !couponEntryState();
     if (els.centerNavLabel) els.centerNavLabel.textContent = copy("Coupon center", "券中心");
     if (els.centerTitle) els.centerTitle.textContent = copy("Coupon center", "券中心");
     if (els.centerSubtitle) {
@@ -702,6 +707,7 @@
         `剩余 ${countdownDetailText(active.expire_at)} · 满 ${threshold} 可用`,
       );
     }
+    if (isHomeTab() && active) renderCouponReminder();
     if (!active && ui.available.length) {
       ui.available = [];
       refreshCouponTopupEntry();
@@ -768,17 +774,13 @@
     els.reminderAction?.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      showCouponDialog({ force: true });
+      if (pendingCoupon()) showCouponDialog({ force: true });
+      else goTopupWithCoupon();
     });
     els.reminder?.addEventListener("click", (event) => {
-      if (event.target === els.reminderClose || els.reminderClose?.contains(event.target)) return;
       if (event.target === els.reminderAction || els.reminderAction?.contains(event.target)) return;
-      showCouponDialog({ force: true });
-    });
-    els.reminderClose?.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      dismissCouponReminder();
+      if (pendingCoupon()) showCouponDialog({ force: true });
+      else goTopupWithCoupon();
     });
     els.dialog.addEventListener("close", () => {
       ui.claimedThisOpen = false;
