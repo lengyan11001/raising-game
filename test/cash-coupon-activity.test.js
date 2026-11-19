@@ -351,10 +351,10 @@ test("frontend coupon center shows review coupons, red dots pending coupons, and
   assert.equal(context.dateKey(new Date("2026-11-19T15:59:59.000Z")), "2026-11-19");
   assert.equal(context.dateKey(new Date("2026-11-19T16:00:00.000Z")), "2026-11-20");
   assert.match(frontend, /coupon_modal_shown_date/);
-  assert.match(frontend, /coupon_reminder_dismissed_date/);
+  assert.doesNotMatch(frontend, /coupon_reminder_dismissed_date/);
   assert.match(frontend, /const available = ui\.available\.filter\(\(coupon\) => Number\(coupon\.status\) === 1\)/);
   assert.match(frontend, /if \(coupon\.risk_review\)[\s\S]*Under review[\s\S]*审核中/);
-  assert.match(frontend, /els\.centerNavDot\.hidden = !signedIn \|\| !hasPendingCoupon\(\)/);
+  assert.match(frontend, /els\.centerNavDot\.hidden = !signedIn \|\| !couponEntryState\(\)/);
   assert.match(frontend, /if \(!coupon \|\| Number\(coupon\.status\) !== 1 \|\| coupon\.risk_review\) return false/);
 });
 
@@ -377,10 +377,13 @@ test("cash coupon uses the approved popup, reminder, and top-up entry surfaces",
   assert.match(html, /id="couponClaimDialog"/);
   assert.match(html, /id="couponDialogBody"/);
   assert.match(html, /id="couponReminderBar"/);
+  assert.doesNotMatch(html, /id="couponReminderClose"/);
   assert.match(html, /data-coupon-action="dismiss" type="button" aria-label="Close">✕</);
   assert.match(frontend, /function showCouponDialog/);
   assert.match(frontend, /function isHomeTab/);
   assert.match(frontend, /function renderCouponReminder/);
+  assert.match(frontend, /const entry = couponEntryState\(\);\s*const visible = Boolean\(isHomeTab\(\) && entry && !els\.dialog\?\.open && !els\.centerDialog\?\.open\)/);
+  assert.match(frontend, /pending\s*\? copy\("Claim", "立即领取"\)\s*: copy\("Use coupon", "去使用"\)/);
   assert.match(frontend, /function renderCouponTopupEntry/);
   assert.match(frontend, /function countdownDetailText/);
   assert.match(frontend, /剩余 \$\{countdownDetailText\(coupon\.expire_at\)\}/);
@@ -516,8 +519,8 @@ test("coupon email reminders are register-only, deliver useful content, and use 
 });
 
 test("coupon assets are exposed by the runtime and release snapshot", () => {
-  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-7/);
-  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-7/);
+  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-8/);
+  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-8/);
   assert.match(read("platform.js"), /"platform\.coupon\.js"/);
   assert.match(read("server.parts/part-01.js"), /"platform\.coupon\.css"/);
   assert.match(read("site-http.js"), /"\/platform\.coupon\.css"/);

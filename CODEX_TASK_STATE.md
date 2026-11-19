@@ -1,3 +1,9 @@
+## 2026-11-19 Step EY: Cash coupon entry remains until use
+
+- User clarified that the cash-coupon entry is persistent and only disappears after the coupon is used/expired, not after it is viewed. The homepage bottom coupon entry no longer stores a daily dismissal or renders a close button.
+- Pending coupons show `立即领取`; claimed, active coupons keep the same entry visible with a live countdown and `去使用`. Used, locked, or expired coupons no longer produce an entry. The account-menu coupon red dot follows the same pending-or-active lifetime.
+- Cache version is now `coupon-20261119-8`. Focused coupon/check-in/workflow/migration tests pass `80/80`; syntax checks, `npm run check:undef`, and scoped `git diff --check` pass.
+
 ## 2026-11-19 Step EX: Cash coupon center moved into account wallet menu
 
 - Re-checked the supplied interactive design at `03.html`. The approved cash-coupon surfaces are the home claim dialog, the bottom reminder bar, the Top Up title-area coupon card, and the wallet/sidebar coupon center. There is no main-navigation activity button.
