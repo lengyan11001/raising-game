@@ -29,6 +29,7 @@ SHARED_APP_FILES = (
     "platform.html",
     "platform.css",
     "platform.checkin.css",
+    "platform.coupon.css",
     "checkin-core.js",
     "platform.prompt-editor.css",
     "platform.js",

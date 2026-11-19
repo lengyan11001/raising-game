@@ -1020,6 +1020,58 @@ async function ensureSchemaInner({ client = null } = {}) {
       WHERE paypal_order_id <> '';
   `);
   await run(`
+    CREATE TABLE IF NOT EXISTS coupon_template (
+      id BIGSERIAL PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      type SMALLINT NOT NULL DEFAULT 1,
+      face_value INTEGER NOT NULL,
+      currency CHAR(3) NOT NULL DEFAULT 'USD',
+      threshold INTEGER NOT NULL,
+      promo_threshold INTEGER NOT NULL DEFAULT 0,
+      scope TEXT NOT NULL DEFAULT 'recharge,membership',
+      valid_days INTEGER NOT NULL DEFAULT 7,
+      claim_expire SMALLINT NOT NULL DEFAULT 0,
+      stackable SMALLINT NOT NULL DEFAULT 0,
+      grant_source TEXT NOT NULL DEFAULT 'register',
+      status SMALLINT NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`
+    INSERT INTO coupon_template
+      (code, name, type, face_value, currency, threshold, promo_threshold, scope, valid_days, claim_expire, stackable, grant_source, status)
+    VALUES
+      ('NEWUSER_30_5OFF', '新用户专享券', 1, 500, 'USD', 3000, 0, 'recharge,membership', 7, 0, 0, 'register', 1)
+    ON CONFLICT (code) DO NOTHING;
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS user_coupon (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      template_id BIGINT NOT NULL REFERENCES coupon_template(id),
+      code TEXT NOT NULL UNIQUE,
+      status SMALLINT NOT NULL DEFAULT 0,
+      granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      claimed_at TIMESTAMPTZ,
+      expire_at TIMESTAMPTZ,
+      lock_order_no TEXT,
+      lock_expire_at TIMESTAMPTZ,
+      used_at TIMESTAMPTZ,
+      used_order_no TEXT,
+      used_scene TEXT,
+      discount_amount INTEGER,
+      risk_flag SMALLINT NOT NULL DEFAULT 0,
+      grant_source TEXT NOT NULL DEFAULT 'register',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS user_coupon_user_template_uidx ON user_coupon (user_id, template_id);`);
+  await run(`CREATE INDEX IF NOT EXISTS user_coupon_user_status_idx ON user_coupon (user_id, status, expire_at);`);
+  await run(`CREATE INDEX IF NOT EXISTS user_coupon_expire_idx ON user_coupon (status, expire_at) WHERE expire_at IS NOT NULL;`);
+  await run(`CREATE INDEX IF NOT EXISTS user_coupon_source_status_idx ON user_coupon (grant_source, status);`);
+  await run(`CREATE INDEX IF NOT EXISTS user_coupon_lock_idx ON user_coupon (status, lock_expire_at) WHERE status = 2;`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_referral_withdrawals (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -3084,7 +3136,12 @@ async function createManualWalletOrderInDb({ order = {}, suffixDigits = 6, maxAt
     const suffixNumber = Math.floor(Math.random() * 9999) + 1;
     const suffix = `00${String(suffixNumber).padStart(4, "0")}`;
     const baseAmount = Math.max(1, Math.round(Number(order.baseAmount || 0)));
-    const payableAmountText = `${baseAmount}.${suffix}`;
+    const explicitPayCents = Number(order.payAmountCents);
+    const paymentBaseCents = Number.isFinite(explicitPayCents)
+      ? Math.max(1, Math.round(explicitPayCents))
+      : baseAmount * 100;
+    const paymentBaseAmount = paymentBaseCents / 100;
+    const payableAmountText = `${paymentBaseAmount}.${suffix}`;
     const next = {
       ...order,
       baseAmount,
@@ -4158,6 +4215,444 @@ async function getWalletOrderByPaypalIdInDb(paypalOrderId = "") {
   await ensureSchema();
   const { rows } = await query(`SELECT * FROM app_wallet_orders WHERE paypal_order_id = $1`, [id]);
   return rows[0] ? walletOrderFromRow(rows[0]) : null;
+}
+
+function couponDbInstant(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+}
+
+function couponFromRow(row = {}) {
+  const baseThreshold = Number(row.threshold ?? 0);
+  const promoThreshold = Number(row.promo_threshold ?? 0);
+  const threshold = Number(row.effective_threshold ?? (promoThreshold > 0 ? promoThreshold : baseThreshold));
+  return {
+    couponId: String(row.id || row.coupon_id || ""),
+    id: String(row.id || row.coupon_id || ""),
+    userId: String(row.user_id || ""),
+    templateId: String(row.template_id || ""),
+    code: String(row.code || ""),
+    title: String(row.template_name || row.title || row.name || "现金抵扣券"),
+    name: String(row.template_name || row.title || row.name || "现金抵扣券"),
+    status: Number(row.status || 0),
+    faceValue: Number(row.face_value || 0),
+    currency: String(row.currency || "USD"),
+    threshold,
+    baseThreshold,
+    promoThreshold,
+    scope: String(row.scope || ""),
+    validDays: Number(row.valid_days || 0),
+    grantedAt: couponDbInstant(row.granted_at),
+    claimedAt: couponDbInstant(row.claimed_at),
+    expireAt: couponDbInstant(row.expire_at),
+    lockOrderNo: String(row.lock_order_no || ""),
+    lockExpireAt: couponDbInstant(row.lock_expire_at),
+    usedAt: couponDbInstant(row.used_at),
+    usedOrderNo: String(row.used_order_no || ""),
+    usedScene: String(row.used_scene || ""),
+    discountAmount: row.discount_amount == null ? null : Number(row.discount_amount),
+    riskFlag: Number(row.risk_flag || 0) === 1,
+    grantSource: String(row.grant_source || ""),
+  };
+}
+
+function couponTemplateFromRow(row = {}) {
+  return {
+    id: String(row.id || ""),
+    code: String(row.code || ""),
+    name: String(row.name || ""),
+    type: Number(row.type || 1),
+    faceValue: Number(row.face_value || 0),
+    currency: String(row.currency || "USD"),
+    threshold: Number(row.threshold || 0),
+    promoThreshold: Number(row.promo_threshold || 0),
+    effectiveThreshold: Number(row.promo_threshold || 0) > 0 ? Number(row.promo_threshold) : Number(row.threshold || 0),
+    scope: String(row.scope || ""),
+    validDays: Number(row.valid_days || 7),
+    claimExpire: Number(row.claim_expire || 0),
+    stackable: Number(row.stackable || 0) === 1,
+    grantSource: String(row.grant_source || "register"),
+    status: Number(row.status || 0),
+    createdAt: couponDbInstant(row.created_at),
+  };
+}
+
+async function getCouponTemplateByCodeInDb(code = "") {
+  if (!dbEnabled()) return null;
+  const cleanCode = String(code || "").trim();
+  if (!cleanCode) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM coupon_template WHERE code = $1 LIMIT 1`, [cleanCode]);
+  return rows[0] ? couponTemplateFromRow(rows[0]) : null;
+}
+
+async function issueCouponInDb({
+  userId = "",
+  templateCode = "NEWUSER_30_5OFF",
+  grantSource = "register",
+} = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanTemplateCode = String(templateCode || "").trim();
+  if (!cleanUserId || !cleanTemplateCode) return null;
+  await ensureSchema();
+  const couponId = `coupon_${crypto.randomUUID()}`;
+  const couponCode = `CP${crypto.randomBytes(8).toString("hex").toUpperCase()}`;
+  const source = String(grantSource || "register").trim().slice(0, 32) || "register";
+  await query(`
+    INSERT INTO user_coupon (id, user_id, template_id, code, status, granted_at, grant_source, created_at)
+    SELECT $1, $2, t.id, $3, 0, NOW(), $4, NOW()
+    FROM coupon_template t
+    WHERE t.code = $5 AND t.status = 1
+    ON CONFLICT (user_id, template_id) DO NOTHING
+  `, [couponId, cleanUserId, couponCode, source, cleanTemplateCode]);
+  const { rows } = await query(`
+    SELECT c.*, t.name AS template_name, t.face_value, t.currency, t.threshold,
+           t.promo_threshold, t.scope, t.valid_days,
+           CASE WHEN t.promo_threshold > 0 THEN t.promo_threshold ELSE t.threshold END AS effective_threshold
+    FROM user_coupon c
+    JOIN coupon_template t ON t.id = c.template_id
+    WHERE c.user_id = $1 AND t.code = $2
+    LIMIT 1
+  `, [cleanUserId, cleanTemplateCode]);
+  return rows[0] ? couponFromRow(rows[0]) : null;
+}
+
+async function releaseExpiredCouponLocksInDb(userId = "") {
+  if (!dbEnabled()) return;
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return;
+  await query(`
+    UPDATE user_coupon
+    SET status = CASE WHEN expire_at IS NOT NULL AND expire_at <= NOW() THEN 4 ELSE 1 END,
+        lock_order_no = NULL,
+        lock_expire_at = NULL
+    WHERE user_id = $1
+      AND status = 2
+      AND lock_expire_at IS NOT NULL
+      AND lock_expire_at <= NOW()
+  `, [cleanUserId]);
+  await query(`
+    UPDATE user_coupon
+    SET status = 4
+    WHERE user_id = $1 AND status = 1 AND expire_at IS NOT NULL AND expire_at <= NOW()
+  `, [cleanUserId]);
+}
+
+async function listUserCouponsInDb(userId = "") {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return null;
+  await ensureSchema();
+  await releaseExpiredCouponLocksInDb(cleanUserId);
+  const { rows } = await query(`
+    SELECT c.*, t.name AS template_name, t.face_value, t.currency, t.threshold,
+           t.promo_threshold, t.scope, t.valid_days,
+           CASE WHEN t.promo_threshold > 0 THEN t.promo_threshold ELSE t.threshold END AS effective_threshold
+    FROM user_coupon c
+    JOIN coupon_template t ON t.id = c.template_id
+    WHERE c.user_id = $1
+    ORDER BY c.granted_at ASC
+  `, [cleanUserId]);
+  return rows.map(couponFromRow);
+}
+
+async function claimUserCouponInDb(userId = "", couponId = "") {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanCouponId = String(couponId || "").trim();
+  if (!cleanUserId || !cleanCouponId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const current = await client.query(`
+      SELECT c.*, t.name AS template_name, t.face_value, t.currency, t.threshold,
+             t.promo_threshold, t.scope, t.valid_days,
+             CASE WHEN t.promo_threshold > 0 THEN t.promo_threshold ELSE t.threshold END AS effective_threshold
+      FROM user_coupon c
+      JOIN coupon_template t ON t.id = c.template_id
+      WHERE c.id = $1 AND c.user_id = $2
+      FOR UPDATE OF c
+    `, [cleanCouponId, cleanUserId]);
+    let row = current.rows[0];
+    if (!row) {
+      await client.query("ROLLBACK");
+      const error = new Error("Coupon not found.");
+      error.code = "COUPON_NOT_FOUND";
+      error.statusCode = 404;
+      throw error;
+    }
+    if (Number(row.status) === 0) {
+      const claimed = await client.query(`
+        UPDATE user_coupon c
+        SET status = 1,
+            claimed_at = NOW(),
+            expire_at = NOW() + make_interval(days => t.valid_days)
+        FROM coupon_template t
+        WHERE c.id = $1 AND c.user_id = $2 AND c.status = 0 AND t.id = c.template_id
+        RETURNING c.*
+      `, [cleanCouponId, cleanUserId]);
+      row = { ...row, ...claimed.rows[0] };
+    } else if (Number(row.status) !== 1) {
+      await client.query("ROLLBACK");
+      const error = new Error(Number(row.status) === 2 ? "Coupon is locked by another order." : "Coupon is no longer available.");
+      error.code = Number(row.status) === 2 ? "COUPON_LOCKED" : (Number(row.status) === 3 ? "COUPON_USED" : "COUPON_EXPIRED");
+      error.statusCode = Number(row.status) === 2 ? 409 : 400;
+      throw error;
+    }
+    await client.query("COMMIT");
+    return couponFromRow(row);
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function markUserCouponRiskInDb(userId = "", couponId = "", riskFlag = 1) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanCouponId = String(couponId || "").trim();
+  if (!cleanUserId || !cleanCouponId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    UPDATE user_coupon
+    SET risk_flag = $3
+    WHERE id = $1 AND user_id = $2
+    RETURNING *
+  `, [cleanCouponId, cleanUserId, Number(riskFlag) === 1 ? 1 : 0]);
+  return rows[0] ? couponFromRow(rows[0]) : null;
+}
+
+function couponSceneMatches(scope = "", scene = "") {
+  const allowed = String(scope || "").split(",").map((item) => item.trim()).filter(Boolean);
+  const requested = String(scene || "recharge").trim().toLowerCase();
+  const aliases = requested === "recharge" ? ["recharge", "recharge_wallet", "topup"] : [requested];
+  return allowed.some((item) => aliases.includes(item.toLowerCase()));
+}
+
+async function getAvailableCouponsInDb({ userId = "", amountCents = 0, scene = "recharge" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const amount = Math.max(0, Math.trunc(Number(amountCents || 0)));
+  if (!cleanUserId) return null;
+  const coupons = await listUserCouponsInDb(cleanUserId);
+  const available = [];
+  let blockedReason = null;
+  for (const coupon of coupons || []) {
+    if (coupon.status === 0) {
+      blockedReason = blockedReason || "not_claimed";
+      continue;
+    }
+    if (coupon.status === 3) continue;
+    if (coupon.status === 4 || (coupon.expireAt && Date.parse(coupon.expireAt) <= Date.now())) {
+      blockedReason = blockedReason || "expired";
+      continue;
+    }
+    if (!couponSceneMatches(coupon.scope, scene)) {
+      blockedReason = blockedReason || "wrong_scene";
+      continue;
+    }
+    if (coupon.riskFlag) {
+      blockedReason = blockedReason || "risk_review";
+      continue;
+    }
+    if (amount < coupon.threshold) {
+      blockedReason = blockedReason || "below_threshold";
+      continue;
+    }
+    if (coupon.status === 2 && coupon.lockExpireAt && Date.parse(coupon.lockExpireAt) > Date.now()) continue;
+    available.push({ ...coupon, discountAmount: Math.min(coupon.faceValue, amount) });
+  }
+  const best = available.slice().sort((a, b) => b.discountAmount - a.discountAmount)[0] || null;
+  return { available, best: best?.couponId || "", bestCoupon: best, blockedReason };
+}
+
+async function lockUserCouponForOrderInDb({
+  userId = "",
+  couponId = "",
+  orderId = "",
+  amountCents = 0,
+  scene = "recharge",
+} = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanCouponId = String(couponId || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  const amount = Math.max(0, Math.trunc(Number(amountCents || 0)));
+  if (!cleanUserId || !cleanCouponId || !cleanOrderId) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const current = await client.query(`
+      SELECT c.*, t.name AS template_name, t.face_value, t.currency, t.threshold,
+             t.promo_threshold, t.scope, t.valid_days,
+             CASE WHEN t.promo_threshold > 0 THEN t.promo_threshold ELSE t.threshold END AS effective_threshold
+      FROM user_coupon c
+      JOIN coupon_template t ON t.id = c.template_id
+      WHERE c.id = $1 AND c.user_id = $2
+      FOR UPDATE OF c
+    `, [cleanCouponId, cleanUserId]);
+    const row = current.rows[0];
+    if (!row) {
+      const error = new Error("Coupon not found.");
+      error.code = "COUPON_NOT_FOUND";
+      error.statusCode = 404;
+      throw error;
+    }
+    const status = Number(row.status);
+    const nowMs = Date.now();
+    const expireMs = row.expire_at ? Date.parse(row.expire_at) : 0;
+    const lockExpireMs = row.lock_expire_at ? Date.parse(row.lock_expire_at) : 0;
+    if (status === 2 && String(row.lock_order_no || "") === cleanOrderId) {
+      await client.query("COMMIT");
+      return couponFromRow(row);
+    }
+    if (status === 0) {
+      const error = new Error("Coupon has not been claimed.");
+      error.code = "COUPON_NOT_CLAIMED";
+      error.statusCode = 400;
+      throw error;
+    }
+    if (status !== 1 && !(status === 2 && lockExpireMs <= nowMs)) {
+      const error = new Error(status === 3 ? "Coupon is already used." : status === 4 ? "Coupon has expired." : "Coupon is locked by another order.");
+      error.code = status === 3 ? "COUPON_USED" : status === 4 ? "COUPON_EXPIRED" : status === 0 ? "COUPON_NOT_CLAIMED" : "COUPON_LOCKED";
+      error.statusCode = status === 2 ? 409 : 400;
+      throw error;
+    }
+    if (Number(row.risk_flag || 0) === 1) {
+      const error = new Error("Coupon requires manual review.");
+      error.code = "COUPON_RISK_REVIEW";
+      error.statusCode = 403;
+      throw error;
+    }
+    if (expireMs && expireMs <= nowMs) {
+      const error = new Error("Coupon has expired.");
+      error.code = "COUPON_EXPIRED";
+      error.statusCode = 400;
+      throw error;
+    }
+    const effectiveThreshold = Number(row.effective_threshold || row.threshold || 0);
+    if (amount < effectiveThreshold) {
+      const error = new Error("Coupon threshold not met.");
+      error.code = "COUPON_THRESHOLD_NOT_MET";
+      error.statusCode = 400;
+      throw error;
+    }
+    if (!couponSceneMatches(row.scope, scene)) {
+      const error = new Error("Coupon is not valid for this scene.");
+      error.code = "COUPON_WRONG_SCENE";
+      error.statusCode = 400;
+      throw error;
+    }
+    const locked = await client.query(`
+      UPDATE user_coupon
+      SET status = 2,
+          lock_order_no = $2,
+          lock_expire_at = NOW() + INTERVAL '15 minutes'
+      WHERE id = $1
+      RETURNING *
+    `, [cleanCouponId, cleanOrderId]);
+    await client.query("COMMIT");
+    return couponFromRow({ ...row, ...locked.rows[0] });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function finalizeUserCouponForOrderInDb({
+  couponId = "",
+  orderId = "",
+  scene = "recharge",
+  discountAmount = 0,
+} = {}) {
+  if (!dbEnabled()) return null;
+  const cleanCouponId = String(couponId || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  if (!cleanCouponId || !cleanOrderId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    UPDATE user_coupon
+    SET status = 3,
+        used_at = NOW(),
+        used_order_no = $2,
+        used_scene = $3,
+        discount_amount = $4,
+        lock_expire_at = NULL
+    WHERE id = $1
+      AND status <> 0
+      AND (used_order_no IS NULL OR used_order_no = '' OR used_order_no = $2)
+      AND (
+        lock_order_no IS NULL
+        OR lock_order_no = ''
+        OR lock_order_no = $2
+      )
+    RETURNING *
+  `, [cleanCouponId, cleanOrderId, String(scene || "recharge"), Math.max(0, Math.trunc(Number(discountAmount || 0)))]);
+  return rows[0] ? couponFromRow(rows[0]) : null;
+}
+
+async function releaseUserCouponForOrderInDb(couponId = "", orderId = "") {
+  if (!dbEnabled()) return null;
+  const cleanCouponId = String(couponId || "").trim();
+  const cleanOrderId = String(orderId || "").trim();
+  if (!cleanCouponId || !cleanOrderId) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    UPDATE user_coupon
+    SET status = CASE WHEN expire_at IS NOT NULL AND expire_at <= NOW() THEN 4 ELSE 1 END,
+        lock_order_no = NULL,
+        lock_expire_at = NULL
+    WHERE id = $1 AND status = 2 AND lock_order_no = $2
+    RETURNING *
+  `, [cleanCouponId, cleanOrderId]);
+  return rows[0] ? couponFromRow(rows[0]) : null;
+}
+
+async function backfillZeroBalanceCouponsInDb({ templateCode = "NEWUSER_30_5OFF", grantSource = "backfill_20261119" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanTemplateCode = String(templateCode || "").trim();
+  const source = String(grantSource || "backfill_20261119").trim().slice(0, 32);
+  const { rows } = await query(`
+    WITH target_user AS (
+      SELECT u.id
+      FROM app_users u
+      WHERE u.deleted_at IS NULL
+        AND COALESCE(u.credits, 0) = 0
+        AND NOT EXISTS (
+          SELECT 1
+          FROM app_wallet_orders o
+          WHERE o.user_id = u.id AND o.status = 'paid'
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM user_coupon c
+          WHERE c.user_id = u.id
+        )
+    ), inserted AS (
+      INSERT INTO user_coupon (id, user_id, template_id, code, status, granted_at, grant_source, created_at)
+      SELECT 'coupon_' || md5(random()::text || clock_timestamp()::text || u.id), u.id, t.id,
+             'CP' || upper(substr(md5(random()::text || clock_timestamp()::text || u.id), 1, 16)),
+             0, NOW(), $2, NOW()
+      FROM target_user u
+      CROSS JOIN coupon_template t
+      WHERE t.code = $1 AND t.status = 1
+      ON CONFLICT (user_id, template_id) DO NOTHING
+      RETURNING user_id
+    )
+    SELECT
+      (SELECT COUNT(*)::int FROM target_user) AS target_count,
+      (SELECT COUNT(*)::int FROM inserted) AS inserted_count
+  `, [cleanTemplateCode, source]);
+  return rows[0] || { target_count: 0, inserted_count: 0 };
 }
 
 function referralWithdrawalFromRow(row = {}) {
@@ -12826,6 +13321,16 @@ module.exports = {
   releaseTelegramPaymentNotificationRecipientClaimInDb,
   recordTelegramPaymentNotificationStateInDb,
   getWalletOrderByIdInDb,
+  getCouponTemplateByCodeInDb,
+  issueCouponInDb,
+  listUserCouponsInDb,
+  claimUserCouponInDb,
+  markUserCouponRiskInDb,
+  getAvailableCouponsInDb,
+  lockUserCouponForOrderInDb,
+  finalizeUserCouponForOrderInDb,
+  releaseUserCouponForOrderInDb,
+  backfillZeroBalanceCouponsInDb,
   getPromotionPurchaseStateInDb,
   reservePromotionPurchaseInDb,
   markPromotionPurchasePaidInDb,

@@ -671,6 +671,26 @@ async function settleWalletOrderPaymentUnlocked(db, order, config, meta = {}) {
     }
     throw error;
   }
+  if (dbEnabled() && order.couponId && (order.orderKind === "topup" || order.orderKind === "subscription")) {
+    try {
+      const finalizedCoupon = await finalizeUserCouponForOrderInDb({
+        couponId: order.couponId,
+        orderId: order.id,
+        scene: order.orderKind === "subscription" ? "membership" : "recharge",
+        discountAmount: order.discountAmountCents || 0,
+      });
+      if (!finalizedCoupon) {
+        const error = new Error("Coupon settlement could not be completed.");
+        error.code = "COUPON_FINALIZE_FAILED";
+        throw error;
+      }
+    } catch (error) {
+      // The credit ledger is idempotent on orderId. Throwing keeps the provider
+      // callback retryable so a transient coupon write cannot silently leave a
+      // paid order with an unclaimed coupon.
+      throw error;
+    }
+  }
   if (subscriptionPlan) await activatePaidSubscription(db, order, subscriptionPlan);
   if (order.orderKind === "product" && order.productId === API_DOCS_PRODUCT_ID) {
     await grantApiDocsAccess(db, user, { orderId: order.id, source: order.paymentProvider || "payment" });

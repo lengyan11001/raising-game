@@ -225,6 +225,7 @@ PLATFORM_RELEASE_PATHS = (
     "platform.html",
     "platform.css",
     "platform.checkin.css",
+    "platform.coupon.css",
     "platform.prompt-editor.css",
     "platform.test-generate.css",
     "platform*.js",

@@ -52,7 +52,7 @@ function publicPayPalCheckoutSession(order = {}, config = {}, options = {}) {
 }
 
 function paypalOrderBodyForCheckout(order = {}, { returnUrl = "", cancelUrl = "" } = {}) {
-  const amountValue = paypalMoneyValue(order.baseAmount || 0);
+  const amountValue = paypalMoneyValue(order.payableAmount ?? order.baseAmount ?? 0);
   const purchaseUnit = {
     reference_id: order.id || order.paypalCheckoutSessionId || randomSecretToken("paypal"),
     custom_id: order.id || order.paypalCheckoutSessionId || "",
@@ -140,12 +140,25 @@ async function createPayPalCheckoutSession(req, res) {
     return sendJson(res, 503, { ok: false, code: "PAYPAL_NOT_CONFIGURED", message: "PayPal is not configured." });
   }
 
-  const amountValue = paypalMoneyValue(rawAmount);
-  const amount = Number(amountValue);
+  const orderId = randomId("paypal");
+  let coupon;
+  try {
+    coupon = await prepareCouponForWalletOrder({
+      userId: auth.user.id,
+      couponId: couponIdFromRequest(body),
+      orderId,
+      amountCents: Math.round(rawAmount * 100),
+      scene: couponSceneForOrderKind(selection.kind),
+    });
+  } catch (error) {
+    return couponApiError(res, error);
+  }
+  const amountValue = paypalMoneyValue(coupon.payAmountCents / 100);
+  const amount = Number(rawAmount);
   const rate = paypalCnyCentsPerUnit(config.wallet);
   const sessionId = randomSecretToken("ppsid");
-  const order = {
-    id: randomId("paypal"),
+  let order = {
+    id: orderId,
     tenantId: tenantOptions.tenant?.tenantId || DEFAULT_TENANT_ID,
     userId: auth.user.id,
     paymentProvider: "paypal",
@@ -179,9 +192,15 @@ async function createPayPalCheckoutSession(req, res) {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+  order = applyCouponFieldsToWalletOrder(order, coupon);
   auth.db.walletOrders.unshift(order);
   if (dbEnabled()) {
-    await createWalletOrderInDb(order);
+    try {
+      await createWalletOrderInDb(order);
+    } catch (error) {
+      await releaseCouponOnWalletOrderFailure(order);
+      throw error;
+    }
   } else {
     await writeDb(auth.db);
   }
@@ -219,12 +238,24 @@ async function handleCreatePayPalOrder(req, res) {
     return sendJson(res, 503, { ok: false, code: "PAYPAL_NOT_CONFIGURED", message: "PayPal is not configured." });
   }
 
-  const amountValue = paypalMoneyValue(rawAmount);
-  const amount = Number(amountValue);
-  const rate = paypalCnyCentsPerUnit(config.wallet);
   const localOrderId = randomId("paypal");
+  let coupon;
+  try {
+    coupon = await prepareCouponForWalletOrder({
+      userId: auth.user.id,
+      couponId: couponIdFromRequest(body),
+      orderId: localOrderId,
+      amountCents: Math.round(rawAmount * 100),
+      scene: "recharge",
+    });
+  } catch (error) {
+    return couponApiError(res, error);
+  }
+  const amountValue = paypalMoneyValue(coupon.payAmountCents / 100);
+  const amount = Number(rawAmount);
+  const rate = paypalCnyCentsPerUnit(config.wallet);
   const origin = publicOriginFromRequest(req);
-  const order = {
+  let order = {
     id: localOrderId,
     tenantId: tenantOptions.tenant?.tenantId || DEFAULT_TENANT_ID,
     userId: auth.user.id,
@@ -254,11 +285,17 @@ async function handleCreatePayPalOrder(req, res) {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  await createAndStorePayPalOrder(req, auth, order, {
-    requestId: localOrderId,
-    returnUrl: `${origin}/#topups`,
-    cancelUrl: `${origin}/#topups`,
-  });
+  order = applyCouponFieldsToWalletOrder(order, coupon);
+  try {
+    await createAndStorePayPalOrder(req, auth, order, {
+      requestId: localOrderId,
+      returnUrl: `${origin}/#topups`,
+      cancelUrl: `${origin}/#topups`,
+    });
+  } catch (error) {
+    await releaseCouponOnWalletOrderFailure(order);
+    throw error;
+  }
   return sendJson(res, 200, {
     ok: true,
     paypalOrderId: order.paypalOrderId,
@@ -326,7 +363,7 @@ async function capturePayPalWalletOrder(db, order, config, { paypalOrderId = "" 
 
   const capturedAmount = Number(capture?.amount?.value || 0);
   const capturedCurrency = String(capture?.amount?.currency_code || PAYPAL_CURRENCY).toUpperCase();
-  if (capturedCurrency !== PAYPAL_CURRENCY || Math.abs(capturedAmount - Number(order.baseAmount || 0)) > 0.009) {
+  if (capturedCurrency !== PAYPAL_CURRENCY || Math.abs(capturedAmount - Number(order.payableAmount ?? order.baseAmount ?? 0)) > 0.009) {
     order.status = "pending";
     order.note = "PayPal capture amount mismatch. Manual review required.";
     await updateWalletOrderInDb(order);
@@ -407,6 +444,7 @@ async function handleStartPayPalCheckoutSession(req, res, sessionId) {
     order.updatedAt = new Date().toISOString();
     await updateWalletOrderInDb(order);
     if (!dbEnabled()) await writeDb(db);
+    await releaseCouponOnWalletOrderFailure(order);
     return sendJson(res, 410, {
       ok: false,
       code: "PAYPAL_CHECKOUT_EXPIRED",
@@ -435,6 +473,7 @@ async function handleStartPayPalCheckoutSession(req, res, sessionId) {
   order.paypalInvoiceId = `${order.id}-${checkoutAttempt}`;
   let paypalOrder;
   try {
+    Object.assign(order, await ensureCouponLockForWalletOrder(order));
     paypalOrder = order.paypalOrderId
       ? await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(order.paypalOrderId)}`)
       : await paypalRequest("/v2/checkout/orders", {
@@ -459,6 +498,7 @@ async function handleStartPayPalCheckoutSession(req, res, sessionId) {
     order.updatedAt = now;
     await updateWalletOrderInDb(order);
     if (!dbEnabled()) await writeDb(db);
+    await releaseCouponOnWalletOrderFailure(order);
     console.error("[paypal-checkout-create-failed]", {
       orderId: order.id,
       sessionId: order.paypalCheckoutSessionId,
@@ -556,6 +596,7 @@ async function handlePayPalCheckoutCancel(req, res, url) {
       order.updatedAt = new Date().toISOString();
       await updateWalletOrderInDb(order);
       if (!dbEnabled()) await writeDb(db);
+      await releaseCouponOnWalletOrderFailure(order);
     }
   }
   const redirectUrl = paypalCheckoutUrl("/", sid ? { sid, status: "cancelled" } : { status: "cancelled" });
@@ -607,7 +648,7 @@ async function applyPayPalWebhookToOrder(db, event, config) {
   if (type === "PAYMENT.CAPTURE.COMPLETED") {
     const amount = Number(resource.amount?.value || 0);
     const currency = String(resource.amount?.currency_code || order.currency || "").toUpperCase();
-    if (currency !== String(order.currency || PAYPAL_CURRENCY).toUpperCase() || Math.abs(amount - Number(order.baseAmount || 0)) > 0.009) {
+    if (currency !== String(order.currency || PAYPAL_CURRENCY).toUpperCase() || Math.abs(amount - Number(order.payableAmount ?? order.baseAmount ?? 0)) > 0.009) {
       order.status = "pending";
       order.paypalStatus = resource.status || type;
       order.note = "PayPal webhook amount mismatch. Manual review required.";
@@ -624,7 +665,7 @@ async function applyPayPalWebhookToOrder(db, event, config) {
     const capture = paypalCaptureFromOrder(resource);
     const amount = Number(capture?.amount?.value || order.baseAmount || 0);
     const currency = String(capture?.amount?.currency_code || order.currency || "").toUpperCase();
-    if (currency !== String(order.currency || PAYPAL_CURRENCY).toUpperCase() || Math.abs(amount - Number(order.baseAmount || 0)) > 0.009) {
+    if (currency !== String(order.currency || PAYPAL_CURRENCY).toUpperCase() || Math.abs(amount - Number(order.payableAmount ?? order.baseAmount ?? 0)) > 0.009) {
       order.status = "pending";
       order.paypalStatus = resource.status || capture?.status || type;
       order.note = "PayPal webhook amount mismatch. Manual review required.";
@@ -642,6 +683,7 @@ async function applyPayPalWebhookToOrder(db, event, config) {
     order.status = "cancelled";
     order.paypalStatus = resource.status || type;
     order.note = order.note || `PayPal event: ${type}`;
+    await releaseCouponOnWalletOrderFailure(order);
     return true;
   }
   return false;
@@ -768,6 +810,12 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
     productName: order.productName || "",
     paymentProvider,
     amount: order.baseAmount ?? "",
+    originalAmountCents: order.originalAmountCents ?? Math.round(Number(order.baseAmount || 0) * 100),
+    discountAmountCents: order.discountAmountCents || 0,
+    payAmountCents: order.payAmountCents ?? Math.round(Number(order.payableAmount ?? order.baseAmount ?? 0) * 100),
+    couponId: order.couponId || "",
+    couponCode: order.couponCode || "",
+    couponLockExpireAt: order.couponLockExpireAt || "",
     creditAmount: creditsAmount(creditAmount),
     packageId: order.packageId || "",
     packageCredits: order.packageCredits ?? "",
