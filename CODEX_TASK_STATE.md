@@ -1,3 +1,16 @@
+## 2026-11-19 Step ER: Shot prompt approval is now a one-click continuation
+
+- User rejected the repeated per-asset approval loop in the shot workspace. When every design image was generated but not approved, the UI still required manual approval of each image before the video prompt could be planned.
+- Added `finalizeShotAssetsAndPlanPrompt(shotId)`: it approves every generated design variant for the selected shot, reloads detail and shots, then immediately calls the existing model-optimized prompt planning flow.
+- Added the selected-shot action `全部定稿并生成视频提示词`, gated on all images generated, at least one still unapproved, an optimizer model available, and no competing action. The existing single-image approval remains available for review/rejection cases.
+- Fixed the unfinished TDZ error by declaring the selected video model and optimizer model before computing `canFinalizeAndPlan`.
+- Changed approve-stage copy from “逐张” to “审核或一键定稿” so the visible next action matches the implemented flow.
+- Changed files: `platform.story.js`, `test/story-canvas-p1.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: `node --check platform.story.js`, focused story tests `25/25`, `npm run check:undef`, and `git diff --check` pass.
+- Source commit `84550b92`. Built platform release `bb4a2f8e19305eaf97bd94fe8001e7da7ac44141`, pushed `platform-release`, and deployed Old through `scripts/deploy_local.sh --site old` (`4175 -> 4174`, canaries 1%/5%, `OLD_ROLLING_DEPLOY_OK`).
+- Production verification: `/api/health`, `/api/livez`, and `/api/readyz` return `200`; served `platform.story.js` matches the local SHA-256 and contains the new one-click button, copy, handler, and function.
+- Do not include unrelated dirty `server.parts/part-45.js`.
+
 ## 2026-11-19 Step EQ: Story asset approval flow exposes one next action
 
 - S01 had `assetsConfirmedAt` and all three episode assets generated as `ready`, but the workspace still rendered `重新确认资产清单` and the generate button remained visually present. The UI implied that users had to confirm the same list repeatedly.
