@@ -8,9 +8,9 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=coupon-20261119-6" />
-    <link rel="stylesheet" href="./platform.checkin.css?v=coupon-20261119-6" />
-    <link rel="stylesheet" href="./platform.coupon.css?v=coupon-20261119-6" />
+    <link rel="stylesheet" href="./platform.css?v=coupon-20261119-7" />
+    <link rel="stylesheet" href="./platform.checkin.css?v=coupon-20261119-7" />
+    <link rel="stylesheet" href="./platform.coupon.css?v=coupon-20261119-7" />
     <link rel="stylesheet" href="./platform.prompt-editor.css?v=main-site-compat-20261111-1" />
     <script src="./platform.vitals.js?v=main-site-compat-20261111-1" defer></script>
     <script>
@@ -134,11 +134,6 @@
         <button class="top-tab" data-tab="history" type="button">
           <i data-lucide="history"></i>
           <span data-i18n="nav.history">History</span>
-        </button>
-        <button class="top-tab coupon-center-nav" id="couponCenterNavBtn" type="button" aria-haspopup="dialog" aria-controls="couponCenterDialog" hidden>
-          <i data-lucide="ticket-percent"></i>
-          <span id="couponCenterNavLabel">Coupon center</span>
-          <b class="coupon-center-nav-dot" id="couponCenterNavDot" hidden></b>
         </button>
       </nav>
       <button class="checkin-entry" id="checkinEntry" type="button" aria-haspopup="dialog" aria-controls="checkinModal">
@@ -280,6 +275,11 @@
           <button class="menu-item" id="menuEmailBindBtn" data-i18n="account.bindEmail" type="button" hidden>Bind email</button>
           <button class="menu-item" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
           <button class="menu-item" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
+          <button class="menu-item coupon-center-menu-item" id="couponCenterNavBtn" type="button" aria-haspopup="dialog" aria-controls="couponCenterDialog" hidden>
+            <i data-lucide="ticket-percent"></i>
+            <span id="couponCenterNavLabel">Coupon center</span>
+            <b class="coupon-center-nav-dot" id="couponCenterNavDot" hidden></b>
+          </button>
           <button class="menu-item" id="menuLoginBtn" data-i18n="nav.login" type="button">Login / Sign up</button>
           <button class="menu-item" id="menuCopyTokenBtn" data-i18n="common.copyToken" type="button">Copy token</button>
           <details class="account-legal-menu">
@@ -1800,6 +1800,6 @@
       </section>
     </dialog>
 
-    <script src="./platform.js?v=coupon-20261119-6"></script>
+    <script src="./platform.js?v=coupon-20261119-7"></script>
   </body>
 </html>
