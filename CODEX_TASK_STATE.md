@@ -3,6 +3,8 @@
 - The claimed persistent reminder was still a wide custom pill. It is now the supplied 352px coupon card: 13px/15px padding, 38px green check icon, 12.5px title, green `尽快使用` badge, 10.5px countdown row, and ghost `去使用` action. The pending reminders remain the supplied 999px pill.
 - The claimed Top Up coupon card was aligned to the package values: 352px width, 13px gap, 13px/15px padding, 12px/800 action text, and the package shadow. The claim and claim-success dialogs already used the supplied 396px card values; all three states were rendered locally and compared against the screenshots.
 - Cache version is now `coupon-20261119-10`. Verification passed: `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, coupon tests `19/19`, check-in tests `12/12`, and scoped `git diff --check`.
+- Built platform release `7b921467` from source `133e34bb`, pushed `old-site` and `platform-release`, and deployed Old only through `scripts/deploy_local.sh --site old`; rolling deploy completed with `OLD_ROLLING_DEPLOY_OK` on port 4175.
+- Production verification: `/api/health`, `/api/livez`, and `/api/readyz` are healthy; `https://123vips.com/` serves `platform.coupon.css?v=coupon-20261119-10`, and the served CSS contains the 352px claimed reminder card.
 
 ## 2026-11-19 Step FA: Coupon entry on 123vip.fans landing
 
