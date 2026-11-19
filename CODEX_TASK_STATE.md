@@ -6,7 +6,9 @@
 - When all images exist but are not approved, both cards and the video gate now say the next action is to approve each design image. Video prompt generation remains gated until every asset has an approved variant.
 - Repeated confirmation requests now return a stage-specific message instead of saying “可以生成设计图” after images already exist.
 - Changed files: `platform.story.js`, `test/story-canvas-p1.test.js`, `CODEX_TASK_STATE.md`. Focused story tests pass 24/24; syntax check, `npm run check:undef`, and `git diff --check` pass.
-- Deployment pending. Do not include unrelated dirty `server.parts/part-45.js`.
+- Source commit `c50b6bc4`. Built platform release `b39f3b78ed85a599945c25bd78f88a7a13521610`, pushed `platform-release`, and deployed Old through `scripts/deploy_local.sh --site old` (`4174 -> 4175`, canaries 1%/5%, `OLD_ROLLING_DEPLOY_OK`).
+- Production verification: `/api/health`, `/api/livez`, and `/api/readyz` return `200`; served `platform.story.js` contains the new stage resolver/status copy and no longer contains `重新确认资产清单`.
+- Do not include unrelated dirty `server.parts/part-45.js`.
 
 ## 2026-11-19 Step EP: Story asset images no longer request media before it exists
 
