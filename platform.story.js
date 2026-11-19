@@ -784,7 +784,7 @@
     } else if (!allApproved) {
       stage = "approve";
       label = "设计图待审核";
-      nextAction = `逐张审核并定稿剩余 ${assets.length - approvedCount} 张`;
+      nextAction = `审核或一键定稿剩余 ${assets.length - approvedCount} 张`;
     } else {
       stage = "ready";
       label = "资产已全部定稿";
@@ -1029,6 +1029,14 @@
     const optimizerModels = Array.isArray(storyState.productionModels?.optimizer) ? storyState.productionModels.optimizer.filter((model) => model.configured !== false) : [];
     const selectedVideoModel = videoModels.find((model) => model.id === storyState.videoModel) || videoModels[0] || { id: storyState.videoModel, label: storyState.videoModel };
     const optimizerModel = storyState.optimizerModel || optimizerModels[0]?.id || "";
+    const canFinalizeAndPlan = Boolean(
+      assets.length
+      && generatedAssets.length === assets.length
+      && !assetsApproved
+      && selectedVideoModel.promptOptimizer
+      && optimizerModel
+      && !storyState.action
+    );
     const promptReady = storyShotPromptMatchesModel(shot, selectedVideoModel.id, storyState.promptResolution);
     const canGenerateVideo = promptReady && assetsApproved && !storyState.action;
     const generationRefs = (Array.isArray(storyState.detail?.generationRefs) ? storyState.detail.generationRefs : [])
@@ -1135,13 +1143,14 @@
               <label>时长（秒）<input id="storyShotVideoDuration" data-story-video-duration type="number" min="1" max="30" value="${Number(shot.durationSeconds || storyState.videoDuration || 5)}" /></label>
             </div>
             <div class="story-shot-prompt-block ${promptReady ? "is-ready" : shot.videoPrompt ? "is-stale" : ""}">
-              <div><strong>最终视频提示词</strong><small>${promptReady ? `已按 ${storyEscape(selectedVideoModel.label)} · ${storyEscape(storyState.promptResolution)} 优化` : shot.videoPrompt ? "模型或分辨率已变化，需要刷新" : "等待资产定稿后由 AI 生成"}</small></div>
-              ${shot.videoPrompt ? `<pre>${storyEscape(shot.videoPrompt)}</pre>` : `<p>完成图片定稿后，再按所选模型优化此镜提示词。</p>`}
+              <div><strong>最终视频提示词</strong><small>${promptReady ? `已按 ${storyEscape(selectedVideoModel.label)} · ${storyEscape(storyState.promptResolution)} 优化` : shot.videoPrompt ? "模型或分辨率已变化，需要刷新" : canFinalizeAndPlan ? "设计图已齐，可一次定稿并生成" : "等待资产定稿后由 AI 生成"}</small></div>
+              ${shot.videoPrompt ? `<pre>${storyEscape(shot.videoPrompt)}</pre>` : canFinalizeAndPlan ? `<p>${assets.length} 张设计图已生成。可逐张审核后定稿，也可以一次定稿全部图片并生成此镜提示词。</p>` : `<p>完成图片定稿后，再按所选模型优化此镜提示词。</p>`}
               <button type="button" data-story-plan-shot-prompt="${storyEscape(shot.id)}" ${assetsApproved && selectedVideoModel.promptOptimizer && optimizerModel && !storyState.action ? "" : "disabled"}><i data-lucide="wand-sparkles"></i><span>${shot.videoPrompt ? "按当前模型刷新此镜提示词" : "AI 生成本镜视频提示词"}</span></button>
+              ${canFinalizeAndPlan ? `<button class="story-secondary-button" type="button" data-story-finalize-plan-shot-prompt="${storyEscape(shot.id)}"><i data-lucide="badge-check"></i><span>${storyState.action === "finalize-assets-and-plan" ? "正在定稿并生成…" : "全部定稿并生成视频提示词"}</span></button>` : ""}
             </div>
             <div class="story-shot-generation-gate ${canGenerateVideo ? "is-ready" : ""}">
               <strong>${canGenerateVideo ? "可以生成视频" : "生成门禁未通过"}</strong>
-              <span>${!assets.length ? "请先让 AI 提取本镜资产。" : !confirmed ? "请先确认本镜资产清单。" : generatedAssets.length < assets.length ? `请先生成剩余 ${assets.length - generatedAssets.length} 张资产设计图。` : !assetsApproved ? `请将剩余 ${assets.length - approvedAssets.length} 张设计图逐张设为定稿。` : !promptReady ? "请按当前视频模型和分辨率优化提示词。" : "资产、提示词和模型均已就绪。"}</span>
+              <span>${!assets.length ? "请先让 AI 提取本镜资产。" : !confirmed ? "请先确认本镜资产清单。" : generatedAssets.length < assets.length ? `请先生成剩余 ${assets.length - generatedAssets.length} 张资产设计图。` : !assetsApproved ? `剩余 ${assets.length - approvedAssets.length} 张设计图可一键定稿，并继续生成视频提示词。` : !promptReady ? "请按当前视频模型和分辨率优化提示词。" : "资产、提示词和模型均已就绪。"}</span>
             </div>
             <button class="story-create-button story-shot-generate-video" type="button" data-story-generate-shot-video="${storyEscape(shot.id)}" ${canGenerateVideo ? "" : "disabled"}><i data-lucide="${storyState.action === "generate-video" ? "loader-circle" : "clapperboard"}"></i><span>${storyState.action === "generate-video" ? "视频生成中…" : "生成视频"}</span></button>
             <p class="story-message">${storyEscape(storyState.actionMessage || "")}</p>
@@ -3155,6 +3164,59 @@
     }
   }
 
+  async function finalizeShotAssetsAndPlanPrompt(shotId = "") {
+    const projectId = storyState.selectedId;
+    const episode = selectedStoryEpisode();
+    const shot = storyState.shots.find((item) => item.id === shotId);
+    if (!projectId || !episode || !shot || storyState.action) return;
+    const assets = storyShotAssets(episode, shot);
+    const pendingAssets = assets.filter((asset) => !storyAssetHasApprovedImage(asset));
+    if (!assets.length || assets.some((asset) => !storyAssetHasGeneratedImage(asset))) {
+      storyState.actionMessage = "请先确认资产清单并生成全部设计图。";
+      renderStoryDetail();
+      return;
+    }
+    if (!pendingAssets.length) {
+      await planStoryEpisodePrompts(shot.id, "请结合已定稿资产，按当前视频模型和分辨率生成可直接执行的最终提示词。");
+      return;
+    }
+
+    storyState.action = "finalize-assets-and-plan";
+    storyState.episodeTab = "production";
+    storyState.selectedShotId = shot.id;
+    storyState.actionMessage = `正在定稿 S${String(shot.shotNo).padStart(2, "0")} 的 ${pendingAssets.length} 张设计图…`;
+    renderStoryDetail();
+    try {
+      for (const [index, asset] of pendingAssets.entries()) {
+        const variant = storyDisplayAssetVariant(asset);
+        if (!variant || !storyAssetVariantImageUrl(variant)) {
+          throw new Error(`「${asset.name}」没有可定稿的设计图，请重新生成。`);
+        }
+        storyState.actionMessage = `正在定稿「${asset.name}」 ${index + 1}/${pendingAssets.length}…`;
+        renderStoryDetail();
+        if (variant.status !== "approved") {
+          await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(asset.id)}/variants/${encodeURIComponent(variant.id)}/approve`, { method: "POST" });
+        }
+      }
+      await loadStoryDetail(projectId);
+      await loadStoryEpisodeShots();
+      storyState.episodeTab = "production";
+      storyState.selectedShotId = shot.id;
+      storyState.actionMessage = "资产已全部定稿，正在按当前视频模型生成最终提示词…";
+      storyState.action = "";
+      renderStoryDetail();
+      const refreshedShot = storyState.shots.find((item) => item.id === shot.id);
+      const revisionFeedback = String(refreshedShot?.videoPrompt || "").trim()
+        ? "请结合已定稿资产，按当前视频模型和分辨率重新生成可直接执行的最终提示词。"
+        : "";
+      await planStoryEpisodePrompts(shot.id, revisionFeedback);
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+      storyState.action = "";
+      renderStoryDetail();
+    }
+  }
+
   async function saveStoryScriptDraft() {
     const projectId = storyState.selectedId;
     if (!projectId || storyState.action) return;
@@ -3431,6 +3493,7 @@
         approveStoryAssetImage(button.dataset.storyAssetId || "", button.dataset.storyApproveVariant || "");
       }
       else if (event.target.closest("[data-story-use-variant]")) useStoryAssetVariant(event.target.closest("[data-story-use-variant]")?.dataset.storyUseVariant || "");
+      else if (event.target.closest("[data-story-finalize-plan-shot-prompt]")) finalizeShotAssetsAndPlanPrompt(event.target.closest("[data-story-finalize-plan-shot-prompt]")?.dataset.storyFinalizePlanShotPrompt || "");
       else if (event.target.closest("[data-story-plan-shot-prompt]")) planStoryEpisodePrompts(event.target.closest("[data-story-plan-shot-prompt]")?.dataset.storyPlanShotPrompt || "");
       else if (event.target.closest("[data-story-plan-prompts]")) planStoryEpisodePrompts();
       else if (event.target.closest("[data-story-generate-shot-video]")) generateStoryShotVideo(event.target.closest("[data-story-generate-shot-video]")?.dataset.storyGenerateShotVideo || "");

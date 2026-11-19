@@ -590,9 +590,25 @@ test("story asset approval flow exposes one next action at each stage", () => {
   assert.match(story, /function storyShotAssetProgress\(shot = \{\}, assets = \[\]\)/);
   assert.match(story, /assetProgress\.stage === "generate" && !storyState\.action/);
   assert.match(story, /confirmed \? `<span class="story-status-pill">资产清单已确认<\/span>`/);
-  assert.match(story, /请将剩余 \$\{assets\.length - approvedAssets\.length\} 张设计图逐张设为定稿/);
-  assert.match(story, /设计图均已生成，下一步逐张审核并设为定稿/);
+  assert.match(story, /审核或一键定稿剩余 \$\{assets\.length - approvedCount\} 张/);
+  assert.match(story, /剩余 \$\{assets\.length - approvedAssets\.length\} 张设计图可一键定稿，并继续生成视频提示词/);
   assert.doesNotMatch(story, /重新确认资产清单/);
+});
+
+test("shot asset finalization can approve every generated design and plan the prompt in one action", () => {
+  const story = read("platform.story.js");
+  const workspace = story.slice(story.indexOf("function renderStoryShotWorkspace("), story.indexOf("function storyShotFilterKey("));
+  const finalizer = story.slice(story.indexOf("async function finalizeShotAssetsAndPlanPrompt("), story.indexOf("async function saveStoryScriptDraft("));
+  assert.match(workspace, /data-story-finalize-plan-shot-prompt=/);
+  assert.match(workspace, /全部定稿并生成视频提示词/);
+  assert.match(story, /async function finalizeShotAssetsAndPlanPrompt\(shotId = ""\)/);
+  assert.match(finalizer, /const pendingAssets = assets\.filter\(\(asset\) => !storyAssetHasApprovedImage\(asset\)\)/);
+  assert.match(finalizer, /\/assets\/\$\{encodeURIComponent\(asset\.id\)\}\/variants\/\$\{encodeURIComponent\(variant\.id\)\}\/approve/);
+  assert.match(finalizer, /await planStoryEpisodePrompts\(shot\.id/);
+  assert.match(story, /event\.target\.closest\("\[data-story-finalize-plan-shot-prompt\]"\)\) finalizeShotAssetsAndPlanPrompt/);
+  const selectedModelIndex = workspace.indexOf("const selectedVideoModel =");
+  const finalizeFlagIndex = workspace.indexOf("const canFinalizeAndPlan =");
+  assert.ok(selectedModelIndex >= 0 && finalizeFlagIndex > selectedModelIndex);
 });
 
 test("shot assets generate, regenerate, approve, and reuse materials in place", () => {
