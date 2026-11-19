@@ -3,6 +3,7 @@
 
   const MODAL_SHOWN_KEY = "coupon_modal_shown_date";
   const REMINDER_DISMISSED_KEY = "coupon_reminder_dismissed_date";
+  const EXPIRED_NOTICE_KEY_PREFIX = "coupon_expired_notice_shown";
   const DEFAULT_COUPON = Object.freeze({ face_value: 500, threshold: 3000, scope: "recharge,membership" });
 
   const ui = {
@@ -22,6 +23,7 @@
     lastFocus: null,
     refreshingTopup: false,
     claimedThisOpen: false,
+    dialogMode: "pending",
   };
   const els = {};
 
@@ -159,6 +161,16 @@
     return `${part.days} 天 ${String(part.hours).padStart(2, "0")} 时 ${String(part.minutes).padStart(2, "0")} 分 ${String(part.seconds).padStart(2, "0")} 秒`;
   }
 
+  function countdownDetailMarkup(expireAt = "") {
+    const part = countdownParts(expireAt);
+    if (part.expired) return safeHtml(copy("Expired", "已过期"));
+    const hours = String(part.hours).padStart(2, "0");
+    const minutes = String(part.minutes).padStart(2, "0");
+    const seconds = String(part.seconds).padStart(2, "0");
+    if (!isZh()) return `<b>${part.days}</b>d <b>${hours}</b>:<b>${minutes}</b>:<b>${seconds}</b>`;
+    return `<b>${part.days}</b> 天 <b>${hours}</b> 时 <b>${minutes}</b> 分 <b>${seconds}</b> 秒`;
+  }
+
   function cacheElements() {
     Object.assign(els, {
       reminder: byId("couponReminderBar"),
@@ -167,18 +179,7 @@
       reminderAction: byId("couponReminderAction"),
       reminderClose: byId("couponReminderClose"),
       dialog: byId("couponClaimDialog"),
-      kicker: byId("couponDialogKicker"),
-      title: byId("couponDialogTitle"),
-      ticket: byId("couponTicket"),
-      faceValue: byId("couponFaceValue"),
-      rules: byId("couponRuleList"),
-      success: byId("couponSuccessCopy"),
-      actions: byId("couponDialogActions"),
-      usedActions: byId("couponUsedActions"),
-      claimBtn: byId("couponClaimBtn"),
-      laterBtn: byId("couponLaterBtn"),
-      goTopupBtn: byId("couponGoTopupBtn"),
-      successLaterBtn: byId("couponSuccessLaterBtn"),
+      dialogBody: byId("couponDialogBody"),
       topupEntry: byId("couponTopupEntry"),
       checkout: byId("couponCheckoutSummary"),
       centerNav: byId("couponCenterNavBtn"),
@@ -200,12 +201,37 @@
     return Boolean(pendingCoupon());
   }
 
+  function isHomeTab() {
+    const tab = String(appState()?.tab || "");
+    const defaultTab = typeof DEFAULT_PLATFORM_TAB === "string" ? DEFAULT_PLATFORM_TAB : "gallery";
+    return !tab || tab === defaultTab;
+  }
+
+  function expiredCoupon() {
+    return ui.expired.find((coupon) => Number(coupon?.status) === 4) || null;
+  }
+
+  function expiredNoticeKey(coupon = {}) {
+    const owner = [currentUserId(), coupon.coupon_id || coupon.code || "expired"].filter(Boolean).join("_");
+    return owner ? `${EXPIRED_NOTICE_KEY_PREFIX}_${owner}` : EXPIRED_NOTICE_KEY_PREFIX;
+  }
+
   function showCouponDialog({ force = false } = {}) {
-    const coupon = pendingCoupon();
-    if (!coupon || !els.dialog) return false;
-    const today = shanghaiDateKey();
-    if (!force && readStorage(MODAL_SHOWN_KEY) === today) return false;
-    writeStorage(MODAL_SHOWN_KEY, today);
+    if (!els.dialog || els.centerDialog?.open) return false;
+    const pending = pendingCoupon();
+    const expired = expiredCoupon();
+    if (pending) {
+      const today = shanghaiDateKey();
+      if (!force && readStorage(MODAL_SHOWN_KEY) === today) return false;
+      writeStorage(MODAL_SHOWN_KEY, today);
+      ui.dialogMode = "pending";
+    } else if (expired) {
+      if (readStorage(expiredNoticeKey(expired)) === "1") return false;
+      writeStorage(expiredNoticeKey(expired), "1");
+      ui.dialogMode = "expired";
+    } else {
+      return false;
+    }
     ui.claimedThisOpen = false;
     ui.lastFocus = document.activeElement;
     renderCouponDialog();
@@ -219,59 +245,73 @@
   }
 
   function renderCouponDialog() {
-    if (!els.dialog) return;
-    const coupon = pendingCoupon() || (ui.claimedThisOpen ? claimedCoupon() : null);
+    if (!els.dialog || !els.dialogBody) return;
     const claimed = Boolean(ui.claimedThisOpen && claimedCoupon());
+    const expired = ui.dialogMode === "expired" ? expiredCoupon() : null;
+    const coupon = pendingCoupon() || (ui.claimedThisOpen ? claimedCoupon() : null) || expired;
     if (!coupon) return;
     const face = money(coupon.face_value ?? DEFAULT_COUPON.face_value).replace("$", "");
     const threshold = money(coupon.threshold ?? DEFAULT_COUPON.threshold);
-    if (els.kicker) els.kicker.textContent = claimed
-      ? copy("CLAIMED · USE WITHIN 7 DAYS", "领取成功 · 7 天内使用")
-      : copy("NEW USER ONLY · ONE COUPON", "新用户专享 · 仅此一张");
-    if (els.title) els.title.textContent = claimed
-      ? copy("Your cash coupon is ready", "现金券已到账")
-      : copy("A cash coupon for you", "送你一张现金券");
-    if (els.faceValue) els.faceValue.textContent = face;
-    if (els.rules) {
-      els.rules.innerHTML = `
-        <li><b>✓</b><span>${safeHtml(copy(`Use on orders over ${threshold}`, `单笔满 ${threshold} 可用`))}</span></li>
-        <li><b>✓</b><span>${safeHtml(copy("Valid for credit top-ups and membership", "购买积分、开通会员均可使用"))}</span></li>
-        <li><b>✓</b><span>${safeHtml(copy("Valid for 7 days after claiming", "领取后 7 天内有效，过期不补"))}</span></li>
-      `;
-      els.rules.hidden = claimed;
-    }
-    if (els.ticket) els.ticket.classList.toggle("is-claimed", claimed);
-    if (els.success) {
-      els.success.hidden = !claimed;
-      if (claimed) {
-        const active = claimedCoupon() || coupon;
-        els.success.innerHTML = `
-          <div class="coupon-success-icon" aria-hidden="true">✓</div>
-          <strong>${safeHtml(copy("Coupon claimed successfully", "领取成功"))}</strong>
-          <span>${safeHtml(copy("Use it within 7 days. Unused coupons will not be restored.", "请在 7 天内使用，过期不补。"))}</span>
-          <div class="coupon-countdown-box">
-            <small>${safeHtml(copy("Expires in", "剩余有效期"))}</small>
-            <b data-coupon-countdown>${safeHtml(countdownDetailText(active.expire_at))}</b>
+    if (claimed) {
+      const active = claimedCoupon() || coupon;
+      els.dialogBody.innerHTML = `
+        <div class="coupon-success-copy">
+          <div class="coupon-success-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
           </div>
-        `;
-      }
+          <strong id="couponDialogTitle">${safeHtml(copy("Coupon claimed successfully", "领取成功"))}</strong>
+          <span>${copy(
+            `$${face} cash coupon is now in your account<br>Use it on credit top-ups or membership orders over <b>${threshold}</b>.`,
+            `$${face} 现金券已存入你的账户<br>满 <b>${threshold}</b> 可用，充值与开通会员均可`,
+          )}</span>
+          <div class="coupon-countdown-box">
+            <small>${safeHtml(copy("Expires in", "有效期剩余"))}</small>
+            <b data-coupon-countdown>${countdownDetailMarkup(active.expire_at)}</b>
+          </div>
+        </div>
+        <div class="coupon-dialog-actions is-success">
+          <button class="coupon-secondary-btn" data-coupon-action="dismiss" type="button">${safeHtml(copy("Later", "稍后"))}</button>
+          <button class="coupon-primary-btn" data-coupon-action="topup" type="button">${safeHtml(copy("Go to top up", "去购买积分"))}</button>
+        </div>
+        <div class="coupon-success-actions-spacer"></div>
+      `;
+    } else if (expired) {
+      els.dialogBody.innerHTML = `
+        <div class="coupon-dialog-kicker">${safeHtml(copy("NEW USER ONLY", "新用户专享"))}</div>
+        <p class="coupon-dialog-title" id="couponDialogTitle">${safeHtml(copy("This coupon has expired", "这张券已经失效了"))}</p>
+        <p class="coupon-expired-copy">${copy(
+          "Cash coupons must be used within 7 days of claiming.<br>Expired coupons cannot be reissued.",
+          "现金券需在领取后 7 天内使用<br>过期后不可补发",
+        )}</p>
+        <div class="coupon-dialog-actions">
+          <button class="coupon-primary-btn" data-coupon-action="dismiss" type="button">${safeHtml(copy("Got it", "我知道了"))}</button>
+        </div>
+        <div class="coupon-success-actions-spacer"></div>
+      `;
+    } else {
+      els.dialogBody.innerHTML = `
+        <div class="coupon-dialog-kicker">${safeHtml(copy("NEW USER ONLY · ONE COUPON", "新用户专享 · 仅此一张"))}</div>
+        <p class="coupon-dialog-title" id="couponDialogTitle">${safeHtml(copy("A cash coupon for you", "送你一张现金券"))}</p>
+        <div class="coupon-face"><span>$</span><strong>${safeHtml(face)}</strong><em>${safeHtml(copy("OFF", "立减"))}</em></div>
+        <div class="coupon-perforation" aria-hidden="true"></div>
+        <ul class="coupon-rule-list">
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>${safeHtml(copy(`Use on orders over ${threshold}`, `单笔满 ${threshold} 可用`))}</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>${safeHtml(copy("Valid for credit top-ups and membership", "购买积分、开通会员均可使用"))}</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>${safeHtml(copy("Valid for 7 days after claiming", "领取后 7 天内有效"))}</b>${safeHtml(copy(". No replacements after expiry.", "，过期不补"))}</span></li>
+        </ul>
+        <div class="coupon-dialog-actions">
+          <button class="coupon-primary-btn" data-coupon-action="claim" type="button">${safeHtml(copy("Claim now", "立即领取"))}</button>
+          <button class="coupon-secondary-btn" data-coupon-action="dismiss" type="button">${safeHtml(copy("Not now", "暂不领取"))}</button>
+        </div>
+      `;
     }
-    if (els.actions) els.actions.hidden = claimed;
-    if (els.usedActions) els.usedActions.hidden = !claimed;
-    if (els.claimBtn) {
-      els.claimBtn.disabled = false;
-      els.claimBtn.textContent = copy("Claim now", "立即领取");
-    }
-    if (els.laterBtn) els.laterBtn.textContent = copy("Not now", "暂不领取");
-    if (els.goTopupBtn) els.goTopupBtn.textContent = copy("Use coupon", "去购买积分");
-    if (els.successLaterBtn) els.successLaterBtn.textContent = copy("Later", "稍后");
   }
 
   function renderCouponReminder() {
     if (!els.reminder) return;
     const coupon = pendingCoupon();
     const dismissedToday = readStorage(REMINDER_DISMISSED_KEY) === shanghaiDateKey();
-    const visible = Boolean(coupon && !dismissedToday && !els.dialog?.open);
+    const visible = Boolean(isHomeTab() && coupon && !dismissedToday && !els.dialog?.open && !els.centerDialog?.open);
     els.reminder.hidden = !visible;
     if (!visible || !coupon) return;
     const threshold = money(coupon.threshold ?? DEFAULT_COUPON.threshold);
@@ -545,6 +585,7 @@
     ui.expired = [];
     ui.selectedCouponId = "";
     ui.claimedThisOpen = false;
+    ui.dialogMode = "pending";
     ui.loadedAt = 0;
     if (els.reminder) els.reminder.hidden = true;
     if (els.topupEntry) {
@@ -585,7 +626,7 @@
       refreshCouponCheckout();
       renderCouponReminder();
       renderCouponCenter();
-      showCouponDialog();
+      if (isHomeTab()) showCouponDialog();
       if (els.dialog?.open) renderCouponDialog();
     } catch (error) {
       if (requestSeq === ui.requestSeq) console.warn("[coupon-load-failed]", error?.message || error);
@@ -597,9 +638,10 @@
   async function claimCoupon({ fromDialog = false, couponId = "" } = {}) {
     const coupon = (couponId && ui.pending.find((item) => item.coupon_id === couponId)) || pendingCoupon();
     if (!coupon || !appUser()) return null;
-    if (els.claimBtn) {
-      els.claimBtn.disabled = true;
-      els.claimBtn.textContent = copy("Claiming...", "领取中...");
+    const claimButton = els.dialogBody?.querySelector('[data-coupon-action="claim"]');
+    if (claimButton) {
+      claimButton.disabled = true;
+      claimButton.textContent = copy("Claiming...", "领取中...");
     }
     try {
       const payload = await requestJson("/api/coupon/claim", {
@@ -629,9 +671,9 @@
       }
       return claimed;
     } catch (error) {
-      if (els.claimBtn) {
-        els.claimBtn.disabled = false;
-        els.claimBtn.textContent = copy("Try again", "重新领取");
+      if (claimButton) {
+        claimButton.disabled = false;
+        claimButton.textContent = copy("Try again", "重新领取");
       }
       if (els.reminderText) els.reminderText.textContent = error?.message || copy("Claim failed. Please try again.", "领取失败，请重试。");
       throw error;
@@ -649,7 +691,7 @@
   function tickCouponClocks() {
     const countdown = els.dialog?.querySelector("[data-coupon-countdown]");
     if (countdown && claimedCoupon()) {
-      countdown.textContent = countdownDetailText(claimedCoupon().expire_at);
+      countdown.innerHTML = countdownDetailMarkup(claimedCoupon().expire_at);
     }
     const entryDesc = els.topupEntry?.querySelector("[data-coupon-entry-desc]");
     const active = claimedCoupon();
@@ -665,6 +707,7 @@
       refreshCouponTopupEntry();
       refreshCouponCheckout();
     }
+    if (isHomeTab() && ui.userId && !ui.loading && !els.centerDialog?.open) showCouponDialog();
   }
 
   function syncCouponAccount({ force = false } = {}) {
@@ -699,13 +742,26 @@
       const use = event.target.closest("[data-coupon-center-use]");
       if (use) goTopupWithCoupon();
     });
-    els.claimBtn?.addEventListener("click", () => {
-      claimCoupon({ fromDialog: true }).catch(() => {});
+    els.dialog.addEventListener("click", (event) => {
+      const actionEl = event.target.closest?.("[data-coupon-action]");
+      const action = actionEl?.dataset?.couponAction || "";
+      if (action === "claim") {
+        event.preventDefault();
+        if (!actionEl.disabled) claimCoupon({ fromDialog: true }).catch(() => {});
+        return;
+      }
+      if (action === "topup") {
+        event.preventDefault();
+        goTopupWithCoupon();
+        return;
+      }
+      if (action === "dismiss") {
+        event.preventDefault();
+        closeCouponDialog();
+        return;
+      }
+      if (event.target === els.dialog) closeCouponDialog();
     });
-    els.laterBtn?.addEventListener("click", () => {
-      window.setTimeout(renderCouponReminder, 0);
-    });
-    els.goTopupBtn?.addEventListener("click", goTopupWithCoupon);
     els.reminderAction?.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();

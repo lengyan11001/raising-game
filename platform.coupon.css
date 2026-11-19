@@ -180,14 +180,14 @@
   top: 12px;
   right: 12px;
   z-index: 6;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 0;
   border-radius: 50%;
   color: #a99bbd;
   font: inherit;
-  font-size: 18px;
+  font-size: 12px;
   line-height: 1;
   background: rgba(255, 255, 255, 0.07);
   cursor: pointer;
@@ -202,7 +202,7 @@
   position: relative;
   z-index: 2;
   width: fit-content;
-  margin: 24px auto 0;
+  margin: 0 auto;
   padding: 3px 10px;
   border: 1px solid rgba(255, 77, 157, 0.32);
   border-radius: 999px;
@@ -213,10 +213,10 @@
   background: rgba(255, 77, 157, 0.14);
 }
 
-.coupon-ticket {
+.coupon-dialog-body {
   position: relative;
   z-index: 2;
-  padding: 13px 26px 0;
+  padding: 26px 26px 22px;
   text-align: center;
 }
 
@@ -305,10 +305,21 @@
   list-style: none;
 }
 
-.coupon-rule-list b {
+.coupon-rule-list svg {
+  width: 13px;
+  height: 13px;
   flex: 0 0 auto;
   color: #ff8fc0;
-  font-size: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.coupon-rule-list b {
+  color: #fff;
+  font-weight: 700;
 }
 
 .coupon-dialog-actions {
@@ -316,15 +327,15 @@
   z-index: 2;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 18px 26px 20px;
+  gap: 0;
+  padding: 0;
 }
 
 .coupon-dialog-actions.is-success {
   flex-direction: row;
   align-items: stretch;
   gap: 9px;
-  padding-top: 14px;
+  margin-top: 16px;
 }
 
 .coupon-dialog-actions.is-success .coupon-secondary-btn,
@@ -334,6 +345,7 @@
 
 .coupon-dialog-actions.is-success .coupon-secondary-btn {
   flex: 1;
+  margin-top: 0;
   padding: 13px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
@@ -371,7 +383,8 @@
 .coupon-primary-btn:disabled { opacity: 0.62; cursor: wait; }
 
 .coupon-secondary-btn {
-  padding: 9px;
+  margin-top: 10px;
+  padding: 8px;
   color: #7d7190;
   font-size: 12px;
   background: transparent;
@@ -379,18 +392,12 @@
 
 .coupon-secondary-btn:hover { color: #b3a6c6; }
 
-.coupon-ticket.is-claimed .coupon-dialog-title,
-.coupon-ticket.is-claimed .coupon-face,
-.coupon-ticket.is-claimed .coupon-perforation {
-  display: none;
-}
-
 .coupon-success-copy {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
-  padding: 4px 0 12px;
+  gap: 0;
+  padding: 0;
 }
 
 .coupon-success-icon {
@@ -399,31 +406,51 @@
   justify-content: center;
   width: 56px;
   height: 56px;
-  margin-bottom: 7px;
+  margin: 6px auto 0;
   border-radius: 50%;
   color: #fff;
-  font-size: 28px;
-  font-weight: 800;
   background: linear-gradient(145deg, #3ad180, #1f9c5c);
   box-shadow: 0 10px 30px rgba(58, 209, 128, 0.42);
+  animation: coupon-success-pop 0.5s cubic-bezier(0.16, 1.5, 0.4, 1);
+}
+
+@keyframes coupon-success-pop {
+  0% { opacity: 0; transform: scale(0.4); }
+  60% { transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.coupon-success-icon svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: #fff;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.2;
 }
 
 .coupon-success-copy strong {
+  margin-top: 14px;
   color: #f7f2fb;
   font-size: 18px;
+  font-weight: 800;
   letter-spacing: 0.4px;
 }
 
 .coupon-success-copy > span {
   max-width: 280px;
+  margin-top: 7px;
   color: #9b8fae;
   font-size: 12.5px;
   line-height: 1.6;
 }
 
+.coupon-success-copy > span b { color: #ffb3d4; }
+
 .coupon-countdown-box {
   width: 100%;
-  margin-top: 9px;
+  margin-top: 16px;
   padding: 12px;
   border: 1px solid rgba(255, 77, 157, 0.24);
   border-radius: 12px;
@@ -444,6 +471,23 @@
   font-size: 20px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.2px;
+}
+
+.coupon-success-actions-spacer { height: 4px; }
+
+.coupon-expired-copy {
+  margin: 12px 0 0;
+  color: #9b8fae;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.coupon-dialog-actions:not(.is-success) .coupon-primary-btn {
+  margin-top: 22px;
+}
+
+.coupon-dialog-actions:not(.is-success) .coupon-secondary-btn {
+  margin-top: 10px;
 }
 
 .coupon-topup-entry {
@@ -834,10 +878,8 @@
 
   .coupon-dialog { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
   .coupon-dialog-card { max-height: calc(100dvh - 24px); }
-  .coupon-dialog-kicker { margin-top: 21px; }
-  .coupon-ticket { padding-right: 20px; padding-left: 20px; }
+  .coupon-dialog-body { padding: 21px 20px 18px; }
   .coupon-perforation { margin-right: -20px; margin-left: -20px; }
-  .coupon-dialog-actions { padding-right: 20px; padding-left: 20px; }
   .coupon-topup-entry { width: 100%; margin-left: 0; }
   .coupon-center-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); }
   .coupon-center-card { max-height: calc(100dvh - 20px); padding: 20px 16px; }

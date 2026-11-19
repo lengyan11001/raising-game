@@ -8,9 +8,9 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=coupon-20261119-3" />
-    <link rel="stylesheet" href="./platform.checkin.css?v=coupon-20261119-3" />
-    <link rel="stylesheet" href="./platform.coupon.css?v=coupon-20261119-3" />
+    <link rel="stylesheet" href="./platform.css?v=coupon-20261119-5" />
+    <link rel="stylesheet" href="./platform.checkin.css?v=coupon-20261119-5" />
+    <link rel="stylesheet" href="./platform.coupon.css?v=coupon-20261119-5" />
     <link rel="stylesheet" href="./platform.prompt-editor.css?v=main-site-compat-20261111-1" />
     <script src="./platform.vitals.js?v=main-site-compat-20261111-1" defer></script>
     <script>
@@ -1783,27 +1783,8 @@
 
     <dialog class="coupon-dialog" id="couponClaimDialog" aria-labelledby="couponDialogTitle">
       <form method="dialog" class="coupon-dialog-card">
-        <button class="coupon-dialog-close" value="cancel" type="submit" aria-label="Close">×</button>
-        <div class="coupon-dialog-kicker" id="couponDialogKicker">NEW USER ONLY · ONE COUPON</div>
-        <div class="coupon-ticket" id="couponTicket">
-          <p class="coupon-dialog-title" id="couponDialogTitle">A cash coupon for you</p>
-          <div class="coupon-face"><span>$</span><strong id="couponFaceValue">5</strong><em>OFF</em></div>
-          <div class="coupon-perforation" aria-hidden="true"></div>
-          <ul class="coupon-rule-list" id="couponRuleList">
-            <li>Use on orders over $30</li>
-            <li>Valid for credit top-ups and membership</li>
-            <li>Use within 7 days after claiming</li>
-          </ul>
-          <div class="coupon-success-copy" id="couponSuccessCopy" hidden></div>
-        </div>
-        <div class="coupon-dialog-actions" id="couponDialogActions">
-          <button class="coupon-primary-btn" id="couponClaimBtn" type="button">Claim now</button>
-          <button class="coupon-secondary-btn" id="couponLaterBtn" value="cancel" type="submit">Not now</button>
-        </div>
-        <div class="coupon-dialog-actions is-success" id="couponUsedActions" hidden>
-          <button class="coupon-secondary-btn" id="couponSuccessLaterBtn" value="cancel" type="submit">Later</button>
-          <button class="coupon-primary-btn" id="couponGoTopupBtn" type="button">Use coupon</button>
-        </div>
+        <button class="coupon-dialog-close" data-coupon-action="dismiss" type="button" aria-label="Close">✕</button>
+        <div class="coupon-dialog-body" id="couponDialogBody"></div>
       </form>
     </dialog>
 
@@ -1819,6 +1800,6 @@
       </section>
     </dialog>
 
-    <script src="./platform.js?v=coupon-20261119-3"></script>
+    <script src="./platform.js?v=coupon-20261119-5"></script>
   </body>
 </html>
