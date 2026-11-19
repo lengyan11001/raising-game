@@ -464,7 +464,7 @@
   letter-spacing: 0.3px;
 }
 
-.coupon-countdown-box b {
+.coupon-countdown-box > b {
   display: block;
   margin-top: 5px;
   color: #ff8fc0;
