@@ -3,7 +3,9 @@
 - Canvas image/video result nodes now expose an add-to-assets action immediately before download. The action is enabled only when the result node has a generation `taskId` and reuses the existing owner-scoped `POST /api/generation-records/:taskId/add-asset` endpoint.
 - Added `window.addWorkflowNodeResultToAssets(nodeId)`: it handles the request, updates `state.userAssets` immediately, reports already-added results idempotently, and logs a user-facing failure without changing the generation result.
 - Updated the shared React node layout, image/video result nodes, canvas CSS, compiled `workflow-react/dist/canvas.js`, and workflow regression coverage. Generation nodes remain unchanged with no asset action.
-- Verification passed: workflow canvas suite `41/41`, `node --check platform.ui.parts/part-06.js`, `npm run check:undef`, production webpack build (existing size warnings only), and scoped `git diff --check`. Deployment is pending.
+- Verification passed: workflow canvas suite `41/41`, `node --check platform.ui.parts/part-06.js`, `npm run check:undef`, production webpack build (existing size warnings only), and scoped `git diff --check`.
+- Source commit `cd28e52d` was pushed to `old-site`; platform release `c8724160` was built from it and pushed only to `platform-release`. `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK`; Old is active on port `4174` serving release `c872416083d9b4d2c66f4c62b3684413f2031666`.
+- Production `/api/health`, `/api/livez`, and `/api/readyz` return healthy. The served canvas bundle contains `site-generation-add-asset`, and the served `platform.ui.parts/part-06.js` contains `addWorkflowNodeResultToAssets` and the `/add-asset` request path.
 
 ## 2026-11-19 Step FD: Refresh keeps claimed coupon entry visible immediately
 
