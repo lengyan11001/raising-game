@@ -1,3 +1,14 @@
+## 2026-11-19 Step ET: Check-in rewards in admin ledger and one-shot fly animation
+
+- Added positive `app_credit_ledger` rows with type `checkin` to the admin **充值流水** reader as source `checkin_reward`; the page now has a **签到奖励** summary card, source filter, row pill, and check-in date/operation detail.
+- Added check-in rewards to the in-memory admin ledger fallback and summary aggregation. The ledger remains sourced from `app_credit_ledger`; no duplicate wallet/order record was introduced.
+- Fixed the repeated `+5` reward animation: opening an already-checked-in modal clears any stale flyer, and the flyer is cleared on close/account change and after 1300 ms. The animation is only started after a new claim response.
+- Bumped public check-in cache version to `checkin-20261119-3` and updated the related cache assertions.
+- Changed files: `db.js` (check-in ledger hunks only), `admin.js`, `admin.css`, `platform.checkin.js`, `platform.html`, `platform.js`, `server.parts/part-40.js`, `test/checkin-activity.test.js`, `test/workflow-canvases.test.js`.
+- Verification: focused check-in/workflow/deploy suite `98/98`; syntax checks, `npm run check:undef`, and `git diff --check` pass. Full suite `1443 pass / 11 fail / 2 skipped`; all 11 failures are the pre-existing unrelated serializer/queue/source-split/optimizer failures.
+- Source commit `6ca21ba4`; platform release `4de03159b9ea5c9c5f872c068309f22e3e47d6bf`; pushed only `old-site` and `platform-release`. Old deployment completed with `OLD_ROLLING_DEPLOY_OK active_port=4175`; `/api/health`, `/api/livez`, and `/api/readyz` return `200`. Deployed admin JS contains `checkin_reward`/`签到奖励`, and deployed `platform.checkin.js` contains the fly cleanup timer.
+- Unrelated dirty story/optimizer changes remain uncommitted and were excluded from this release.
+
 ## 2026-11-19 Step ES: Retire three Vega models from selection and pricing
 
 - Retired `seedance20-vega` (`seedance2.0（vega）`), `seedance25-vega` (`seedance2.5vega`), and `h3-vega` (`wan（vega）`) from public model selection, public/admin pricing, and new generation submissions. `vega10-lite` / `h3（vega）` remains active.
