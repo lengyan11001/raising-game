@@ -1542,6 +1542,7 @@ const ADVANCED_VIDEO_CAPABILITY_GROUPS = Object.freeze({
 function advancedEngineOptionExists(value = "") {
   const target = String(value || "").trim().toLowerCase();
   if (!target || !els.advancedProvider) return true;
+  if (isRetiredVegaProviderId(target)) return false;
   return Array.from(els.advancedProvider.options).some((option) => option.value === target);
 }
 

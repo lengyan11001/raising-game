@@ -478,6 +478,11 @@ const VEGA_PROVIDER_IDS = Object.freeze([
   "h3-vega",
   "vega10-lite",
 ]);
+const VEGA_RETIRED_PROVIDER_IDS = Object.freeze([
+  "seedance20-vega",
+  "seedance25-vega",
+  "h3-vega",
+]);
 const VEGA_MODEL_LABELS = Object.freeze({
   "seedance20-vega": "seedance2.0（vega）",
   "seedance25-vega": "seedance2.5vega",
@@ -531,6 +536,27 @@ const VEGA_REFERENCE_LIMITS = Object.freeze({
 function isVegaProviderId(value = "") {
   const normalized = String(value || "").trim().toLowerCase();
   return VEGA_PROVIDER_IDS.includes(normalized);
+}
+
+function isRetiredVegaProviderId(value = "") {
+  const compact = String(value || "").trim().toLowerCase().replace(/[\s_.-]+/g, "");
+  return VEGA_RETIRED_PROVIDER_IDS.includes(String(value || "").trim().toLowerCase())
+    || [
+      "seedance20vega",
+      "seedance2.0vega",
+      "vega10pro",
+      "vega1.0pro",
+      "wandvegavideo1.0pro",
+      "seedance25vega",
+      "seedance2.5vega",
+      "vega15pro",
+      "vega1.5pro",
+      "wandvegavideo1.5pro",
+      "h3vega",
+      "vega15lite",
+      "vega1.5lite",
+      "wandvegavideo1.5lite",
+    ].some((alias) => alias.replace(/[\s_.-]+/g, "") === compact);
 }
 
 function vegaCapabilities(provider = "") {

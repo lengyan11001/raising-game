@@ -234,6 +234,7 @@ function sendReferenceAssetNotFound(res, kind = "image", assetId = "") {
 function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
+  if (isRetiredVegaProvider(value)) return false;
   if (isVegaProvider(value)) return true;
   if (isPapayaProvider(value)) return true;
   if (isByteplusLanguageProvider(value)) return true;
@@ -254,8 +255,15 @@ function isExplicitAdvancedProvider(value = "") {
 
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
+  if (isRetiredVegaProvider(value)) {
+    throw advancedValidationError(
+      "MODEL_RETIRED",
+      "This model has been retired. Select an available model and try again.",
+      { provider: value },
+    );
+  }
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance25-flash, seedance-nsfw, a Vega provider id, seedream5-image, seedream55-image, qwen-image3, qwen37-flash, byteplus-language, or papaya.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be an available generation model id.", { provider: value });
   }
 }
 

@@ -1,6 +1,7 @@
 function publicAdvancedPricingRowVisible(row = {}) {
   const key = String(row.key || "").trim().toLowerCase();
   const provider = String(row.provider || "").trim().toLowerCase();
+  if (isRetiredVegaProvider(provider)) return false;
   if (provider === "happyhorse") return false;
   if (provider === "wan30") return PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED;
   if (provider === "wan27" || provider === "wan27-image") {
@@ -12,6 +13,7 @@ function publicAdvancedPricingRowVisible(row = {}) {
 
 function publicPricingModelVisible(row = {}) {
   const provider = normalizeAdvancedProvider(row.provider);
+  if (isRetiredVegaProvider(provider)) return false;
   // These routes stay available internally but are not model choices on the
   // public generation page. Keep their pricing configs for admin/runtime use.
   if (provider === "seedance25") return false;
@@ -942,7 +944,9 @@ function wan30PurchaseTableForRow(pricing = DEFAULT_ADVANCED_PRICING, row = {}) 
 
 async function adminAdvancedPricingView(config = {}) {
   const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
-  const rows = await Promise.all(ADVANCED_PRICING_ROWS.map(async (row) => {
+  const rows = await Promise.all(ADVANCED_PRICING_ROWS
+    .filter((row) => !isRetiredVegaProvider(row.provider))
+    .map(async (row) => {
     const modelKey = advancedPricingModelKey(row.provider, row);
     const modelSetting = advancedModelSetting(pricing, modelKey);
     const configuredSaleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode, row.model, row.variant, { applyDiscount: false });
@@ -1245,6 +1249,9 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     seen.add(key);
     const definedRow = ADVANCED_PRICING_ROWS_BY_KEY.get(key) || null;
     if (definedRow) {
+      if (isRetiredVegaProvider(definedRow.provider)) {
+        throw pricingPayloadError(`Retired model pricing row: ${key}`, "PRICING_MODEL_RETIRED");
+      }
       const vegaPurchase = advancedVegaPurchaseForRow(next, definedRow);
       const wan30PurchaseTable = wan30PurchaseTableForRow(next, definedRow);
       const purchaseTable = vegaPurchase?.table || wan30PurchaseTable;

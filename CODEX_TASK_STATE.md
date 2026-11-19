@@ -1,3 +1,25 @@
+## 2026-11-19 Step ES: Retire three Vega models from selection and pricing
+
+- Retired `seedance20-vega` (`seedance2.0（vega）`), `seedance25-vega` (`seedance2.5vega`), and `h3-vega` (`wan（vega）`) from public model selection, public/admin pricing, and new generation submissions. `vega10-lite` / `h3（vega）` remains active.
+- Historical provider definitions and display labels remain intact so old generation records still render. Stale/regeneration selections fall back to an available model instead of restoring a removed option.
+- New submissions using retired IDs or known aliases now fail with `MODEL_RETIRED`; retired pricing rows cannot be saved and return `PRICING_MODEL_RETIRED`.
+- Changed files: `platform.config.js`, `platform.html`, `platform.ui.parts/part-02.js`, `platform.create.parts/part-02.js`, `tencent-vod-vega.js`, `server.parts/part-01.js`, `server.parts/part-11.js`, `server.parts/part-39.js`, plus focused tests.
+- Verification: seven Vega/pricing/model-selection suites pass `222/222`; syntax checks, `npm run check:undef`, and `git diff --check` pass. Earlier full suite had `1424 pass / 11 fail`; the 11 failures are pre-existing serializer/queue/source-split/W3 dirty-work failures unrelated to this change. Deployment pending.
+- Do not include unrelated dirty story/optimizer files in this task's commit or release.
+
+## 2026-11-19 Step ER: Shot prompt approval is now a one-click continuation
+
+- User rejected the repeated per-asset approval loop in the shot workspace. When every design image was generated but not approved, the UI still required manual approval of each image before the video prompt could be planned.
+- Added `finalizeShotAssetsAndPlanPrompt(shotId)`: it approves every generated design variant for the selected shot, reloads detail and shots, then immediately calls the existing model-optimized prompt planning flow.
+- Added the selected-shot action `全部定稿并生成视频提示词`, gated on all images generated, at least one still unapproved, an optimizer model available, and no competing action. The existing single-image approval remains available for review/rejection cases.
+- Fixed the unfinished TDZ error by declaring the selected video model and optimizer model before computing `canFinalizeAndPlan`.
+- Changed approve-stage copy from “逐张” to “审核或一键定稿” so the visible next action matches the implemented flow.
+- Changed files: `platform.story.js`, `test/story-canvas-p1.test.js`, `CODEX_TASK_STATE.md`.
+- Verification: `node --check platform.story.js`, focused story tests `25/25`, `npm run check:undef`, and `git diff --check` pass.
+- Source commit `84550b92`. Built platform release `bb4a2f8e19305eaf97bd94fe8001e7da7ac44141`, pushed `platform-release`, and deployed Old through `scripts/deploy_local.sh --site old` (`4175 -> 4174`, canaries 1%/5%, `OLD_ROLLING_DEPLOY_OK`).
+- Production verification: `/api/health`, `/api/livez`, and `/api/readyz` return `200`; served `platform.story.js` matches the local SHA-256 and contains the new one-click button, copy, handler, and function.
+- Do not include unrelated dirty `server.parts/part-45.js`.
+
 ## 2026-11-19 Step EQ: Story asset approval flow exposes one next action
 
 - S01 had `assetsConfirmedAt` and all three episode assets generated as `ready`, but the workspace still rendered `重新确认资产清单` and the generate button remained visually present. The UI implied that users had to confirm the same list repeatedly.

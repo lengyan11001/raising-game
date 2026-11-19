@@ -788,7 +788,7 @@ function syncAdvancedProviderExposure() {
     const raw = String(option.value || "").trim().toLowerCase();
     // Keep HappyHorse hidden on the old site, but expose Wan 3.0 Prime along
     // with Wan 3.0 when that tenant feature is enabled.
-    const permanentlyHidden = raw === "happyhorse";
+    const permanentlyHidden = raw === "happyhorse" || isRetiredVegaProviderId(raw);
     const primeHidden = raw === "wan30-prime" && !wan30Enabled;
     // Only show models belonging to the selected video/image/conversation tab.
     const otherMediaKindHidden = !advancedProviderMatchesCustomKind(raw, selectedMediaKind);
@@ -804,7 +804,7 @@ function syncAdvancedProviderExposure() {
   });
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
   const modeProvider = state.advancedCreateKind === "custom" ? "" : String(advancedCreateModeConfig()?.provider || "").trim().toLowerCase();
-  const permanentlyHiddenCurrent = current === "happyhorse" || (current === "wan30-prime" && !wan30Enabled);
+  const permanentlyHiddenCurrent = current === "happyhorse" || isRetiredVegaProviderId(current) || (current === "wan30-prime" && !wan30Enabled);
   const tenantHiddenCurrent = !enabled && hiddenProviders.has(current) && !(
     (wan30Enabled && isPublicWan30ProviderOption(current))
     || (wan27Enabled && isPublicWan27ProviderOption(current))
@@ -1128,6 +1128,7 @@ function advancedParameterVisibleOptions(kind = "") {
   if (!select) return [];
   return Array.from(select.options)
     .filter((option) => !option.hidden && !option.disabled && !option.closest("optgroup")?.hidden)
+    .filter((option) => kind !== "model" || !isRetiredVegaProviderId(option.value))
     .map((option) => ({
       value: String(option.value ?? ""),
       label: String(option.textContent || option.value || "").trim(),
@@ -1443,6 +1444,7 @@ function setAdvancedParameterValue(kind = "", value = "") {
   const select = advancedParameterNativeSelect(kind);
   if (!select) return;
   const nextValue = String(value);
+  if (kind === "model" && isRetiredVegaProviderId(nextValue)) return;
   const changed = select.value !== nextValue;
   select.value = nextValue;
   closeAdvancedParameterPanel();
