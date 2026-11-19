@@ -1,3 +1,10 @@
+## 2026-11-19 Step FD: Refresh keeps claimed coupon entry visible immediately
+
+- Reproduced the reported disappearance on `123vips.com`: after a full refresh, `test01` was signed in and `/api/coupon/list` still returned the valid status-1 coupon, but `#couponReminderBar` and `#couponTopupEntry` stayed hidden until the 30-second coupon poll ran.
+- Root cause was initialization order. `platform.coupon.js` ran its first account sync before `bootstrap()/loadMe()` restored `state.user`; `setUser()` did not notify the coupon module, so the entry waited for the next scheduled poll.
+- `platform.ui.parts/part-01.js` now forces `window.refreshCouponSession({ force: true })` whenever `setUser()` detects a changed user. Login, refresh/session restore, logout, and account switching therefore update the coupon entry immediately without changing claim, lock, payment, settlement, or expiry workflows.
+- Added cash-coupon regression coverage for the session-restore hook. Focused checks passed: syntax checks, undefined-reference check, cash-coupon tests `21/21`, check-in tests `12/12`, and scoped `git diff --check`.
+
 ## 2026-11-19 Step FC: Pending-payment coupon remains visible
 
 - User asked whether an unpaid `test01` order consumed the coupon. Production data confirms it did not: the coupon was status `1` after the 15-minute lock expired, with no `used_at` or `used_order_no`; the pending Stripe order only temporarily changes it to status `2`.
@@ -5,6 +12,8 @@
 - `platform.coupon.js` now keeps a strict usable-coupon path for checkout (`status === 1` only) and adds a separate valid-lock display path (`status === 2`, unexpired lock and coupon). Locked coupons render as `订单锁定中` with lock countdown and `查看订单`, and never enter `couponForAmount()` or `getSelectedCouponId()`.
 - Added regression coverage proving a valid locked coupon remains visible but is not reusable, while an expired lock hides the entry. Cache version is now `coupon-20261119-11`.
 - Focused verification passed: `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, cash-coupon tests `20/20`, check-in tests `12/12`, canvas cache-bust test `1/1`, and scoped `git diff --check`.
+- Source commit `673a23a8` was pushed to `old-site`; platform release `203f6257` was built from it and pushed only to `platform-release`. `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK`; Old is active on port 4174 serving release `203f625743b0e65387acf38104e06518bd1750fb`.
+- Production `/api/health`, `/api/livez`, and `/api/readyz` are healthy. `https://123vips.com/` serves `platform.coupon.css?v=coupon-20261119-11`, and the served `platform.coupon.js` contains the locked-coupon entry and `查看订单` handling.
 
 ## 2026-11-19 Step FB: Cash coupon UI matched directly to supplied design
 

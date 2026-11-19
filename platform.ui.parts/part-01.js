@@ -1114,6 +1114,13 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   if (typeof scheduleAccountSecurityNotice === "function") {
     scheduleAccountSecurityNotice({ force: userChanged && Boolean(state.user) });
   }
+  // Session restoration happens after the initial coupon bootstrap. Refresh the
+  // coupon state as soon as the authenticated user becomes available instead of
+  // waiting for the next 30-second poll, otherwise a claimed coupon disappears
+  // on refresh until that poll runs.
+  if (userChanged && typeof window.refreshCouponSession === "function") {
+    window.refreshCouponSession({ force: true });
+  }
 }
 
 function maskToken(token = "") {
