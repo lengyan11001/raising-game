@@ -845,9 +845,12 @@ async function bytesForGenerationRecordImage(record = {}) {
 async function handleAddGenerationRecordToAssets(req, res, taskId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const records = await readGenerationRecords();
-  const record = records.find((entry) => entry.taskId === taskId && entry.userId === auth.user.id && isUserVisibleGenerationRecord(entry));
-  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  // Read the exact record instead of searching the latest page of records.
+  // Canvas results can be much older than the current 500-record window.
+  const record = await getGenerationRecord(taskId);
+  if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
+    return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  }
   if (record.resultLocked === true) return sendJson(res, 423, { ok: false, code: "RESULT_LOCKED", message: "Unlock this result first." });
   if (!isSucceededStatus(record.status)) return sendJson(res, 400, { ok: false, message: "Generation is not completed yet." });
   const addAssetKey = `${auth.user.id}:${taskId}`;

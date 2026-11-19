@@ -4,8 +4,8 @@
 - Added `window.addWorkflowNodeResultToAssets(nodeId)`: it handles the request, updates `state.userAssets` immediately, reports already-added results idempotently, and logs a user-facing failure without changing the generation result.
 - Updated the shared React node layout, image/video result nodes, canvas CSS, compiled `workflow-react/dist/canvas.js`, and workflow regression coverage. Generation nodes remain unchanged with no asset action.
 - Verification passed: workflow canvas suite `41/41`, `node --check platform.ui.parts/part-06.js`, `npm run check:undef`, production webpack build (existing size warnings only), and scoped `git diff --check`.
-- Source commit `cd28e52d` was pushed to `old-site`; platform release `c8724160` was built from it and pushed only to `platform-release`. `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK`; Old is active on port `4174` serving release `c872416083d9b4d2c66f4c62b3684413f2031666`.
-- Production `/api/health`, `/api/livez`, and `/api/readyz` return healthy. The served canvas bundle contains `site-generation-add-asset`, and the served `platform.ui.parts/part-06.js` contains `addWorkflowNodeResultToAssets` and the `/add-asset` request path.
+- Source commits `cd28e52d` and cache-busting follow-up `cd63ca98` were pushed to `old-site`; platform release `457f8992` was built from them and pushed only to `platform-release`. `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK`; Old is active on port `4175` serving release `457f8992f335b41276236be965ff9af3cdf132ef`.
+- Canvas asset cache version is `canvas-20261119-12`. Production `/api/health`, `/api/livez`, and `/api/readyz` return healthy. The served loader references the new version, the served canvas bundle contains `site-generation-add-asset`, and the served `platform.ui.parts/part-06.js` contains `addWorkflowNodeResultToAssets` and the `/add-asset` request path.
 
 ## 2026-11-19 Step FD: Refresh keeps claimed coupon entry visible immediately
 
