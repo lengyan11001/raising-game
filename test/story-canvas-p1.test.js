@@ -572,11 +572,22 @@ test("story production UI selects image and video models and writes only optimiz
 
 test("story asset approval flow exposes one next action at each stage", () => {
   const story = read("platform.story.js");
+  const start = story.indexOf("function storyShotAssetsConfirmed(");
+  const end = story.indexOf("function storyAssetVariants(", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const context = {
+    storyAssetHasGeneratedImage: (asset) => Boolean(asset.generated),
+    storyAssetHasApprovedImage: (asset) => Boolean(asset.approved),
+  };
+  vm.runInNewContext(`${story.slice(start, end)}\nthis.storyShotAssetProgress = storyShotAssetProgress;`, context);
+  const progress = context.storyShotAssetProgress;
+  assert.equal(progress({}, []).stage, "empty");
+  assert.equal(progress({}, [{ generated: false, approved: false }]).stage, "review");
+  assert.equal(progress({ metadata: { assetsConfirmedAt: "yes" } }, [{ generated: false, approved: false }]).stage, "generate");
+  assert.equal(progress({ metadata: { assetsConfirmedAt: "yes" } }, [{ generated: true, approved: false }]).stage, "approve");
+  assert.equal(progress({ metadata: { assetsConfirmedAt: "yes" } }, [{ generated: true, approved: true }]).stage, "ready");
   assert.match(story, /function storyShotAssetProgress\(shot = \{\}, assets = \[\]\)/);
-  assert.match(story, /let stage = "review"/);
-  assert.match(story, /stage = "generate"/);
-  assert.match(story, /stage = "approve"/);
-  assert.match(story, /stage = "ready"/);
   assert.match(story, /assetProgress\.stage === "generate" && !storyState\.action/);
   assert.match(story, /confirmed \? `<span class="story-status-pill">资产清单已确认<\/span>`/);
   assert.match(story, /请将剩余 \$\{assets\.length - approvedAssets\.length\} 张设计图逐张设为定稿/);
