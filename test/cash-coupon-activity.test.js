@@ -455,7 +455,11 @@ test("coupon email reminders are register-only, deliver useful content, and use 
   assert.match(serverCoupon, /runWithSchedulerLease\("coupon-email-reminders"/);
   assert.match(serverCoupon, /setInterval\(\(\) => runCouponEmailReminderSchedulerTick\("timer"\), COUPON_EMAIL_REMINDER_INTERVAL_MS\)/);
   assert.match(serverCoupon, /await sendEmailMessage\([\s\S]*await recordCouponEmailReminderInDb/);
-  assert.match(read("server.parts/part-43.js"), /startCouponEmailReminderScheduler\(\)/);
+  const bootstrap = read("server.parts/part-43.js");
+  const genericSchedulerBlock = bootstrap.indexOf("if (BACKGROUND_SCHEDULERS_ENABLED)");
+  const couponScheduler = bootstrap.indexOf("startCouponEmailReminderScheduler()", genericSchedulerBlock);
+  assert.ok(genericSchedulerBlock >= 0, "bootstrap has a generic scheduler gate");
+  assert.ok(couponScheduler > bootstrap.indexOf("startChatLiveSettlementScheduler()", genericSchedulerBlock), "coupon reminders start outside the generic scheduler gate");
   assert.match(database, /"2026-11-19-cash-coupon-v1"/);
   assert.match(database, /"coupon_email_reminder",/);
 });

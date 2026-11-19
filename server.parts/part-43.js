@@ -841,7 +841,6 @@ async function bootstrap() {
     startActiveGenerationRecordScheduler();
     startTelegramBotScheduler();
     startTelegramPaymentNotificationScheduler();
-    startCouponEmailReminderScheduler();
     startVideoToolJobRecoveryScheduler();
     startVideoToolUploadCleanupScheduler();
     startLocalMediaCleanupScheduler();
@@ -850,6 +849,9 @@ async function bootstrap() {
     startGenerationRecordResultAssetMediaBackfillScheduler();
     startChatLiveSettlementScheduler();
   }
+  /* Coupon reminders have their own SMTP gate and PostgreSQL lease, so they
+     can run on promoted HTTP instances while generic schedulers are disabled. */
+  startCouponEmailReminderScheduler();
   /* Story shot-plan jobs use both PostgreSQL scheduler and row leases, so a
      rolling candidate can own the worker without duplicating execution. */
   startStoryShotPlanWorker();
