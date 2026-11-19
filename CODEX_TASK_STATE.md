@@ -5,7 +5,10 @@
 - Moved `#couponTopupEntry` into `.topup-headline` beside the top-up summary, matching the 352px slot in the design. Mobile collapses the headline and makes the coupon entry full width.
 - Claim success now stays in the same dialog and shows the approved `Later / Use coupon` action row. Claiming clears the daily modal marker; top-up shortcut still selects the lowest eligible package.
 - Added full Chinese countdown formatting (`N 天 NN 时 NN 分 NN 秒`) for the dialog and top-up slot. Coupon cache version is now `coupon-20261119-3`.
-- Verification: focused coupon/check-in/workflow/migration suite `80/80`; `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, and scoped `git diff --check` pass.
+- Verification: focused coupon/check-in/workflow/migration suite `80/80`; `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, and scoped `git diff --check` pass. Full suite: `1462 pass / 14 fail / 2 skipped`; all failures are the existing unrelated story/optimizer/serializer/source-split baselines from the dirty worktree.
+- Source commit `6bc4197e`; platform release `54b5b540`; pushed only `old-site` and `platform-release`; remote `live-release` untouched.
+- Old-only rolling deployment completed with `OLD_ROLLING_DEPLOY_OK active_port=4175 release=54b5b540...`; `/api/health`, `/api/livez`, and `/api/readyz` return `200`.
+- Public `platform.html` contains `couponTopupEntry` inside `topup-headline`, no longer contains `couponActivityEntry`, and all coupon assets use `coupon-20261119-3`; public coupon CSS/JS return `200`.
 - Unrelated dirty story/optimizer files remain excluded. Old-site deployment is the only target for this task.
 
 ## 2026-11-19 Step EU: Sidebar activity entry for cash coupon
