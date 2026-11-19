@@ -4660,6 +4660,17 @@ async function listCouponEmailReminderCandidatesFromDb({ limit = 100 } = {}) {
       AND c.risk_flag = 0
       AND u.deleted_at IS NULL
       AND COALESCE(NULLIF(u.payload->>'email', ''), NULLIF(u.payload->>'googleEmail', '')) <> ''
+      AND (
+        (c.status = 0 AND NOT EXISTS (
+          SELECT 1 FROM coupon_email_reminder done
+          WHERE done.user_coupon_id = c.id AND done.reminder_type = 'pending_72h'
+        ))
+        OR
+        (c.status = 1 AND c.expire_at > NOW() AND NOT EXISTS (
+          SELECT 1 FROM coupon_email_reminder done
+          WHERE done.user_coupon_id = c.id AND done.reminder_type = 'expire_24h'
+        ))
+      )
     GROUP BY c.id, t.id, u.id
     ORDER BY c.granted_at ASC
     LIMIT $1

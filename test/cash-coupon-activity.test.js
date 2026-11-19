@@ -448,6 +448,8 @@ test("coupon email reminders are register-only, deliver useful content, and use 
     assert.match(content.html, /<a href=/);
   }
   assert.match(database, /WHERE c\.status IN \(0, 1\)[\s\S]*AND c\.grant_source = 'register'/);
+  assert.match(database, /c\.status = 0 AND NOT EXISTS \([\s\S]*reminder_type = 'pending_72h'/);
+  assert.match(database, /c\.status = 1 AND c\.expire_at > NOW\(\) AND NOT EXISTS \([\s\S]*reminder_type = 'expire_24h'/);
   assert.match(database, /CREATE TABLE IF NOT EXISTS coupon_email_reminder/);
   assert.match(database, /ON CONFLICT \(user_coupon_id, reminder_type\) DO NOTHING/);
   assert.match(serverCoupon, /runWithSchedulerLease\("coupon-email-reminders"/);
