@@ -1,4 +1,4 @@
-## 2026-11-19 Step EU: Sidebar activity entry for cash coupon (local verification complete, deployment pending)
+## 2026-11-19 Step EU: Sidebar activity entry for cash coupon
 
 - User asked where the activity entry was after the cash-coupon activity implementation. Added a real activity carousel entry in the left sidebar between the check-in card and community links.
 - Entry `#couponActivityEntry` currently presents `$5 现金券`; its action follows account/coupon state: login opens the login dialog, pending opens the claim modal, claimed opens top-up with the coupon selected, and signed-in users without a coupon open the coupon center.
@@ -6,6 +6,9 @@
 - Changed files: `platform.html`, `platform.js`, `platform.coupon.js`, `platform.coupon.css`, `test/cash-coupon-activity.test.js`, `test/checkin-activity.test.js`, `test/workflow-canvases.test.js`.
 - Verification: focused coupon/check-in/workflow/migration suite `80/80`; `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, and scoped `git diff --check` pass.
 - Unrelated dirty story/optimizer files remain excluded from this task.
+- Source commit `87660b43`; platform release `99abf9ba5a8f961f650ce17c2560191261daa17e`; pushed only `old-site` and `platform-release`; remote `live-release` untouched.
+- Old-only deployment completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=99abf9ba...`; `/api/health`, `/api/livez`, and `/api/readyz` return `200`.
+- Public `platform.html` contains `couponActivityEntry` / `couponActivityCard`; public `platform.coupon.css` and `platform.coupon.js` return `200`, and the deployed coupon JS contains the state router and click handler.
 
 ## 2026-11-19 Step ET: Check-in rewards in admin ledger and one-shot fly animation
 
