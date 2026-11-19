@@ -152,6 +152,13 @@
     return `${part.days}d ${String(part.hours).padStart(2, "0")}:${String(part.minutes).padStart(2, "0")}:${String(part.seconds).padStart(2, "0")}`;
   }
 
+  function countdownDetailText(expireAt = "") {
+    const part = countdownParts(expireAt);
+    if (part.expired) return copy("Expired", "已过期");
+    if (!isZh()) return countdownText(expireAt);
+    return `${part.days} 天 ${String(part.hours).padStart(2, "0")} 时 ${String(part.minutes).padStart(2, "0")} 分 ${String(part.seconds).padStart(2, "0")} 秒`;
+  }
+
   function cacheElements() {
     Object.assign(els, {
       reminder: byId("couponReminderBar"),
@@ -171,6 +178,7 @@
       claimBtn: byId("couponClaimBtn"),
       laterBtn: byId("couponLaterBtn"),
       goTopupBtn: byId("couponGoTopupBtn"),
+      successLaterBtn: byId("couponSuccessLaterBtn"),
       topupEntry: byId("couponTopupEntry"),
       checkout: byId("couponCheckoutSummary"),
       centerNav: byId("couponCenterNavBtn"),
@@ -181,13 +189,6 @@
       centerTitle: byId("couponCenterTitle"),
       centerSubtitle: byId("couponCenterSubtitle"),
       centerBody: byId("couponCenterBody"),
-      activity: byId("couponActivityEntry"),
-      activityCard: byId("couponActivityCard"),
-      activityFlag: byId("couponActivityFlag"),
-      activityTitle: byId("couponActivityTitle"),
-      activityAction: byId("couponActivityAction"),
-      activityDetail: byId("couponActivityDetail"),
-      activityDots: document.querySelector("[data-coupon-activity-dots]"),
     });
   }
 
@@ -250,7 +251,7 @@
           <span>${safeHtml(copy("Use it within 7 days. Unused coupons will not be restored.", "请在 7 天内使用，过期不补。"))}</span>
           <div class="coupon-countdown-box">
             <small>${safeHtml(copy("Expires in", "剩余有效期"))}</small>
-            <b data-coupon-countdown>${safeHtml(countdownText(active.expire_at))}</b>
+            <b data-coupon-countdown>${safeHtml(countdownDetailText(active.expire_at))}</b>
           </div>
         `;
       }
@@ -263,6 +264,7 @@
     }
     if (els.laterBtn) els.laterBtn.textContent = copy("Not now", "暂不领取");
     if (els.goTopupBtn) els.goTopupBtn.textContent = copy("Use coupon", "去购买积分");
+    if (els.successLaterBtn) els.successLaterBtn.textContent = copy("Later", "稍后");
   }
 
   function renderCouponReminder() {
@@ -273,7 +275,7 @@
     els.reminder.hidden = !visible;
     if (!visible || !coupon) return;
     const threshold = money(coupon.threshold ?? DEFAULT_COUPON.threshold);
-    if (els.reminderTitle) els.reminderTitle.textContent = copy("New user coupon", "新用户券");
+    if (els.reminderTitle) els.reminderTitle.textContent = copy("$5 new-user coupon", "$5 新用户券");
     if (els.reminderText) {
       els.reminderText.textContent = copy(
         `${money(coupon.face_value ?? DEFAULT_COUPON.face_value)} off orders over ${threshold}`,
@@ -286,78 +288,6 @@
   function dismissCouponReminder() {
     writeStorage(REMINDER_DISMISSED_KEY, shanghaiDateKey());
     renderCouponReminder();
-  }
-
-  function couponActivityState() {
-    const pending = pendingCoupon();
-    if (pending) {
-      return {
-        type: "pending",
-        coupon: pending,
-        flag: copy("NEW USER", "新用户专享"),
-        title: copy("$5 cash coupon", "$5 现金券"),
-        action: copy("Claim now", "立即领取"),
-        detail: copy("Orders over $30 · 7 days after claiming", "满 $30 可用 · 领取后 7 天有效"),
-      };
-    }
-    const claimed = claimedCoupon();
-    if (claimed) {
-      const threshold = money(claimed.threshold ?? DEFAULT_COUPON.threshold);
-      return {
-        type: "claimed",
-        coupon: claimed,
-        flag: copy("CLAIMED", "已领取"),
-        title: copy("$5 cash coupon", "$5 现金券"),
-        action: copy("Use now", "去使用"),
-        detail: copy(`${countdownText(claimed.expire_at)} left · Orders over ${threshold}`, `剩余 ${countdownText(claimed.expire_at)} · 满 ${threshold} 可用`),
-      };
-    }
-    if (!appUser()?.id) {
-      return {
-        type: "login",
-        flag: copy("NEW USER", "新用户专享"),
-        title: copy("$5 cash coupon", "$5 现金券"),
-        action: copy("Log in to claim", "登录领取"),
-        detail: copy("Orders over $30 · Valid 7 days after claiming", "满 $30 可用 · 领取后 7 天有效"),
-      };
-    }
-    return {
-      type: "center",
-      flag: copy("ACTIVITY", "活动"),
-      title: copy("$5 cash coupon", "$5 现金券"),
-      action: copy("View activity", "查看活动"),
-      detail: copy("New-user cash coupon", "新用户现金券活动"),
-    };
-  }
-
-  function renderCouponActivityEntry() {
-    if (!els.activity || !els.activityCard) return;
-    const entry = couponActivityState();
-    els.activity.hidden = false;
-    els.activityCard.dataset.couponActivityState = entry.type;
-    els.activityCard.setAttribute("aria-label", `${entry.title} · ${entry.action}`);
-    if (els.activityFlag) els.activityFlag.textContent = entry.flag;
-    if (els.activityTitle) els.activityTitle.textContent = entry.title;
-    if (els.activityAction) els.activityAction.textContent = entry.action;
-    if (els.activityDetail) els.activityDetail.textContent = entry.detail;
-    if (els.activityDots) els.activityDots.innerHTML = "";
-  }
-
-  function openCouponActivity() {
-    const entry = couponActivityState();
-    if (entry.type === "login") {
-      if (typeof openLogin === "function") openLogin();
-      return;
-    }
-    if (entry.type === "pending") {
-      showCouponDialog({ force: true });
-      return;
-    }
-    if (entry.type === "claimed") {
-      goTopupWithCoupon();
-      return;
-    }
-    openCouponCenter();
   }
 
   function couponCenterStatus(coupon = {}) {
@@ -494,15 +424,15 @@
     const pending = entry.type === "pending";
     els.topupEntry.hidden = false;
     els.topupEntry.innerHTML = `
-      <div class="coupon-topup-icon" aria-hidden="true">${pending ? "券" : "✓"}</div>
+      <div class="coupon-topup-icon" aria-hidden="true">${pending ? "🎟" : "✓"}</div>
       <div class="coupon-topup-copy">
         <div class="coupon-topup-title">
-          <strong>${safeHtml(pending ? copy("New user coupon", "新用户专享券") : copy("$5 cash coupon claimed", "$5 现金券已领取"))}</strong>
-          <span>${safeHtml(`${face} OFF`)}</span>
+          <strong>${safeHtml(pending ? copy("New-user coupon", "新用户专享券") : copy("$5 cash coupon claimed", "$5 现金券已领"))}</strong>
+          <span>${safeHtml(pending ? copy(`${face} OFF`, `${face} 立减`) : copy("Use soon", "尽快使用"))}</span>
         </div>
         <small data-coupon-entry-desc>${safeHtml(pending
           ? copy(`Orders over ${threshold}. Valid for 7 days after claiming.`, `满 ${threshold} 可用 · 领取后 7 天有效`)
-          : copy(`${countdownText(coupon.expire_at)} left · Orders over ${threshold}`, `剩余 ${countdownText(coupon.expire_at)} · 满 ${threshold} 可用`))}</small>
+          : copy(`${countdownDetailText(coupon.expire_at)} left · Orders over ${threshold}`, `剩余 ${countdownDetailText(coupon.expire_at)} · 满 ${threshold} 可用`))}</small>
       </div>
       <button class="coupon-topup-btn ${pending ? "is-primary" : ""}" type="button" data-coupon-entry-action>
         ${safeHtml(pending ? copy("Claim now", "立即领取") : copy("Use coupon", "去使用"))}
@@ -625,7 +555,6 @@
       els.checkout.hidden = true;
       els.checkout.innerHTML = "";
     }
-    renderCouponActivityEntry();
     renderCouponCenterNav();
     if (els.centerBody) els.centerBody.innerHTML = "";
     closeCouponDialog();
@@ -654,7 +583,6 @@
       ui.loadedAt = Date.now();
       refreshCouponTopupEntry();
       refreshCouponCheckout();
-      renderCouponActivityEntry();
       renderCouponReminder();
       renderCouponCenter();
       showCouponDialog();
@@ -689,8 +617,8 @@
       ui.selectedCouponId = claimed.coupon_id || coupon.coupon_id;
       ui.claimedThisOpen = true;
       ui.loadedAt = Date.now();
+      writeStorage(MODAL_SHOWN_KEY, "");
       refreshCouponTopupEntry();
-      renderCouponActivityEntry();
       renderCouponCenter();
       if (fromDialog) {
         renderCouponDialog();
@@ -721,22 +649,21 @@
   function tickCouponClocks() {
     const countdown = els.dialog?.querySelector("[data-coupon-countdown]");
     if (countdown && claimedCoupon()) {
-      countdown.textContent = countdownText(claimedCoupon().expire_at);
+      countdown.textContent = countdownDetailText(claimedCoupon().expire_at);
     }
     const entryDesc = els.topupEntry?.querySelector("[data-coupon-entry-desc]");
     const active = claimedCoupon();
     if (entryDesc && active) {
       const threshold = money(active.threshold ?? DEFAULT_COUPON.threshold);
       entryDesc.textContent = copy(
-        `${countdownText(active.expire_at)} left · Orders over ${threshold}`,
-        `剩余 ${countdownText(active.expire_at)} · 满 ${threshold} 可用`,
+        `${countdownDetailText(active.expire_at)} left · Orders over ${threshold}`,
+        `剩余 ${countdownDetailText(active.expire_at)} · 满 ${threshold} 可用`,
       );
     }
     if (!active && ui.available.length) {
       ui.available = [];
       refreshCouponTopupEntry();
       refreshCouponCheckout();
-      renderCouponActivityEntry();
     }
   }
 
@@ -752,7 +679,6 @@
 
   function bindEvents() {
     if (!els.dialog) return;
-    els.activity?.addEventListener("click", openCouponActivity);
     els.centerNav?.addEventListener("click", openCouponCenter);
     els.centerClose?.addEventListener("click", closeCouponCenter);
     els.centerDialog?.addEventListener("click", (event) => {
@@ -816,7 +742,6 @@
     cacheElements();
     if (!els.dialog) return;
     bindEvents();
-    renderCouponActivityEntry();
     syncCouponAccount({ force: true });
   }
 

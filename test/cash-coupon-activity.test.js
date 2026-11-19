@@ -358,23 +358,30 @@ test("frontend coupon center shows review coupons, red dots pending coupons, and
   assert.match(frontend, /if \(!coupon \|\| Number\(coupon\.status\) !== 1 \|\| coupon\.risk_review\) return false/);
 });
 
-test("left activity carousel exposes the cash coupon and routes every coupon state", () => {
+test("cash coupon uses the approved popup, reminder, and top-up entry surfaces", () => {
   const html = read("platform.html");
   const frontend = read("platform.coupon.js");
   const css = read("platform.coupon.css");
-  const checkin = html.indexOf('class="checkin-entry"');
-  const activity = html.indexOf('class="side-campaign-carousel coupon-activity-carousel"');
-  const utility = html.indexOf('class="side-utility-nav"');
-  assert.ok(checkin >= 0 && activity > checkin && utility > activity);
-  assert.match(html, /data-coupon-activity-open="cash-coupon"/);
-  assert.match(html, /id="couponActivityAction">登录领取</);
-  assert.match(frontend, /function couponActivityState\(\)/);
-  assert.match(frontend, /entry\.type === "login"[\s\S]*openLogin/);
-  assert.match(frontend, /entry\.type === "pending"[\s\S]*showCouponDialog\(\{ force: true \}\)/);
-  assert.match(frontend, /entry\.type === "claimed"[\s\S]*goTopupWithCoupon\(\)/);
-  assert.match(frontend, /els\.activity\?\.addEventListener\("click", openCouponActivity\)/);
-  assert.match(css, /\.coupon-activity-card/);
-  assert.match(css, /\.coupon-activity-art/);
+  const headline = html.indexOf('class="topup-headline"');
+  const entry = html.indexOf('id="couponTopupEntry"');
+  const packageStage = html.indexOf('id="topupPackageStage"');
+  assert.ok(headline >= 0 && entry > headline && entry < packageStage);
+  assert.doesNotMatch(html, /couponActivityEntry|side-campaign-carousel coupon-activity/);
+  assert.match(html, /id="couponClaimDialog"/);
+  assert.match(html, /id="couponReminderBar"/);
+  assert.match(html, /id="couponClaimBtn" type="button">Claim now</);
+  assert.match(html, /id="couponSuccessLaterBtn"[^>]*>Later</);
+  assert.match(frontend, /function showCouponDialog/);
+  assert.match(frontend, /function renderCouponReminder/);
+  assert.match(frontend, /function renderCouponTopupEntry/);
+  assert.match(frontend, /function countdownDetailText/);
+  assert.match(frontend, /剩余 \$\{countdownDetailText\(coupon\.expire_at\)\}/);
+  assert.match(frontend, /function claimCoupon/);
+  assert.match(frontend, /writeStorage\(MODAL_SHOWN_KEY, ""\)/);
+  assert.match(frontend, /if \(fromDialog\) \{[\s\S]*renderCouponDialog\(\)/);
+  assert.match(frontend, /else \{[\s\S]*selectCouponPackage\(\)/);
+  assert.match(css, /\.coupon-dialog-actions\.is-success/);
+  assert.match(css, /\.coupon-topup-entry/);
 });
 
 test("all four checkout families accept coupon ids and charge the discounted amount", () => {
@@ -484,8 +491,8 @@ test("coupon email reminders are register-only, deliver useful content, and use 
 });
 
 test("coupon assets are exposed by the runtime and release snapshot", () => {
-  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-2/);
-  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-2/);
+  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-3/);
+  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-3/);
   assert.match(read("platform.js"), /"platform\.coupon\.js"/);
   assert.match(read("server.parts/part-01.js"), /"platform\.coupon\.css"/);
   assert.match(read("site-http.js"), /"\/platform\.coupon\.css"/);
