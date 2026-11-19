@@ -88,6 +88,17 @@ function loadAvailabilityHelpers(listUserCouponsInDb) {
   return context.helpers;
 }
 
+function loadCouponVisibilityHelpers(ui) {
+  const frontend = read("platform.coupon.js");
+  const source = [
+    sourceBetween(frontend, "function activeCoupon", "function scopeMatches"),
+    sourceBetween(frontend, "function couponEntryState", "function renderCouponTopupEntry"),
+  ].join("\n");
+  const context = vm.createContext({ ui, Date, Number, Boolean, String, Array, Object });
+  vm.runInContext(`${source}\nthis.helpers = { activeCoupon, lockedCoupon, claimedCoupon, lockedClaimedCoupon, couponEntryState };`, context);
+  return context.helpers;
+}
+
 test("cash coupon template keeps the approved value, threshold, and unclaimed lifetime", () => {
   assert.match(database, /'NEWUSER_30_5OFF', '新用户专享券', 1, 500, 'USD', 3000, 0, 'recharge,membership', 7, 0, 0, 'register', 1/);
   assert.match(database, /CREATE UNIQUE INDEX IF NOT EXISTS user_coupon_user_template_uidx ON user_coupon \(user_id, template_id\)/);
@@ -358,6 +369,25 @@ test("frontend coupon center shows review coupons, red dots pending coupons, and
   assert.match(frontend, /if \(!coupon \|\| Number\(coupon\.status\) !== 1 \|\| coupon\.risk_review\) return false/);
 });
 
+test("a pending-payment coupon stays visible without becoming reusable", () => {
+  const future = new Date(Date.now() + 15 * 60_000).toISOString();
+  const locked = { coupon_id: "locked", status: 2, expire_at: future, lock_expire_at: future, threshold: 3000, face_value: 500 };
+  const ui = { pending: [], available: [], locked: [locked] };
+  const helpers = loadCouponVisibilityHelpers(ui);
+
+  assert.equal(helpers.activeCoupon(locked), false);
+  assert.equal(helpers.claimedCoupon(), null);
+  assert.equal(helpers.lockedCoupon(locked), true);
+  assert.equal(helpers.couponEntryState().type, "locked");
+
+  ui.available = [{ ...locked, coupon_id: "available", status: 1, lock_expire_at: "" }];
+  assert.equal(helpers.couponEntryState().type, "claimed");
+
+  ui.available = [];
+  ui.locked = [{ ...locked, lock_expire_at: new Date(Date.now() - 1_000).toISOString() }];
+  assert.equal(helpers.couponEntryState(), null);
+});
+
 test("cash coupon uses the approved popup, reminder, and top-up entry surfaces", () => {
   const html = read("platform.html");
   const frontend = read("platform.coupon.js");
@@ -384,12 +414,14 @@ test("cash coupon uses the approved popup, reminder, and top-up entry surfaces",
   assert.match(frontend, /return !tab \|\| tab === defaultTab \|\| tab === "home"/);
   assert.match(frontend, /function renderCouponReminder/);
   assert.match(frontend, /const entry = couponEntryState\(\);\s*const visible = Boolean\(isHomeTab\(\) && entry && !els\.dialog\?\.open && !els\.centerDialog\?\.open\)/);
-  assert.match(frontend, /pending\s*\? copy\("Claim", "立即领取"\)\s*: copy\("Use coupon", "去使用"\)/);
+  assert.match(frontend, /pending\s*\? copy\("Claim", "立即领取"\)\s*:\s*locked\s*\? copy\("View order", "查看订单"\)\s*: copy\("Use coupon", "去使用"\)/);
   assert.match(frontend, /function renderCouponTopupEntry/);
   assert.match(frontend, /function countdownDetailText/);
   assert.match(frontend, /剩余 <b>\$\{countdownDetailText\(coupon\.expire_at\)\}<\/b> · 满 \$\{threshold\} 可用/);
   assert.match(css, /\.coupon-reminder\s*\{[^}]*width:\s*min\(352px, calc\(100vw - 28px\)\)/);
   assert.match(frontend, /if \(isHomeTab\(\)\) showCouponDialog\(\)/);
+  assert.match(frontend, /else if \(locked\) viewLockedCouponOrder\(\)/);
+  assert.match(frontend, /function viewLockedCouponOrder\(\)[\s\S]*setTab\("topups"\)/);
   assert.match(frontend, /coupon_expired_notice_shown/);
   assert.match(frontend, /function claimCoupon/);
   assert.match(frontend, /writeStorage\(MODAL_SHOWN_KEY, ""\)/);
@@ -521,8 +553,8 @@ test("coupon email reminders are register-only, deliver useful content, and use 
 });
 
 test("coupon assets are exposed by the runtime and release snapshot", () => {
-  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-10/);
-  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-10/);
+  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-11/);
+  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-11/);
   assert.match(read("platform.js"), /"platform\.coupon\.js"/);
   assert.match(read("server.parts/part-01.js"), /"platform\.coupon\.css"/);
   assert.match(read("site-http.js"), /"\/platform\.coupon\.css"/);
