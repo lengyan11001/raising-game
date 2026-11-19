@@ -762,6 +762,37 @@
     return Boolean(shot.metadata?.assetsConfirmedAt);
   }
 
+  function storyShotAssetProgress(shot = {}, assets = []) {
+    const confirmed = storyShotAssetsConfirmed(shot);
+    const generatedCount = assets.filter((asset) => storyAssetHasGeneratedImage(asset)).length;
+    const approvedCount = assets.filter((asset) => storyAssetHasApprovedImage(asset)).length;
+    const allGenerated = Boolean(assets.length && generatedCount === assets.length);
+    const allApproved = Boolean(assets.length && approvedCount === assets.length);
+    let stage = "review";
+    let label = "待确认资产清单";
+    let nextAction = "确认清单后再生成设计图";
+    if (!assets.length) {
+      stage = "empty";
+      label = "尚未提取资产";
+      nextAction = "先让 AI 按本镜提取资产";
+    } else if (!confirmed) {
+      stage = "review";
+    } else if (!allGenerated) {
+      stage = "generate";
+      label = "资产清单已确认";
+      nextAction = `生成剩余 ${assets.length - generatedCount} 张设计图`;
+    } else if (!allApproved) {
+      stage = "approve";
+      label = "设计图待审核";
+      nextAction = `逐张审核并定稿剩余 ${assets.length - approvedCount} 张`;
+    } else {
+      stage = "ready";
+      label = "资产已全部定稿";
+      nextAction = "可以生成视频提示词";
+    }
+    return { confirmed, generatedCount, approvedCount, allGenerated, allApproved, stage, label, nextAction };
+  }
+
   function storyAssetVariants(assetId = "") {
     return storyState.assetVariants.filter((variant) => variant.assetId === assetId);
   }
@@ -920,6 +951,7 @@
     const shotCards = storyState.shots.map((shot) => {
       const shotAssets = storyShotAssets(episode, shot);
       const confirmed = storyShotAssetsConfirmed(shot);
+      const assetProgress = storyShotAssetProgress(shot, shotAssets);
       const generatedAssets = shotAssets.filter((asset) => storyAssetHasGeneratedImage(asset));
       const approvedShotAssets = shotAssets.filter((asset) => storyAssetHasApprovedImage(asset));
       const missingShotAssets = shotAssets.filter((asset) => !storyAssetHasGeneratedImage(asset));
@@ -929,7 +961,7 @@
         <article class="story-shot-production-card ${shot.id === storyState.selectedShotId ? "is-selected" : ""} ${promptReady ? "is-ready" : ""}" data-story-shot-card="${storyEscape(shot.id)}">
           <header class="story-shot-production-head">
             <div><b>S${String(shot.shotNo).padStart(2, "0")}</b><span><strong>${storyEscape(shot.title || `镜头 ${shot.shotNo}`)}</strong><small>${Number(shot.durationSeconds || 5)} 秒${shot.metadata?.shotSize ? ` · ${storyEscape(shot.metadata.shotSize)}` : ""}${shot.metadata?.camera ? ` · ${storyEscape(shot.metadata.camera)}` : ""}</small></span></div>
-            <em class="${confirmed ? "is-confirmed" : ""}">${confirmed ? "资产清单已确认" : "待确认资产清单"}</em>
+            <em class="${confirmed ? "is-confirmed" : ""}">${storyEscape(assetProgress.label)}</em>
           </header>
           <p class="story-shot-production-copy">${storyEscape(shot.description || "暂无镜头描述")}</p>
           <div class="story-shot-asset-list">
@@ -953,9 +985,9 @@
             <button type="button" data-story-plan-shot-prompt="${storyEscape(shot.id)}" ${shotAssetsReady && selectedVideoModel?.promptOptimizer && optimizerModel && !storyState.action ? "" : "disabled"}><i data-lucide="wand-sparkles"></i><span>${shot.videoPrompt ? "按当前模型刷新本镜" : "生成本镜视频提示词"}</span></button>
           </div>
           <footer class="story-shot-production-actions">
-            <button class="story-secondary-button" type="button" data-story-confirm-shot-assets="${storyEscape(shot.id)}"><i data-lucide="${confirmed ? "badge-check" : "check-check"}"></i><span>${confirmed ? "重新确认资产清单" : "确认此镜资产清单"}</span></button>
-            <button class="story-create-button" type="button" data-story-generate-shot-assets="${storyEscape(shot.id)}" ${confirmed && missingShotAssets.length && !storyState.action ? "" : "disabled"}><i data-lucide="images"></i><span>${missingShotAssets.length ? `确认后生成 ${missingShotAssets.length} 个资产` : "本镜资产均已出图"}</span></button>
-            <small>${approvedShotAssets.length} / ${shotAssets.length} 个资产已定稿${generatedAssets.length ? ` · ${generatedAssets.length} 个已出图` : ""}</small>
+            ${confirmed ? `<span class="story-status-pill">资产清单已确认</span>` : `<button class="story-secondary-button" type="button" data-story-confirm-shot-assets="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}><i data-lucide="check-check"></i><span>确认此镜资产清单</span></button>`}
+            <button class="story-create-button" type="button" data-story-generate-shot-assets="${storyEscape(shot.id)}" ${assetProgress.stage === "generate" && !storyState.action ? "" : "disabled"}><i data-lucide="images"></i><span>${assetProgress.stage === "generate" ? `生成剩余 ${missingShotAssets.length} 张资产图` : assetProgress.stage === "approve" || assetProgress.stage === "ready" ? "本镜资产均已出图" : "确认后生成资产图"}</span></button>
+            <small>${generatedAssets.length} / ${shotAssets.length} 已出图 · ${approvedShotAssets.length} / ${shotAssets.length} 已定稿 · ${storyEscape(assetProgress.nextAction)}</small>
           </footer>
         </article>`;
     }).join("");
@@ -989,6 +1021,7 @@
     const metadata = shot.metadata && typeof shot.metadata === "object" ? shot.metadata : {};
     const assets = storyShotAssets(episode, shot);
     const confirmed = storyShotAssetsConfirmed(shot);
+    const assetProgress = storyShotAssetProgress(shot, assets);
     const approvedAssets = assets.filter((asset) => storyAssetHasApprovedImage(asset));
     const generatedAssets = assets.filter((asset) => storyAssetHasGeneratedImage(asset));
     const assetsApproved = Boolean(assets.length && approvedAssets.length === assets.length);
@@ -1084,9 +1117,9 @@
             <p class="story-shot-workspace-hint">这里直接完成本镜资产生成、重生成、定稿和复用已有素材。资产库只用于查看全项目记录。</p>
             <div class="story-shot-workspace-assets">${assetRows}</div>
             <div class="story-shot-workspace-actions">
-              <button class="story-secondary-button" type="button" data-story-confirm-shot-assets="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}><i data-lucide="${confirmed ? "badge-check" : "check-check"}"></i><span>${confirmed ? "重新确认资产清单" : "确认此镜资产清单"}</span></button>
-              <button class="story-create-button" type="button" data-story-generate-shot-assets="${storyEscape(shot.id)}" ${confirmed && generatedAssets.length < assets.length && !storyState.action ? "" : "disabled"}><i data-lucide="images"></i><span>生成未完成资产图</span></button>
-              <small>${generatedAssets.length} 张已出图 · ${approvedAssets.length} 张已定稿</small>
+              ${confirmed ? `<span class="story-status-pill">资产清单已确认</span>` : `<button class="story-secondary-button" type="button" data-story-confirm-shot-assets="${storyEscape(shot.id)}" ${storyState.action ? "disabled" : ""}><i data-lucide="check-check"></i><span>确认此镜资产清单</span></button>`}
+              <button class="story-create-button" type="button" data-story-generate-shot-assets="${storyEscape(shot.id)}" ${assetProgress.stage === "generate" && !storyState.action ? "" : "disabled"}><i data-lucide="images"></i><span>${assetProgress.stage === "generate" ? `生成剩余 ${assets.length - generatedAssets.length} 张资产图` : assetProgress.stage === "approve" || assetProgress.stage === "ready" ? "本镜资产均已出图" : "确认后生成资产图"}</span></button>
+              <small>${generatedAssets.length} / ${assets.length} 已出图 · ${approvedAssets.length} / ${assets.length} 已定稿 · ${storyEscape(assetProgress.nextAction)}</small>
             </div>
             <p class="story-message">${storyEscape(storyState.actionMessage || "")}</p>
           </section>
@@ -1108,7 +1141,7 @@
             </div>
             <div class="story-shot-generation-gate ${canGenerateVideo ? "is-ready" : ""}">
               <strong>${canGenerateVideo ? "可以生成视频" : "生成门禁未通过"}</strong>
-              <span>${!assetsApproved ? `还需定稿 ${assets.length - approvedAssets.length} 个资产图。` : !promptReady ? "请按当前视频模型和分辨率优化提示词。" : "资产、提示词和模型均已就绪。"}</span>
+              <span>${!assets.length ? "请先让 AI 提取本镜资产。" : !confirmed ? "请先确认本镜资产清单。" : generatedAssets.length < assets.length ? `请先生成剩余 ${assets.length - generatedAssets.length} 张资产设计图。` : !assetsApproved ? `请将剩余 ${assets.length - approvedAssets.length} 张设计图逐张设为定稿。` : !promptReady ? "请按当前视频模型和分辨率优化提示词。" : "资产、提示词和模型均已就绪。"}</span>
             </div>
             <button class="story-create-button story-shot-generate-video" type="button" data-story-generate-shot-video="${storyEscape(shot.id)}" ${canGenerateVideo ? "" : "disabled"}><i data-lucide="${storyState.action === "generate-video" ? "loader-circle" : "clapperboard"}"></i><span>${storyState.action === "generate-video" ? "视频生成中…" : "生成视频"}</span></button>
             <p class="story-message">${storyEscape(storyState.actionMessage || "")}</p>
@@ -2767,13 +2800,22 @@
       renderStoryDetail();
       return;
     }
+    if (storyShotAssetsConfirmed(shot)) {
+      const progress = storyShotAssetProgress(shot, shotAssets);
+      storyState.actionMessage = `S${String(shot.shotNo).padStart(2, "0")} 的资产清单已确认。下一步：${progress.nextAction}。`;
+      renderStoryDetail();
+      return;
+    }
     storyState.action = "confirm-shot-assets";
     storyState.selectedShotId = shot.id;
     storyState.actionMessage = `正在确认 S${String(shot.shotNo).padStart(2, "0")} 的资产清单…`;
     renderStoryDetail();
     try {
       await saveStoryShotState(shot, { assetsConfirmedAt: new Date().toISOString(), assetsConfirmedCount: shotAssets.length });
-      storyState.actionMessage = `S${String(shot.shotNo).padStart(2, "0")} 已确认 ${shotAssets.length} 个资产，可以按镜生成设计图。`;
+      const missingCount = shotAssets.filter((asset) => !storyAssetHasGeneratedImage(asset)).length;
+      storyState.actionMessage = missingCount
+        ? `S${String(shot.shotNo).padStart(2, "0")} 的资产清单已确认，下一步生成 ${missingCount} 张设计图。`
+        : `S${String(shot.shotNo).padStart(2, "0")} 的资产清单已确认，设计图均已生成，下一步逐张审核并设为定稿。`;
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {

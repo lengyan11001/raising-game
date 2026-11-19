@@ -570,6 +570,20 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(css, /\.story-shot-action-buttons \{/);
 });
 
+test("story asset approval flow exposes one next action at each stage", () => {
+  const story = read("platform.story.js");
+  assert.match(story, /function storyShotAssetProgress\(shot = \{\}, assets = \[\]\)/);
+  assert.match(story, /let stage = "review"/);
+  assert.match(story, /stage = "generate"/);
+  assert.match(story, /stage = "approve"/);
+  assert.match(story, /stage = "ready"/);
+  assert.match(story, /assetProgress\.stage === "generate" && !storyState\.action/);
+  assert.match(story, /confirmed \? `<span class="story-status-pill">资产清单已确认<\/span>`/);
+  assert.match(story, /请将剩余 \$\{assets\.length - approvedAssets\.length\} 张设计图逐张设为定稿/);
+  assert.match(story, /设计图均已生成，下一步逐张审核并设为定稿/);
+  assert.doesNotMatch(story, /重新确认资产清单/);
+});
+
 test("shot assets generate, regenerate, approve, and reuse materials in place", () => {
   const story = read("platform.story.js");
   const css = read("platform.css");
