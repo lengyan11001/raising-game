@@ -5,6 +5,8 @@
 - `platform.coupon.js` now keeps a strict usable-coupon path for checkout (`status === 1` only) and adds a separate valid-lock display path (`status === 2`, unexpired lock and coupon). Locked coupons render as `订单锁定中` with lock countdown and `查看订单`, and never enter `couponForAmount()` or `getSelectedCouponId()`.
 - Added regression coverage proving a valid locked coupon remains visible but is not reusable, while an expired lock hides the entry. Cache version is now `coupon-20261119-11`.
 - Focused verification passed: `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, cash-coupon tests `20/20`, check-in tests `12/12`, canvas cache-bust test `1/1`, and scoped `git diff --check`.
+- Source commit `673a23a8` was pushed to `old-site`; platform release `203f6257` was built from it and pushed only to `platform-release`. `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK`; Old is active on port 4174 serving release `203f625743b0e65387acf38104e06518bd1750fb`.
+- Production `/api/health`, `/api/livez`, and `/api/readyz` are healthy. `https://123vips.com/` serves `platform.coupon.css?v=coupon-20261119-11`, and the served `platform.coupon.js` contains the locked-coupon entry and `查看订单` handling.
 
 ## 2026-11-19 Step FB: Cash coupon UI matched directly to supplied design
 
