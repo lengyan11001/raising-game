@@ -534,6 +534,9 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /!storyShotAssetsConfirmed\(shot\) && !storyAssetHasGeneratedImage\(asset\)/);
   assert.match(story, /本次重新生成的修改要求：\$\{revisionFeedback\}/);
   assert.match(story, /function storyAssetHasApprovedImage[\s\S]*storyAssetVariantImageUrl\(approved\)/);
+  assert.match(story, /function storyAssetVariantImageUrl[\s\S]*\["generating", "failed", "error", "canceled", "cancelled"\]\.includes\(status\)\) return ""/);
+  assert.match(story, /function storyAssetVariantThumbnailUrl[\s\S]*const version = String\(variant\.updatedAt \|\| variant\.id \|\| ""\)/);
+  assert.match(story, /function storyGenerationImageUrl[\s\S]*status && !\["succeeded", "success", "completed", "complete"\]\.includes\(status\)\) return ""/);
   assert.match(story, /assets\.every\(\(asset\) => storyAssetHasApprovedImage\(asset\)\)/);
   assert.match(story, /function storyVariantStatusLabel[\s\S]*可审核/);
   assert.match(story, /设计图已齐，待审核/);
@@ -631,6 +634,8 @@ test("story asset images use refreshed authenticated media URLs instead of persi
   const generation = read("server.parts/part-41.js");
   const story = read("platform.story.js");
   assert.match(handlers, /function storyAssetVariantClientView[\s\S]*adminGenerationMediaUrl\(generationRecordId\)/);
+  assert.match(handlers, /const mediaReady = !\["generating", "failed", "error", "canceled", "cancelled"\]\.includes\(status\)/);
+  assert.match(handlers, /metadata\.mediaUrl = mediaUrl[\s\S]*delete metadata\.mediaUrl[\s\S]*delete metadata\.imageUrl/);
   assert.match(handlers, /assetVariants: \(assetVariants \|\| \[\]\)\.map\(storyAssetVariantClientView\)/);
   assert.match(handlers, /已定稿参考图记录：\$\{String\(variant\.metadata\.generationRecordId\)\.trim\(\)\}/);
   assert.doesNotMatch(handlers, /已定稿参考图：\$\{variant\.metadata\.imageUrl\}/);

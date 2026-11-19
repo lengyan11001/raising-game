@@ -781,13 +781,17 @@
   }
 
   function storyAssetVariantImageUrl(variant = {}) {
+    const status = String(variant.status || "").toLowerCase();
+    if (["generating", "failed", "error", "canceled", "cancelled"].includes(status)) return "";
     return String(variant.mediaUrl || variant.metadata?.mediaUrl || variant.metadata?.imageUrl || "").trim();
   }
 
   function storyAssetVariantThumbnailUrl(variant = {}) {
     const url = storyAssetVariantImageUrl(variant);
     if (!url || !url.includes("/api/admin/generation-records/") || !url.includes("/media?")) return url;
-    return `${url}${url.includes("?") ? "&" : "?"}thumb=1`;
+    const version = String(variant.updatedAt || variant.id || "").trim();
+    const versionQuery = version ? `&v=${encodeURIComponent(version)}` : "";
+    return `${url}${url.includes("?") ? "&" : "?"}thumb=1${versionQuery}`;
   }
 
   function storyAssetHasGeneratedImage(asset = {}) {
@@ -2098,6 +2102,8 @@
   }
 
   function storyGenerationImageUrl(record = {}) {
+    const status = String(record.status || "").toLowerCase();
+    if (status && !["succeeded", "success", "completed", "complete"].includes(status)) return "";
     return [
       record.imageResultUrl,
       record.imageUrl,
