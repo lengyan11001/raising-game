@@ -4482,11 +4482,24 @@ async function getAdminRechargeLedgerPageFromDb({ page = 1, limit = 20, source =
         FROM app_credit_ledger l
         LEFT JOIN app_users u ON u.id = l.user_id
         WHERE l.type IN ('admin_credit_add', 'admin_credit_subtract', 'admin_credit_adjustment', 'manual_credit_add', 'manual_credit_adjustment')
+        UNION ALL
+        SELECT
+          l.id,
+          l.user_id,
+          COALESCE(l.payload->>'username', u.username, '') AS username,
+          'checkin_reward' AS source,
+          'Daily check-in reward' AS source_label,
+          l.payload,
+          l.created_at,
+          l.created_at AS event_at
+        FROM app_credit_ledger l
+        LEFT JOIN app_users u ON u.id = l.user_id
+        WHERE l.type = 'checkin' AND l.delta > 0
       ),
       with_values AS (
         SELECT
           all_rows.*,
-          CASE WHEN source = 'manual_admin'
+          CASE WHEN source IN ('manual_admin', 'checkin_reward')
             THEN COALESCE(NULLIF(payload->>'delta', '')::numeric, 0)
             ELSE COALESCE(NULLIF(payload->>'creditAmount', '')::numeric, NULLIF(payload->>'packageCredits', '')::numeric, COALESCE(NULLIF(payload->>'baseAmount', '')::numeric, 0) * COALESCE(NULLIF(payload->>'creditsPerUsd', '')::numeric, 120))
           END AS credits,
@@ -4510,6 +4523,8 @@ async function getAdminRechargeLedgerPageFromDb({ page = 1, limit = 20, source =
         COUNT(*) FILTER (WHERE source = 'manual_admin') OVER()::int AS manual_count,
         COALESCE(SUM(credits) FILTER (WHERE source = 'manual_admin' AND credits > 0) OVER(), 0) AS manual_added_credits,
         COALESCE(SUM(ABS(credits)) FILTER (WHERE source = 'manual_admin' AND credits < 0) OVER(), 0) AS manual_reduced_credits,
+        COUNT(*) FILTER (WHERE source = 'checkin_reward') OVER()::int AS checkin_count,
+        COALESCE(SUM(credits) FILTER (WHERE source = 'checkin_reward') OVER(), 0) AS checkin_credits,
         COALESCE(SUM(credits) OVER(), 0) AS total_credits
       FROM filtered
       ORDER BY event_at DESC, id DESC
@@ -4531,6 +4546,9 @@ async function getAdminRechargeLedgerPageFromDb({ page = 1, limit = 20, source =
       delta: Number(row.credits || 0),
       credits: Number(row.credits || 0),
       amountUsd: Number(row.amount_usd || 0),
+      checkinDate: row.source === "checkin_reward"
+        ? String(row.payload?.checkinDate || row.payload?.meta?.checkinDate || row.payload?.payload?.checkinDate || "")
+        : "",
     })),
     total: Number(first.total_count || 0),
     summary: {
@@ -4542,6 +4560,8 @@ async function getAdminRechargeLedgerPageFromDb({ page = 1, limit = 20, source =
       manualCount: Number(first.manual_count || 0),
       manualAddedCredits: Number(first.manual_added_credits || 0),
       manualReducedCredits: Number(first.manual_reduced_credits || 0),
+      checkinCount: Number(first.checkin_count || 0),
+      checkinCredits: Number(first.checkin_credits || 0),
     },
   };
 }

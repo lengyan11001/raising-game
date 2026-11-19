@@ -627,13 +627,16 @@ function adminRechargeLedgerRecordView(record = {}, userMap = new Map()) {
   const user = userMap.get(record.userId) || {};
   const source = record.source || record.kind || "";
   const provider = record.paymentProvider || record.provider || "";
+  const sourceLabel = source === "manual_admin"
+    ? "Admin credit adjustment"
+    : source === "checkin_reward" ? "Daily check-in reward" : "User top-up";
   const credits = record.delta !== undefined && record.delta !== null
     ? creditsAmount(record.delta)
     : creditsAmount(record.credits ?? record.creditAmount ?? 0);
   return {
     id: record.id || "",
     source,
-    sourceLabel: source === "manual_admin" ? "Admin credit adjustment" : "User top-up",
+    sourceLabel,
     userId: record.userId || "",
     username: record.username || user.username || "",
     credits,
@@ -662,7 +665,9 @@ function adminRechargeLedgerRecordView(record = {}, userMap = new Map()) {
     paypalOrderId: record.paypalOrderId || "",
     adminUserId: record.adminUserId || "",
     adminUsername: record.adminUsername || "",
-    note: record.note || "",
+    note: record.note || (source === "checkin_reward"
+      ? `签到 ${record.checkinDate || record.meta?.checkinDate || ""}`.trim()
+      : ""),
     createdAt: record.createdAt || "",
     paidAt: record.paidAt || "",
   };
@@ -720,7 +725,19 @@ function adminRechargeLedgerRecords(db = {}) {
         paidAt: entry.createdAt,
       }, userMap);
     });
-  return [...paidOrders, ...manualEntries]
+  const checkinEntries = (db.creditLedger || [])
+    .filter((entry) => String(entry.type || "") === "checkin" && Number(entry.delta || 0) > 0)
+    .map((entry) => adminRechargeLedgerRecordView({
+      id: entry.id,
+      source: "checkin_reward",
+      userId: entry.userId,
+      username: entry.username || userMap.get(entry.userId)?.username || "",
+      delta: entry.delta,
+      checkinDate: entry.meta?.checkinDate || entry.checkinDate || "",
+      createdAt: entry.createdAt,
+      paidAt: entry.createdAt,
+    }, userMap));
+  return [...paidOrders, ...manualEntries, ...checkinEntries]
     .sort((a, b) => String(b.paidAt || b.createdAt || "").localeCompare(String(a.paidAt || a.createdAt || "")));
 }
 
@@ -741,6 +758,7 @@ async function hydrateStripeOrdersForAdmin(orders = [], persist = false) {
 function adminRechargeLedgerSummary(records = []) {
   const userTopups = records.filter((entry) => entry.source === "user_topup");
   const manualAdjustments = records.filter((entry) => entry.source === "manual_admin");
+  const checkinRewards = records.filter((entry) => entry.source === "checkin_reward");
   const manualAdds = manualAdjustments.filter((entry) => Number(entry.credits || 0) > 0);
   const manualReductions = manualAdjustments.filter((entry) => Number(entry.credits || 0) < 0);
   const sumCredits = (items) => creditsAmount(items.reduce((sum, item) => sum + Number(item.credits || 0), 0));
@@ -756,6 +774,8 @@ function adminRechargeLedgerSummary(records = []) {
     manualAddedCredits: sumCredits(manualAdds),
     manualReducedCredits: creditsAmount(Math.abs(sumCredits(manualReductions))),
     manualNetCredits: sumCredits(manualAdjustments),
+    checkinCount: checkinRewards.length,
+    checkinCredits: sumCredits(checkinRewards),
   };
 }
 

@@ -15,6 +15,7 @@
     currentDate: "",
     lastFocus: null,
     messageTimer: 0,
+    flyTimer: 0,
     lastAttemptAt: 0,
     initialized: false,
   };
@@ -87,6 +88,14 @@
         els.message.classList.remove("is-error");
       }, timeoutMs);
     }
+  }
+
+  function clearCheckinFly() {
+    window.clearTimeout(ui.flyTimer);
+    ui.flyTimer = 0;
+    if (!els.fly) return;
+    els.fly.classList.remove("is-active");
+    els.fly.textContent = "";
   }
 
   function renderEntryDots(status = ui.status) {
@@ -291,10 +300,11 @@
 
   function animateCheckin(points, cycleDay) {
     if (points > 0 && els.fly) {
+      clearCheckinFly();
       els.fly.textContent = `+${points} 积分`;
-      els.fly.classList.remove("is-active");
       void els.fly.offsetWidth;
       els.fly.classList.add("is-active");
+      ui.flyTimer = window.setTimeout(clearCheckinFly, 1300);
     }
     const cell = els.days?.querySelector(`[data-checkin-day="${Math.min(7, Math.max(1, Number(cycleDay) || 1))}"]`);
     if (cell) {
@@ -361,6 +371,8 @@
     }
     if (!els.modal || ui.open) return;
     ui.open = true;
+    clearCheckinFly();
+    setMessage("", {});
     ui.lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : els.entry;
     els.modal.hidden = false;
     document.body.classList.add("checkin-modal-open");
@@ -376,6 +388,7 @@
     els.modal.hidden = true;
     document.body.classList.remove("checkin-modal-open");
     if (els.entry) els.entry.setAttribute("aria-expanded", "false");
+    clearCheckinFly();
     setMessage("", {});
     if (restoreFocus) {
       const target = ui.lastFocus && document.contains(ui.lastFocus) ? ui.lastFocus : els.entry;
@@ -416,6 +429,7 @@
     ui.loading = false;
     ui.submitting = false;
     ui.lastAttemptAt = 0;
+    clearCheckinFly();
     setMessage("", {});
     if (ui.open) closeCheckinModal({ restoreFocus: false });
     render();

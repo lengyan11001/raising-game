@@ -3611,13 +3611,14 @@ async function renderRecharges(pageArg = null, limitArg = null) {
       <div class="adm-page-head">
         <div>
           <h2>充值流水</h2>
-          <p class="adm-muted">统计用户充值，以及后台手动增加和减少积分的流水。</p>
+          <p class="adm-muted">统计用户充值、签到奖励，以及后台手动增加和减少积分的流水。</p>
         </div>
       </div>
       <div class="adm-stats">
         ${statCard("成功流水", summary.totalCount || 0, `${summary.totalCredits || 0} 积分`, "receipt-text", "rose")}
         ${statCard("用户充值", summary.userTopupCount || 0, `${summary.userTopupCredits || 0} 积分 · $${summary.userTopupUsd || 0}`, "wallet-cards", "mint")}
         ${statCard("后台调整", summary.manualCount || 0, `+${summary.manualAddedCredits || 0} / -${summary.manualReducedCredits || 0} 积分`, "sliders-horizontal", "amber")}
+        ${statCard("签到奖励", summary.checkinCount || 0, `${summary.checkinCredits || 0} 积分`, "calendar-check", "rose")}
       </div>
       <div class="adm-card adm-mt">
         <div class="adm-card-head">
@@ -3630,6 +3631,7 @@ async function renderRecharges(pageArg = null, limitArg = null) {
               <option value="" ${source === "" ? "selected" : ""}>全部来源</option>
               <option value="user_topup" ${source === "user_topup" ? "selected" : ""}>用户充值</option>
               <option value="manual_admin" ${source === "manual_admin" ? "selected" : ""}>后台手动调整</option>
+              <option value="checkin_reward" ${source === "checkin_reward" ? "selected" : ""}>签到奖励</option>
             </select>
             <input id="rechargeSearchInput" class="adm-input" value="${escapeHtml(q)}" placeholder="搜索用户 / 订单 / hash / 备注" />
             <button class="adm-btn adm-btn-ghost" id="rechargeSearchBtn" type="button"><i data-lucide="search"></i>查询</button>
@@ -3642,7 +3644,7 @@ async function renderRecharges(pageArg = null, limitArg = null) {
               <tbody>
                 ${records.map((r) => `
                   <tr>
-                    <td><span class="adm-pill ${r.source === "manual_admin" ? "is-admin" : ""}">${escapeHtml(r.sourceLabel || r.source)}</span><br/><span class="adm-muted adm-mono">${escapeHtml(r.id)}</span></td>
+                    <td><span class="adm-pill ${r.source === "manual_admin" ? "is-admin" : r.source === "checkin_reward" ? "is-checkin" : ""}">${escapeHtml(r.sourceLabel || r.source)}</span><br/><span class="adm-muted adm-mono">${escapeHtml(r.id)}</span></td>
                     <td><strong>${escapeHtml(r.username || r.userId)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.userId || "")}</span></td>
                     <td><strong ${Number(r.credits || 0) < 0 ? 'style="color:var(--adm-danger)"' : ""}>${Number(r.credits || 0) > 0 ? "+" : ""}${escapeHtml(r.credits ?? 0)}</strong></td>
                     <td>${r.source === "user_topup" ? `<strong>$${escapeHtml(r.amountUsd || "")}</strong><br/><span class="adm-muted">${escapeHtml(r.payableAmountText || r.payableAmount || "")} ${escapeHtml(r.asset || "")}</span>` : `<span class="adm-muted">-</span>`}</td>
@@ -3654,6 +3656,8 @@ async function renderRecharges(pageArg = null, limitArg = null) {
                     <td class="adm-truncate">
                       ${r.source === "manual_admin"
                         ? `<strong>${escapeHtml(r.adminUsername || r.adminUserId || "admin")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.adminUserId || "")}</span>`
+                        : r.source === "checkin_reward"
+                          ? `<strong>每日签到</strong><br/><span class="adm-muted">${escapeHtml(r.checkinDate || "已入账")}</span>`
                         : `<strong>${escapeHtml(r.paymentProvider || "")}</strong> · ${escapeHtml(r.network || "")}<br/><span class="adm-muted adm-mono">${escapeHtml(r.transactionHash || r.paypalOrderId || "")}</span>`}
                     </td>
                     <td>${fmtDate(r.paidAt || r.createdAt)}</td>
