@@ -1072,6 +1072,19 @@ async function ensureSchemaInner({ client = null } = {}) {
   await run(`CREATE INDEX IF NOT EXISTS user_coupon_source_status_idx ON user_coupon (grant_source, status);`);
   await run(`CREATE INDEX IF NOT EXISTS user_coupon_lock_idx ON user_coupon (status, lock_expire_at) WHERE status = 2;`);
   await run(`
+    CREATE TABLE IF NOT EXISTS coupon_email_reminder (
+      id TEXT PRIMARY KEY,
+      user_coupon_id TEXT NOT NULL REFERENCES user_coupon(id) ON DELETE CASCADE,
+      reminder_type TEXT NOT NULL,
+      email TEXT NOT NULL,
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS coupon_email_reminder_coupon_type_uidx ON coupon_email_reminder (user_coupon_id, reminder_type);`);
+  await run(`CREATE INDEX IF NOT EXISTS coupon_email_reminder_sent_idx ON coupon_email_reminder (sent_at DESC);`);
+  await run(`
     CREATE TABLE IF NOT EXISTS app_referral_withdrawals (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -4614,6 +4627,84 @@ async function releaseUserCouponForOrderInDb(couponId = "", orderId = "") {
     RETURNING *
   `, [cleanCouponId, cleanOrderId]);
   return rows[0] ? couponFromRow(rows[0]) : null;
+}
+
+async function listCouponEmailReminderCandidatesFromDb({ limit = 100 } = {}) {
+  if (!dbEnabled()) return [];
+  await ensureSchema();
+  const safeLimit = Math.min(500, Math.max(1, Math.trunc(Number(limit || 100))));
+  const { rows } = await query(`
+    SELECT c.id,
+           c.status,
+           c.granted_at,
+           c.claimed_at,
+           c.expire_at,
+           c.risk_flag,
+           t.name AS template_name,
+           t.face_value,
+           t.threshold,
+           t.promo_threshold,
+           t.valid_days,
+           COALESCE(NULLIF(u.payload->>'email', ''), NULLIF(u.payload->>'googleEmail', '')) AS user_email,
+           COALESCE(
+             jsonb_agg(jsonb_build_object('type', r.reminder_type, 'sentAt', r.sent_at))
+               FILTER (WHERE r.id IS NOT NULL),
+             '[]'::jsonb
+           ) AS reminders
+    FROM user_coupon c
+    JOIN coupon_template t ON t.id = c.template_id
+    JOIN app_users u ON u.id = c.user_id
+    LEFT JOIN coupon_email_reminder r ON r.user_coupon_id = c.id
+    WHERE c.status IN (0, 1)
+      AND c.grant_source = 'register'
+      AND c.risk_flag = 0
+      AND u.deleted_at IS NULL
+      AND COALESCE(NULLIF(u.payload->>'email', ''), NULLIF(u.payload->>'googleEmail', '')) <> ''
+    GROUP BY c.id, t.id, u.id
+    ORDER BY c.granted_at ASC
+    LIMIT $1
+  `, [safeLimit]);
+  return rows.map((row) => ({
+    couponId: String(row.id || ""),
+    status: Number(row.status || 0),
+    grantedAt: couponDbInstant(row.granted_at),
+    claimedAt: couponDbInstant(row.claimed_at),
+    expireAt: couponDbInstant(row.expire_at),
+    riskFlag: Number(row.risk_flag || 0),
+    email: String(row.user_email || "").trim().toLowerCase(),
+    templateName: String(row.template_name || ""),
+    faceValue: Number(row.face_value || 0),
+    threshold: Number(row.promo_threshold || 0) > 0 ? Number(row.promo_threshold) : Number(row.threshold || 0),
+    validDays: Math.max(1, Number(row.valid_days || 7)),
+    reminders: Array.isArray(row.reminders) ? row.reminders : [],
+  }));
+}
+
+async function recordCouponEmailReminderInDb({
+  couponId = "",
+  reminderType = "",
+  email = "",
+  metadata = {},
+} = {}) {
+  if (!dbEnabled()) return null;
+  const cleanCouponId = String(couponId || "").trim();
+  const cleanReminderType = String(reminderType || "").trim();
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  if (!cleanCouponId || !cleanReminderType || !cleanEmail) return null;
+  await ensureSchema();
+  const { rows } = await query(`
+    INSERT INTO coupon_email_reminder (id, user_coupon_id, reminder_type, email, sent_at, metadata, created_at)
+    VALUES ($1, $2, $3, $4, NOW(), $5::jsonb, NOW())
+    ON CONFLICT (user_coupon_id, reminder_type) DO NOTHING
+    RETURNING *
+  `, [
+    `coupon_reminder_${crypto.randomUUID()}`,
+    cleanCouponId,
+    cleanReminderType.slice(0, 40),
+    cleanEmail.slice(0, 320),
+    JSON.stringify(metadata && typeof metadata === "object" ? metadata : {}),
+  ]);
+  return rows[0] || null;
 }
 
 async function backfillZeroBalanceCouponsInDb({ templateCode = "NEWUSER_30_5OFF", grantSource = "backfill_20261119" } = {}) {
@@ -10829,6 +10920,7 @@ const SCHEMA_MIGRATION_KEYS = Object.freeze([
   "2026-11-17-story-version-episode-ownership-v1",
   "2026-11-18-story-shot-plan-jobs-v1",
   "2026-11-19-checkin-activity-v1",
+  "2026-11-19-cash-coupon-v1",
 ]);
 const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
 const REQUIRED_SCHEMA_TABLES = Object.freeze([
@@ -10842,6 +10934,9 @@ const REQUIRED_SCHEMA_TABLES = Object.freeze([
   "app_credit_ledger",
   "app_checkin_records",
   "app_checkin_stats",
+  "coupon_template",
+  "user_coupon",
+  "coupon_email_reminder",
   "app_user_assets",
   "app_user_characters",
   "app_generation_records",
@@ -13330,6 +13425,8 @@ module.exports = {
   lockUserCouponForOrderInDb,
   finalizeUserCouponForOrderInDb,
   releaseUserCouponForOrderInDb,
+  listCouponEmailReminderCandidatesFromDb,
+  recordCouponEmailReminderInDb,
   backfillZeroBalanceCouponsInDb,
   getPromotionPurchaseStateInDb,
   reservePromotionPurchaseInDb,

@@ -62,6 +62,11 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-19-cash-coupon-v1",
+    description: "Create cash coupon templates, user coupons, and email reminder delivery records",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",
@@ -436,6 +441,66 @@ const CHECKIN_ACTIVITY_DDL = Object.freeze([
    );`,
 ]);
 
+const CASH_COUPON_ACTIVITY_DDL = Object.freeze([
+  `CREATE TABLE IF NOT EXISTS coupon_template (
+     id BIGSERIAL PRIMARY KEY,
+     code TEXT NOT NULL UNIQUE,
+     name TEXT NOT NULL,
+     type SMALLINT NOT NULL DEFAULT 1,
+     face_value INTEGER NOT NULL,
+     currency CHAR(3) NOT NULL DEFAULT 'USD',
+     threshold INTEGER NOT NULL,
+     promo_threshold INTEGER NOT NULL DEFAULT 0,
+     scope TEXT NOT NULL DEFAULT 'recharge,membership',
+     valid_days INTEGER NOT NULL DEFAULT 7,
+     claim_expire SMALLINT NOT NULL DEFAULT 0,
+     stackable SMALLINT NOT NULL DEFAULT 0,
+     grant_source TEXT NOT NULL DEFAULT 'register',
+     status SMALLINT NOT NULL DEFAULT 1,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+  `INSERT INTO coupon_template
+     (code, name, type, face_value, currency, threshold, promo_threshold, scope, valid_days, claim_expire, stackable, grant_source, status)
+   VALUES
+     ('NEWUSER_30_5OFF', '新用户专享券', 1, 500, 'USD', 3000, 0, 'recharge,membership', 7, 0, 0, 'register', 1)
+   ON CONFLICT (code) DO NOTHING;`,
+  `CREATE TABLE IF NOT EXISTS user_coupon (
+     id TEXT PRIMARY KEY,
+     user_id TEXT NOT NULL,
+     template_id BIGINT NOT NULL REFERENCES coupon_template(id),
+     code TEXT NOT NULL UNIQUE,
+     status SMALLINT NOT NULL DEFAULT 0,
+     granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     claimed_at TIMESTAMPTZ,
+     expire_at TIMESTAMPTZ,
+     lock_order_no TEXT,
+     lock_expire_at TIMESTAMPTZ,
+     used_at TIMESTAMPTZ,
+     used_order_no TEXT,
+     used_scene TEXT,
+     discount_amount INTEGER,
+     risk_flag SMALLINT NOT NULL DEFAULT 0,
+     grant_source TEXT NOT NULL DEFAULT 'register',
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS user_coupon_user_template_uidx ON user_coupon (user_id, template_id);`,
+  `CREATE INDEX IF NOT EXISTS user_coupon_user_status_idx ON user_coupon (user_id, status, expire_at);`,
+  `CREATE INDEX IF NOT EXISTS user_coupon_expire_idx ON user_coupon (status, expire_at) WHERE expire_at IS NOT NULL;`,
+  `CREATE INDEX IF NOT EXISTS user_coupon_source_status_idx ON user_coupon (grant_source, status);`,
+  `CREATE INDEX IF NOT EXISTS user_coupon_lock_idx ON user_coupon (status, lock_expire_at) WHERE status = 2;`,
+  `CREATE TABLE IF NOT EXISTS coupon_email_reminder (
+     id TEXT PRIMARY KEY,
+     user_coupon_id TEXT NOT NULL REFERENCES user_coupon(id) ON DELETE CASCADE,
+     reminder_type TEXT NOT NULL,
+     email TEXT NOT NULL,
+     sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS coupon_email_reminder_coupon_type_uidx ON coupon_email_reminder (user_coupon_id, reminder_type);`,
+  `CREATE INDEX IF NOT EXISTS coupon_email_reminder_sent_idx ON coupon_email_reminder (sent_at DESC);`,
+]);
+
 async function runStatements(client, statements) {
   for (const statement of statements) await client.query(statement);
 }
@@ -620,6 +685,8 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
         await runStatements(schemaLockClient, STORY_SHOT_PLAN_JOBS_DDL);
       } else if (migration.version === "2026-11-19-checkin-activity-v1") {
         await runStatements(schemaLockClient, CHECKIN_ACTIVITY_DDL);
+      } else if (migration.version === "2026-11-19-cash-coupon-v1") {
+        await runStatements(schemaLockClient, CASH_COUPON_ACTIVITY_DDL);
       } else {
         throw new Error(`Unknown schema migration: ${migration.version}`);
       }
