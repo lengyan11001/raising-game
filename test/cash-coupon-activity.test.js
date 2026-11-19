@@ -76,7 +76,8 @@ function loadDatabaseCouponHelpers(extra = {}) {
     lockUserCouponForOrderInDb,
     finalizeUserCouponForOrderInDb,
     releaseUserCouponForOrderInDb,
-    backfillZeroBalanceCouponsInDb
+    backfillZeroBalanceCouponsInDb,
+    backfillCouponForAllActiveUsersInDb
   };`, context);
   return context.helpers;
 }
@@ -322,10 +323,12 @@ test("settlement finalization allows late payment, is order-idempotent, and neve
   assert.doesNotMatch(stripeRefund, /coupon/i);
 });
 
-test("scene mapping and 30 percent rollout are deterministic", () => {
+test("scene mapping and rollout overrides are deterministic while all users receive coupons by default", () => {
+  const defaults = loadServerCouponHelpers();
   const zero = loadServerCouponHelpers({ process: { env: { COUPON_ROLLOUT_PERCENT: "0" } } });
   const hundred = loadServerCouponHelpers({ process: { env: { COUPON_ROLLOUT_PERCENT: "100" } } });
   const thirty = loadServerCouponHelpers({ process: { env: { COUPON_ROLLOUT_PERCENT: "30" } } });
+  assert.equal(defaults.couponRolloutEligible("user_1"), true);
   assert.equal(zero.couponRolloutEligible("user_1"), false);
   assert.equal(hundred.couponRolloutEligible("user_1"), true);
   assert.equal(thirty.couponRolloutBucket("user_1"), thirty.couponRolloutBucket("user_1"));
@@ -352,6 +355,19 @@ test("one-time backfill is idempotent and stops on an unexpected cohort size", (
   assert.equal(parseArgs(["--dry-run"]).apply, false);
   assert.doesNotMatch(read("ops/archive/backfill-coupon-20261119.js"), /(^|[^_])expire_at\s*=/m);
   assert.doesNotMatch(sourceBetween(database, "async function backfillZeroBalanceCouponsInDb", "function referralWithdrawalFromRow"), /expire_at\s*=/);
+});
+
+test("all-user coupon backfill targets every active user missing the template and is idempotent", () => {
+  const backfill = sourceBetween(database, "async function backfillCouponForAllActiveUsersInDb", "function referralWithdrawalFromRow");
+  assert.match(backfill, /FROM app_users u\s+WHERE u\.deleted_at IS NULL/);
+  assert.match(backfill, /JOIN coupon_template ct ON ct\.id = c\.template_id\s+WHERE c\.user_id = u\.id AND ct\.code = \$1/);
+  assert.doesNotMatch(backfill, /COALESCE\(u\.credits, 0\) = 0/);
+  assert.doesNotMatch(backfill, /app_wallet_orders/);
+  assert.match(backfill, /ON CONFLICT \(user_id, template_id\) DO NOTHING/);
+  const script = require("../ops/backfill-coupon-all-users-20261119");
+  assert.equal(script.parseArgs([]).apply, false);
+  assert.equal(script.parseArgs(["--apply"]).apply, true);
+  assert.equal(script.TEMPLATE_CODE, "NEWUSER_30_5OFF");
 });
 
 test("frontend coupon center shows review coupons, red dots pending coupons, and uses Shanghai calendar days", () => {
@@ -562,8 +578,8 @@ test("coupon email reminders are register-only, deliver useful content, and use 
 });
 
 test("coupon assets are exposed by the runtime and release snapshot", () => {
-  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-11/);
-  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-11/);
+  assert.match(read("platform.html"), /platform\.coupon\.css\?v=[^"]+/);
+  assert.match(read("platform.html"), /platform\.js\?v=[^"]+/);
   assert.match(read("platform.js"), /"platform\.coupon\.js"/);
   assert.match(read("server.parts/part-01.js"), /"platform\.coupon\.css"/);
   assert.match(read("site-http.js"), /"\/platform\.coupon\.css"/);

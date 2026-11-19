@@ -4757,6 +4757,40 @@ async function backfillZeroBalanceCouponsInDb({ templateCode = "NEWUSER_30_5OFF"
   return rows[0] || { target_count: 0, inserted_count: 0 };
 }
 
+async function backfillCouponForAllActiveUsersInDb({ templateCode = "NEWUSER_30_5OFF", grantSource = "backfill_all_20261119" } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanTemplateCode = String(templateCode || "").trim();
+  const source = String(grantSource || "backfill_all_20261119").trim().slice(0, 32);
+  const { rows } = await query(`
+    WITH target_user AS (
+      SELECT u.id
+      FROM app_users u
+      WHERE u.deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM user_coupon c
+          JOIN coupon_template ct ON ct.id = c.template_id
+          WHERE c.user_id = u.id AND ct.code = $1
+        )
+    ), inserted AS (
+      INSERT INTO user_coupon (id, user_id, template_id, code, status, granted_at, grant_source, created_at)
+      SELECT 'coupon_' || md5(random()::text || clock_timestamp()::text || u.id), u.id, t.id,
+             'CP' || upper(substr(md5(random()::text || clock_timestamp()::text || u.id), 1, 16)),
+             0, NOW(), $2, NOW()
+      FROM target_user u
+      CROSS JOIN coupon_template t
+      WHERE t.code = $1 AND t.status = 1
+      ON CONFLICT (user_id, template_id) DO NOTHING
+      RETURNING user_id
+    )
+    SELECT
+      (SELECT COUNT(*)::int FROM target_user) AS target_count,
+      (SELECT COUNT(*)::int FROM inserted) AS inserted_count
+  `, [cleanTemplateCode, source]);
+  return rows[0] || { target_count: 0, inserted_count: 0 };
+}
+
 function referralWithdrawalFromRow(row = {}) {
   const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
   return {
@@ -13439,6 +13473,7 @@ module.exports = {
   listCouponEmailReminderCandidatesFromDb,
   recordCouponEmailReminderInDb,
   backfillZeroBalanceCouponsInDb,
+  backfillCouponForAllActiveUsersInDb,
   getPromotionPurchaseStateInDb,
   reservePromotionPurchaseInDb,
   markPromotionPurchasePaidInDb,
