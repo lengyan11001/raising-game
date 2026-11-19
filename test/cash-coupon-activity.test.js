@@ -513,8 +513,8 @@ test("coupon email reminders are register-only, deliver useful content, and use 
 });
 
 test("coupon assets are exposed by the runtime and release snapshot", () => {
-  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-5/);
-  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-5/);
+  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-6/);
+  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-6/);
   assert.match(read("platform.js"), /"platform\.coupon\.js"/);
   assert.match(read("server.parts/part-01.js"), /"platform\.coupon\.css"/);
   assert.match(read("site-http.js"), /"\/platform\.coupon\.css"/);
