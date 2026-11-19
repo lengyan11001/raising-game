@@ -1,3 +1,11 @@
+## 2026-11-19 Step FF: Canvas asset add works for older generation records
+
+- Reproduced the live failure: clicking the canvas result action sent `POST /api/generation-records/cgt-20261110192224-951456/add-asset`, but production returned `404`. The record exists, is succeeded, and belongs to the signed-in `test01` user; it was outside the latest 500 records loaded by `readGenerationRecords()`.
+- `handleAddGenerationRecordToAssets` now loads the exact task through `getGenerationRecord(taskId)` before owner and visibility checks, so canvas results are not limited by the recent-record list window.
+- Focused verification passed: `advanced-preparation-recovery.test.js` `11/11`, server syntax check, and scoped `git diff --check`.
+- Source commit `e0fdc857` was pushed to `old-site`; platform release `9cf26196` was built and pushed only to `platform-release`. `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK`; Old is active on port `4174` serving release `9cf26196fdfd5abf3143a66dcb306b7d5d1ab063`.
+- Live verification: the same button now returns HTTP 200, changes to a check mark with `已添加到素材库`, writes `resultAssetId=asset-86cd31a0d1d32abddfc85592`, and creates the `video/mp4` user asset linked to generation task `cgt-20261110192224-951456`.
+
 ## 2026-11-19 Step FE: Add canvas results to the asset library
 
 - Canvas image/video result nodes now expose an add-to-assets action immediately before download. The action is enabled only when the result node has a generation `taskId` and reuses the existing owner-scoped `POST /api/generation-records/:taskId/add-asset` endpoint.
