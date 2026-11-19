@@ -4,7 +4,9 @@
 - Historical provider definitions and display labels remain intact so old generation records still render. Stale/regeneration selections fall back to an available model instead of restoring a removed option.
 - New submissions using retired IDs or known aliases now fail with `MODEL_RETIRED`; retired pricing rows cannot be saved and return `PRICING_MODEL_RETIRED`.
 - Changed files: `platform.config.js`, `platform.html`, `platform.ui.parts/part-02.js`, `platform.create.parts/part-02.js`, `tencent-vod-vega.js`, `server.parts/part-01.js`, `server.parts/part-11.js`, `server.parts/part-39.js`, plus focused tests.
-- Verification: seven Vega/pricing/model-selection suites pass `222/222`; syntax checks, `npm run check:undef`, and `git diff --check` pass. Earlier full suite had `1424 pass / 11 fail`; the 11 failures are pre-existing serializer/queue/source-split/W3 dirty-work failures unrelated to this change. Deployment pending.
+- Verification: seven Vega/pricing/model-selection suites pass `222/222`; syntax checks, `npm run check:undef`, and `git diff --check` pass. Earlier full suite had `1424 pass / 11 fail`; the 11 failures are pre-existing serializer/queue/source-split/W3 dirty-work failures unrelated to this change.
+- Source commit `20019e18`; built platform release `a86b9c29896c083909314829d286b856a1b8e1db`, pushed `platform-release`, and deployed Old through `scripts/deploy_local.sh --site old`. Rolling cutover `4174 -> 4175` passed 1%/5% canaries (`OLD_ROLLING_DEPLOY_OK`).
+- Production verification: `/api/health`, `/api/livez`, and `/api/readyz` return `200`; live release id is `a86b9c29`; root page contains active `vega10-lite` and no retired Vega `<option>` values; served `platform.config.js` SHA-256 matches local.
 - Do not include unrelated dirty story/optimizer files in this task's commit or release.
 
 ## 2026-11-19 Step ER: Shot prompt approval is now a one-click continuation
