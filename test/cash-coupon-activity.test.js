@@ -381,6 +381,7 @@ test("cash coupon uses the approved popup, reminder, and top-up entry surfaces",
   assert.match(html, /data-coupon-action="dismiss" type="button" aria-label="Close">✕</);
   assert.match(frontend, /function showCouponDialog/);
   assert.match(frontend, /function isHomeTab/);
+  assert.match(frontend, /return !tab \|\| tab === defaultTab \|\| tab === "home"/);
   assert.match(frontend, /function renderCouponReminder/);
   assert.match(frontend, /const entry = couponEntryState\(\);\s*const visible = Boolean\(isHomeTab\(\) && entry && !els\.dialog\?\.open && !els\.centerDialog\?\.open\)/);
   assert.match(frontend, /pending\s*\? copy\("Claim", "立即领取"\)\s*: copy\("Use coupon", "去使用"\)/);
@@ -519,8 +520,8 @@ test("coupon email reminders are register-only, deliver useful content, and use 
 });
 
 test("coupon assets are exposed by the runtime and release snapshot", () => {
-  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-8/);
-  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-8/);
+  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-9/);
+  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-9/);
   assert.match(read("platform.js"), /"platform\.coupon\.js"/);
   assert.match(read("server.parts/part-01.js"), /"platform\.coupon\.css"/);
   assert.match(read("site-http.js"), /"\/platform\.coupon\.css"/);

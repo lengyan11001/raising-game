@@ -202,7 +202,7 @@
   function isHomeTab() {
     const tab = String(appState()?.tab || "");
     const defaultTab = typeof DEFAULT_PLATFORM_TAB === "string" ? DEFAULT_PLATFORM_TAB : "gallery";
-    return !tab || tab === defaultTab;
+    return !tab || tab === defaultTab || tab === "home";
   }
 
   function expiredCoupon() {

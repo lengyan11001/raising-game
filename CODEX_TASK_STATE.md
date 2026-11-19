@@ -1,8 +1,23 @@
+## 2026-11-19 Step FA: Coupon entry on 123vip.fans landing
+
+- User reports `test01` still cannot see the coupon entry after refresh. Browser inspection shows the signed-in `https://123vip.fans/#home` landing page renders `Create` but has no coupon reminder, while `https://123vips.com/` already shows the claimed coupon entry.
+- Root cause: `isHomeTab()` only treats the default gallery tab as home. The 123vip.fans profile lands on `#home`, so the data-driven coupon reminder is intentionally hidden there even though QA coupon rows exist.
+- Fixing the shared coupon visibility predicate to treat both the platform explore tab and the profile `home` landing as eligible surfaces; this does not change rollout, coupon issuance, or historical backfill.
+- Verification: `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, coupon tests `19/19`, check-in tests `12/12`, and the focused canvas cache-bust test all pass. Cache version is now `coupon-20261119-9`.
+
+## 2026-11-19 Step EZ: Homepage coupon QA visibility
+
+- User refreshed `https://123vips.com/` and still did not see the coupon entry. Production inspection confirmed the deployed code and cache version were correct, but the logged-in `test01` admin account (`user-1777972853765-6da5a3f7`) had no `user_coupon`, so the data-driven entry correctly stayed hidden.
+- Issued one pending QA coupon only to that account with `grant_source=qa_test01_20261119`; no historical backfill or rollout change was performed. The coupon was claimed through the live UI to verify the success state.
+- Browser verification on the user's existing Chrome tab: after claiming and closing the dialog, the persistent bottom entry remains visible as `$5 现金券已领`, shows the live countdown and `去使用`; the entry disappears only after use or expiry.
+
 ## 2026-11-19 Step EY: Cash coupon entry remains until use
 
 - User clarified that the cash-coupon entry is persistent and only disappears after the coupon is used/expired, not after it is viewed. The homepage bottom coupon entry no longer stores a daily dismissal or renders a close button.
 - Pending coupons show `立即领取`; claimed, active coupons keep the same entry visible with a live countdown and `去使用`. Used, locked, or expired coupons no longer produce an entry. The account-menu coupon red dot follows the same pending-or-active lifetime.
 - Cache version is now `coupon-20261119-8`. Focused coupon/check-in/workflow/migration tests pass `80/80`; syntax checks, `npm run check:undef`, and scoped `git diff --check` pass.
+- Source commit `e6080cdb`; platform release `78d50e40be26aa9f865bf9d04eaf96486d7c5b61`; pushed only `old-site` and `platform-release`.
+- Old-only rolling deployment completed with `OLD_ROLLING_DEPLOY_OK active_port=4175 release=78d50e40...`. Public `/api/health`, `/api/livez`, and `/api/readyz` return `200`; public HTML loads `coupon-20261119-8`, has no reminder close button, and the deployed coupon JS includes the pending-or-active persistent-entry logic.
 
 ## 2026-11-19 Step EX: Cash coupon center moved into account wallet menu
 
