@@ -452,7 +452,7 @@ test("adding the same generation result reuses its existing asset without anothe
   };
   const handleAddGenerationRecordToAssets = new Function(
     "requireUser",
-    "readGenerationRecords",
+    "getGenerationRecord",
     "isUserVisibleGenerationRecord",
     "isSucceededStatus",
     "findGenerationRecordAddedAsset",
@@ -476,7 +476,7 @@ test("adding the same generation result reuses its existing asset without anothe
     `return (${extractFunction(source, "handleAddGenerationRecordToAssets")});`,
   )(
     async () => ({ user: { id: "user-1" }, db }),
-    async () => [record],
+    async (taskId) => taskId === record.taskId ? record : null,
     () => true,
     (status) => status === "succeeded",
     (assets, userId, taskId, resultAssetId) => {
@@ -556,7 +556,7 @@ test("adding a durable generated result writes one reference asset and no media 
   const freshReferenceAsset = () => ({ ...referenceAsset });
   const handleAddGenerationRecordToAssets = new Function(
     "requireUser",
-    "readGenerationRecords",
+    "getGenerationRecord",
     "isUserVisibleGenerationRecord",
     "isSucceededStatus",
     "findGenerationRecordAddedAsset",
@@ -580,7 +580,7 @@ test("adding a durable generated result writes one reference asset and no media 
     `return (${extractFunction(source, "handleAddGenerationRecordToAssets")});`,
   )(
     async () => ({ user: { id: "user-1" }, db }),
-    async () => [record],
+    async (taskId) => taskId === record.taskId ? record : null,
     () => true,
     (status) => status === "succeeded",
     () => null,
