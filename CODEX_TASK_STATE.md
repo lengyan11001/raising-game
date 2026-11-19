@@ -1,3 +1,12 @@
+## 2026-11-19 Step EU: Sidebar activity entry for cash coupon (local verification complete, deployment pending)
+
+- User asked where the activity entry was after the cash-coupon activity implementation. Added a real activity carousel entry in the left sidebar between the check-in card and community links.
+- Entry `#couponActivityEntry` currently presents `$5 现金券`; its action follows account/coupon state: login opens the login dialog, pending opens the claim modal, claimed opens top-up with the coupon selected, and signed-in users without a coupon open the coupon center.
+- Entry copy/state refreshes after login, coupon load, claim, expiry tick, and logout. Cache version bumped to `coupon-20261119-2` across platform/check-in/coupon/canvas assets.
+- Changed files: `platform.html`, `platform.js`, `platform.coupon.js`, `platform.coupon.css`, `test/cash-coupon-activity.test.js`, `test/checkin-activity.test.js`, `test/workflow-canvases.test.js`.
+- Verification: focused coupon/check-in/workflow/migration suite `80/80`; `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, and scoped `git diff --check` pass.
+- Unrelated dirty story/optimizer files remain excluded from this task.
+
 ## 2026-11-19 Step ET: Check-in rewards in admin ledger and one-shot fly animation
 
 - Added positive `app_credit_ledger` rows with type `checkin` to the admin **充值流水** reader as source `checkin_reward`; the page now has a **签到奖励** summary card, source filter, row pill, and check-in date/operation detail.
@@ -5183,7 +5192,7 @@ CODEX_TASK_STATE.md
 - Added homepage claim modal/reminder bar, coupon center, red-dot entry, top-up coupon card, package discount/checkout summary, countdowns, UTC+8 daily modal frequency, and automatic $30-package selection. Added `ops/archive/backfill-coupon-20261119.js` with the 603-user count guard, dry-run/apply mode, idempotent backfill, and no scheduled registration.
 - Completed the package's email-reminder and production migration follow-up: added `coupon_email_reminder`, reminder candidate/send-record DB helpers, the `2026-11-19-cash-coupon-v1` migration, and idempotent coupon-template/table DDL. Reminder scheduling covers unclaimed `0h/24h/72h`, claimed `48h`, and expiry `48h/24h`, caps at three messages per user per seven days, skips risky/backfill coupons, and skips cleanly when SMTP is unavailable.
 - Focused coupon/check-in/workflow/migration tests pass `79/79`; syntax checks and `npm run check:undef` pass. Final full `npm test` is `1460 pass / 14 fail / 2 skipped`; every failure is unrelated dirty story/optimizer or historical serializer/queue/source-split work, and no coupon test fails.
-- Fixed reminder-query starvation by excluding coupons whose final pending/expiry reminder was already sent from the oldest-100 candidate window. Source commit `127bfcda1b0280ef446825dfce31c9433ff0b6eb`; platform release `d0c5c355d196c1bda408338ae5260b2fd4664baa`; pushed only `old-site` and `platform-release`. Old-only rolling deploy completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=d0c5c355...`.
+- Fixed reminder-query starvation by excluding coupons whose final pending/expiry reminder was already sent from the oldest-100 candidate window. Also moved coupon reminders outside the generic scheduler gate so they run on promoted HTTP instances while every tick remains PostgreSQL-leased. Source commit `75b8546e68de06a4b8b60bc16715c47a34a9ed28`; platform release `9e157a6bf2618d0f7a25b4075902bd30ef062bf6`; pushed only `old-site` and `platform-release`. Old-only rolling deploy completed with `OLD_ROLLING_DEPLOY_OK active_port=4175 release=9e157a6b...`.
 - Production verification: `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; `/platform.coupon.css` and `/platform.coupon.js` return `200`; anonymous `/api/coupon/list` returns `401`; PostgreSQL contains `coupon_template`, `user_coupon`, and `coupon_email_reminder`; `app_catalog_migration_state` contains `2026-11-19-cash-coupon-v1`; `NEWUSER_30_5OFF` template exists.
 - Existing unrelated dirty story/optimizer files remain excluded from both coupon commits and the release.
 
