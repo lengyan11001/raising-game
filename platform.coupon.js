@@ -577,7 +577,6 @@
       <div class="coupon-checkout-main">
         <span class="coupon-checkout-icon" aria-hidden="true">券</span>
         <span>${safeHtml(copy("New user coupon applied", "已使用新用户券"))}</span>
-        <b>−${safeHtml(money(quote.discountCents))}</b>
       </div>
       <div class="coupon-checkout-meta">
         <span>${safeHtml(copy("Original", "原价"))} <s>${safeHtml(money(selection.amountCents))}</s></span>

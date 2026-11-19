@@ -745,12 +745,6 @@
   font-size: 9px;
 }
 
-.coupon-checkout-main b {
-  margin-left: auto;
-  color: #9df0c2;
-  font-size: 15px;
-}
-
 .coupon-checkout-meta {
   display: flex;
   flex-wrap: wrap;
