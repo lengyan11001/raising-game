@@ -1,3 +1,10 @@
+## 2026-11-19 Step EX: Cash coupon center moved into account wallet menu
+
+- Re-checked the supplied interactive design at `03.html`. The approved cash-coupon surfaces are the home claim dialog, the bottom reminder bar, the Top Up title-area coupon card, and the wallet/sidebar coupon center. There is no main-navigation activity button.
+- Removed `couponCenterNavBtn` from `.top-tabs` and moved the same entry, pending red dot, and dialog trigger into `#accountMenu` beside Top-ups/Spending. Opening it now closes the account menu first.
+- Updated coupon/check-in/canvas asset cache to `coupon-20261119-7` and adjusted focused tests to enforce that the coupon center is inside the account menu and absent from the main navigation.
+- Verification: `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, `git diff --check`, and the focused coupon/check-in/workflow/migration suite (`80/80`) pass.
+
 ## 2026-11-19 Step EW: Cash coupon navigation entry and approved claim dialog
 
 - User rejected the previous activity-carousel placement and custom modal treatment. The cash coupon now enters from the main sidebar navigation as `券中心`, with its pending-coupon red dot, and no longer appears in the lower community/activity area.

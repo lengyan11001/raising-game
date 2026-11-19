@@ -7,19 +7,19 @@
 .coupon-dialog-actions[hidden],
 .coupon-rule-list[hidden],
 .coupon-center-dialog:not([open]),
-.coupon-center-nav[hidden],
+.coupon-center-menu-item[hidden],
 .coupon-center-nav-dot[hidden] {
   display: none !important;
 }
 
-.coupon-center-nav {
+.coupon-center-menu-item {
   position: relative;
 }
 
 .coupon-center-nav-dot {
   position: absolute;
   top: 8px;
-  right: 10px;
+  right: 11px;
   width: 7px;
   height: 7px;
   border: 2px solid #15111d;

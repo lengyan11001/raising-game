@@ -722,7 +722,10 @@
 
   function bindEvents() {
     if (!els.dialog) return;
-    els.centerNav?.addEventListener("click", openCouponCenter);
+    els.centerNav?.addEventListener("click", () => {
+      if (typeof closeAccountMenu === "function") closeAccountMenu();
+      openCouponCenter();
+    });
     els.centerClose?.addEventListener("click", closeCouponCenter);
     els.centerDialog?.addEventListener("click", (event) => {
       if (event.target === els.centerDialog) closeCouponCenter();

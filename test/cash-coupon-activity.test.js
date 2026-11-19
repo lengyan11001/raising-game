@@ -365,11 +365,14 @@ test("cash coupon uses the approved popup, reminder, and top-up entry surfaces",
   const headline = html.indexOf('class="topup-headline"');
   const entry = html.indexOf('id="couponTopupEntry"');
   const packageStage = html.indexOf('id="topupPackageStage"');
+  const accountMenu = html.indexOf('id="accountMenu"');
+  const accountMenuEnd = html.indexOf('id="menuLogoutBtn"', accountMenu);
+  const centerNav = html.indexOf('id="couponCenterNavBtn"');
   const topTabs = html.indexOf('class="top-tabs"');
   const topTabsEnd = html.indexOf("</nav>", topTabs);
-  const centerNav = html.indexOf('id="couponCenterNavBtn"');
   assert.ok(headline >= 0 && entry > headline && entry < packageStage);
-  assert.ok(topTabs >= 0 && centerNav > topTabs && centerNav < topTabsEnd);
+  assert.ok(accountMenu >= 0 && centerNav > accountMenu && centerNav < accountMenuEnd);
+  assert.ok(!(centerNav > topTabs && centerNav < topTabsEnd));
   assert.doesNotMatch(html, /couponActivityEntry|side-campaign-carousel coupon-activity/);
   assert.match(html, /id="couponClaimDialog"/);
   assert.match(html, /id="couponDialogBody"/);
@@ -513,8 +516,8 @@ test("coupon email reminders are register-only, deliver useful content, and use 
 });
 
 test("coupon assets are exposed by the runtime and release snapshot", () => {
-  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-6/);
-  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-6/);
+  assert.match(read("platform.html"), /platform\.coupon\.css\?v=coupon-20261119-7/);
+  assert.match(read("platform.html"), /platform\.js\?v=coupon-20261119-7/);
   assert.match(read("platform.js"), /"platform\.coupon\.js"/);
   assert.match(read("server.parts/part-01.js"), /"platform\.coupon\.css"/);
   assert.match(read("site-http.js"), /"\/platform\.coupon\.css"/);
