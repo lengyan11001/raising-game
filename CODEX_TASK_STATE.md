@@ -1,3 +1,11 @@
+## 2026-11-19 Step EP: Story asset images no longer request media before it exists
+
+- User's newly generated 小晶 asset (`asset-variant-1795053539472-e998cc92`, generation `img-20261119095859-ef080e`) showed `图片加载失败` immediately. Production generated the image successfully, but the browser requested its media endpoint at `09:58:59` and received `404` twice; billing settled only at `09:59:55`.
+- Root cause: the frontend treated predicted `imageResultUrl` values on nonterminal generation records as ready, then the variant client view exposed a media URL even while `status=generating`. Chromium cached/reused the early failed URL and the completed image did not reload.
+- Nonterminal generation records no longer yield an image URL; generating/failed variants expose no media URL; completed thumbnail URLs include `variant.updatedAt` as a version parameter so a failed early load cannot stick after readiness.
+- Changed files: `platform.story.js`, `server.parts/part-03.js`, `test/story-canvas-p1.test.js`. Focused tests pass 23/23; syntax, `npm run check:undef`, and `git diff --check` pass. Source commit `604f0d9a`.
+- Built platform release `960f501b2cdc5ea84bb84ab706e8801741a8483f` and deployed Old through the rolling entrypoint (`4175 -> 4174`, canaries 1%/5%, `OLD_ROLLING_DEPLOY_OK`). Health endpoints return `200`; production serves the new client guards; the same media URL with the completed version parameter returns `200 image/webp` for the thumbnail and `200 image/png` for the full image.
+
 ## 2026-11-18 Step EO: Temporarily take the Seedream 5.5 banner campaign offline
 
 - User requested that the banner campaign just launched on 123vip be taken offline first, then clarified that its membership benefits must be off as well.
