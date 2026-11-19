@@ -401,6 +401,7 @@ test("cash coupon uses the approved popup, reminder, and top-up entry surfaces",
   assert.match(expiredBranch, /This coupon has expired/);
   assert.match(expiredBranch, /这张券已经失效了/);
   assert.doesNotMatch(pendingBranch, /data-coupon-countdown/);
+  assert.match(css, /\.coupon-countdown-box > b\s*\{[^}]*display:\s*block/);
   assert.match(css, /\.coupon-dialog-actions\.is-success/);
   assert.match(css, /\.coupon-topup-entry/);
 });
