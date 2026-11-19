@@ -136,6 +136,9 @@ test("check-in frontend initializes modal, keyboard, overlay, cross-day, and acc
   assert.match(script, /currentCheckinDate\(\) === ui\.currentDate/);
   assert.match(script, /function trapModalFocus\(event\)/);
   assert.match(script, /document\.readyState === "loading"/);
+  assert.match(script, /function clearCheckinFly\(\)/);
+  assert.match(script, /ui\.flyTimer = window\.setTimeout\(clearCheckinFly, 1300\)/);
+  assert.match(script, /ui\.open = true;\s*clearCheckinFly\(\);\s*setMessage\("", \{\}\);/);
 });
 
 test("successful check-in keeps the modal open and refreshes authoritative status", () => {
@@ -157,8 +160,8 @@ test("check-in assets are loaded and publicly served", () => {
   const releaseSnapshot = read("scripts/build_release_snapshot.py");
   const syncScript = read("scripts/sync_old_to_new2.py");
   const deployScript = read("scripts/deploy_site.py");
-  assert.match(html, /platform\.checkin\.css\?v=checkin-20261119-2/);
-  assert.match(html, /platform\.js\?v=checkin-20261119-2/);
+  assert.match(html, /platform\.checkin\.css\?v=checkin-20261119-3/);
+  assert.match(html, /platform\.js\?v=checkin-20261119-3/);
   assert.match(loader, /"platform\.checkin\.js"/);
   assert.match(siteHttp, /"\/platform\.checkin\.css"/);
   assert.match(serverAssets, /"platform\.checkin\.css"/);
@@ -168,5 +171,18 @@ test("check-in assets are loaded and publicly served", () => {
   assert.match(syncScript, /"checkin-core\.js"/);
   assert.match(deployScript, /"platform\.checkin\.css"/);
   assert.match(deployScript, /"checkin-core\.js"/);
+});
+
+test("check-in rewards appear in the admin recharge ledger", () => {
+  const database = read("db.js");
+  const server = read("server.parts/part-40.js");
+  const admin = read("admin.js");
+  assert.match(database, /'checkin_reward' AS source/);
+  assert.match(database, /WHERE l\.type = 'checkin' AND l\.delta > 0/);
+  assert.match(database, /row\.payload\?\.meta\?\.checkinDate/);
+  assert.match(database, /checkinCount: Number\(first\.checkin_count \|\| 0\)/);
+  assert.match(server, /source === "checkin_reward" \? "Daily check-in reward"/);
+  assert.match(admin, /<option value="checkin_reward"/);
+  assert.match(admin, /statCard\("签到奖励"/);
 });
 
