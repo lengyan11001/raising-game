@@ -1,3 +1,10 @@
+## 2026-11-19 Step FD: Refresh keeps claimed coupon entry visible immediately
+
+- Reproduced the reported disappearance on `123vips.com`: after a full refresh, `test01` was signed in and `/api/coupon/list` still returned the valid status-1 coupon, but `#couponReminderBar` and `#couponTopupEntry` stayed hidden until the 30-second coupon poll ran.
+- Root cause was initialization order. `platform.coupon.js` ran its first account sync before `bootstrap()/loadMe()` restored `state.user`; `setUser()` did not notify the coupon module, so the entry waited for the next scheduled poll.
+- `platform.ui.parts/part-01.js` now forces `window.refreshCouponSession({ force: true })` whenever `setUser()` detects a changed user. Login, refresh/session restore, logout, and account switching therefore update the coupon entry immediately without changing claim, lock, payment, settlement, or expiry workflows.
+- Added cash-coupon regression coverage for the session-restore hook. Focused checks passed: syntax checks, undefined-reference check, cash-coupon tests `21/21`, check-in tests `12/12`, and scoped `git diff --check`.
+
 ## 2026-11-19 Step FC: Pending-payment coupon remains visible
 
 - User asked whether an unpaid `test01` order consumed the coupon. Production data confirms it did not: the coupon was status `1` after the 15-minute lock expired, with no `used_at` or `used_order_no`; the pending Stripe order only temporarily changes it to status `2`.

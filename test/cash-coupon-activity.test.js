@@ -388,6 +388,15 @@ test("a pending-payment coupon stays visible without becoming reusable", () => {
   assert.equal(helpers.couponEntryState(), null);
 });
 
+test("session restore refreshes the coupon entry immediately", () => {
+  const uiSource = read("platform.ui.parts/part-01.js");
+  const setUserSource = sourceBetween(uiSource, "function setUser(", "function maskToken");
+  assert.match(
+    setUserSource,
+    /if \(userChanged && typeof window\.refreshCouponSession === "function"\) \{\s*window\.refreshCouponSession\(\{ force: true \}\);\s*\}/,
+  );
+});
+
 test("cash coupon uses the approved popup, reminder, and top-up entry surfaces", () => {
   const html = read("platform.html");
   const frontend = read("platform.coupon.js");
