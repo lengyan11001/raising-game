@@ -160,8 +160,8 @@ test("check-in assets are loaded and publicly served", () => {
   const releaseSnapshot = read("scripts/build_release_snapshot.py");
   const syncScript = read("scripts/sync_old_to_new2.py");
   const deployScript = read("scripts/deploy_site.py");
-  assert.match(html, /platform\.checkin\.css\?v=coupon-20261119-9/);
-  assert.match(html, /platform\.js\?v=coupon-20261119-9/);
+  assert.match(html, /platform\.checkin\.css\?v=coupon-20261119-11/);
+  assert.match(html, /platform\.js\?v=coupon-20261119-11/);
   assert.match(loader, /"platform\.checkin\.js"/);
   assert.match(siteHttp, /"\/platform\.checkin\.css"/);
   assert.match(serverAssets, /"platform\.checkin\.css"/);

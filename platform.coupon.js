@@ -97,12 +97,23 @@
     return !expireMs || expireMs > Date.now();
   }
 
+  function lockedCoupon(coupon = null) {
+    if (!coupon || Number(coupon.status) !== 2 || coupon.risk_review) return false;
+    const expireMs = coupon.expire_at ? Date.parse(coupon.expire_at) : 0;
+    const lockExpireMs = coupon.lock_expire_at ? Date.parse(coupon.lock_expire_at) : 0;
+    return (!expireMs || expireMs > Date.now()) && lockExpireMs > Date.now();
+  }
+
   function pendingCoupon() {
     return ui.pending[0] || null;
   }
 
   function claimedCoupon() {
-    return [...ui.available, ...ui.locked].find(activeCoupon) || null;
+    return ui.available.find(activeCoupon) || null;
+  }
+
+  function lockedClaimedCoupon() {
+    return ui.locked.find(lockedCoupon) || null;
   }
 
   function scopeMatches(scope = "", scene = "recharge") {
@@ -315,9 +326,11 @@
     if (!visible || !entry) return;
     const coupon = entry.coupon;
     const pending = entry.type === "pending";
+    const locked = entry.type === "locked";
     const threshold = money(coupon.threshold ?? DEFAULT_COUPON.threshold);
     els.reminder.classList.toggle("is-pending", pending);
     els.reminder.classList.toggle("is-claimed", !pending);
+    els.reminder.classList.toggle("is-locked", locked);
     if (els.reminderIcon) els.reminderIcon.textContent = pending ? "🎟" : "✓";
     if (els.reminderTitle) {
       els.reminderTitle.textContent = pending
@@ -326,7 +339,9 @@
     }
     if (els.reminderBadge) {
       els.reminderBadge.hidden = pending;
-      els.reminderBadge.textContent = copy("Use soon", "尽快使用");
+      els.reminderBadge.textContent = locked
+        ? copy("Order pending", "订单锁定中")
+        : copy("Use soon", "尽快使用");
     }
     if (els.reminderText) {
       els.reminderText.innerHTML = pending
@@ -334,6 +349,11 @@
             `${money(coupon.face_value ?? DEFAULT_COUPON.face_value)} off orders over ${threshold}`,
             `满 ${threshold} 可用 · 待领取`,
           ))
+        : locked
+          ? copy(
+              `Order payment pending · releases in <b>${countdownDetailText(coupon.lock_expire_at)}</b>`,
+              `支付订单锁券中 · <b>${countdownDetailText(coupon.lock_expire_at)}</b>后自动释放`,
+            )
         : copy(
             `Remaining <b>${countdownDetailText(coupon.expire_at)}</b> · Orders over ${threshold}`,
             `剩余 <b>${countdownDetailText(coupon.expire_at)}</b> · 满 ${threshold} 可用`,
@@ -342,7 +362,9 @@
     if (els.reminderAction) {
       els.reminderAction.textContent = pending
         ? copy("Claim", "立即领取")
-        : copy("Use coupon", "去使用");
+        : locked
+          ? copy("View order", "查看订单")
+          : copy("Use coupon", "去使用");
       els.reminderAction.classList.toggle("is-primary", pending);
     }
   }
@@ -464,7 +486,9 @@
     const pending = pendingCoupon();
     if (pending) return { type: "pending", coupon: pending };
     const active = claimedCoupon();
-    return active ? { type: "claimed", coupon: active } : null;
+    if (active) return { type: "claimed", coupon: active };
+    const locked = lockedClaimedCoupon();
+    return locked ? { type: "locked", coupon: locked } : null;
   }
 
   function renderCouponTopupEntry() {
@@ -479,26 +503,31 @@
     const face = money(coupon.face_value ?? DEFAULT_COUPON.face_value);
     const threshold = money(coupon.threshold ?? DEFAULT_COUPON.threshold);
     const pending = entry.type === "pending";
+    const locked = entry.type === "locked";
     els.topupEntry.hidden = false;
     els.topupEntry.classList.toggle("is-pending", pending);
     els.topupEntry.classList.toggle("is-claimed", !pending);
+    els.topupEntry.classList.toggle("is-locked", locked);
     els.topupEntry.innerHTML = `
       <div class="coupon-topup-icon" aria-hidden="true">${pending ? "🎟" : "✓"}</div>
       <div class="coupon-topup-copy">
         <div class="coupon-topup-title">
           <strong>${safeHtml(pending ? copy("New-user coupon", "新用户专享券") : copy("$5 cash coupon claimed", "$5 现金券已领"))}</strong>
-          <span>${safeHtml(pending ? copy(`${face} OFF`, `${face} 立减`) : copy("Use soon", "尽快使用"))}</span>
+          <span>${safeHtml(pending ? copy(`${face} OFF`, `${face} 立减`) : locked ? copy("Order pending", "订单锁定中") : copy("Use soon", "尽快使用"))}</span>
         </div>
         <small data-coupon-entry-desc>${pending
           ? safeHtml(copy(`Orders over ${threshold}. Valid for 7 days after claiming.`, `满 ${threshold} 可用 · 领取后 7 天有效`))
+          : locked
+            ? copy(`Payment pending · releases in <b>${countdownDetailText(coupon.lock_expire_at)}</b>`, `支付订单锁券中 · <b>${countdownDetailText(coupon.lock_expire_at)}</b>后自动释放`)
           : copy(`Remaining <b>${countdownDetailText(coupon.expire_at)}</b> · Orders over ${threshold}`, `剩余 <b>${countdownDetailText(coupon.expire_at)}</b> · 满 ${threshold} 可用`)}</small>
       </div>
       <button class="coupon-topup-btn ${pending ? "is-primary" : ""}" type="button" data-coupon-entry-action>
-        ${safeHtml(pending ? copy("Claim now", "立即领取") : copy("Use coupon", "去使用"))}
+        ${safeHtml(pending ? copy("Claim now", "立即领取") : locked ? copy("View order", "查看订单") : copy("Use coupon", "去使用"))}
       </button>
     `;
     els.topupEntry.querySelector("[data-coupon-entry-action]")?.addEventListener("click", () => {
       if (pending) claimCoupon({ fromDialog: false });
+      else if (locked) viewLockedCouponOrder();
       else useCouponOnTopup();
     });
   }
@@ -707,22 +736,35 @@
     useCouponOnTopup();
   }
 
+  function viewLockedCouponOrder() {
+    closeCouponDialog();
+    closeCouponCenter();
+    if (typeof setTab === "function") setTab("topups");
+  }
+
   function tickCouponClocks() {
     const countdown = els.dialog?.querySelector("[data-coupon-countdown]");
     if (countdown && claimedCoupon()) {
       countdown.innerHTML = countdownDetailMarkup(claimedCoupon().expire_at);
     }
     const entryDesc = els.topupEntry?.querySelector("[data-coupon-entry-desc]");
-    const active = claimedCoupon();
-    if (entryDesc && active) {
-      const threshold = money(active.threshold ?? DEFAULT_COUPON.threshold);
-      entryDesc.textContent = copy(
-        `${countdownDetailText(active.expire_at)} left · Orders over ${threshold}`,
-        `剩余 ${countdownDetailText(active.expire_at)} · 满 ${threshold} 可用`,
-      );
+    const entry = couponEntryState();
+    if (entryDesc && entry) {
+      const threshold = money(entry.coupon.threshold ?? DEFAULT_COUPON.threshold);
+      if (entry.type === "locked") {
+        entryDesc.textContent = copy(
+          `Payment pending · releases in ${countdownDetailText(entry.coupon.lock_expire_at)}`,
+          `支付订单锁券中 · ${countdownDetailText(entry.coupon.lock_expire_at)}后自动释放`,
+        );
+      } else if (entry.type === "claimed") {
+        entryDesc.textContent = copy(
+          `${countdownDetailText(entry.coupon.expire_at)} left · Orders over ${threshold}`,
+          `剩余 ${countdownDetailText(entry.coupon.expire_at)} · 满 ${threshold} 可用`,
+        );
+      }
     }
-    if (isHomeTab() && active) renderCouponReminder();
-    if (!active && ui.available.length) {
+    if (isHomeTab() && entry) renderCouponReminder();
+    if (!claimedCoupon() && ui.available.length) {
       ui.available = [];
       refreshCouponTopupEntry();
       refreshCouponCheckout();
@@ -788,12 +830,16 @@
     els.reminderAction?.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (pendingCoupon()) showCouponDialog({ force: true });
+      const entry = couponEntryState();
+      if (entry?.type === "pending") showCouponDialog({ force: true });
+      else if (entry?.type === "locked") viewLockedCouponOrder();
       else goTopupWithCoupon();
     });
     els.reminder?.addEventListener("click", (event) => {
       if (event.target === els.reminderAction || els.reminderAction?.contains(event.target)) return;
-      if (pendingCoupon()) showCouponDialog({ force: true });
+      const entry = couponEntryState();
+      if (entry?.type === "pending") showCouponDialog({ force: true });
+      else if (entry?.type === "locked") viewLockedCouponOrder();
       else goTopupWithCoupon();
     });
     els.dialog.addEventListener("close", () => {

@@ -1,8 +1,18 @@
+## 2026-11-19 Step FC: Pending-payment coupon remains visible
+
+- User asked whether an unpaid `test01` order consumed the coupon. Production data confirms it did not: the coupon was status `1` after the 15-minute lock expired, with no `used_at` or `used_order_no`; the pending Stripe order only temporarily changes it to status `2`.
+- Root cause was frontend presentation: status `2` locked coupons were excluded by `activeCoupon()`, so `couponEntryState()` hid the persistent coupon entry while payment was pending.
+- `platform.coupon.js` now keeps a strict usable-coupon path for checkout (`status === 1` only) and adds a separate valid-lock display path (`status === 2`, unexpired lock and coupon). Locked coupons render as `订单锁定中` with lock countdown and `查看订单`, and never enter `couponForAmount()` or `getSelectedCouponId()`.
+- Added regression coverage proving a valid locked coupon remains visible but is not reusable, while an expired lock hides the entry. Cache version is now `coupon-20261119-11`.
+- Focused verification passed: `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, cash-coupon tests `20/20`, check-in tests `12/12`, canvas cache-bust test `1/1`, and scoped `git diff --check`.
+
 ## 2026-11-19 Step FB: Cash coupon UI matched directly to supplied design
 
 - The claimed persistent reminder was still a wide custom pill. It is now the supplied 352px coupon card: 13px/15px padding, 38px green check icon, 12.5px title, green `尽快使用` badge, 10.5px countdown row, and ghost `去使用` action. The pending reminders remain the supplied 999px pill.
 - The claimed Top Up coupon card was aligned to the package values: 352px width, 13px gap, 13px/15px padding, 12px/800 action text, and the package shadow. The claim and claim-success dialogs already used the supplied 396px card values; all three states were rendered locally and compared against the screenshots.
 - Cache version is now `coupon-20261119-10`. Verification passed: `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, coupon tests `19/19`, check-in tests `12/12`, and scoped `git diff --check`.
+- Built platform release `7b921467` from source `133e34bb`, pushed `old-site` and `platform-release`, and deployed Old only through `scripts/deploy_local.sh --site old`; rolling deploy completed with `OLD_ROLLING_DEPLOY_OK` on port 4175.
+- Production verification: `/api/health`, `/api/livez`, and `/api/readyz` are healthy; `https://123vips.com/` serves `platform.coupon.css?v=coupon-20261119-10`, and the served CSS contains the 352px claimed reminder card.
 
 ## 2026-11-19 Step FA: Coupon entry on 123vip.fans landing
 
