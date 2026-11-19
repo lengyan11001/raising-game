@@ -16,10 +16,33 @@ export const NodeLayout = memo(({
   isValidConnection,
   selected = false,
   canDownload = false,
+  canAddToAssets = false,
   className = '',
 }) => {
   const { deleteElements } = useReactFlow();
   const [downloading, setDownloading] = React.useState(false);
+  const [addingToAssets, setAddingToAssets] = React.useState(false);
+  const [assetAdded, setAssetAdded] = React.useState(false);
+  const assetAddedTimer = React.useRef(null);
+  React.useEffect(() => () => {
+    if (assetAddedTimer.current) window.clearTimeout(assetAddedTimer.current);
+  }, []);
+  const addToAssets = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!canAddToAssets || addingToAssets) return;
+    setAddingToAssets(true);
+    setAssetAdded(false);
+    try {
+      const added = await window.addWorkflowNodeResultToAssets?.(id);
+      if (!added) return;
+      setAssetAdded(true);
+      if (assetAddedTimer.current) window.clearTimeout(assetAddedTimer.current);
+      assetAddedTimer.current = window.setTimeout(() => setAssetAdded(false), 1800);
+    } finally {
+      setAddingToAssets(false);
+    }
+  };
   const downloadNode = async (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -87,6 +110,22 @@ export const NodeLayout = memo(({
         </span>
         <span>{title}</span>
         <span className="site-generation-card-actions">
+          <button
+            type="button"
+            className="nodrag nopan site-generation-add-asset"
+            aria-label="添加到素材库"
+            title={canAddToAssets ? (assetAdded ? '已添加到素材库' : '添加到素材库') : '暂无可添加内容'}
+            disabled={!canAddToAssets || addingToAssets}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={addToAssets}
+          >
+            <i
+              className={`bi ${
+                addingToAssets ? 'bi-arrow-repeat site-generation-spin' : assetAdded ? 'bi-check2' : 'bi-folder-plus'
+              }`}
+              aria-hidden="true"
+            />
+          </button>
           <button
             type="button"
             className="nodrag nopan site-generation-download"

@@ -1,3 +1,10 @@
+## 2026-11-19 Step FE: Add canvas results to the asset library
+
+- Canvas image/video result nodes now expose an add-to-assets action immediately before download. The action is enabled only when the result node has a generation `taskId` and reuses the existing owner-scoped `POST /api/generation-records/:taskId/add-asset` endpoint.
+- Added `window.addWorkflowNodeResultToAssets(nodeId)`: it handles the request, updates `state.userAssets` immediately, reports already-added results idempotently, and logs a user-facing failure without changing the generation result.
+- Updated the shared React node layout, image/video result nodes, canvas CSS, compiled `workflow-react/dist/canvas.js`, and workflow regression coverage. Generation nodes remain unchanged with no asset action.
+- Verification passed: workflow canvas suite `41/41`, `node --check platform.ui.parts/part-06.js`, `npm run check:undef`, production webpack build (existing size warnings only), and scoped `git diff --check`. Deployment is pending.
+
 ## 2026-11-19 Step FD: Refresh keeps claimed coupon entry visible immediately
 
 - Reproduced the reported disappearance on `123vips.com`: after a full refresh, `test01` was signed in and `/api/coupon/list` still returned the valid status-1 coupon, but `#couponReminderBar` and `#couponTopupEntry` stayed hidden until the 30-second coupon poll ran.

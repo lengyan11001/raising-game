@@ -138,6 +138,7 @@
   margin-left: auto;
 }
 
+.site-generation-add-asset,
 .site-generation-download,
 .site-generation-delete {
   display: grid;
@@ -155,11 +156,14 @@
   transition: color .15s ease, border-color .15s ease, background .15s ease;
 }
 
+.site-generation-add-asset:disabled,
 .site-generation-download:disabled {
   opacity: .34;
   cursor: default;
 }
 
+.site-generation-add-asset:not(:disabled):hover,
+.site-generation-add-asset:not(:disabled):focus-visible,
 .site-generation-download:not(:disabled):hover,
 .site-generation-download:not(:disabled):focus-visible,
 .site-generation-delete:hover,
@@ -170,6 +174,7 @@
   outline: none;
 }
 
+.site-generation-add-asset i.site-generation-spin,
 .site-generation-download i.bi-arrow-repeat {
   animation: site-generation-spin .8s linear infinite;
 }

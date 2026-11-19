@@ -477,6 +477,35 @@ async function downloadWorkflowNodeResult(nodeId = "") {
 
 window.downloadWorkflowNodeResult = downloadWorkflowNodeResult;
 
+async function addWorkflowNodeResultToAssets(nodeId = "") {
+  const node = workflowNodeById(nodeId);
+  if (!node) return false;
+  const data = node.data || {};
+  const taskId = String(data.taskId || data.record?.taskId || "").trim();
+  if (!taskId) {
+    workflowLog("当前节点还没有可加入素材库的生成结果。");
+    return false;
+  }
+  try {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/add-asset`, {
+      method: "POST",
+    });
+    if (payload.asset) {
+      state.userAssets = [
+        payload.asset,
+        ...(state.userAssets || []).filter((asset) => asset.id !== payload.asset.id),
+      ];
+    }
+    workflowLog(payload.alreadyAdded ? "该生成结果已在素材库中。" : "已添加到素材库。");
+    return true;
+  } catch (error) {
+    workflowLog(`添加到素材库失败：${error.message || String(error)}`);
+    return false;
+  }
+}
+
+window.addWorkflowNodeResultToAssets = addWorkflowNodeResultToAssets;
+
 function workflowNodeHasStartedGeneration(node = {}) {
   return ["submitting", "preparing", "processing", "running", "queued"].includes(String(node.data?.status || ""));
 }

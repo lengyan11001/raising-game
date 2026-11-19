@@ -1023,24 +1023,37 @@ test("workflow delete keys only remove selected canvas elements", () => {
   assert.match(css, /\.site-generation-delete \{/);
 });
 
-test("canvas generation nodes download their generated content", () => {
+test("canvas result nodes download and add generated content to assets", () => {
   const layout = read("workflow-react/src/components/canvas/nodes/NodeLayout.js");
+  const imageResultNode = read("workflow-react/src/components/canvas/siteNodes/SiteImageResultNode.js");
+  const videoResultNode = read("workflow-react/src/components/canvas/siteNodes/SiteVideoResultNode.js");
   const imageNode = read("workflow-react/src/components/canvas/siteNodes/SiteImageGenerationNode.js");
   const videoNode = read("workflow-react/src/components/canvas/siteNodes/SiteVideoGenerationNode.js");
   const part = read("platform.ui.parts/part-06.js");
   const css = read("workflow-react/src/site/site.css");
 
+  assert.ok(layout.indexOf('site-generation-add-asset') < layout.indexOf('site-generation-download'));
+  assert.match(layout, /aria-label="添加到素材库"/);
+  assert.match(layout, /window\.addWorkflowNodeResultToAssets\?\.\(id\)/);
+  assert.match(imageResultNode, /canAddToAssets=\{Boolean\(data\.taskId \|\| data\.record\?\.taskId\)\}/);
+  assert.match(videoResultNode, /canAddToAssets=\{Boolean\(data\.taskId \|\| data\.record\?\.taskId\)\}/);
   assert.match(layout, /className="nodrag nopan site-generation-download"/);
   assert.match(layout, /aria-label="下载节点生成内容"/);
   assert.match(layout, /window\.downloadWorkflowNodeResult\?\.\(id\)/);
   assert.match(imageNode, /canDownload=\{false\}/);
   assert.match(videoNode, /canDownload=\{false\}/);
+  assert.match(part, /async function addWorkflowNodeResultToAssets\(nodeId = ""\)/);
+  assert.match(part, /\/api\/generation-records\/\$\{encodeURIComponent\(taskId\)\}\/add-asset/);
+  assert.match(part, /state\.userAssets = \[/);
+  assert.match(part, /window\.addWorkflowNodeResultToAssets = addWorkflowNodeResultToAssets/);
   assert.match(part, /async function downloadWorkflowNodeResult\(nodeId = ""\)/);
   assert.match(part, /workflowNodeOwnResultVideos\(node\)/);
   assert.match(part, /workflowNodeOwnResultImages\(node\)/);
   assert.match(part, /downloadGenerationRecord\(record\)/);
   assert.match(part, /window\.downloadWorkflowNodeResult = downloadWorkflowNodeResult/);
+  assert.match(css, /\.site-generation-add-asset,/);
   assert.match(css, /\.site-generation-download,/);
+  assert.match(css, /\.site-generation-add-asset:disabled/);
   assert.match(css, /\.site-generation-download:disabled/);
 });
 

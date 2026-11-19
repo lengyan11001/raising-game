@@ -68,6 +68,7 @@ export function SiteVideoResultNode({ id, selected = false }) {
       showOutputHandle
       selected={selected}
       canDownload={results.length > 0}
+      canAddToAssets={Boolean(data.taskId || data.record?.taskId)}
       className="site-result-card is-video-result"
     >
       <div className="site-result-node is-video">
