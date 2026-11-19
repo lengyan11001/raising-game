@@ -1,3 +1,12 @@
+## 2026-11-19 Step EU: Sidebar activity entry for cash coupon (local verification complete, deployment pending)
+
+- User asked where the activity entry was after the cash-coupon activity implementation. Added a real activity carousel entry in the left sidebar between the check-in card and community links.
+- Entry `#couponActivityEntry` currently presents `$5 现金券`; its action follows account/coupon state: login opens the login dialog, pending opens the claim modal, claimed opens top-up with the coupon selected, and signed-in users without a coupon open the coupon center.
+- Entry copy/state refreshes after login, coupon load, claim, expiry tick, and logout. Cache version bumped to `coupon-20261119-2` across platform/check-in/coupon/canvas assets.
+- Changed files: `platform.html`, `platform.js`, `platform.coupon.js`, `platform.coupon.css`, `test/cash-coupon-activity.test.js`, `test/checkin-activity.test.js`, `test/workflow-canvases.test.js`.
+- Verification: focused coupon/check-in/workflow/migration suite `80/80`; `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, and scoped `git diff --check` pass.
+- Unrelated dirty story/optimizer files remain excluded from this task.
+
 ## 2026-11-19 Step ET: Check-in rewards in admin ledger and one-shot fly animation
 
 - Added positive `app_credit_ledger` rows with type `checkin` to the admin **充值流水** reader as source `checkin_reward`; the page now has a **签到奖励** summary card, source filter, row pill, and check-in date/operation detail.

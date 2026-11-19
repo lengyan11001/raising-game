@@ -8,9 +8,9 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=coupon-20261119-1" />
-    <link rel="stylesheet" href="./platform.checkin.css?v=coupon-20261119-1" />
-    <link rel="stylesheet" href="./platform.coupon.css?v=coupon-20261119-1" />
+    <link rel="stylesheet" href="./platform.css?v=coupon-20261119-2" />
+    <link rel="stylesheet" href="./platform.checkin.css?v=coupon-20261119-2" />
+    <link rel="stylesheet" href="./platform.coupon.css?v=coupon-20261119-2" />
     <link rel="stylesheet" href="./platform.prompt-editor.css?v=main-site-compat-20261111-1" />
     <script src="./platform.vitals.js?v=main-site-compat-20261111-1" defer></script>
     <script>
@@ -151,6 +151,21 @@
         <span class="checkin-entry-line"><span>已连签</span><b id="checkinEntryStreak">0</b><span>天</span><em id="checkinEntryPoints">今日 +5</em></span>
         <span class="checkin-entry-dots" id="checkinEntryDots" aria-hidden="true"></span>
       </button>
+      <section class="side-campaign-carousel coupon-activity-carousel" id="couponActivityEntry" data-coupon-activity-carousel aria-label="活动">
+        <div class="side-campaign-track" data-coupon-activity-track>
+          <button class="side-campaign-card coupon-activity-card" id="couponActivityCard" type="button" data-coupon-activity-open="cash-coupon" aria-label="查看新用户现金券活动">
+            <span class="coupon-activity-art" aria-hidden="true"><b>$5</b><small>OFF</small></span>
+            <span class="side-campaign-shade" aria-hidden="true"></span>
+            <span class="side-campaign-flag" id="couponActivityFlag">新用户专享</span>
+            <span class="side-campaign-copy">
+              <strong id="couponActivityTitle">$5 现金券</strong>
+              <em id="couponActivityAction">登录领取</em>
+              <small id="couponActivityDetail">满 $30 可用 · 领取后 7 天有效</small>
+            </span>
+          </button>
+        </div>
+        <div class="side-campaign-dots" data-coupon-activity-dots role="tablist" aria-label="活动切换"></div>
+      </section>
       <nav class="side-utility-nav" aria-label="Community and support">
         <a class="side-utility-link" href="https://t.me/VipeakAILab" target="_blank" rel="noopener noreferrer" data-direct-url="https://t.me/VipeakAILab" data-analytics-event="telegram_channel_click" data-analytics-location="side_nav">
           <i data-lucide="send"></i>
@@ -1819,6 +1834,6 @@
       </section>
     </dialog>
 
-    <script src="./platform.js?v=coupon-20261119-1"></script>
+    <script src="./platform.js?v=coupon-20261119-2"></script>
   </body>
 </html>

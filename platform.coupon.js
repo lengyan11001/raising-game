@@ -181,6 +181,13 @@
       centerTitle: byId("couponCenterTitle"),
       centerSubtitle: byId("couponCenterSubtitle"),
       centerBody: byId("couponCenterBody"),
+      activity: byId("couponActivityEntry"),
+      activityCard: byId("couponActivityCard"),
+      activityFlag: byId("couponActivityFlag"),
+      activityTitle: byId("couponActivityTitle"),
+      activityAction: byId("couponActivityAction"),
+      activityDetail: byId("couponActivityDetail"),
+      activityDots: document.querySelector("[data-coupon-activity-dots]"),
     });
   }
 
@@ -279,6 +286,78 @@
   function dismissCouponReminder() {
     writeStorage(REMINDER_DISMISSED_KEY, shanghaiDateKey());
     renderCouponReminder();
+  }
+
+  function couponActivityState() {
+    const pending = pendingCoupon();
+    if (pending) {
+      return {
+        type: "pending",
+        coupon: pending,
+        flag: copy("NEW USER", "新用户专享"),
+        title: copy("$5 cash coupon", "$5 现金券"),
+        action: copy("Claim now", "立即领取"),
+        detail: copy("Orders over $30 · 7 days after claiming", "满 $30 可用 · 领取后 7 天有效"),
+      };
+    }
+    const claimed = claimedCoupon();
+    if (claimed) {
+      const threshold = money(claimed.threshold ?? DEFAULT_COUPON.threshold);
+      return {
+        type: "claimed",
+        coupon: claimed,
+        flag: copy("CLAIMED", "已领取"),
+        title: copy("$5 cash coupon", "$5 现金券"),
+        action: copy("Use now", "去使用"),
+        detail: copy(`${countdownText(claimed.expire_at)} left · Orders over ${threshold}`, `剩余 ${countdownText(claimed.expire_at)} · 满 ${threshold} 可用`),
+      };
+    }
+    if (!appUser()?.id) {
+      return {
+        type: "login",
+        flag: copy("NEW USER", "新用户专享"),
+        title: copy("$5 cash coupon", "$5 现金券"),
+        action: copy("Log in to claim", "登录领取"),
+        detail: copy("Orders over $30 · Valid 7 days after claiming", "满 $30 可用 · 领取后 7 天有效"),
+      };
+    }
+    return {
+      type: "center",
+      flag: copy("ACTIVITY", "活动"),
+      title: copy("$5 cash coupon", "$5 现金券"),
+      action: copy("View activity", "查看活动"),
+      detail: copy("New-user cash coupon", "新用户现金券活动"),
+    };
+  }
+
+  function renderCouponActivityEntry() {
+    if (!els.activity || !els.activityCard) return;
+    const entry = couponActivityState();
+    els.activity.hidden = false;
+    els.activityCard.dataset.couponActivityState = entry.type;
+    els.activityCard.setAttribute("aria-label", `${entry.title} · ${entry.action}`);
+    if (els.activityFlag) els.activityFlag.textContent = entry.flag;
+    if (els.activityTitle) els.activityTitle.textContent = entry.title;
+    if (els.activityAction) els.activityAction.textContent = entry.action;
+    if (els.activityDetail) els.activityDetail.textContent = entry.detail;
+    if (els.activityDots) els.activityDots.innerHTML = "";
+  }
+
+  function openCouponActivity() {
+    const entry = couponActivityState();
+    if (entry.type === "login") {
+      if (typeof openLogin === "function") openLogin();
+      return;
+    }
+    if (entry.type === "pending") {
+      showCouponDialog({ force: true });
+      return;
+    }
+    if (entry.type === "claimed") {
+      goTopupWithCoupon();
+      return;
+    }
+    openCouponCenter();
   }
 
   function couponCenterStatus(coupon = {}) {
@@ -546,6 +625,7 @@
       els.checkout.hidden = true;
       els.checkout.innerHTML = "";
     }
+    renderCouponActivityEntry();
     renderCouponCenterNav();
     if (els.centerBody) els.centerBody.innerHTML = "";
     closeCouponDialog();
@@ -574,6 +654,7 @@
       ui.loadedAt = Date.now();
       refreshCouponTopupEntry();
       refreshCouponCheckout();
+      renderCouponActivityEntry();
       renderCouponReminder();
       renderCouponCenter();
       showCouponDialog();
@@ -609,6 +690,7 @@
       ui.claimedThisOpen = true;
       ui.loadedAt = Date.now();
       refreshCouponTopupEntry();
+      renderCouponActivityEntry();
       renderCouponCenter();
       if (fromDialog) {
         renderCouponDialog();
@@ -654,6 +736,7 @@
       ui.available = [];
       refreshCouponTopupEntry();
       refreshCouponCheckout();
+      renderCouponActivityEntry();
     }
   }
 
@@ -669,6 +752,7 @@
 
   function bindEvents() {
     if (!els.dialog) return;
+    els.activity?.addEventListener("click", openCouponActivity);
     els.centerNav?.addEventListener("click", openCouponCenter);
     els.centerClose?.addEventListener("click", closeCouponCenter);
     els.centerDialog?.addEventListener("click", (event) => {
@@ -732,6 +816,7 @@
     cacheElements();
     if (!els.dialog) return;
     bindEvents();
+    renderCouponActivityEntry();
     syncCouponAccount({ force: true });
   }
 
