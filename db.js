@@ -1,8 +1,23 @@
 const crypto = require("node:crypto");
 const { Pool } = require("pg");
+const {
+  CHECKIN_DEFAULT_CONFIG,
+  checkinConfigFromEnv,
+  checkinDateKey,
+  checkinMonthKey,
+  shiftDateKey,
+  checkinCalendarForMonth,
+  cycleDayForDisplay,
+  calculateCheckinReward,
+  dailyRewardForCycleDay,
+  monthMilestones,
+  nextMonthlyMilestone,
+  normalizeCheckinDateValue,
+} = require("./checkin-core");
 
 const DEFAULT_TENANT_ID = "main";
 const CREATOR_WITHDRAWAL_MIN_CREDITS = 2000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function normalizeTenantId(value = DEFAULT_TENANT_ID) {
   const cleaned = String(value || DEFAULT_TENANT_ID)
@@ -577,6 +592,7 @@ async function prepareGenerationSubmitInDb({
         [chargeId],
       );
       if (!existing.length) {
+        if (Number(charge.delta || 0) < 0) await consumeCheckinCreditLots(client, chargeUserId, Number(charge.delta || 0));
         const next = creditNumber(creditNumber(row.credits || 0) + Number(charge.delta || 0));
         if (next < -0.000001) {
           throw Object.assign(new Error("Not enough credits. Please top up and try again."), {
@@ -1270,8 +1286,14 @@ async function ensureSchemaInner({ client = null } = {}) {
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
+  await run(`
+    ALTER TABLE app_credit_ledger
+      ADD COLUMN IF NOT EXISTS expire_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS remaining NUMERIC(24, 6);
+  `);
   await run(`CREATE INDEX IF NOT EXISTS app_credit_ledger_user_created_idx ON app_credit_ledger (user_id, created_at DESC);`);
   await run(`CREATE INDEX IF NOT EXISTS app_credit_ledger_gift_user_created_idx ON app_credit_ledger (user_id, created_at DESC) WHERE delta < 0 AND LOWER(type) LIKE '%gift%';`);
+  await run(`CREATE INDEX IF NOT EXISTS app_credit_ledger_expiring_idx ON app_credit_ledger (user_id, expire_at ASC) WHERE COALESCE(remaining, 0) > 0 AND expire_at IS NOT NULL;`);
   await createUniqueIndex(`
     CREATE UNIQUE INDEX IF NOT EXISTS app_credit_ledger_order_event_uidx
       ON app_credit_ledger (type, (meta->>'orderId'))
@@ -1281,6 +1303,41 @@ async function ensureSchemaInner({ client = null } = {}) {
     CREATE UNIQUE INDEX IF NOT EXISTS app_credit_ledger_task_event_uidx
       ON app_credit_ledger (type, (meta->>'taskId'))
       WHERE COALESCE(meta->>'taskId', '') <> '';
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_checkin_records (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      checkin_date DATE NOT NULL,
+      streak_day INTEGER NOT NULL,
+      cycle_day INTEGER NOT NULL,
+      points NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      base_points NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      bonus_points NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      ip TEXT NOT NULL DEFAULT '',
+      device_id TEXT NOT NULL DEFAULT '',
+      risk_status TEXT NOT NULL DEFAULT 'ok',
+      ledger_id TEXT NOT NULL DEFAULT '',
+      expire_at TIMESTAMPTZ,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user_id, checkin_date)
+    );
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_checkin_records_date_idx ON app_checkin_records (checkin_date DESC);`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_checkin_stats (
+      user_id TEXT PRIMARY KEY,
+      current_streak INTEGER NOT NULL DEFAULT 0,
+      max_streak INTEGER NOT NULL DEFAULT 0,
+      last_date DATE,
+      month_count INTEGER NOT NULL DEFAULT 0,
+      month_points NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      month_key CHAR(7) NOT NULL DEFAULT '',
+      got_10 BOOLEAN NOT NULL DEFAULT FALSE,
+      got_20 BOOLEAN NOT NULL DEFAULT FALSE,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
   await run(`
     CREATE TABLE IF NOT EXISTS app_user_assets (
@@ -9872,6 +9929,7 @@ async function applyCreditDeltaInDb({
       const existingUser = await userById(existingAfterLock.rows[0].user_id || cleanUserId);
       return { user: existingUser || userFromRow(row), ledger: existingAfterLock.rows[0].payload, inserted: false };
     }
+    if (amount < 0) await consumeCheckinCreditLots(client, cleanUserId, amount);
     if (requireTaskCharge && amount > 0) {
       if (!eventTaskId) {
         const error = new Error("A task id is required before refunding task-scoped credits.");
@@ -9959,6 +10017,284 @@ async function applyCreditDeltaInDb({
   }
 }
 
+function checkinRecordFromRow(row = {}) {
+  return {
+    id: String(row.id || ""),
+    userId: String(row.user_id || ""),
+    date: normalizeCheckinDateValue(row.checkin_date),
+    streak: Math.max(0, Number(row.streak_day || 0) || 0),
+    cycleDay: Math.max(1, Math.min(7, Number(row.cycle_day || 1) || 1)),
+    points: creditNumber(row.points || 0),
+    basePoints: creditNumber(row.base_points || 0),
+    bonusPoints: creditNumber(row.bonus_points || 0),
+    riskStatus: String(row.risk_status || "ok"),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+  };
+}
+
+function checkinStatsFromRow(row = {}) {
+  return {
+    currentStreak: Math.max(0, Number(row.current_streak || 0) || 0),
+    maxStreak: Math.max(0, Number(row.max_streak || 0) || 0),
+    lastDate: normalizeCheckinDateValue(row.last_date),
+    monthCount: Math.max(0, Number(row.month_count || 0) || 0),
+    monthPoints: creditNumber(row.month_points || 0),
+    monthKey: String(row.month_key || "").trim(),
+    got10: row.got_10 === true,
+    got20: row.got_20 === true,
+  };
+}
+
+async function getCheckinStatusFromDb({ userId = "", now = new Date(), config = checkinConfigFromEnv() } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return null;
+  await ensureSchema();
+  const today = checkinDateKey(now);
+  const monthKey = checkinMonthKey(today);
+  const monthStart = `${monthKey}-01`;
+  const nextMonthStart = `${checkinMonthKey(shiftDateKey(monthStart, 32))}-01`;
+  const [statsResult, recordsResult, userResult] = await Promise.all([
+    query(`
+      SELECT user_id, current_streak, max_streak, last_date::text AS last_date,
+             month_count, month_points, month_key, got_10, got_20, updated_at
+      FROM app_checkin_stats
+      WHERE user_id = $1
+      LIMIT 1
+    `, [cleanUserId]),
+    query(`
+      SELECT id, user_id, checkin_date::text AS checkin_date, streak_day, cycle_day, points,
+             base_points, bonus_points, risk_status, created_at
+      FROM app_checkin_records
+      WHERE user_id = $1 AND checkin_date >= $2::date AND checkin_date < $3::date
+      ORDER BY checkin_date ASC
+    `, [cleanUserId, monthStart, nextMonthStart]),
+    query(`SELECT credits FROM app_users WHERE id = $1 LIMIT 1`, [cleanUserId]),
+  ]);
+  const stats = checkinStatsFromRow(statsResult.rows[0] || {});
+  const records = recordsResult.rows.map(checkinRecordFromRow);
+  const todayRecord = records.find((item) => item.date === today) || null;
+  const yesterday = shiftDateKey(today, -1);
+  const checkedToday = Boolean(todayRecord);
+  const broken = Boolean(!checkedToday && stats.lastDate && stats.lastDate !== yesterday);
+  const effectiveStreak = checkedToday
+    ? todayRecord.streak
+    : (stats.lastDate === yesterday ? stats.currentStreak : 0);
+  const cycleDay = checkedToday
+    ? todayRecord.cycleDay
+    : cycleDayForDisplay(effectiveStreak, false);
+  const monthCount = records.length;
+  const monthPoints = records.reduce((sum, item) => sum + item.points, 0);
+  const projectedMonthCount = checkedToday ? monthCount : monthCount + 1;
+  const sameMonth = stats.monthKey === monthKey;
+  const projected = calculateCheckinReward({
+    cycleDay: checkedToday ? cycleDayForDisplay(effectiveStreak + 1, true) : cycleDay,
+    monthCount: projectedMonthCount,
+    monthPoints,
+    claimedMilestones: {
+      10: sameMonth && stats.got10,
+      20: sameMonth && stats.got20,
+    },
+    config,
+  });
+  const tomorrowCycleDay = cycleDayForDisplay(effectiveStreak + 1, true);
+  const calendar = checkinCalendarForMonth(monthKey, records);
+  return {
+    date: today,
+    timezone: config.timeZone,
+    checked_today: checkedToday,
+    current_streak: effectiveStreak,
+    cycle_day: cycleDay,
+    today_points: checkedToday ? todayRecord.points : projected.points,
+    next_day_points: dailyRewardForCycleDay(tomorrowCycleDay, config),
+    week_reward_ready: cycleDay === 7,
+    broken,
+    month_count: monthCount,
+    month_points: monthPoints,
+    month_cap: config.monthlyCap,
+    got_10: sameMonth && stats.got10,
+    got_20: sameMonth && stats.got20,
+    balance: creditNumber(userResult.rows[0]?.credits || 0),
+    calendar,
+    rewards: [...config.dailyRewards],
+    monthly_milestones: monthMilestones(config),
+    next_milestone: nextMonthlyMilestone(monthCount, config),
+    credit_expiry_days: config.creditExpiryDays,
+  };
+}
+
+async function consumeCheckinCreditLots(client, userId = "", amount = 0) {
+  const cost = Math.max(0, -Number(amount || 0));
+  if (!cost || !client || !userId) return;
+  const { rows } = await client.query(`
+    SELECT id, remaining FROM app_credit_ledger
+    WHERE user_id = $1 AND expire_at IS NOT NULL AND COALESCE(remaining, 0) > 0
+    ORDER BY expire_at ASC, created_at ASC, id ASC
+    FOR UPDATE
+  `, [userId]);
+  let left = cost;
+  for (const row of rows) {
+    if (left <= 0.000001) break;
+    const remaining = creditNumber(row.remaining || 0);
+    const consumed = Math.min(remaining, left);
+    await client.query(`UPDATE app_credit_ledger SET remaining = $2::numeric WHERE id = $1`, [row.id, creditNumber(remaining - consumed)]);
+    left = creditNumber(left - consumed);
+  }
+}
+
+async function performCheckinInDb({ userId = "", ip = "", deviceId = "", now = new Date(), config = checkinConfigFromEnv() } = {}) {
+  if (!dbEnabled()) throw new Error("PostgreSQL is required for check-in.");
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) throw Object.assign(new Error("A signed-in user is required for check-in."), { statusCode: 401, code: "LOGIN_REQUIRED" });
+  await ensureSchema();
+  const today = checkinDateKey(now);
+  const monthKey = checkinMonthKey(today);
+  const yesterday = shiftDateKey(today, -1);
+  const monthStart = `${monthKey}-01`;
+  const nextMonthStart = `${checkinMonthKey(shiftDateKey(monthStart, 32))}-01`;
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const userResult = await client.query(`SELECT * FROM app_users WHERE id = $1 FOR UPDATE`, [cleanUserId]);
+    const userRow = userResult.rows[0];
+    if (!userRow) throw Object.assign(new Error("User not found."), { statusCode: 404, code: "USER_NOT_FOUND" });
+    await client.query(`
+      INSERT INTO app_checkin_stats(user_id, updated_at)
+      VALUES ($1, NOW()) ON CONFLICT (user_id) DO NOTHING
+    `, [cleanUserId]);
+    const statsResult = await client.query(`
+      SELECT user_id, current_streak, max_streak, last_date::text AS last_date,
+             month_count, month_points, month_key, got_10, got_20, updated_at
+      FROM app_checkin_stats
+      WHERE user_id = $1
+      FOR UPDATE
+    `, [cleanUserId]);
+    const stats = checkinStatsFromRow(statsResult.rows[0] || {});
+    const existingResult = await client.query(`
+      SELECT id, user_id, checkin_date::text AS checkin_date, streak_day, cycle_day, points,
+             base_points, bonus_points, risk_status, created_at
+      FROM app_checkin_records
+      WHERE user_id = $1 AND checkin_date = $2::date
+      LIMIT 1
+    `, [cleanUserId, today]);
+    if (existingResult.rows.length) {
+      await client.query("COMMIT");
+      const record = checkinRecordFromRow(existingResult.rows[0]);
+      return {
+        already: true,
+        points: 0,
+        streak: record.streak,
+        cycle_day: record.cycleDay,
+        balance: creditNumber(userRow.credits || 0),
+      };
+    }
+    const monthResult = await client.query(`
+      SELECT COUNT(*)::int AS month_count, COALESCE(SUM(points), 0)::numeric AS month_points
+      FROM app_checkin_records
+      WHERE user_id = $1 AND checkin_date >= $2::date AND checkin_date < $3::date
+    `, [cleanUserId, monthStart, nextMonthStart]);
+    const previousMonthCount = Math.max(0, Number(monthResult.rows[0]?.month_count || 0));
+    const previousMonthPoints = creditNumber(monthResult.rows[0]?.month_points || 0);
+    const nextMonthCount = previousMonthCount + 1;
+    const lastDate = stats.lastDate;
+    const restarted = lastDate !== yesterday;
+    const streak = lastDate === yesterday ? stats.currentStreak + 1 : 1;
+    const cycleDay = ((streak - 1) % 7) + 1;
+    const sameMonth = stats.monthKey === monthKey;
+    const got10 = sameMonth && stats.got10;
+    const got20 = sameMonth && stats.got20;
+    const reward = calculateCheckinReward({
+      cycleDay,
+      monthCount: nextMonthCount,
+      monthPoints: previousMonthPoints,
+      claimedMilestones: { 10: got10, 20: got20 },
+      config,
+    });
+    const nowIso = now.toISOString();
+    const expireAt = new Date(now.getTime() + config.creditExpiryDays * DAY_MS).toISOString();
+    const recordId = crypto.randomUUID();
+    const ledgerId = `checkin-${cleanUserId}-${today}`;
+    const nextBalance = creditNumber(creditNumber(userRow.credits || 0) + reward.points);
+    const meta = { checkinDate: today, cycleDay, streak, basePoints: reward.base, bonusPoints: reward.bonus, capped: reward.capped };
+    const payload = {
+      id: ledgerId,
+      userId: cleanUserId,
+      delta: reward.points,
+      balanceAfter: nextBalance,
+      type: "checkin",
+      meta,
+      payload: { checkinDate: today, streak, cycleDay },
+      createdAt: nowIso,
+    };
+    await client.query(`
+      UPDATE app_users
+      SET credits = $2::numeric,
+          payload = payload || jsonb_build_object('credits', $2::numeric, 'updatedAt', $3::text),
+          updated_at = $3::timestamptz
+      WHERE id = $1
+    `, [cleanUserId, nextBalance, nowIso]);
+    if (reward.points > 0) {
+      await client.query(`
+        INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at, expire_at, remaining)
+        VALUES ($1, $2, $3::numeric, $4::numeric, 'checkin', $5::jsonb, $6::jsonb, $7::timestamptz, $8::timestamptz, $3::numeric)
+      `, [ledgerId, cleanUserId, reward.points, nextBalance, JSON.stringify(meta), JSON.stringify(payload), nowIso, expireAt]);
+    }
+    await client.query(`
+      INSERT INTO app_checkin_records(
+        id, user_id, checkin_date, streak_day, cycle_day, points, base_points, bonus_points,
+        ip, device_id, risk_status, ledger_id, expire_at, payload, created_at
+      ) VALUES ($1, $2, $3::date, $4, $5, $6::numeric, $7::numeric, $8::numeric, $9, $10, 'ok', $11, $12::timestamptz, $13::jsonb, $14::timestamptz)
+    `, [
+      recordId, cleanUserId, today, streak, cycleDay, reward.points, reward.base, reward.bonus,
+      String(ip || "").slice(0, 64), String(deviceId || "").slice(0, 128), ledgerId,
+      reward.points > 0 ? expireAt : null,
+      JSON.stringify({ today, reward, restarted }), nowIso,
+    ]);
+    await client.query(`
+      UPDATE app_checkin_stats
+      SET current_streak = $2,
+          max_streak = GREATEST(max_streak, $2),
+          last_date = $3::date,
+          month_count = $4,
+          month_points = $5::numeric,
+          month_key = $6,
+          got_10 = $7,
+          got_20 = $8,
+          updated_at = $9::timestamptz
+      WHERE user_id = $1
+    `, [
+      cleanUserId, streak, today, nextMonthCount, creditNumber(previousMonthPoints + reward.points), monthKey,
+      got10 || reward.milestoneCount === 10,
+      got20 || reward.milestoneCount === 20,
+      nowIso,
+    ]);
+    await client.query("COMMIT");
+    return {
+      points: reward.points,
+      bonus: reward.bonus,
+      streak,
+      cycle_day: cycleDay,
+      balance: nextBalance,
+      restarted,
+      capped: reward.capped,
+      message: reward.capped && reward.points === 0
+        ? "本月签到积分已达上限"
+        : (restarted ? "签到成功，连签已重新开始" : `签到成功，已连续 ${streak} 天`),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    if (String(error.code || "") === "23505") {
+      const status = await getCheckinStatusFromDb({ userId: cleanUserId, now, config });
+      if (status?.checked_today) {
+        return { already: true, points: 0, streak: status.current_streak, cycle_day: status.cycle_day, balance: status.balance };
+      }
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function generationRecordsTableCount() {
   if (!dbEnabled()) return 0;
   await ensureSchema();
@@ -9977,6 +10313,7 @@ const SCHEMA_MIGRATION_KEYS = Object.freeze([
   "2026-11-17-story-legacy-manuscript-group-v1",
   "2026-11-17-story-version-episode-ownership-v1",
   "2026-11-18-story-shot-plan-jobs-v1",
+  "2026-11-19-checkin-activity-v1",
 ]);
 const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
 const REQUIRED_SCHEMA_TABLES = Object.freeze([
@@ -9988,6 +10325,8 @@ const REQUIRED_SCHEMA_TABLES = Object.freeze([
   "app_sessions",
   "app_wallet_orders",
   "app_credit_ledger",
+  "app_checkin_records",
+  "app_checkin_stats",
   "app_user_assets",
   "app_user_characters",
   "app_generation_records",
@@ -12522,6 +12861,8 @@ module.exports = {
   createLiveCheckinWithCreditInDb,
   getLiveCheckinSummaryInDb,
   getLiveCheckinHistoryPageFromDb,
+  getCheckinStatusFromDb,
+  performCheckinInDb,
   getLiveDailyTaskClaimsInDb,
   getLiveDailyTaskCompletionInDb,
   createLiveDailyTaskClaimWithCreditInDb,

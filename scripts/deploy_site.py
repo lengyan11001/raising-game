@@ -224,9 +224,11 @@ LIVE_RELEASE_PATHS = (
 PLATFORM_RELEASE_PATHS = (
     "platform.html",
     "platform.css",
+    "platform.checkin.css",
     "platform.prompt-editor.css",
     "platform.test-generate.css",
     "platform*.js",
+    "checkin-core.js",
     "vendor/vipeak-prompt-editor.js",
     "admin.html",
     "admin.css",

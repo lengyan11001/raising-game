@@ -57,6 +57,11 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-19-checkin-activity-v1",
+    description: "Create daily check-in records/stats and expiring credit-lot columns",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",
@@ -390,6 +395,47 @@ const STORY_SHOT_PLAN_JOBS_DDL = Object.freeze([
      ON app_story_shot_plan_jobs (owner_user_id, project_id, episode_id, created_at DESC);`,
 ]);
 
+const CHECKIN_ACTIVITY_DDL = Object.freeze([
+  `ALTER TABLE app_credit_ledger
+     ADD COLUMN IF NOT EXISTS expire_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS remaining NUMERIC(24, 6);`,
+  `CREATE INDEX IF NOT EXISTS app_credit_ledger_expiring_idx
+     ON app_credit_ledger (user_id, expire_at ASC)
+     WHERE COALESCE(remaining, 0) > 0 AND expire_at IS NOT NULL;`,
+  `CREATE TABLE IF NOT EXISTS app_checkin_records (
+     id TEXT PRIMARY KEY,
+     user_id TEXT NOT NULL,
+     checkin_date DATE NOT NULL,
+     streak_day INTEGER NOT NULL,
+     cycle_day INTEGER NOT NULL,
+     points NUMERIC(24, 6) NOT NULL DEFAULT 0,
+     base_points NUMERIC(24, 6) NOT NULL DEFAULT 0,
+     bonus_points NUMERIC(24, 6) NOT NULL DEFAULT 0,
+     ip TEXT NOT NULL DEFAULT '',
+     device_id TEXT NOT NULL DEFAULT '',
+     risk_status TEXT NOT NULL DEFAULT 'ok',
+     ledger_id TEXT NOT NULL DEFAULT '',
+     expire_at TIMESTAMPTZ,
+     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE (user_id, checkin_date)
+   );`,
+  `CREATE INDEX IF NOT EXISTS app_checkin_records_date_idx
+     ON app_checkin_records (checkin_date DESC);`,
+  `CREATE TABLE IF NOT EXISTS app_checkin_stats (
+     user_id TEXT PRIMARY KEY,
+     current_streak INTEGER NOT NULL DEFAULT 0,
+     max_streak INTEGER NOT NULL DEFAULT 0,
+     last_date DATE,
+     month_count INTEGER NOT NULL DEFAULT 0,
+     month_points NUMERIC(24, 6) NOT NULL DEFAULT 0,
+     month_key CHAR(7) NOT NULL DEFAULT '',
+     got_10 BOOLEAN NOT NULL DEFAULT FALSE,
+     got_20 BOOLEAN NOT NULL DEFAULT FALSE,
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+]);
+
 async function runStatements(client, statements) {
   for (const statement of statements) await client.query(statement);
 }
@@ -572,6 +618,8 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
         await runStatements(schemaLockClient, STORY_VERSION_EPISODE_OWNERSHIP_DDL);
       } else if (migration.version === "2026-11-18-story-shot-plan-jobs-v1") {
         await runStatements(schemaLockClient, STORY_SHOT_PLAN_JOBS_DDL);
+      } else if (migration.version === "2026-11-19-checkin-activity-v1") {
+        await runStatements(schemaLockClient, CHECKIN_ACTIVITY_DDL);
       } else {
         throw new Error(`Unknown schema migration: ${migration.version}`);
       }

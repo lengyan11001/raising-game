@@ -56,6 +56,7 @@ const PUBLIC_STATIC_ROOT_FILES = new Set([
   "/pay.js",
   "/platform-sw.js",
   "/platform.css",
+  "/platform.checkin.css",
   "/platform.html",
   "/platform.prompt-editor.css",
   "/platform.vitals.js",

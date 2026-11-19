@@ -8,7 +8,8 @@
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="preconnect" href="https://media.123vips.com" crossorigin />
     <link rel="dns-prefetch" href="https://media.123vips.com" />
-    <link rel="stylesheet" href="./platform.css?v=seedream-campaign-20261118-3" />
+    <link rel="stylesheet" href="./platform.css?v=checkin-20261119-2" />
+    <link rel="stylesheet" href="./platform.checkin.css?v=checkin-20261119-2" />
     <link rel="stylesheet" href="./platform.prompt-editor.css?v=main-site-compat-20261111-1" />
     <script src="./platform.vitals.js?v=main-site-compat-20261111-1" defer></script>
     <script>
@@ -134,6 +135,16 @@
           <span data-i18n="nav.history">History</span>
         </button>
       </nav>
+      <button class="checkin-entry" id="checkinEntry" type="button" aria-haspopup="dialog" aria-controls="checkinModal">
+        <span class="checkin-entry-top">
+          <span class="checkin-entry-icon"><i data-lucide="calendar-check"></i></span>
+          <span class="checkin-entry-name" id="checkinEntryTitle">每日签到领积分</span>
+          <span class="checkin-entry-dot" id="checkinEntryDot"></span>
+          <span class="checkin-entry-go"><span id="checkinEntryAction">去签到</span><i data-lucide="chevron-right"></i></span>
+        </span>
+        <span class="checkin-entry-line"><span>已连签</span><b id="checkinEntryStreak">0</b><span>天</span><em id="checkinEntryPoints">今日 +5</em></span>
+        <span class="checkin-entry-dots" id="checkinEntryDots" aria-hidden="true"></span>
+      </button>
       <nav class="side-utility-nav" aria-label="Community and support">
         <a class="side-utility-link" href="https://t.me/VipeakAILab" target="_blank" rel="noopener noreferrer" data-direct-url="https://t.me/VipeakAILab" data-analytics-event="telegram_channel_click" data-analytics-location="side_nav">
           <i data-lucide="send"></i>
@@ -173,6 +184,27 @@
         </details>
       </div>
     </aside>
+
+    <div class="checkin-modal" id="checkinModal" hidden>
+      <div class="checkin-modal-backdrop" data-checkin-close></div>
+      <section class="checkin-panel" role="dialog" aria-modal="true" aria-labelledby="checkinTitle">
+        <button class="checkin-close" id="checkinClose" type="button" aria-label="关闭">×</button>
+        <div class="checkin-fly" id="checkinFly" aria-live="polite"></div>
+        <header class="checkin-head">
+          <div class="checkin-title" id="checkinTitle">每日签到 <span class="checkin-badge" id="checkinBadge">已连签 0 天</span></div>
+          <p class="checkin-subtitle" id="checkinSubtitle">今天签到可得 <b>5</b> 积分，连续签到第 7 天可领 <b>30</b> 积分</p>
+        </header>
+        <div class="checkin-days" id="checkinDays"></div>
+        <button class="checkin-action" id="checkinAction" type="button">立即签到 · 领 <b>5</b> 积分</button>
+        <p class="checkin-message" id="checkinMessage" role="status" hidden></p>
+        <div class="checkin-month">
+          <div class="checkin-month-copy"><span>本月已签 <b id="checkinMonthCount">0</b> 天</span><span id="checkinMonthNext">再签 <b>10</b> 天 <em>+20</em></span></div>
+          <div class="checkin-progress"><span id="checkinProgressFill"></span><i id="checkinTick10"></i><i id="checkinTick20"></i></div>
+          <div class="checkin-milestones"><span id="checkinMile10"><i></i>10 天 +20</span><span id="checkinMile20"><i></i>20 天 +50</span></div>
+        </div>
+        <footer class="checkin-foot">签到积分 90 天内有效，可用于内容生成<br />连续签到中断后将从第 1 天重新开始</footer>
+      </section>
+    </div>
 
     <header class="site-head">
         <div class="head-actions account-menu-wrap tenant-menu-only" id="accountMenuWrap">
@@ -1731,6 +1763,6 @@
     <script>
       window.VIPEAK_PROMPT_EDITOR_MODE = "rich";
     </script>
-    <script src="./platform.js?v=seedream-campaign-20261118-3"></script>
+    <script src="./platform.js?v=checkin-20261119-2"></script>
   </body>
 </html>
