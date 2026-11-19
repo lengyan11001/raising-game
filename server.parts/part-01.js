@@ -506,6 +506,7 @@ const {
   prepareVegaMediaLibraryFileInfos,
   resolveVegaMediaAssetSources,
   resolveVegaLiteMediaAssetSources,
+  isRetiredVegaProvider,
   isVegaProvider,
   normalizeVegaDuration,
   normalizeVegaMediaMode,

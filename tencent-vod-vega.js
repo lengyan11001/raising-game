@@ -33,6 +33,11 @@ const VEGA_PROVIDERS = Object.freeze({
   }),
 });
 const VEGA_PROVIDER_IDS = Object.freeze(Object.keys(VEGA_PROVIDERS));
+const VEGA_RETIRED_PROVIDER_IDS = Object.freeze(new Set([
+  "seedance20-vega",
+  "seedance25-vega",
+  "h3-vega",
+]));
 const VEGA_USAGES = Object.freeze(new Set(["FirstFrame", "LastFrame", "Reference"]));
 const VEGA_MEDIA_MODES = Object.freeze({
   text_to_video: Object.freeze({ id: "text_to_video", label: "Text to Video" }),
@@ -125,6 +130,28 @@ function normalizedProviderId(value = "") {
 
 function isVegaProvider(value = "") {
   return VEGA_PROVIDER_IDS.includes(normalizedProviderId(value));
+}
+
+function isRetiredVegaProvider(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  const compact = raw.replace(/[\s_.-]+/g, "");
+  return VEGA_RETIRED_PROVIDER_IDS.has(normalizedProviderId(value))
+    || [
+      "seedance20vega",
+      "seedance2.0vega",
+      "vega10pro",
+      "vega1.0pro",
+      "wandvegavideo1.0pro",
+      "seedance25vega",
+      "seedance2.5vega",
+      "vega15pro",
+      "vega1.5pro",
+      "wandvegavideo1.5pro",
+      "h3vega",
+      "vega15lite",
+      "vega1.5lite",
+      "wandvegavideo1.5lite",
+    ].some((alias) => alias.replace(/[\s_.-]+/g, "") === compact);
 }
 
 function vegaProviderDefinition(value = "") {
@@ -1076,6 +1103,7 @@ module.exports = {
   TENCENT_VOD_INTERNATIONAL_REGION,
   VEGA_PROVIDERS,
   VEGA_PROVIDER_IDS,
+  VEGA_RETIRED_PROVIDER_IDS,
   VEGA_MEDIA_LIBRARY_PROVIDERS,
   VEGA_CAPABILITIES,
   VEGA_MEDIA_MODES,
@@ -1093,6 +1121,7 @@ module.exports = {
   importVegaMediaLibraryFile,
   vegaAssetUri,
   isVegaProvider,
+  isRetiredVegaProvider,
   normalizeVegaAudioGeneration,
   normalizeVegaDuration,
   normalizeVegaGenerateMode,

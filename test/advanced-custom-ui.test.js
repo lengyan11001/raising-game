@@ -332,14 +332,17 @@ return { advancedEngineValue };`;
     "advancedEngineValueResolved",
     "els",
     "DEFAULT_ADVANCED_PROVIDER",
+    "isRetiredVegaProviderId",
     engineSource,
   )(
     () => "seedance25",
     { advancedProvider: { value: "", options: [{ value: "seedance-nsfw" }] } },
     "seedance-nsfw",
+    (value) => ["seedance20-vega", "seedance25-vega", "h3-vega"].includes(String(value || "").trim().toLowerCase()),
   );
   assert.equal(engine.advancedEngineValue("seedance25"), "seedance-nsfw");
   assert.equal(engine.advancedEngineValue("seedance-nsfw"), "seedance-nsfw");
+  assert.equal(engine.advancedEngineValue("seedance25-vega"), "seedance-nsfw");
 });
 
 test("stale Seedance submissions include the direct NSFW provider", () => {

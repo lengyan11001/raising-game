@@ -1,3 +1,12 @@
+## 2026-11-19 Step ES: Retire three Vega models from selection and pricing
+
+- Retired `seedance20-vega` (`seedance2.0（vega）`), `seedance25-vega` (`seedance2.5vega`), and `h3-vega` (`wan（vega）`) from public model selection, public/admin pricing, and new generation submissions. `vega10-lite` / `h3（vega）` remains active.
+- Historical provider definitions and display labels remain intact so old generation records still render. Stale/regeneration selections fall back to an available model instead of restoring a removed option.
+- New submissions using retired IDs or known aliases now fail with `MODEL_RETIRED`; retired pricing rows cannot be saved and return `PRICING_MODEL_RETIRED`.
+- Changed files: `platform.config.js`, `platform.html`, `platform.ui.parts/part-02.js`, `platform.create.parts/part-02.js`, `tencent-vod-vega.js`, `server.parts/part-01.js`, `server.parts/part-11.js`, `server.parts/part-39.js`, plus focused tests.
+- Verification: seven Vega/pricing/model-selection suites pass `222/222`; syntax checks, `npm run check:undef`, and `git diff --check` pass. Earlier full suite had `1424 pass / 11 fail`; the 11 failures are pre-existing serializer/queue/source-split/W3 dirty-work failures unrelated to this change. Deployment pending.
+- Do not include unrelated dirty story/optimizer files in this task's commit or release.
+
 ## 2026-11-19 Step ER: Shot prompt approval is now a one-click continuation
 
 - User rejected the repeated per-asset approval loop in the shot workspace. When every design image was generated but not approved, the UI still required manual approval of each image before the video prompt could be planned.
