@@ -201,6 +201,7 @@ async function ensureAirwallexPaymentIntent(order) {
   if (order.airwallexPaymentIntentId && order.airwallexClientSecret) {
     return { id: order.airwallexPaymentIntentId, client_secret: order.airwallexClientSecret };
   }
+  Object.assign(order, await ensureCouponLockForWalletOrder(order));
   const amount = Number(order.payableAmount || order.baseAmount || 0);
   const intent = await airwallexRequest("/api/v1/pa/payment_intents/create", {
     request_id: randomId("awreq"),
@@ -276,11 +277,29 @@ async function createAirwallexCheckoutSession(req, res) {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  await createWalletOrderInDb(order);
+  let coupon;
+  try {
+    coupon = await prepareCouponForWalletOrder({
+      userId: auth.user.id,
+      couponId: couponIdFromRequest(body),
+      orderId: order.id,
+      amountCents,
+      scene: couponSceneForOrderKind(selection.kind),
+    });
+  } catch (error) {
+    return couponApiError(res, error);
+  }
+  const couponOrder = applyCouponFieldsToWalletOrder(order, coupon);
+  try {
+    await createWalletOrderInDb(couponOrder);
+  } catch (error) {
+    await releaseCouponOnWalletOrderFailure(couponOrder);
+    throw error;
+  }
   return sendJson(res, 200, {
     ok: true,
-    checkoutUrl: airwallexCheckoutUrl(order.id),
-    order: publicTopupOrder(order, config.wallet, tenantOptions),
+    checkoutUrl: airwallexCheckoutUrl(couponOrder.id),
+    order: publicTopupOrder(couponOrder, config.wallet, tenantOptions),
   });
 }
 
@@ -322,6 +341,7 @@ async function handleStartAirwallexCheckoutSession(req, res, orderId) {
       cancelUrl: airwallexCashierReturnUrl(order, "cancel"),
     });
   } catch (error) {
+    await releaseCouponOnWalletOrderFailure(order);
     return sendJson(res, error.statusCode || 502, { ok: false, code: error.code || "AIRWALLEX_CHECKOUT_FAILED", message: "Airwallex checkout could not be created." });
   }
 }
@@ -510,6 +530,7 @@ async function handleAirwallexWebhook(req, res) {
       order.airwallexStatus = name;
       order.updatedAt = new Date().toISOString();
       await updateWalletOrderInDb(order);
+      await releaseCouponOnWalletOrderFailure(order);
     }
   } else if ((name === "refund.received" || name === "refund.settled") && order.status === "paid" && !order.airwallexRefundedAt) {
     const delta = creditsAmount(order.creditAmount || 0);
@@ -545,9 +566,22 @@ async function handleCreateSubscriptionOrder(req, res) {
   const walletOption = findWalletOption(config.wallet || {}, body.walletOptionId || body.walletNetwork || body.network, requestTenantOptions(req));
   if (!walletOption?.address) return sendJson(res, 503, { ok: false, code: "WALLET_NOT_CONFIGURED", message: "USDT payment is not configured." });
   const suffixDigits = clampNumber(config.wallet.suffixDigits, 6, 3, 6);
-  const payment = makeUniquePaymentAmount(plan.amount, suffixDigits);
+  const orderId = randomId("order");
+  let coupon;
+  try {
+    coupon = await prepareCouponForWalletOrder({
+      userId: auth.user.id,
+      couponId: couponIdFromRequest(body),
+      orderId,
+      amountCents: Math.round(Number(plan.amount || 0) * 100),
+      scene: "membership",
+    });
+  } catch (error) {
+    return couponApiError(res, error);
+  }
+  const payment = makeUniquePaymentAmount(coupon.payAmountCents / 100, suffixDigits);
   let order = {
-    id: randomId("order"),
+    id: orderId,
     tenantId: tenant.tenantId,
     userId: auth.user.id,
     orderKind: "subscription",
@@ -574,10 +608,18 @@ async function handleCreateSubscriptionOrder(req, res) {
     sourceOrigin: pageOriginFromRequest(req),
     createdAt: new Date().toISOString(),
   };
-  auth.db.walletOrders.unshift(order);
+  order = applyCouponFieldsToWalletOrder(order, coupon);
+  order.suffix = payment.suffix;
+  order.payableAmount = payment.payableAmount;
+  order.payableAmountText = payment.payableAmountText;
   if (dbEnabled()) {
-    order = await createManualWalletOrderInDb({ order, suffixDigits });
-    auth.db.walletOrders[0] = order;
+    try {
+      order = await createManualWalletOrderInDb({ order, suffixDigits });
+      auth.db.walletOrders.unshift(order);
+    } catch (error) {
+      await releaseCouponOnWalletOrderFailure(order);
+      throw error;
+    }
   } else {
     return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "Subscriptions require database billing." });
   }
@@ -625,7 +667,20 @@ async function handleCreatePaymentOrder(req, res) {
 
   const suffixDigits = clampNumber(config.wallet.suffixDigits, 6, 3, 6);
   const baseAmount = paymentSelection.amount;
-  const payment = makeUniquePaymentAmount(baseAmount, suffixDigits);
+  const orderId = randomId("order");
+  let coupon;
+  try {
+    coupon = await prepareCouponForWalletOrder({
+      userId: auth.user.id,
+      couponId: couponIdFromRequest(body),
+      orderId,
+      amountCents: Math.round(Number(baseAmount || 0) * 100),
+      scene: couponSceneForOrderKind(paymentSelection.kind),
+    });
+  } catch (error) {
+    return couponApiError(res, error);
+  }
+  const payment = makeUniquePaymentAmount(coupon.payAmountCents / 100, suffixDigits);
   const creditAmount = creditsAmount(paymentSelection.credits);
   if (!dbEnabled()) {
     payment.amount = baseAmount;
@@ -633,7 +688,7 @@ async function handleCreatePaymentOrder(req, res) {
     payment.payableAmount = Number(payment.payableAmountText);
   }
   let order = {
-    id: randomId("order"),
+    id: orderId,
     tenantId: tenant.tenantId,
     userId: auth.user.id,
     orderKind: paymentSelection.kind,
@@ -659,10 +714,19 @@ async function handleCreatePaymentOrder(req, res) {
     sourceOrigin: pageOriginFromRequest(req),
     createdAt: new Date().toISOString(),
   };
+  order = applyCouponFieldsToWalletOrder(order, coupon);
+  order.suffix = payment.suffix;
+  order.payableAmount = payment.payableAmount;
+  order.payableAmountText = payment.payableAmountText;
   auth.db.walletOrders.unshift(order);
   if (dbEnabled()) {
-    order = await createManualWalletOrderInDb({ order, suffixDigits });
-    auth.db.walletOrders[0] = order;
+    try {
+      order = await createManualWalletOrderInDb({ order, suffixDigits });
+      auth.db.walletOrders[0] = order;
+    } catch (error) {
+      await releaseCouponOnWalletOrderFailure(order);
+      throw error;
+    }
   } else {
     await writeDb(auth.db);
   }
@@ -967,7 +1031,9 @@ function stripeCheckoutProductName(order = {}) {
 }
 
 function stripeCheckoutAmountCents(order = {}) {
-  return Math.round(Number(order.baseAmount || 0) * 100);
+  const explicitCents = Number(order.payAmountCents);
+  if (Number.isFinite(explicitCents) && explicitCents >= 0) return Math.round(explicitCents);
+  return Math.round(Number(order.payableAmount ?? order.baseAmount ?? 0) * 100);
 }
 
 function stripeCheckoutSessionExpired(order = {}) {
@@ -994,6 +1060,7 @@ async function findStripeCheckoutOrder(orderId = "") {
 }
 
 async function startStripeCheckoutForOrder(order, config, { requestOrigin = "", stripeConfig = stripeConfigForHost("") } = {}) {
+  Object.assign(order, await ensureCouponLockForWalletOrder(order));
   const params = new URLSearchParams();
   const origin = String(order.sourceOrigin || requestOrigin || "https://123vips.com").replace(/\/+$/, "");
   params.set("mode", "payment");
@@ -1102,12 +1169,30 @@ async function createStripeCheckoutSession(req, res) {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  await createWalletOrderInDb(order);
+  let coupon;
+  try {
+    coupon = await prepareCouponForWalletOrder({
+      userId: auth.user.id,
+      couponId: couponIdFromRequest(body),
+      orderId: order.id,
+      amountCents,
+      scene: couponSceneForOrderKind(selection.kind),
+    });
+  } catch (error) {
+    return couponApiError(res, error);
+  }
+  const couponOrder = applyCouponFieldsToWalletOrder(order, coupon);
+  try {
+    await createWalletOrderInDb(couponOrder);
+  } catch (error) {
+    await releaseCouponOnWalletOrderFailure(couponOrder);
+    throw error;
+  }
   return sendJson(res, 200, {
     ok: true,
-    checkoutUrl: stripeCheckoutUrl(order.id, cashierBaseUrl),
-    cashierUrl: stripeCheckoutUrl(order.id, cashierBaseUrl),
-    order: publicTopupOrder(order, config.wallet, tenantOptions),
+    checkoutUrl: stripeCheckoutUrl(couponOrder.id, cashierBaseUrl),
+    cashierUrl: stripeCheckoutUrl(couponOrder.id, cashierBaseUrl),
+    order: publicTopupOrder(couponOrder, config.wallet, tenantOptions),
   });
 }
 
@@ -1125,7 +1210,10 @@ async function handleStartStripeCheckoutSession(req, res, orderId) {
   if (!stripeEnabled(stripeConfig)) return sendJson(res, 503, { ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." });
   const config = await readAppConfig();
   if (order.status === "paid") return sendJson(res, 200, { ok: true, checkoutUrl: "", session: { id: order.id, status: order.status, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
-  if (stripeCheckoutSessionExpired(order)) return sendJson(res, 410, { ok: false, code: "STRIPE_CHECKOUT_EXPIRED", message: "This payment session has expired. Please create a new top-up order." });
+  if (stripeCheckoutSessionExpired(order)) {
+    await releaseCouponOnWalletOrderFailure(order);
+    return sendJson(res, 410, { ok: false, code: "STRIPE_CHECKOUT_EXPIRED", message: "This payment session has expired. Please create a new top-up order." });
+  }
   if (order.stripeCheckoutUrl) return sendJson(res, 200, { ok: true, checkoutUrl: order.stripeCheckoutUrl, session: { id: order.id, status: order.status, order: publicTopupOrder(order, config.wallet, requestTenantOptions(req)) } });
   try {
     const stripeSession = await startStripeCheckoutForOrder(order, config, { requestOrigin: pageOriginFromRequest(req), stripeConfig });
@@ -1135,6 +1223,7 @@ async function handleStartStripeCheckoutSession(req, res, orderId) {
     order.note = error.message || "Stripe checkout creation failed.";
     order.updatedAt = new Date().toISOString();
     await updateWalletOrderInDb(order).catch(() => {});
+    await releaseCouponOnWalletOrderFailure(order);
     if (order.promoCampaignId === ELEVEN_ELEVEN_PROMO.id || order.promoCampaignId === SEEDREAM55_CAMPAIGN.id) {
       await markPromotionPurchaseFailedInDb({ campaignId: order.promoCampaignId, orderId: order.id, status: "failed" }).catch(() => {});
     }
@@ -1310,6 +1399,7 @@ async function handleStripeWebhook(req, res) {
     const failure = order.stripeFailureMessage || order.stripeFailureCode || (event.type === "checkout.session.expired" ? "Checkout session expired." : "Stripe payment failed.");
     order.note = String(failure).slice(0, 200);
     await updateWalletOrderInDb(order);
+    await releaseCouponOnWalletOrderFailure(order);
     if (order.promoCampaignId === ELEVEN_ELEVEN_PROMO.id || order.promoCampaignId === SEEDREAM55_CAMPAIGN.id) {
       await markPromotionPurchaseFailedInDb({
         campaignId: order.promoCampaignId,

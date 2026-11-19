@@ -365,9 +365,11 @@ async function startEntitlementCheckout(body = {}, statusElement = null) {
   if (statusElement) statusElement.textContent = "Creating secure checkout...";
   const returnUrl = `${window.location.origin}${window.location.pathname}#${state.tab || "referral"}`;
   try {
+    if (typeof refreshCouponCheckout === "function") refreshCouponCheckout();
+    const couponId = typeof getSelectedCouponId === "function" ? getSelectedCouponId() : "";
     const payload = await requestJson("/api/pay/stripe/checkout-sessions", {
       method: "POST",
-      body: { ...body, returnUrl, cancelUrl: returnUrl },
+      body: { ...body, couponId, returnUrl, cancelUrl: returnUrl },
     });
     const checkoutUrl = String(payload.checkoutUrl || payload.session?.checkoutUrl || "").trim();
     if (!checkoutUrl) throw new Error("Stripe checkout page was not created.");

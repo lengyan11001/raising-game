@@ -1,3 +1,14 @@
+## 2026-11-19 Step ET: Check-in rewards in admin ledger and one-shot fly animation
+
+- Added positive `app_credit_ledger` rows with type `checkin` to the admin **充值流水** reader as source `checkin_reward`; the page now has a **签到奖励** summary card, source filter, row pill, and check-in date/operation detail.
+- Added check-in rewards to the in-memory admin ledger fallback and summary aggregation. The ledger remains sourced from `app_credit_ledger`; no duplicate wallet/order record was introduced.
+- Fixed the repeated `+5` reward animation: opening an already-checked-in modal clears any stale flyer, and the flyer is cleared on close/account change and after 1300 ms. The animation is only started after a new claim response.
+- Bumped public check-in cache version to `checkin-20261119-3` and updated the related cache assertions.
+- Changed files: `db.js` (check-in ledger hunks only), `admin.js`, `admin.css`, `platform.checkin.js`, `platform.html`, `platform.js`, `server.parts/part-40.js`, `test/checkin-activity.test.js`, `test/workflow-canvases.test.js`.
+- Verification: focused check-in/workflow/deploy suite `98/98`; syntax checks, `npm run check:undef`, and `git diff --check` pass. Full suite `1443 pass / 11 fail / 2 skipped`; all 11 failures are the pre-existing unrelated serializer/queue/source-split/optimizer failures.
+- Source commit `6ca21ba4`; platform release `4de03159b9ea5c9c5f872c068309f22e3e47d6bf`; pushed only `old-site` and `platform-release`. Old deployment completed with `OLD_ROLLING_DEPLOY_OK active_port=4175`; `/api/health`, `/api/livez`, and `/api/readyz` return `200`. Deployed admin JS contains `checkin_reward`/`签到奖励`, and deployed `platform.checkin.js` contains the fly cleanup timer.
+- Unrelated dirty story/optimizer changes remain uncommitted and were excluded from this release.
+
 ## 2026-11-19 Step ES: Retire three Vega models from selection and pricing
 
 - Retired `seedance20-vega` (`seedance2.0（vega）`), `seedance25-vega` (`seedance2.5vega`), and `h3-vega` (`wan（vega）`) from public model selection, public/admin pricing, and new generation submissions. `vega10-lite` / `h3（vega）` remains active.
@@ -5163,3 +5174,21 @@ CODEX_TASK_STATE.md
 - Old-only rolling deploy completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=7ba1eeb7...`. The release includes `checkin-core.js`, `platform.checkin.css`, `platform.checkin.js`, `server.parts/part-50.js`, and only the check-in routing hunk in `server.parts/part-42.js`; the unrelated unfinished story-analysis block remains uncommitted.
 - Public `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; livez/readyz report clean release `7ba1eeb76702d2d69f4d2388e6aa9c1be0f85347`. `/platform.checkin.css` and `/platform.checkin.js` return `200`; `/checkin-core.js` is not publicly exposed (`404`); `/api/checkin/status` rejects anonymous requests with `401`; the homepage contains the check-in entry and modal markup.
 - Preserve unrelated dirty files (`db.js` story asset matching hunk, `platform.css`, `platform.story.js`, `server.parts/part-03.js`, `server.parts/part-43.js`, `server.parts/part-45.js`, `server.parts/part-49.js`, `test/story-canvas-p1.test.js`, `scripts/audit-story-adaptation.js`) outside this task.
+## 2026-11-19 Step EU: Cash coupon activity implementation (in progress)
+
+- User requested implementing `/Users/x042/Desktop/现金抵扣券技术交付包_20261119.zip` as a full activity, not just an entry point.
+- Required behavior: new-user $5-off-$30 coupon, auto-issued on new-account creation but user-claimed; unclaimed never expires; claim starts a 7-day expiry; one lifetime coupon per user/template; 15-minute order lock; late payment callback may consume an expired coupon; settlement idempotent; refunds never restore the coupon; original package credits still granted; amounts in integer cents; historical zero-balance users get an idempotent one-time backfill script.
+- Implemented PostgreSQL `coupon_template` / `user_coupon` schema, idempotent issue/claim/lock/finalize/release/risk/backfill helpers, registration issuance across email/Google/Telegram, coupon APIs, 30% rollout and registration/claim risk checks.
+- Stripe, Airwallex, USDT, and PayPal order creation now lock the coupon and charge the discounted amount while preserving original package credits; successful settlement finalizes idempotently and refunds do not restore the coupon. A $30 package with the coupon charges $25 and still grants 3000 credits.
+- Added homepage claim modal/reminder bar, coupon center, red-dot entry, top-up coupon card, package discount/checkout summary, countdowns, UTC+8 daily modal frequency, and automatic $30-package selection. Added `ops/archive/backfill-coupon-20261119.js` with the 603-user count guard, dry-run/apply mode, idempotent backfill, and no scheduled registration.
+- Focused coupon/check-in/workflow tests pass `69/69`; `npm run check:undef`, syntax checks, staged diff checks, and `git diff --cached --check` pass. Full `npm test` is `1456 pass / 14 fail / 2 skipped`; failures are exclusively pre-existing unrelated story/serializer/queue/source-split/optimizer work, and no coupon test fails.
+- Existing unrelated dirty story/optimizer files remain excluded from the coupon commit. Commit/release/deployment verification is pending.
+
+## 2026-11-19 Step EV: Adult story end-to-end validation (in progress)
+
+- Target production project is `成人偷情剧情` (`story-1795078197984-4dd63411`), script `script-1795078218664-8c4b5a45`, 2,317 Chinese characters. Remote read-only checks currently show `0` episodes and `0` shots; production has not been changed.
+- Content constraint for this QA run: every character is explicitly adult; all intimacy is voluntary and consensual; no minors, coercion, assault, drugging, or sexual violence. Prefer the original source with an in-memory production description, not the temporary rewritten QA source.
+- `server.parts/part-42.js` now retries once when story analysis returns truncated/invalid JSON, asking for a compact complete payload. Syntax check passed.
+- `scripts/audit-story-adaptation.js` supports offline `analyze --source ... --out ...` without a pre-existing analysis. Syntax check passed.
+- First real analysis reached the model but returned truncated JSON (`STORY_ANALYSIS_INVALID_JSON`), motivating the compact retry. No production deployment or database write occurred.
+- Working tree contains unrelated coupon/optimizer/story changes. Commit only story-analysis files for this task and exclude coupon files.

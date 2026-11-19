@@ -4956,11 +4956,18 @@ function renderTopupPackages() {
     const active = item.id === state.selectedTopupPackageId;
     const bonus = Number(item.bonusPercent || 0);
     const badge = bonus > 0 ? `<b class="topup-package-badge">+${escapeHtml(formatCredits(bonus))}%</b>` : "";
+    const couponDiscount = Math.max(0, Number(typeof couponDiscountForAmount === "function" ? couponDiscountForAmount(item.amount) : 0));
+    const couponBadge = couponDiscount > 0 ? `<b class="coupon-package-discount">-$${escapeHtml(formatCredits(couponDiscount))}</b>` : "";
+    const couponPrice = couponDiscount > 0 && active
+      ? `<span class="coupon-package-price"><s>$${escapeHtml(formatCredits(item.amount))}</s><b>$${escapeHtml(formatCredits(Math.max(0, Number(item.amount) - couponDiscount)))}</b></span>`
+      : "";
     return `
       <button class="topup-package-card ${active ? "is-active" : ""}" type="button" data-topup-package="${escapeHtml(item.id)}">
         ${badge}
+        ${couponBadge}
         <span>${escapeHtml(item.currency)}</span>
         <strong>$${escapeHtml(formatCredits(item.amount))}</strong>
+        ${couponPrice}
         <small>${escapeHtml(formatCredits(item.credits))} ${escapeHtml(t("common.credits"))}</small>
       </button>
     `;
@@ -5024,6 +5031,8 @@ function renderTopupSummary() {
       : t("topup.login");
   }
   renderWalletOptions();
+  if (typeof refreshCouponTopupEntry === "function") refreshCouponTopupEntry();
+  if (typeof refreshCouponCheckout === "function") refreshCouponCheckout();
 }
 
 function setBackButtonVisibility(button, visible) {
@@ -5121,11 +5130,14 @@ async function startStripeRedirectCheckout() {
   if (button) button.disabled = true;
   if (els.stripeStatus) els.stripeStatus.textContent = t("topup.stripeCreating");
   try {
+    if (typeof refreshCouponCheckout === "function") refreshCouponCheckout();
+    const couponId = typeof getSelectedCouponId === "function" ? getSelectedCouponId() : "";
     const returnUrl = `${window.location.origin}${window.location.pathname}#topups`;
     const payload = await requestJson("/api/pay/stripe/checkout-sessions", {
       method: "POST",
       body: {
         amount,
+        couponId,
         ...(billingProduct
           ? { productId: billingProduct.id }
           : billingPlan
@@ -5284,14 +5296,16 @@ async function createTopupOrder() {
   els.createTopupBtn.disabled = true;
   if (els.topupRate) els.topupRate.textContent = t("topup.creating");
   try {
+    if (typeof refreshCouponCheckout === "function") refreshCouponCheckout();
+    const couponId = typeof getSelectedCouponId === "function" ? getSelectedCouponId() : "";
     const endpoint = billingPlan ? "/api/billing/subscription/orders" : "/api/pay/orders";
     const payload = await requestJson(endpoint, {
       method: "POST",
       body: billingPlan
-        ? { planId: billingPlan.id, walletOptionId: selectedWalletOption()?.id || "" }
+        ? { planId: billingPlan.id, walletOptionId: selectedWalletOption()?.id || "", couponId }
         : billingProduct
-        ? { productId: billingProduct.id, walletOptionId: selectedWalletOption()?.id || "" }
-        : { amount, packageId: topupPackage.id, walletOptionId: selectedWalletOption()?.id || "" },
+        ? { productId: billingProduct.id, walletOptionId: selectedWalletOption()?.id || "", couponId }
+        : { amount, packageId: topupPackage.id, walletOptionId: selectedWalletOption()?.id || "", couponId },
     });
     renderTopupOrder(payload.order);
     if (els.topupRate) els.topupRate.textContent = t("topup.created");

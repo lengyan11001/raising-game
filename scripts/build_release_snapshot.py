@@ -37,6 +37,7 @@ PLATFORM_PATTERNS = (
     "platform.html",
     "platform.css",
     "platform.checkin.css",
+    "platform.coupon.css",
     "platform.prompt-editor.css",
     "platform*.js",
     "checkin-core.js",

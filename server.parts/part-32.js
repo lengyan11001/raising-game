@@ -657,22 +657,40 @@ function findUserByVerifiedEmailInDb(db, email = "", tenantId = DEFAULT_TENANT_I
   return (db?.users || []).find((item) => verifiedEmailForUser(item) === normalized && recordBelongsToTenant(item, tenantId)) || null;
 }
 
+function registrationRiskException(risk = {}) {
+  const error = new Error(risk?.response?.message || "Registration is temporarily unavailable.");
+  error.statusCode = 429;
+  error.code = risk?.response?.code || "AUTH_RATE_LIMITED";
+  error.risk = risk;
+  return error;
+}
+
+function respondRegistrationRisk(res, error) {
+  if (!error?.risk) return false;
+  authRateLimitedResponse(res, error.risk);
+  return true;
+}
+
 async function createEmailSession(req, res, email, body = {}) {
   const tenantId = requestTenantId(req);
   let db = lightweightAuthDb();
   let user = dbEnabled() ? await getUserByVerifiedEmailInDb(email, tenantId) : (db = await readDb(), findUserByVerifiedEmailInDb(db, email, tenantId));
+  let created = false;
   if (user) db.users = [user];
   if (user?.riskStatus === "quarantined") {
     return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
   }
   const now = new Date().toISOString();
   if (!user) {
+    const registrationRisk = await enforceRegistrationRisk(req, { username: email, body });
+    if (!registrationRisk.ok) return authRateLimitedResponse(res, registrationRisk);
     const landingPreview = landingFieldsFromBody(body);
     const referrerId = userIdFromReferralCode(landingPreview.referralCode);
     const referrer = referrerId ? (await getUserByIdInDb(referrerId) || (db.users || []).find((item) => item.id === referrerId)) : null;
     user = { id: randomId("user"), tenantId, username: await allocateUsername(emailUsernameCandidate(db, email, tenantId), tenantId, db), passwordHash: hashPassword(crypto.randomBytes(24).toString("hex")), role: "user", credits: 0, pricingMultiplier: 1, apiPricingMultiplier: 1, apiToken: makeUniqueApiToken(db), email, emailVerifiedAt: now, registrationChannel: "email", createdAt: now, updatedAt: now };
     attachRegistrationLanding(user, landingPreview, referrer && recordBelongsToTenant(referrer, tenantId) ? referrer : null, now, requestHostname(req));
     db.users.push(user);
+    created = true;
   } else {
     user.email = email;
     user.emailVerifiedAt = now;
@@ -694,6 +712,7 @@ async function createEmailSession(req, res, email, body = {}) {
           return sendJson(res, 403, { ok: false, code: "ACCOUNT_QUARANTINED", message: "This account is under security review. Please contact support." });
         }
         user = canonical;
+        created = false;
         user.email = email;
         user.emailVerifiedAt = user.emailVerifiedAt || now;
         user.updatedAt = now;
@@ -708,6 +727,9 @@ async function createEmailSession(req, res, email, body = {}) {
       }
     }
     else throw error;
+  }
+  if (created && dbEnabled()) {
+    await issueRegistrationCouponIfEligible(req, { user, body, email, username: user.username || email });
   }
   const session = await createSingleLoginSession(db, user, tenantId, body.deviceId || body.device_id || "");
   return sendJson(res, 200, { ok: true, token: session.token, user: userView(user) });
@@ -888,7 +910,7 @@ async function verifyGoogleIdToken(idToken = "") {
   };
 }
 
-async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_ID, host = "", referralCode = "", attribution = null } = {}) {
+async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_ID, host = "", referralCode = "", attribution = null, req = null, body = {} } = {}) {
   const normalizedTenant = normalizeTenantId(tenantId);
   const googleId = String(claims.sub || "").trim();
   if (!googleId) {
@@ -916,6 +938,10 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
     user = emailUser;
   }
   if (!user) {
+    if (req) {
+      const registrationRisk = await enforceRegistrationRisk(req, { username: claims.email || claims.sub || "", body });
+      if (!registrationRisk.ok) throw registrationRiskException(registrationRisk);
+    }
     const landingPreview = landingFieldsFromBody({ referralCode, attribution });
     const normalizedReferralCode = landingPreview.referralCode || normalizeReferralCode(referralCode);
     const referrerId = userIdFromReferralCode(normalizedReferralCode);
@@ -985,13 +1011,16 @@ async function ensureGoogleUserAccount(claims = {}, { tenantId = DEFAULT_TENANT_
     }
     throw error;
   }
+  if (created && dbEnabled()) {
+    await issueRegistrationCouponIfEligible(req, { user, body, email: user.googleEmail || user.email, username: user.username });
+  }
   if (created && referrer?.id) {
     const wasMember = userHasCreatorMembership(referrer);
     await ensureCreatorMembershipFromReferrals(db, referrer);
     if (!wasMember && userHasCreatorMembership(referrer)) await grantPendingReferralRewardsForMember(db, referrer);
     if (!dbEnabled()) await writeDb(db);
   }
-  return { db, user };
+  return { db, user, created };
 }
 
 async function handleGoogleLogin(req, res) {
@@ -1013,10 +1042,13 @@ async function handleGoogleLogin(req, res) {
       host: requestHostname(req),
       referralCode: body.referralCode || body.referral || body.ref || "",
       attribution: body.attribution || null,
+      req,
+      body,
     });
     const session = await createSingleLoginSession(account.db, account.user, tenant.tenantId, body.deviceId || body.device_id || "");
     return sendJson(res, 200, { ok: true, token: session.token, user: userView(account.user) });
   } catch (error) {
+    if (respondRegistrationRisk(res, error)) return;
     return sendJson(res, error.statusCode || 401, { ok: false, code: error.code || "GOOGLE_LOGIN_INVALID", message: error.message || "Google login failed." });
   }
 }
@@ -1197,6 +1229,8 @@ async function ensureTelegramUserAccount(telegramUser = {}, {
   registrationMedium = "telegram-mini-app",
   referralCode = "",
   attribution = null,
+  req = null,
+  body = {},
 } = {}) {
   const normalizedTenant = normalizeTenantId(tenantId);
   const telegramUserId = String(telegramUser.id || "").trim();
@@ -1214,6 +1248,10 @@ async function ensureTelegramUserAccount(telegramUser = {}, {
   let created = false;
   let referrer = null;
   if (!user) {
+    if (req) {
+      const registrationRisk = await enforceRegistrationRisk(req, { username: telegramUser.username || telegramUserId, body });
+      if (!registrationRisk.ok) throw registrationRiskException(registrationRisk);
+    }
     const landingPreview = landingFieldsFromBody({ referralCode, attribution });
     const normalizedReferralCode = landingPreview.referralCode || normalizeReferralCode(referralCode);
     const referrerId = userIdFromReferralCode(normalizedReferralCode);
@@ -1267,6 +1305,9 @@ async function ensureTelegramUserAccount(telegramUser = {}, {
 
   if (dbEnabled()) await updateUserInDb(user);
   else await writeDb(db);
+  if (created && dbEnabled()) {
+    await issueRegistrationCouponIfEligible(req, { user, body, username: user.username });
+  }
   if (created && referrer?.id) {
     const wasMember = userHasCreatorMembership(referrer);
     await ensureCreatorMembershipFromReferrals(db, referrer);
@@ -1274,7 +1315,7 @@ async function ensureTelegramUserAccount(telegramUser = {}, {
     if (!dbEnabled()) await writeDb(db);
   }
   telegramUserContextCache.set(user.id, { user, expiresAt: Date.now() + 60000 });
-  return { db, user, telegram: { id: telegramUserId, label: telegramBotUserLabel(telegramUser) } };
+  return { db, user, created, telegram: { id: telegramUserId, label: telegramBotUserLabel(telegramUser) } };
 }
 
 async function createTelegramUserSession(account, tenantId = UNDRESS_TOOL_TENANT_ID, deviceId = "") {
@@ -1283,9 +1324,9 @@ async function createTelegramUserSession(account, tenantId = UNDRESS_TOOL_TENANT
   return { token: session.token, user: account.user, telegram: account.telegram, tenantId: normalizedTenant };
 }
 
-async function telegramUserSessionFromInitData(initData = "", { tenantId = UNDRESS_TOOL_TENANT_ID, host = "", referralCode = "", attribution = null, deviceId = "" } = {}) {
+async function telegramUserSessionFromInitData(initData = "", { tenantId = UNDRESS_TOOL_TENANT_ID, host = "", referralCode = "", attribution = null, deviceId = "", req = null, body = {} } = {}) {
   const parsed = parseTelegramWebAppInitData(initData, TELEGRAM_BOT_TOKEN);
-  const account = await ensureTelegramUserAccount(parsed.user || {}, { tenantId, host, registrationMedium: "telegram-mini-app", referralCode, attribution });
+  const account = await ensureTelegramUserAccount(parsed.user || {}, { tenantId, host, registrationMedium: "telegram-mini-app", referralCode, attribution, req, body });
   return createTelegramUserSession(account, tenantId, deviceId);
 }
 
@@ -1295,7 +1336,13 @@ async function handleTelegramWebAppAuth(req, res) {
   const body = await readJson(req, AUTH_JSON_BODY_MAX_BYTES);
   const telegramRisk = await enforceGoogleLoginRisk(req);
   if (!telegramRisk.ok) return authRateLimitedResponse(res, telegramRisk);
-  const result = await telegramUserSessionFromInitData(body.initData || "", { tenantId: tenant.tenantId, host: requestHostname(req), referralCode: body.referralCode || body.referral || body.ref || "", attribution: body.attribution || null, deviceId: body.deviceId || body.device_id || "" });
+  let result;
+  try {
+    result = await telegramUserSessionFromInitData(body.initData || "", { tenantId: tenant.tenantId, host: requestHostname(req), referralCode: body.referralCode || body.referral || body.ref || "", attribution: body.attribution || null, deviceId: body.deviceId || body.device_id || "", req, body });
+  } catch (error) {
+    if (respondRegistrationRisk(res, error)) return;
+    throw error;
+  }
   return sendJson(res, 200, {
     ok: true,
     token: result.token,
@@ -1352,13 +1399,21 @@ async function handleTelegramLogin(req, res) {
     expectedNonce: nonce,
     jwks: await telegramOidcJwks(),
   });
-  const account = await ensureTelegramUserAccount(telegramUserFromOidcClaims(claims), {
-    tenantId: tenant.tenantId,
-    host,
-    registrationMedium: "telegram-oidc",
-    referralCode: body.referralCode || body.referral || body.ref || "",
-    attribution: body.attribution || null,
-  });
+  let account;
+  try {
+    account = await ensureTelegramUserAccount(telegramUserFromOidcClaims(claims), {
+      tenantId: tenant.tenantId,
+      host,
+      registrationMedium: "telegram-oidc",
+      referralCode: body.referralCode || body.referral || body.ref || "",
+      attribution: body.attribution || null,
+      req,
+      body,
+    });
+  } catch (error) {
+    if (respondRegistrationRisk(res, error)) return;
+    throw error;
+  }
   const result = await createTelegramUserSession(account, tenant.tenantId, body.deviceId || body.device_id || "");
   return sendJson(res, 200, {
     ok: true,

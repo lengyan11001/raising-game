@@ -1028,6 +1028,8 @@ function openTopupDialog() {
   setTopupStep("packages");
   setTopupMethod("stripe");
   renderTopupSummary();
+  if (typeof refreshCouponTopupEntry === "function") refreshCouponTopupEntry();
+  if (typeof refreshCouponCheckout === "function") refreshCouponCheckout();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   syncTopupAutoRefresh();
   refreshIcons();

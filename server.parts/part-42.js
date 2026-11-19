@@ -1130,6 +1130,9 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/pay/paypal/config") return await handlePayPalConfig(req, res);
+    if (req.method === "GET" && url.pathname === "/api/coupon/list") return await handleListCoupons(req, res);
+    if (req.method === "POST" && url.pathname === "/api/coupon/claim") return await handleClaimCoupon(req, res);
+    if (req.method === "GET" && url.pathname === "/api/coupon/available") return await handleAvailableCoupons(req, res, url);
     if (req.method === "POST" && url.pathname === "/api/pay/airwallex/checkout-sessions") {
       return await createAirwallexCheckoutSession(req, res);
     }
