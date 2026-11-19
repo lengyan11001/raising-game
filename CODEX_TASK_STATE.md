@@ -1,3 +1,10 @@
+## 2026-11-19 Step EW: Cash coupon navigation entry and approved claim dialog
+
+- User rejected the previous activity-carousel placement and custom modal treatment. The cash coupon now enters from the main sidebar navigation as `券中心`, with its pending-coupon red dot, and no longer appears in the lower community/activity area.
+- The home claim dialog was rebuilt to the package's `03.html` structure: 396px card, approved kicker/title/$5 rules, pending, claimed-success, and expired states, SVG success mark, countdown markup, and approved button spacing. Claim success remains in-place; expiry is a one-time notice; home auto-show is daily and reminder-only after dismissal.
+- Cash coupon version is `coupon-20261119-5`. Focused coupon/check-in/workflow/migration tests pass `80/80`; `node --check platform.coupon.js`, `node --check platform.js`, `npm run check:undef`, and scoped `git diff --check` pass.
+- Deployment status: pending old-site release/deploy verification. Unrelated dirty story/optimizer files remain excluded.
+
 ## 2026-11-19 Step EV: Cash coupon entry corrected to approved design
 
 - User confirmed the cash-coupon package must not reuse the Seedream activity treatment and must not add a left-bottom campaign carousel.
