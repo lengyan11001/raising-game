@@ -142,6 +142,7 @@ function loadCreatorDb({ character = null, existingEarning = null, balance = 0, 
     process: { ...process, env: { ...process.env, DATABASE_URL: "postgres://creator-test" } },
     require(name) {
       if (name === "pg") return { Pool: MockPool };
+      if (name === "./checkin-core") return require(path.join(root, "checkin-core.js"));
       return require(name);
     },
     setTimeout,

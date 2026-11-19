@@ -462,6 +462,8 @@ const {
   failMediaIngestJobInDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,
+  getCheckinStatusFromDb,
+  performCheckinInDb,
   insertWebVitalSamplesInDb,
   getWebVitalsSummaryFromDb,
 } = require("./db");
@@ -687,6 +689,7 @@ const LIVE_STATIC_ROOT = resolveLiveStaticRoot(ROOT, process.env.LIVE_STATIC_ROO
 const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.html",
   "platform.css",
+  "platform.checkin.css",
   "platform.prompt-editor.css",
   "platform.js",
   "platform-sw.js",

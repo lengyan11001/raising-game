@@ -1066,6 +1066,12 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && systemNotificationReadMatch) {
       return await handleReadSystemNotification(req, res, decodeURIComponent(systemNotificationReadMatch[1]));
     }
+    if (req.method === "GET" && url.pathname === "/api/checkin/status") {
+      return await handleCheckinStatus(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/checkin") {
+      return await handleCheckin(req, res);
+    }
     if (req.method === "GET" && url.pathname === "/api/live/notifications") {
       return await handleListLiveNotifications(req, res);
     }

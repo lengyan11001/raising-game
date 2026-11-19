@@ -28,6 +28,8 @@ SHARED_APP_FILES = (
     "game.js",
     "platform.html",
     "platform.css",
+    "platform.checkin.css",
+    "checkin-core.js",
     "platform.prompt-editor.css",
     "platform.js",
     "platform.config.js",
