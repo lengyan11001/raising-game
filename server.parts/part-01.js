@@ -236,6 +236,8 @@ const {
   lockUserCouponForOrderInDb,
   finalizeUserCouponForOrderInDb,
   releaseUserCouponForOrderInDb,
+  listCouponEmailReminderCandidatesFromDb,
+  recordCouponEmailReminderInDb,
   backfillZeroBalanceCouponsInDb,
   getPromotionPurchaseStateInDb,
   reservePromotionPurchaseInDb,

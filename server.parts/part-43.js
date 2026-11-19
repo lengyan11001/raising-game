@@ -841,6 +841,7 @@ async function bootstrap() {
     startActiveGenerationRecordScheduler();
     startTelegramBotScheduler();
     startTelegramPaymentNotificationScheduler();
+    startCouponEmailReminderScheduler();
     startVideoToolJobRecoveryScheduler();
     startVideoToolUploadCleanupScheduler();
     startLocalMediaCleanupScheduler();

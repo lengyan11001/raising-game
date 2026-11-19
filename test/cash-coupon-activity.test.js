@@ -33,12 +33,13 @@ function loadServerCouponHelpers(extra = {}) {
     Boolean,
     Array,
     Object,
+    PUBLIC_BASE_URL: "https://123vips.com",
     console,
     dbEnabled: () => true,
     lockUserCouponForOrderInDb: async () => null,
     ...extra,
   });
-  vm.runInContext(`${pure}\n${wallet}\nthis.helpers = { couponRolloutBucket, couponRolloutEligible, couponIdFromRequest, couponSceneForOrderKind, publicCouponForClient, prepareCouponForWalletOrder, applyCouponFieldsToWalletOrder };`, context);
+  vm.runInContext(`${pure}\n${wallet}\nthis.helpers = { couponRolloutBucket, couponRolloutEligible, couponIdFromRequest, couponSceneForOrderKind, publicCouponForClient, prepareCouponForWalletOrder, applyCouponFieldsToWalletOrder, couponEmailReminderCandidate, couponEmailReminderContent };`, context);
   return context.helpers;
 }
 
@@ -396,6 +397,65 @@ test("registration flows issue coupons and public APIs keep pending coupons non-
   assert.match(serverCoupon, /expire_at: coupon\.status === 0 \? null : coupon\.expireAt/);
   assert.match(serverCoupon, /risk_review: Boolean\(coupon\.riskFlag\)/);
   assert.match(serverCoupon, /coupon = await markUserCouponRiskInDb\(auth\.user\.id, couponId, 1\) \|\| coupon/);
+});
+
+test("coupon email reminders follow pending, claimed, expiry, and seven-day cap rules", () => {
+  const { couponEmailReminderCandidate } = loadServerCouponHelpers();
+  const now = Date.parse("2026-11-19T12:00:00.000Z");
+  const base = {
+    email: "coupon@example.com",
+    status: 0,
+    riskFlag: 0,
+    grantedAt: new Date(now).toISOString(),
+    reminders: [],
+  };
+  assert.equal(couponEmailReminderCandidate(base, now), "pending_0h");
+  assert.equal(couponEmailReminderCandidate({ ...base, grantedAt: new Date(now - 24 * 60 * 60 * 1000).toISOString() }, now), "pending_24h");
+  assert.equal(couponEmailReminderCandidate({ ...base, grantedAt: new Date(now - 72 * 60 * 60 * 1000).toISOString() }, now), "pending_72h");
+  assert.equal(couponEmailReminderCandidate({ ...base, reminders: [{ type: "pending_0h", sentAt: new Date(now - 60_000).toISOString() }] }, now), "");
+
+  const claimed = {
+    ...base,
+    status: 1,
+    claimedAt: new Date(now - 49 * 60 * 60 * 1000).toISOString(),
+    expireAt: new Date(now + 5 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+  assert.equal(couponEmailReminderCandidate(claimed, now), "claimed_48h");
+  assert.equal(couponEmailReminderCandidate({ ...claimed, expireAt: new Date(now + 47 * 60 * 60 * 1000).toISOString() }, now), "expire_48h");
+  assert.equal(couponEmailReminderCandidate({ ...claimed, expireAt: new Date(now + 23 * 60 * 60 * 1000).toISOString() }, now), "expire_24h");
+  assert.equal(couponEmailReminderCandidate({ ...claimed, expireAt: new Date(now - 1).toISOString() }, now), "");
+
+  const capped = {
+    ...base,
+    reminders: ["pending_0h", "pending_24h", "pending_72h"].map((type, index) => ({
+      type,
+      sentAt: new Date(now - (index + 1) * 60 * 60 * 1000).toISOString(),
+    })),
+  };
+  assert.equal(couponEmailReminderCandidate(capped, now), "");
+  assert.equal(couponEmailReminderCandidate({ ...base, riskFlag: 1 }, now), "");
+});
+
+test("coupon email reminders are register-only, deliver useful content, and use leased scheduling", () => {
+  const { couponEmailReminderContent } = loadServerCouponHelpers();
+  const coupon = { faceValue: 500, threshold: 3000 };
+  for (const type of ["pending_0h", "pending_24h", "pending_72h", "claimed_48h", "expire_48h", "expire_24h"]) {
+    const content = couponEmailReminderContent(type, coupon);
+    assert.ok(content, type);
+    assert.ok(content.subject);
+    assert.match(content.text, /\$5/);
+    assert.match(content.text, /https:\/\/123vips\.com\/#topup/);
+    assert.match(content.html, /<a href=/);
+  }
+  assert.match(database, /WHERE c\.status IN \(0, 1\)[\s\S]*AND c\.grant_source = 'register'/);
+  assert.match(database, /CREATE TABLE IF NOT EXISTS coupon_email_reminder/);
+  assert.match(database, /ON CONFLICT \(user_coupon_id, reminder_type\) DO NOTHING/);
+  assert.match(serverCoupon, /runWithSchedulerLease\("coupon-email-reminders"/);
+  assert.match(serverCoupon, /setInterval\(\(\) => runCouponEmailReminderSchedulerTick\("timer"\), COUPON_EMAIL_REMINDER_INTERVAL_MS\)/);
+  assert.match(serverCoupon, /await sendEmailMessage\([\s\S]*await recordCouponEmailReminderInDb/);
+  assert.match(read("server.parts/part-43.js"), /startCouponEmailReminderScheduler\(\)/);
+  assert.match(database, /"2026-11-19-cash-coupon-v1"/);
+  assert.match(database, /"coupon_email_reminder",/);
 });
 
 test("coupon assets are exposed by the runtime and release snapshot", () => {

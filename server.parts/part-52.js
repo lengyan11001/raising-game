@@ -21,6 +21,102 @@ function couponEmailDomain(email = "") {
   return at > 0 ? normalized.slice(at + 1).slice(0, 160) : "";
 }
 
+const COUPON_EMAIL_REMINDER_INTERVAL_MS = 10 * 60 * 1000;
+const COUPON_EMAIL_REMINDER_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const COUPON_EMAIL_REMINDER_LIMIT = 3;
+
+function couponReminderTime(value = "") {
+  const timestamp = Date.parse(value || "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function couponEmailReminderCandidate(coupon = {}, now = Date.now()) {
+  const email = String(coupon.email || "").trim();
+  const status = Number(coupon.status);
+  const nowMs = Number(now || Date.now());
+  if (!email || Number(coupon.riskFlag || 0) !== 0 || ![0, 1].includes(status)) return "";
+  const reminders = (Array.isArray(coupon.reminders) ? coupon.reminders : [])
+    .map((item) => ({
+      type: String(item?.type || "").trim(),
+      sentAt: couponReminderTime(item?.sentAt),
+    }))
+    .filter((item) => item.type && item.sentAt > 0);
+  const sentTypes = new Set(reminders.map((item) => item.type));
+  const recentCount = reminders.filter((item) => nowMs - item.sentAt < COUPON_EMAIL_REMINDER_WINDOW_MS).length;
+  if (recentCount >= COUPON_EMAIL_REMINDER_LIMIT) return "";
+
+  if (status === 0) {
+    const grantedAt = couponReminderTime(coupon.grantedAt);
+    if (!grantedAt || nowMs < grantedAt) return "";
+    const ageMs = nowMs - grantedAt;
+    const dueType = ageMs >= 72 * 60 * 60 * 1000
+      ? "pending_72h"
+      : (ageMs >= 24 * 60 * 60 * 1000 ? "pending_24h" : "pending_0h");
+    return sentTypes.has(dueType) ? "" : dueType;
+  }
+
+  const claimedAt = couponReminderTime(coupon.claimedAt);
+  const expireAt = couponReminderTime(coupon.expireAt);
+  if (!claimedAt || !expireAt || expireAt <= nowMs) return "";
+  const timeLeft = expireAt - nowMs;
+  const claimAge = nowMs - claimedAt;
+  if (timeLeft <= 24 * 60 * 60 * 1000) return sentTypes.has("expire_24h") ? "" : "expire_24h";
+  if (timeLeft <= 48 * 60 * 60 * 1000) return sentTypes.has("expire_48h") ? "" : "expire_48h";
+  if (claimAge >= 48 * 60 * 60 * 1000) return sentTypes.has("claimed_48h") ? "" : "claimed_48h";
+  return "";
+}
+
+function couponEmailMoney(cents = 0) {
+  const amount = Math.max(0, Math.trunc(Number(cents || 0))) / 100;
+  return `$${Number.isInteger(amount) ? amount : amount.toFixed(2)}`;
+}
+
+function couponEmailReminderContent(type = "", coupon = {}) {
+  const faceValue = couponEmailMoney(coupon.faceValue);
+  const threshold = couponEmailMoney(coupon.threshold);
+  const validDays = Math.max(1, Math.trunc(Number(coupon.validDays || 7)));
+  const expireAt = couponReminderTime(coupon.expireAt);
+  const remainingDays = expireAt > Date.now() ? Math.max(1, Math.ceil((expireAt - Date.now()) / (24 * 60 * 60 * 1000))) : 0;
+  const baseUrl = String(PUBLIC_BASE_URL || "https://123vips.com").replace(/\/+$/, "");
+  const couponUrl = `${baseUrl}/#topup`;
+  const content = {
+    pending_0h: {
+      subject: `你的 ${faceValue} 新用户券待领取`,
+      title: `你的 ${faceValue} 新用户券已到账`,
+      body: `满 ${threshold} 可用，领取后 ${validDays} 天内有效。登录 Vipeak AI 即可领取。`,
+    },
+    pending_24h: {
+      subject: `${faceValue} 优惠还在，去领一下`,
+      title: `别忘了领取你的 ${faceValue} 新用户券`,
+      body: `满 ${threshold} 可用，待领取期间不会过期。现在登录即可领取。`,
+    },
+    pending_72h: {
+      subject: "最后提醒：新用户券待领取",
+      title: `你的 ${faceValue} 新用户券还在这里`,
+      body: `满 ${threshold} 可用，领取后 ${validDays} 天内有效。登录 Vipeak AI 即可领取。`,
+    },
+    claimed_48h: {
+      subject: `${faceValue} 优惠还没用，别让它过期`,
+      title: `你的 ${faceValue} 现金券还没使用`,
+      body: `这张券领取后 ${validDays} 天有效${remainingDays > 0 ? `，约 ${remainingDays} 天后失效` : ""}。请尽快在购买积分或开通会员时使用。`,
+    },
+    expire_48h: {
+      subject: `新用户券 2 天后失效`,
+      title: `你的 ${faceValue} 现金券将在 2 天内失效`,
+      body: `满 ${threshold} 可用，请尽快在购买积分或开通会员时使用。`,
+    },
+    expire_24h: {
+      subject: "最后 1 天：新用户券即将失效",
+      title: `你的 ${faceValue} 现金券将在 24 小时内失效`,
+      body: `满 ${threshold} 可用，请尽快使用，过期后无法恢复。`,
+    },
+  }[type];
+  if (!content) return null;
+  const text = `${content.title}\n\n${content.body}\n\n立即查看：${couponUrl}\n\n如果这不是你的账户操作，请忽略此邮件。`;
+  const html = `<p><strong>${content.title}</strong></p><p>${content.body}</p><p><a href="${couponUrl}">立即查看</a></p><p style="color:#777;font-size:12px">如果这不是你的账户操作，请忽略此邮件。</p>`;
+  return { ...content, text, html, couponUrl };
+}
+
 async function couponIssuanceRisk(req, { user = {}, body = {}, email = "" } = {}) {
   const userId = String(user.id || "").trim();
   const reasons = [];
@@ -347,4 +443,59 @@ async function ensureCouponLockForWalletOrder(order = {}) {
     scene: couponSceneForOrderKind(order.orderKind),
   });
   return applyCouponFieldsToWalletOrder(order, coupon);
+}
+
+let couponEmailReminderRunning = false;
+
+async function scanCouponEmailReminders(reason = "timer") {
+  if (!dbEnabled() || !EMAIL_LOGIN_ENABLED || !smtpConfigured(EMAIL_SMTP_CONFIG)) {
+    return { scanned: 0, sent: 0, skipped: "email_not_configured" };
+  }
+  if (couponEmailReminderRunning) return { scanned: 0, sent: 0, skipped: "already_running" };
+  couponEmailReminderRunning = true;
+  try {
+    const candidates = await listCouponEmailReminderCandidatesFromDb({ limit: 100 });
+    let sent = 0;
+    for (const coupon of candidates) {
+      const reminderType = couponEmailReminderCandidate(coupon);
+      if (!reminderType) continue;
+      const content = couponEmailReminderContent(reminderType, coupon);
+      if (!content) continue;
+      try {
+        await sendEmailMessage({
+          to: coupon.email,
+          subject: content.subject,
+          text: content.text,
+          html: content.html,
+        });
+        await recordCouponEmailReminderInDb({
+          couponId: coupon.couponId,
+          reminderType,
+          email: coupon.email,
+          metadata: { reason, subject: content.subject },
+        });
+        sent += 1;
+      } catch (error) {
+        console.warn("[coupon-email-reminder-failed]", coupon.couponId, reminderType, error?.code || "", error?.message || error);
+      }
+    }
+    return { scanned: candidates.length, sent };
+  } finally {
+    couponEmailReminderRunning = false;
+  }
+}
+
+function runCouponEmailReminderSchedulerTick(reason = "timer") {
+  return runWithSchedulerLease("coupon-email-reminders", () => (
+    scanCouponEmailReminders(reason)
+  ), {
+    connect: () => getSchedulerPool().connect(),
+    onError: (error) => console.warn("[coupon-email-reminder-lease-failed]", error.message || error),
+  });
+}
+
+function startCouponEmailReminderScheduler() {
+  if (!EMAIL_LOGIN_ENABLED || !smtpConfigured(EMAIL_SMTP_CONFIG)) return;
+  scheduleStartupScheduler("coupon-email-reminders", () => runCouponEmailReminderSchedulerTick("startup"));
+  setInterval(() => runCouponEmailReminderSchedulerTick("timer"), COUPON_EMAIL_REMINDER_INTERVAL_MS).unref?.();
 }
