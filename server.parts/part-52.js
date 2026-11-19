@@ -1,8 +1,8 @@
 const COUPON_NEW_USER_CODE = "NEWUSER_30_5OFF";
 
 function couponRolloutPercent() {
-  const configured = Number(process.env.COUPON_ROLLOUT_PERCENT ?? 30);
-  if (!Number.isFinite(configured)) return 30;
+  const configured = Number(process.env.COUPON_ROLLOUT_PERCENT ?? 100);
+  if (!Number.isFinite(configured)) return 100;
   return Math.max(0, Math.min(100, Math.trunc(configured)));
 }
 
