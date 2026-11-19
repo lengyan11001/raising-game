@@ -131,6 +131,14 @@ test("coupon rows expose effective promo threshold and never invent an expiry", 
   assert.equal(couponTemplateFromRow({ threshold: 3000, promo_threshold: 5000 }).effectiveThreshold, 5000);
 });
 
+test("top-up checkout hides the coupon discount amount while keeping the payable summary", () => {
+  const checkout = sourceBetween(read("platform.coupon.js"), "function renderCouponCheckout", "function refreshCouponCheckout");
+  assert.doesNotMatch(checkout, /<b>−\$\{safeHtml\(money\(quote\.discountCents\)\)\}<\/b>/);
+  assert.match(checkout, /copy\("Original", "原价"\)/);
+  assert.match(checkout, /copy\("Pay", "实付"\)/);
+  assert.match(checkout, /const payAmount = selection\.amountCents - quote\.discountCents/);
+});
+
 test("claiming is a single-row transition with a seven-day expiry", () => {
   const claim = sourceBetween(database, "async function claimUserCouponInDb", "async function markUserCouponRiskInDb");
   assert.match(claim, /FOR UPDATE OF c/);
