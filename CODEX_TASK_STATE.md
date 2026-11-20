@@ -1,3 +1,11 @@
+## 2026-11-20 Step FQ: Recover Seedance assets with an empty localUrl from OSS
+
+- Production failures `cgt-20261120131044-89b322`, `cgt-20261120131056-5b3261`, `cgt-20261120131103-098a4c`, `cgt-20261120131139-e9472c`, and `cgt-20261120131151-424d1d` all referenced the same valid asset: `asset-63ea8fca159e8e37c3e84f1c` owned by `user-1789207499148-734e3f44`.
+- The OSS object `seedance-assets/123vips/generated/images/img-20261118123847-d1a73c.png` exists (`7,181,521` bytes), and its signed CDN URL returns `200 image/png`. PostgreSQL metadata is correct, but `localUrl` was empty.
+- Root cause: `ensureLocalUserAssetFile()` called `localPathForUserAsset()` and failed when `localUrl` was empty, before attempting the existing signed-OSS recovery path.
+- Fixed `server.parts/part-13.js` by deriving a safe deterministic local recovery path from `userId`, `assetId`, MIME, and source extension, then restoring the file from the signed OSS URL and persisting the restored `localUrl`.
+- Added `test/local-asset-oss-recovery.test.js` covering the exact empty-`localUrl` Seedance case. Focused recovery tests pass `14/14`; syntax checks, `npm run check:undef`, and scoped `git diff --check` pass. The broader suite still has unrelated pre-existing dirty-work failures.
+
 ## 2026-11-20 Step FP: Historical image dimension batch backfill
 
 - User asked to batch-repair existing assets so no user needs to add the same asset again. Extended `scripts/repair-generated-image-asset-dimensions.js` with `--all-images`, bounded concurrency, compact range reads, AVIF dimension parsing, summary-only reporting, and increased limits.

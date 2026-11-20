@@ -1094,6 +1094,39 @@ function localPathForUserAsset(asset = {}) {
   return localPath;
 }
 
+function restorableLocalPathForUserAsset(asset = {}) {
+  const userId = String(asset.userId || "").trim();
+  const assetId = String(asset.id || "").trim();
+  if (!userId || !assetId) return "";
+  const mime = String(asset.mime || "").split(";")[0].trim().toLowerCase();
+  const sourceName = String(asset.objectStorageKey || asset.cdnUrl || asset.publicUrl || "").split("?")[0];
+  const sourceExtension = path.extname(sourceName).toLowerCase();
+  const extension = mime.startsWith("image/")
+    ? imageExtFromMime(mime)
+    : mime.startsWith("video/")
+      ? videoExtFromMime(mime, sourceName)
+      : mime.startsWith("audio/")
+        ? audioExtFromMime(mime, sourceName)
+        : (/^\.[a-z0-9]{1,10}$/.test(sourceExtension) ? sourceExtension : ".bin");
+  const localPath = path.resolve(
+    USER_UPLOAD_DIR,
+    storagePathSegment(userId, "user"),
+    `${storagePathSegment(assetId, "asset")}-restored${extension}`,
+  );
+  if (!safePathWithin(USER_UPLOAD_DIR, localPath)) {
+    throw advancedValidationError("INVALID_ASSET_PATH", "Asset path is invalid.", { assetId: asset.id || "" });
+  }
+  return localPath;
+}
+
+function restoredLocalUrlForUserAsset(localPath = "") {
+  const relative = path.relative(USER_UPLOAD_DIR, localPath).split(path.sep).join("/");
+  if (!relative || relative.startsWith("../") || relative === ".." || path.isAbsolute(relative)) {
+    throw advancedValidationError("INVALID_ASSET_PATH", "Asset path is invalid.");
+  }
+  return `/assets/user-uploads/${relative}`;
+}
+
 function userAssetObjectStorageKey(asset = {}) {
   return String(firstPresent(
     asset.objectStorageKey,
@@ -1189,7 +1222,7 @@ async function ensureLocalUserAssetFile(db, userAsset, {
   maxBytes = 0,
   requireFile = true,
 } = {}) {
-  const localPath = localPathForUserAsset(userAsset);
+  const localPath = localPathForUserAsset(userAsset) || restorableLocalPathForUserAsset(userAsset);
   if (!localPath) {
     if (!requireFile) return "";
     throw missingUserAssetFileError(userAsset, label);
@@ -1219,6 +1252,7 @@ async function ensureLocalUserAssetFile(db, userAsset, {
     const current = await fs.stat(localPath).catch(() => null);
     if (!current?.isFile() || current.size <= 0) throw error;
   }
+  if (!String(userAsset.localUrl || "").trim()) userAsset.localUrl = restoredLocalUrlForUserAsset(localPath);
   await persistRestoredUserAssetMetadata(db, userAsset, downloaded.bytes, downloaded.mime);
   return localPath;
 }
