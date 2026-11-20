@@ -170,18 +170,6 @@
   font-size: 11.5px;
 }
 
-.coupon-reminder-badge {
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  border: 1px solid rgba(58, 209, 128, 0.36);
-  border-radius: 999px;
-  color: #9df0c2;
-  font-size: 9.5px;
-  font-weight: 800;
-  line-height: 1.4;
-  background: rgba(58, 209, 128, 0.16);
-}
-
 .coupon-reminder.is-claimed .coupon-reminder-copy > span {
   color: #9b8fae;
 }
@@ -647,17 +635,6 @@
   white-space: nowrap;
 }
 
-.coupon-topup-title span {
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  border: 1px solid rgba(255, 77, 157, 0.34);
-  border-radius: 999px;
-  color: #ffb3d4;
-  font-size: 9.5px;
-  font-weight: 800;
-  background: rgba(255, 77, 157, 0.18);
-}
-
 .coupon-topup-copy small {
   display: block;
   margin-top: 4px;
@@ -703,12 +680,6 @@
 .coupon-topup-entry.is-claimed .coupon-topup-icon {
   background: linear-gradient(145deg, #3ad180, #1f9c5c);
   box-shadow: 0 6px 16px rgba(58, 209, 128, 0.35);
-}
-
-.coupon-topup-entry.is-claimed .coupon-topup-title span {
-  border-color: rgba(58, 209, 128, 0.36);
-  color: #9df0c2;
-  background: rgba(58, 209, 128, 0.16);
 }
 
 .coupon-topup-entry.is-claimed .coupon-topup-copy small b {

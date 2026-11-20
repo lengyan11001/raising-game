@@ -186,7 +186,6 @@
       reminder: byId("couponReminderBar"),
       reminderIcon: byId("couponReminderIcon"),
       reminderTitle: byId("couponReminderTitle"),
-      reminderBadge: byId("couponReminderBadge"),
       reminderText: byId("couponReminderText"),
       reminderAction: byId("couponReminderAction"),
       dialog: byId("couponClaimDialog"),
@@ -336,12 +335,6 @@
       els.reminderTitle.textContent = pending
         ? copy("$5 new-user coupon", "$5 新用户券")
         : copy("$5 coupon claimed", "$5 现金券已领");
-    }
-    if (els.reminderBadge) {
-      els.reminderBadge.hidden = pending;
-      els.reminderBadge.textContent = locked
-        ? copy("Order pending", "订单锁定中")
-        : copy("Use soon", "尽快使用");
     }
     if (els.reminderText) {
       els.reminderText.innerHTML = pending
@@ -500,7 +493,6 @@
       return;
     }
     const coupon = entry.coupon;
-    const face = money(coupon.face_value ?? DEFAULT_COUPON.face_value);
     const threshold = money(coupon.threshold ?? DEFAULT_COUPON.threshold);
     const pending = entry.type === "pending";
     const locked = entry.type === "locked";
@@ -513,7 +505,6 @@
       <div class="coupon-topup-copy">
         <div class="coupon-topup-title">
           <strong>${safeHtml(pending ? copy("New-user coupon", "新用户专享券") : copy("$5 cash coupon claimed", "$5 现金券已领"))}</strong>
-          <span>${safeHtml(pending ? copy(`${face} OFF`, `${face} 立减`) : locked ? copy("Order pending", "订单锁定中") : copy("Use soon", "尽快使用"))}</span>
         </div>
         <small data-coupon-entry-desc>${pending
           ? safeHtml(copy(`Orders over ${threshold}. Valid for 7 days after claiming.`, `满 ${threshold} 可用 · 领取后 7 天有效`))
