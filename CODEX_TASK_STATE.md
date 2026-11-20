@@ -1,3 +1,28 @@
+## 2026-11-20 Step FP: Historical image dimension batch backfill
+
+- User asked to batch-repair existing assets so no user needs to add the same asset again. Extended `scripts/repair-generated-image-asset-dimensions.js` with `--all-images`, bounded concurrency, compact range reads, AVIF dimension parsing, summary-only reporting, and increased limits.
+- Production had `1782` non-deleted zero-dimension image assets. A full dry-run found `1365` repairable from still-readable public URLs, `417` unreadable, and `0` execution failures. The `417` remaining are source-side failures: `74` fetch failures, `24` HTTP 403 responses, and `2` headers that could not be parsed; other skips count as failed candidates with their grouped error. These files cannot be repaired without a valid source copy and do not require users to re-add anything.
+- Applied the batch repair to production: `1365` historical assets updated with true width/height/sizeBytes. Post-apply zero-dimension image count is `417`. The two affected canvas assets remain correct at `1776x2360`.
+- Health after writing: `/api/health`, `/api/livez`, and `/api/readyz` all return `200`.
+
+## 2026-11-20 Step FO: Generated-image dimension repair deployed and applied
+
+### Current local QA continuation (not deployed)
+
+- Fresh Plans 25 and 26 after the Step FN source-order repair both failed. Plan 25 retained unsupported-source/beat-order issues; Plan 26 timing was valid (32 shots, 181s, target 165s) but narrative audit reported two false/duplicate order regressions in B06/B07.
+- Root causes fixed: duplicate withdrawal action was labeled B06 in one shot and B07 in the next, so adjacent cross-beat compaction now merges only a nested repeated basis; quote-leading `sourceBasis` now resolves from the opening quote/content; cleanup ordering now includes dialogue source positions so an action-plus-dialogue shot cannot move behind later source.
+- Added focused regressions in `test/story-canvas-p1.test.js` for the B06→B07 duplicate and quote-leading source offset. Verification after all ordering changes: `node --check` both files, `node --test test/story-canvas-p1.test.js` 52/52, `npm run check:undef`, scoped `git diff --check`.
+- Two fresh parallel offline runs were completed. Plan 27 succeeded and wrote `/tmp/story-adult-plan-27.json`: 26 shots, 149 seconds, all 7 beats, 8 structured dialogue lines, 100% source-action clause coverage, 100% required-dialogue coverage, and passing integrity/grounding/speaker/timing audits. Plan 28 failed only on one ordering false positive before the final mixed action/dialogue ordering fix; it wrote no plan file. No deployment or production writes.
+
+
+- Source commit `6e07fb85` (`Repair generated image asset dimensions`) is committed and pushed on `old-site`. Platform release `31ce9fc7490b18288818a65b9541c28301260701` was pushed and deployed to Old only through `scripts/deploy_local.sh --site old`; the active unit moved from `4175` to `4174`. Live was not deployed.
+- Release contents are limited to the dimension repair: `server.parts/part-36.js`, `test/advanced-preparation-recovery.test.js`, `scripts/repair-generated-image-asset-dimensions.js`, and `CODEX_TASK_STATE.md`.
+- Verification passed: targeted syntax checks, `npm run check:undef`, and `test/advanced-preparation-recovery.test.js` (`13/13`). The full suite had 15 unrelated failures from pre-existing dirty workspace changes.
+- Production dry-run found exactly `12` traceable zero-dimension generated-image assets and `0` failures. Applying repaired all `12`; a follow-up dry-run returned `candidates: 0`.
+- Confirmed the two affected canvas assets now have real metadata: `asset-f7d3ea6902dfd06aa30832bd` = `1776x2360`, `6,791,755` bytes, `image/png`; `asset-63ea8fca159e8e37c3e84f1c` = `1776x2360`, `7,181,521` bytes, `image/png`.
+- Production health after repair: `/api/health`, `/api/livez`, and `/api/readyz` all return `200`, with release id `31ce9fc7...`.
+- No dimension-validation, automatic-resizing, or generation-flow changes were made. Unrelated dirty files remain uncommitted and were not included in the release.
+
 ## 2026-11-20 Step FN: Plan 23/24 source-order audit and repair (local only)
 
 - Plan 23 failed with one backward source-order regression at shot 9/B04 (`708` after previous shot 8 at `841`). Plan 24 failed with five regressions across B03, B04, B06, and B07, plus broad `unsupported_description_clause` findings in adult action prose.
