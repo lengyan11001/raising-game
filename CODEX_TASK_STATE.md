@@ -1,9 +1,18 @@
+## 2026-11-20 Step FQ: Recover Seedance assets with an empty localUrl from OSS
+
+- Production failures `cgt-20261120131044-89b322`, `cgt-20261120131056-5b3261`, `cgt-20261120131103-098a4c`, `cgt-20261120131139-e9472c`, and `cgt-20261120131151-424d1d` all referenced the same valid asset: `asset-63ea8fca159e8e37c3e84f1c` owned by `user-1789207499148-734e3f44`.
+- The OSS object `seedance-assets/123vips/generated/images/img-20261118123847-d1a73c.png` exists (`7,181,521` bytes), and its signed CDN URL returns `200 image/png`. PostgreSQL metadata is correct, but `localUrl` was empty.
+- Root cause: `ensureLocalUserAssetFile()` called `localPathForUserAsset()` and failed when `localUrl` was empty, before attempting the existing signed-OSS recovery path.
+- Fixed `server.parts/part-13.js` by deriving a safe deterministic local recovery path from `userId`, `assetId`, MIME, and source extension, then restoring the file from the signed OSS URL and persisting the restored `localUrl`.
+- Added `test/local-asset-oss-recovery.test.js` covering the exact empty-`localUrl` Seedance case. Focused recovery tests pass `14/14`; syntax checks, `npm run check:undef`, and scoped `git diff --check` pass. The broader suite still has unrelated pre-existing dirty-work failures.
+
 ## 2026-11-20 Step FP: Historical image dimension batch backfill
 
 - User asked to batch-repair existing assets so no user needs to add the same asset again. Extended `scripts/repair-generated-image-asset-dimensions.js` with `--all-images`, bounded concurrency, compact range reads, AVIF dimension parsing, summary-only reporting, and increased limits.
 - Production had `1782` non-deleted zero-dimension image assets. A full dry-run found `1365` repairable from still-readable public URLs, `417` unreadable, and `0` execution failures. The `417` remaining are source-side failures: `74` fetch failures, `24` HTTP 403 responses, and `2` headers that could not be parsed; other skips count as failed candidates with their grouped error. These files cannot be repaired without a valid source copy and do not require users to re-add anything.
 - Applied the batch repair to production: `1365` historical assets updated with true width/height/sizeBytes. Post-apply zero-dimension image count is `417`. The two affected canvas assets remain correct at `1776x2360`.
 - Health after writing: `/api/health`, `/api/livez`, and `/api/readyz` all return `200`.
+- Source commit `c63c0a5a`. Platform release `0f5cb84f17706fee32d0236c93bb106815bb71cb` was pushed and deployed to Old through `scripts/deploy_local.sh --site old`; active unit moved `4174 -> 4175`. Live was not deployed. Post-deploy dry-run sees exactly the `417` unreadable source assets, and health remains `200`.
 
 ## 2026-11-20 Step FO: Generated-image dimension repair deployed and applied
 
