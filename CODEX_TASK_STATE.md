@@ -1,3 +1,10 @@
+## 2026-11-20 Step FS: Preserve reference requirement only for generic Seedance 2.5
+
+- The exact browser message `Add at least one image, video, or audio reference.` was our frontend gate in `platform.create.parts/part-03.js`, not an upstream response. It had been applied to `seedance25`, `seedance25-flash`, and `seedance-nsfw` whenever multimodal mode had zero references.
+- Generic Seedance 2.5 (`seedance25`) does require a reference in multimodal mode. Seedance 2.5 Flash and official NSFW (`seedance-nsfw`) accept prompt-only generation; their backend validators require a prompt or reference media, not reference media unconditionally.
+- Narrowed the gate to `provider === "seedance25"` only. Added a source-level regression test asserting that the broad zero-reference condition is absent.
+- Verification: syntax checks pass and the focused Seedance/upstream-name suite passes `33/33`. No unrelated generation flow was changed.
+
 ## 2026-11-20 Step FR: Compact upstream CreateAsset names
 
 - Production task `cgt-20261120170228-848036` advanced past local-file recovery but failed at BytePlus `CreateAsset` with `InvalidParameter.Name Name must be no more than 64 characters`.
@@ -6,7 +13,7 @@
 - Applied caps to Seedance, home-video, Seedream 5, Ignex, and public BytePlus `CreateAsset` paths in `part-18`, `part-27`, and `part-32`.
 - The affected asset now produces a name like `raising-game-gateway-a-0875d62f199ab651add94f-<timestamp>` (59 characters).
 - Added `test/upstream-asset-name.test.js`. Focused suite `52/52` passes with `node --require ./test/source-compat.js --test`; syntax checks, `npm run check:undef`, and scoped `git diff --check` pass. Full suite is `1475 pass / 15 fail / 2 skipped`; the 15 failures are the existing unrelated dirty story/optimizer/cache/source-split set.
-- Local only at this point: not committed, released, or deployed.
+- Source commit `8dbb4839`; platform release `9ae2b859c7cc0844e840b2390ed941bc64196944` was built from it and pushed to `old-site` and `platform-release`; deployed to Old only through `scripts/deploy_local.sh --site old` with `OLD_ROLLING_DEPLOY_OK active_port=4175 release=9ae2b859...`. `/api/health`, `/api/livez`, and `/api/readyz` return `200`; Live was not deployed.
 
 ## 2026-11-20 Step FQ: Recover Seedance assets with an empty localUrl from OSS
 

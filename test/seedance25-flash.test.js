@@ -267,3 +267,14 @@ test("Advanced UI exposes only Flash resolutions, modes, limits, and audio defau
   assert.match(platformCreate, /provider === "seedance25-flash" \? "advanced-seedance25-flash"/);
   assert.ok(platformCreate.includes('functionMode: ["seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider) ? seedanceMode : undefined'));
 });
+
+test("Flash prompt-only multimodal generation is not blocked by the generic Seedance 2.5 reference gate", () => {
+  assert.match(
+    platformCreate,
+    /if \(provider === "seedance25" && seedanceMode === "omini" && totalReferences === 0\)/,
+  );
+  assert.doesNotMatch(
+    platformCreate,
+    /if \(seedanceMode === "omini" && totalReferences === 0\)/,
+  );
+});

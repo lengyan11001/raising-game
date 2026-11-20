@@ -777,7 +777,7 @@ async function submitAdvancedGenerateInternal() {
       if (els.advancedNote) els.advancedNote.textContent = "Seedance 2.5 720p supports 4-29 seconds.";
       return;
     }
-    if (seedanceMode === "omini" && totalReferences === 0) {
+    if (provider === "seedance25" && seedanceMode === "omini" && totalReferences === 0) {
       els.advancedSubmitBtn.disabled = false;
       if (els.advancedNote) els.advancedNote.textContent = "Add at least one image, video, or audio reference.";
       return;
