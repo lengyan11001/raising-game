@@ -4957,14 +4957,12 @@ function renderTopupPackages() {
     const bonus = Number(item.bonusPercent || 0);
     const badge = bonus > 0 ? `<b class="topup-package-badge">+${escapeHtml(formatCredits(bonus))}%</b>` : "";
     const couponDiscount = Math.max(0, Number(typeof couponDiscountForAmount === "function" ? couponDiscountForAmount(item.amount) : 0));
-    const couponBadge = couponDiscount > 0 ? `<b class="coupon-package-discount">-$${escapeHtml(formatCredits(couponDiscount))}</b>` : "";
     const couponPrice = couponDiscount > 0 && active
       ? `<span class="coupon-package-price"><s>$${escapeHtml(formatCredits(item.amount))}</s><b>$${escapeHtml(formatCredits(Math.max(0, Number(item.amount) - couponDiscount)))}</b></span>`
       : "";
     return `
       <button class="topup-package-card ${active ? "is-active" : ""}" type="button" data-topup-package="${escapeHtml(item.id)}">
         ${badge}
-        ${couponBadge}
         <span>${escapeHtml(item.currency)}</span>
         <strong>$${escapeHtml(formatCredits(item.amount))}</strong>
         ${couponPrice}

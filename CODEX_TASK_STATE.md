@@ -1,3 +1,54 @@
+## 2026-11-20 Step FJ: Remove top-up package coupon badge
+
+- Removed the `-$5` coupon discount badge from the top-right of package cards in the top-up dialog. Package bonus percentage badges and the active-package discounted price remain unchanged.
+- Bumped shared assets to `canvas-20261119-15`.
+- Coupon tests pass `23/23`; focused cache-busting test, syntax checks, `npm run check:undef`, and scoped diff checks pass. Deployment pending.
+
+## 2026-11-20 Step FI: Remove coupon status badges
+
+- Removed the `尽快使用 / Use soon` badge from the home coupon reminder and the `立减 / $5 OFF` status badge from the top-up coupon card title. The coupon remains usable through the existing action button and countdown copy.
+- Bumped the shared platform asset version to `canvas-20261119-14` for immediate cache refresh.
+- Cash-coupon tests pass `23/23`; focused cache-busting test, syntax checks, `npm run check:undef`, and scoped diff checks pass. Deployment is pending.
+
+## 2026-11-20 Step EW continuation 3: B06 canonical source anchors (local only)
+
+- `storyShotGroundingAnchorsInSource(...)` now includes clause anchors from the beat's canonical `sourceStart/sourceEnd` range, not only anchors already present in `beat.sourceQuote/sourceBasis`. This fixes B06 shots whose canonical beat quote begins at the husband/market cross-cut while the shot itself depicts the preceding home-scene sex action.
+- Shot-plan batch context now includes coverage-beat sourceBasis/sourceQuote excerpts, so the planner sees the missing home-scene action source and can produce verbatim `sourceBasis` for B06.
+- Added a regression assertion: a B06 shot without model sourceBasis still resolves canonical home-scene grounding from its beat range.
+- Verification passed: `node --check server.parts/part-49.js`, `node --check test/story-canvas-p1.test.js`, `node --test test/story-canvas-p1.test.js` (51/51), `npm run check:undef`, and scoped `git diff --check`.
+- Plan 18 had failed with unsupported B06 source on shots 24-26; next action is Plan 19 offline QA. No deployment and no production project/database writes.
+
+## 2026-11-19 Step EW continuation 2: quoted source continuity and cross-cut location (local only)
+
+- `storySourceActionMergedText(...)` now reconstructs repaired source text from original `sourceIndex/sourceEnd` ranges, so quoted source such as `“啪啪”直响` is no longer stripped out of `sourceBasis` by cleaning.
+- `storySourceActionLocation(...)` stays inside the clause paragraph and, when a beat mixes a market comparator with one home scene, does not infer market unless the current paragraph actually contains market evidence. A sex/action paragraph followed by the husband-at-market paragraph now resolves to the home scene instead of `菜市场摊位`.
+- Added regression assertions for quoted source continuity and the cross-cut market/home scene case.
+- Verification passed: `node --check server.parts/part-49.js`, `node --check test/story-canvas-p1.test.js`, focused story tests, `node --test test/story-canvas-p1.test.js` (50/50), `npm run check:undef`, and scoped `git diff --check`.
+- No deployment and no production project/database writes. Next: run Plan 16 from the existing offline QA source and inspect the result as a director before any asset audit.
+
+## 2026-11-19 Step FH: Hide coupon discount amount in top-up checkout
+
+- Removed the `−$5.00` amount badge from the coupon-applied row in the top-up checkout summary so membership discounts and coupon discounts no longer overflow the panel. Coupon calculation and the original/pay/credits summary remain unchanged.
+- Bumped the shared platform asset version to `canvas-20261119-13` so the changed coupon JS/CSS is fetched immediately.
+- Cash-coupon tests pass `23/23`, the focused cache-busting test passes, syntax/undefined checks and scoped diff checks pass.
+- Source commit `6c30b251`; platform release `b13a2673` pushed only to `platform-release`. Old-only rolling deployment completed with `OLD_ROLLING_DEPLOY_OK active_port=4174`.
+- Production serves the new coupon JS (the applied row contains no discount amount) and `/api/readyz` reports release `b13a267305f46c862ad01904a1b97ab9cc6e3729` ready.
+
+## 2026-11-19 Step FG: Cash coupon rollout changed from 30% to all users
+
+- Changed the default `COUPON_ROLLOUT_PERCENT` from `30` to `100`; the explicit environment override remains available. Registration/claim abuse checks were not removed.
+- Added `backfillCouponForAllActiveUsersInDb()` and `ops/backfill-coupon-all-users-20261119.js`. The backfill is PostgreSQL-backed, targets every non-deleted user missing `NEWUSER_30_5OFF`, and remains idempotent through `ON CONFLICT (user_id, template_id)`.
+- Focused cash-coupon tests pass `22/22`; server/script syntax checks, `npm run check:undef`, and scoped `git diff --check` pass. The broader six-file related run was `73/88` because of pre-existing dirty workflow/source-split failures unrelated to coupons.
+- Source commit `d90254d4`; platform release `f71a6765` pushed only to `platform-release`. Old-only rolling deployment completed with `OLD_ROLLING_DEPLOY_OK active_port=4175`.
+- Production backfill dry-run found `1010` active users missing the coupon. Apply inserted `1010` rows and verification found `0` missing. Final PostgreSQL state: `1016` active users, `1016` `NEWUSER_30_5OFF` coupon rows, `test01` coupon status `1` (already claimed). Public `/api/health` and `/api/readyz` are healthy.
+
+## 2026-11-19 Step EW continuation: source-range ownership and duplicate cleanup (local only)
+
+- `server.parts/part-49.js` now derives shot location grouping from the canonical source-range beat instead of trusting the model's `storyBeat` label. A shot labeled `B02` with a long alley source span is grouped under the actual `B03`, so composite beat locations resolve to `僻静胡同` rather than leaking `婚礼宴席厅`.
+- Added regression coverage for full-paragraph alley grounding, half-quote repair (`“噗！”的一声`), and merging repeated cleanup fragments into one executable shot.
+- Verification passed: `node --check server.parts/part-49.js`, `node --check test/story-canvas-p1.test.js`, `node --test test/story-canvas-p1.test.js` (50/50), `npm run check:undef`, and `git diff --check`.
+- No deployment and no production project/database writes were performed. Next: run Plan 15 from the checked-in offline QA source, review every shot as a director, then run asset audit only if the plan is clean.
+
 ## 2026-11-19 Step FF: Canvas asset add works for older generation records
 
 - Reproduced the live failure: clicking the canvas result action sent `POST /api/generation-records/cgt-20261110192224-951456/add-asset`, but production returned `404`. The record exists, is succeeded, and belongs to the signed-in `test01` user; it was outside the latest 500 records loaded by `readGenerationRecords()`.

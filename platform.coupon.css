@@ -740,19 +740,6 @@
 }
 .coupon-checkout-meta strong { color: #9df0c2; font-size: 12px; }
 
-.topup-package-card .coupon-package-discount {
-  position: absolute;
-  top: -8px;
-  right: 10px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  background: linear-gradient(100deg, #ff4d9d, #c22a83);
-  box-shadow: 0 4px 12px rgba(194, 42, 131, 0.5);
-}
-
 .topup-package-card .coupon-package-price {
   display: block;
   margin-top: 2px;
