@@ -1,8 +1,9 @@
-## 2026-11-20 Step FJ: Remove top-up package coupon badge
+## 2026-11-20 Step FK: Restore coupon status badges; keep package badge removed
 
-- Removed the `-$5` coupon discount badge from the top-right of package cards in the top-up dialog. Package bonus percentage badges and the active-package discounted price remain unchanged.
+- Restored the home reminder `Use soon / 尽快使用` badge and the top-up coupon entry status badge that were removed in Step FI. Those changes had missed the user's actual target and were incorrect.
+- Kept only the requested removal: the `-$5` coupon discount badge on the top-right of top-up package cards. Package bonus percentage badges and active-package discounted price remain.
 - Bumped shared assets to `canvas-20261119-15`.
-- Coupon tests pass `23/23`; focused cache-busting test, syntax checks, `npm run check:undef`, and scoped diff checks pass. Deployment pending.
+- Coupon tests pass `23/23`; syntax checks and scoped diff checks pass. Deployment pending.
 
 ## 2026-11-20 Step FI: Remove coupon status badges
 

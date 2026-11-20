@@ -446,9 +446,8 @@ test("cash coupon uses the approved popup, reminder, and top-up entry surfaces",
   assert.match(frontend, /function isHomeTab/);
   assert.match(frontend, /return !tab \|\| tab === defaultTab \|\| tab === "home"/);
   assert.match(frontend, /function renderCouponReminder/);
-  assert.doesNotMatch(frontend, /Use soon|尽快使用/);
-  assert.doesNotMatch(frontend, /reminderBadge|reminder-badge/);
-  assert.doesNotMatch(html, /couponReminderBadge|coupon-reminder-badge/);
+  assert.match(frontend, /reminderBadge\.textContent = locked[\s\S]*?copy\("Use soon", "尽快使用"\)/);
+  assert.match(html, /id="couponReminderBadge"/);
   assert.doesNotMatch(read("platform.explore.js"), /coupon-package-discount|couponBadge/);
   assert.match(frontend, /const entry = couponEntryState\(\);\s*const visible = Boolean\(isHomeTab\(\) && entry && !els\.dialog\?\.open && !els\.centerDialog\?\.open\)/);
   assert.match(frontend, /pending\s*\? copy\("Claim", "立即领取"\)\s*:\s*locked\s*\? copy\("View order", "查看订单"\)\s*: copy\("Use coupon", "去使用"\)/);
