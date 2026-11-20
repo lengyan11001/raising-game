@@ -1925,8 +1925,29 @@ function objectStoragePath(...parts) {
   return [OBJECT_STORAGE_KEY_PREFIX, suffix].filter(Boolean).join("/");
 }
 
+function compactStorageIdentifier(value = "", fallback = "item", maxLength = 24) {
+  const safeValue = storagePathSegment(value, fallback);
+  if (safeValue.length <= maxLength) return safeValue;
+  const prefix = "a-";
+  const hashLength = Math.max(8, maxLength - prefix.length);
+  return `${prefix}${crypto.createHash("sha256").update(safeValue).digest("hex").slice(0, hashLength)}`;
+}
+
+// BytePlus/Ark CreateAsset rejects names longer than 64 characters. Long
+// identifiers are replaced with a stable short hash instead of a truncated
+// original id, so names stay readable and deterministic.
+function upstreamAssetName(value = "", fallback = "reference") {
+  return compactStorageIdentifier(value || fallback, fallback, 64);
+}
+
 function storageObjectName(kind = "asset", id = "item") {
-  return `${SITE_STORAGE_SLUG}-${storagePathSegment(kind)}-${storagePathSegment(id)}-${Date.now()}`;
+  const site = compactStorageIdentifier(SITE_STORAGE_SLUG, "site", 12);
+  const type = compactStorageIdentifier(kind, "asset", 12);
+  const prefix = `${site}-${type}-`;
+  const suffix = `-${Date.now()}`;
+  const maxIdLength = Math.max(1, 64 - prefix.length - suffix.length);
+  const compactId = compactStorageIdentifier(id, "item", Math.min(24, maxIdLength));
+  return `${prefix}${compactId}${suffix}`.slice(0, 64);
 }
 
 const ARK_OPENAPI = {

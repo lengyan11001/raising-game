@@ -296,6 +296,7 @@ async function uploadIgnexSeedanceAsset({ db = null, user = {}, url = "", assetT
   const existingAssetUri = normalizeIgnexAssetUri(sourceUrl);
   if (existingAssetUri && !isPublicHttpUrl(sourceUrl)) return existingAssetUri;
   const normalizedType = String(assetType || "Image").trim() || "Image";
+  const assetName = upstreamAssetName(name, "reference-media");
   const cacheKey = ignexAssetCacheKey(normalizedType, sourceUrl);
   const cachedAssetUri = IGNEX_ASSET_URI_CACHE.get(cacheKey) || String(await getKv(cacheKey, "") || "").trim();
   if (cachedAssetUri) {
@@ -307,14 +308,14 @@ async function uploadIgnexSeedanceAsset({ db = null, user = {}, url = "", assetT
     GroupId: groupId,
     URL: sourceUrl,
     AssetType: normalizedType,
-    Name: name,
+    Name: assetName,
     Moderation: { Strategy: "Skip" },
     ProjectName: IGNEX_PROJECT_NAME,
   };
   console.log("[ignex-seedance-asset-upload]", JSON.stringify({
     action: "CreateAsset",
     assetType: normalizedType,
-    name,
+    name: assetName,
     sourceUrl,
   }));
   const raw = await ignexAssetAction("CreateAsset", uploadPayload);

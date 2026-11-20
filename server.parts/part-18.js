@@ -660,7 +660,7 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
     URL: uploaded.publicUrl,
     AssetType: "Image",
     Moderation: { Strategy: "Skip" },
-    Name: `raising-game-home-${item.id}-${Date.now()}`,
+    Name: storageObjectName("home", item.id),
     ProjectName: ARK_OPENAPI.projectName,
   });
   const assetId = extractAssetId(created);

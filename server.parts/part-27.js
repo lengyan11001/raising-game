@@ -663,7 +663,7 @@ async function handleByteplusAssetAction(req, res, url) {
       const groupId = String(body.GroupId || body.groupId || "").trim();
       const moderation = body.Moderation || body.moderation || { Strategy: "Skip" };
       const projectName = String(body.ProjectName || body.projectName || ARK_OPENAPI.projectName || "default");
-      const assetName = String(body.Name || body.name || path.basename(new URL(sourceUrl).pathname) || "reference asset");
+      const assetName = upstreamAssetName(body.Name || body.name || path.basename(new URL(sourceUrl).pathname) || "reference-asset", "reference-asset");
       const created = await createByteplusUpstreamAsset({
         GroupId: USE_GATEWAY_UPSTREAM ? "" : ARK_OPENAPI.groupId,
         URL: sourceUrl,
@@ -809,7 +809,7 @@ async function createSeedream5ImageAssetUriFromUrl(url = "", name = "Seedream re
     URL: sourceUrl,
     AssetType: "Image",
     Moderation: { Strategy: "Skip" },
-    Name: name || storageObjectName("seedream5", "reference"),
+    Name: upstreamAssetName(name || storageObjectName("seedream5", "reference"), "reference"),
     ProjectName: ARK_OPENAPI.projectName,
   });
   const assetId = extractAssetId(created);
