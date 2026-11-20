@@ -3,7 +3,7 @@
 - Restored the home reminder `Use soon / 尽快使用` badge and the top-up coupon entry status badge that were removed in Step FI. Those changes had missed the user's actual target and were incorrect.
 - Kept only the requested removal: the `-$5` coupon discount badge on the top-right of top-up package cards. Package bonus percentage badges and active-package discounted price remain.
 - Bumped shared assets to `canvas-20261119-15`.
-- Coupon tests pass `23/23`; syntax checks and scoped diff checks pass. Deployment pending.
+- Coupon tests pass `23/23`; syntax checks and scoped diff checks pass. Source commit `cb53adba`; platform release `11cf8ba9` deployed Old through the rolling entrypoint (`4174 -> 4175`, `OLD_ROLLING_DEPLOY_OK`). Production `platform.coupon.js?v=canvas-20261119-15` contains the restored reminder/entry badges; `platform.explore.js` contains no `coupon-package-discount` while `topup-package-badge` remains; `/api/readyz` is ready on release `11cf8ba9`.
 
 ## 2026-11-20 Step FI: Remove coupon status badges
 
