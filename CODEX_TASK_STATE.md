@@ -4,6 +4,7 @@
 - Production had `1782` non-deleted zero-dimension image assets. A full dry-run found `1365` repairable from still-readable public URLs, `417` unreadable, and `0` execution failures. The `417` remaining are source-side failures: `74` fetch failures, `24` HTTP 403 responses, and `2` headers that could not be parsed; other skips count as failed candidates with their grouped error. These files cannot be repaired without a valid source copy and do not require users to re-add anything.
 - Applied the batch repair to production: `1365` historical assets updated with true width/height/sizeBytes. Post-apply zero-dimension image count is `417`. The two affected canvas assets remain correct at `1776x2360`.
 - Health after writing: `/api/health`, `/api/livez`, and `/api/readyz` all return `200`.
+- Source commit `c63c0a5a`. Platform release `0f5cb84f17706fee32d0236c93bb106815bb71cb` was pushed and deployed to Old through `scripts/deploy_local.sh --site old`; active unit moved `4174 -> 4175`. Live was not deployed. Post-deploy dry-run sees exactly the `417` unreadable source assets, and health remains `200`.
 
 ## 2026-11-20 Step FO: Generated-image dimension repair deployed and applied
 
