@@ -58,6 +58,21 @@ Object.assign(process.env, {
 const isolatedServer = require("../server");
 const source = readServerSource();
 const firstPresent = (...values) => values.find((value) => value !== undefined && value !== null && value !== "");
+const imageDimensionsFromBuffer = (bytes) => {
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
+  if (buffer.length >= 24 && buffer[0] === 0x89 && buffer.toString("ascii", 1, 4) === "PNG") {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20), type: "png" };
+  }
+  return null;
+};
+const imageMimeFromBuffer = (bytes) => imageDimensionsFromBuffer(bytes)?.type === "png" ? "image/png" : "";
+const pngDimensionBytes = (width, height) => {
+  const bytes = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return bytes;
+};
 const isPublicHttpUrl = (value) => {
   try {
     return ["http:", "https:"].includes(new URL(String(value)).protocol);
@@ -443,6 +458,9 @@ test("adding the same generation result reuses its existing asset without anothe
       id: "asset-existing",
       userId: "user-1",
       mime: "image/png",
+      width: 1024,
+      height: 1536,
+      sizeBytes: 2048,
       objectStorageKey: "generated/images/portrait.png",
       publicUrl: record.cdnImageUrl,
       sourceGenerationTaskId: record.taskId,
@@ -469,6 +487,8 @@ test("adding the same generation result reuses its existing asset without anothe
     "createUserMediaAssetFromBytes",
     "generationRecordAssetName",
     "imageExtFromMime",
+    "imageDimensionsFromBuffer",
+    "imageMimeFromBuffer",
     "dbEnabled",
     "upsertUserAssetInDb",
     "writeDb",
@@ -510,6 +530,8 @@ test("adding the same generation result reuses its existing asset without anothe
     },
     () => "Portrait",
     () => ".png",
+    () => null,
+    () => "",
     () => false,
     async () => null,
     async () => null,
@@ -523,6 +545,272 @@ test("adding the same generation result reuses its existing asset without anothe
   assert.equal(downloadCalls, 0);
   assert.equal(createCalls, 0);
   assert.equal(updatePayload.payload.resultAssetId, "asset-existing");
+  assert.equal(generationAddAssetPromises.size, 0);
+});
+
+test("adding a dimension-less generated image reads bytes and persists real dimensions", async () => {
+  const generationAddAssetPromises = new Map();
+  let downloaded = 0;
+  let createdWith = null;
+  let savedAsset = null;
+  let updatePayload = null;
+  const record = {
+    taskId: "img-qwen-no-dimensions",
+    userId: "user-1",
+    status: "succeeded",
+    model: "qwen-image-3.0",
+    cdnImageUrl: "https://assets-cdn.123vips.com/generated/images/canvas-result.png",
+    storageKey: "generated/images/canvas-result.png",
+    width: 0,
+    height: 0,
+    sizeBytes: 0,
+  };
+  const db = { userAssets: [] };
+  const referenceAsset = {
+    id: "asset-deterministic",
+    userId: "user-1",
+    mime: "image/png",
+    name: "Canvas result",
+    publicUrl: record.cdnImageUrl,
+    cdnUrl: record.cdnImageUrl,
+    objectStorageKey: record.storageKey,
+    storageProvider: "oss",
+    sourceGenerationTaskId: record.taskId,
+    localUrl: "",
+    width: 0,
+    height: 0,
+    sizeBytes: 0,
+    deletedAt: "",
+  };
+  const handleAddGenerationRecordToAssets = new Function(
+    "requireUser",
+    "getGenerationRecord",
+    "isUserVisibleGenerationRecord",
+    "isSucceededStatus",
+    "findGenerationRecordAddedAsset",
+    "generationRecordAddedAssetId",
+    "generationAddAssetPromises",
+    "generationRecordReferenceAssetCandidate",
+    "generationRecordResultAssetMediaFields",
+    "updateGenerationRecord",
+    "publicUserAsset",
+    "generationRecordImageUrl",
+    "generationRecordVideoUrl",
+    "bytesForGenerationRecordImage",
+    "bytesForGenerationRecordVideo",
+    "createUserMediaAssetFromBytes",
+    "generationRecordAssetName",
+    "imageExtFromMime",
+    "imageDimensionsFromBuffer",
+    "imageMimeFromBuffer",
+    "dbEnabled",
+    "upsertUserAssetInDb",
+    "writeDb",
+    "sendJson",
+    `return (${extractFunction(source, "handleAddGenerationRecordToAssets")});`,
+  )(
+    async () => ({ user: { id: "user-1" }, db }),
+    async (taskId) => taskId === record.taskId ? record : null,
+    () => true,
+    (status) => status === "succeeded",
+    () => null,
+    () => "asset-deterministic",
+    generationAddAssetPromises,
+    () => ({ ...referenceAsset }),
+    (asset) => ({ storageKey: asset.objectStorageKey, localImageUrl: asset.localUrl }),
+    async (taskId, payload) => {
+      updatePayload = { taskId, payload };
+      return { ...record, ...payload };
+    },
+    (asset) => ({ ...asset, previewUrl: asset.publicUrl }),
+    () => record.cdnImageUrl,
+    () => "",
+    async () => {
+      downloaded += 1;
+      return { bytes: pngDimensionBytes(1776, 2360), mime: "image/png", fileName: "canvas-result.png" };
+    },
+    async () => {
+      throw new Error("video path must not run");
+    },
+    async (_db, _user, options) => {
+      createdWith = options;
+      const asset = {
+        id: options.assetId,
+        userId: "user-1",
+        mime: options.mime,
+        name: options.name,
+        localUrl: "/assets/user-uploads/user-1/canvas-result.png",
+        publicUrl: record.cdnImageUrl,
+        cdnUrl: record.cdnImageUrl,
+        objectStorageKey: record.storageKey,
+        storageProvider: "oss",
+        width: 1776,
+        height: 2360,
+        sizeBytes: options.bytes.byteLength,
+        createdAt: "2026-11-20T00:00:00.000Z",
+        updatedAt: "2026-11-20T00:00:00.000Z",
+        deletedAt: "",
+      };
+      db.userAssets.unshift(asset);
+      return asset;
+    },
+    () => "Canvas result",
+    () => ".png",
+    imageDimensionsFromBuffer,
+    imageMimeFromBuffer,
+    () => true,
+    async (asset) => {
+      savedAsset = asset;
+      return asset;
+    },
+    async () => {},
+    (res, statusCode, payload) => ({ statusCode, payload }),
+  );
+
+  const response = await handleAddGenerationRecordToAssets({}, {}, record.taskId);
+  assert.equal(response.statusCode, 200);
+  assert.equal(downloaded, 1);
+  assert.ok(savedAsset);
+  assert.equal(createdWith, null);
+  assert.equal(savedAsset.referenceOnly, undefined);
+  assert.equal(savedAsset.width, 1776);
+  assert.equal(savedAsset.height, 2360);
+  assert.equal(savedAsset.sizeBytes, 24);
+  assert.equal(savedAsset.sourceGenerationTaskId, record.taskId);
+  assert.equal(savedAsset.modifyModel, "qwen-image-3.0");
+  assert.equal(updatePayload.payload.resultAssetId, "asset-deterministic");
+  assert.equal(updatePayload.payload.width, 1776);
+  assert.equal(updatePayload.payload.height, 2360);
+  assert.equal(generationAddAssetPromises.size, 0);
+});
+
+test("re-adding an existing zero-dimension generated asset repairs it in place", async () => {
+  const generationAddAssetPromises = new Map();
+  let downloaded = 0;
+  let createdWith = null;
+  let savedAsset = null;
+  let updatePayload = null;
+  const record = {
+    taskId: "img-qwen-existing-zero",
+    userId: "user-1",
+    status: "succeeded",
+    model: "qwen-image-3.0",
+    cdnImageUrl: "https://assets-cdn.123vips.com/generated/images/existing-zero.png",
+    storageKey: "generated/images/existing-zero.png",
+  };
+  const existingAsset = {
+    id: "asset-existing-zero",
+    userId: "user-1",
+    mime: "image/png",
+    name: "Existing canvas result",
+    publicUrl: record.cdnImageUrl,
+    cdnUrl: record.cdnImageUrl,
+    objectStorageKey: record.storageKey,
+    storageProvider: "oss",
+    sourceGenerationTaskId: record.taskId,
+    localUrl: "",
+    width: 0,
+    height: 0,
+    sizeBytes: 0,
+    createdAt: "2026-11-18T00:00:00.000Z",
+    deletedAt: "",
+  };
+  const db = { userAssets: [existingAsset] };
+  const handleAddGenerationRecordToAssets = new Function(
+    "requireUser",
+    "getGenerationRecord",
+    "isUserVisibleGenerationRecord",
+    "isSucceededStatus",
+    "findGenerationRecordAddedAsset",
+    "generationRecordAddedAssetId",
+    "generationAddAssetPromises",
+    "generationRecordReferenceAssetCandidate",
+    "generationRecordResultAssetMediaFields",
+    "updateGenerationRecord",
+    "publicUserAsset",
+    "generationRecordImageUrl",
+    "generationRecordVideoUrl",
+    "bytesForGenerationRecordImage",
+    "bytesForGenerationRecordVideo",
+    "createUserMediaAssetFromBytes",
+    "generationRecordAssetName",
+    "imageExtFromMime",
+    "imageDimensionsFromBuffer",
+    "imageMimeFromBuffer",
+    "dbEnabled",
+    "upsertUserAssetInDb",
+    "writeDb",
+    "sendJson",
+    `return (${extractFunction(source, "handleAddGenerationRecordToAssets")});`,
+  )(
+    async () => ({ user: { id: "user-1" }, db }),
+    async (taskId) => taskId === record.taskId ? record : null,
+    () => true,
+    (status) => status === "succeeded",
+    (assets, userId, taskId, resultAssetId) => assets.find((asset) => (
+      asset.userId === userId && (asset.id === resultAssetId || asset.sourceGenerationTaskId === taskId)
+    )) || null,
+    () => "asset-deterministic",
+    generationAddAssetPromises,
+    () => {
+      throw new Error("reference asset must not be created when repairing an existing asset");
+    },
+    (asset) => ({ storageKey: asset.objectStorageKey, localImageUrl: asset.localUrl, width: asset.width, height: asset.height }),
+    async (taskId, payload) => {
+      updatePayload = { taskId, payload };
+      return { ...record, ...payload };
+    },
+    (asset) => ({ ...asset, previewUrl: asset.publicUrl }),
+    () => record.cdnImageUrl,
+    () => "",
+    async () => {
+      downloaded += 1;
+      return { bytes: pngDimensionBytes(1776, 2360), mime: "image/png", fileName: "existing-zero.png" };
+    },
+    async () => {
+      throw new Error("video path must not run");
+    },
+    async (_db, _user, options) => {
+      createdWith = options;
+      const repaired = {
+        ...existingAsset,
+        id: options.assetId,
+        localUrl: "/assets/user-uploads/user-1/existing-zero.png",
+        width: 1776,
+        height: 2360,
+        sizeBytes: options.bytes.byteLength,
+        updatedAt: "2026-11-20T00:00:00.000Z",
+      };
+      db.userAssets = db.userAssets.map((asset) => asset.id === repaired.id ? repaired : asset);
+      return repaired;
+    },
+    () => "Existing canvas result",
+    () => ".png",
+    imageDimensionsFromBuffer,
+    imageMimeFromBuffer,
+    () => true,
+    async (asset) => {
+      savedAsset = asset;
+      return asset;
+    },
+    async () => {},
+    (res, statusCode, payload) => ({ statusCode, payload }),
+  );
+
+  const response = await handleAddGenerationRecordToAssets({}, {}, record.taskId);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.alreadyAdded, true);
+  assert.equal(response.payload.asset.id, existingAsset.id);
+  assert.equal(downloaded, 1);
+  assert.equal(createdWith, null);
+  assert.ok(savedAsset);
+  assert.equal(savedAsset.width, 1776);
+  assert.equal(savedAsset.height, 2360);
+  assert.equal(savedAsset.localUrl, "");
+  assert.equal(savedAsset.name, "Existing canvas result");
+  assert.equal(updatePayload.payload.resultAssetId, existingAsset.id);
+  assert.equal(updatePayload.payload.width, 1776);
+  assert.equal(updatePayload.payload.height, 2360);
   assert.equal(generationAddAssetPromises.size, 0);
 });
 
@@ -549,6 +837,9 @@ test("adding a durable generated result writes one reference asset and no media 
     cdnUrl: record.cdnImageUrl,
     objectStorageKey: record.storageKey,
     storageProvider: "oss",
+    width: 1024,
+    height: 1536,
+    sizeBytes: 2048,
     sourceGenerationTaskId: record.taskId,
     localUrl: "",
     deletedAt: "",
@@ -573,6 +864,8 @@ test("adding a durable generated result writes one reference asset and no media 
     "createUserMediaAssetFromBytes",
     "generationRecordAssetName",
     "imageExtFromMime",
+    "imageDimensionsFromBuffer",
+    "imageMimeFromBuffer",
     "dbEnabled",
     "upsertUserAssetInDb",
     "writeDb",
@@ -609,6 +902,8 @@ test("adding a durable generated result writes one reference asset and no media 
     },
     () => "Portrait",
     () => ".png",
+    () => null,
+    () => "",
     () => true,
     async (asset) => {
       savedAsset = asset;

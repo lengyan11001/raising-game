@@ -845,6 +845,45 @@ async function bytesForGenerationRecordImage(record = {}) {
 async function handleAddGenerationRecordToAssets(req, res, taskId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  const generationImageMetadata = async () => {
+    const media = await bytesForGenerationRecordImage(record);
+    const dimensions = imageDimensionsFromBuffer(media.bytes);
+    if (!dimensions?.width || !dimensions?.height) {
+      const error = new Error("Generation image dimensions could not be read.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const mime = media.mime && media.mime.startsWith("image/")
+      ? media.mime
+      : imageMimeFromBuffer(media.bytes) || "image/png";
+    return {
+      media,
+      width: dimensions.width,
+      height: dimensions.height,
+      sizeBytes: media.bytes.byteLength,
+      mime,
+    };
+  };
+  const applyGenerationRecordMetadata = (asset = {}, isImageRecord = false) => {
+    if (!isImageRecord) return asset;
+    if (String(record.kind || "").includes("character") || String(record.source || "").includes("character")) {
+      asset.sourceCharacterId = record.characterId || "";
+      asset.characterPrompt = record.prompt || "";
+      asset.characterFinalPrompt = record.finalPrompt || record.prompt || "";
+      asset.characterModel = record.model || "";
+      asset.characterTaskId = record.upstreamTaskId || record.taskId || "";
+      asset.characterParams = record.params || null;
+    }
+    if (record.userAssetId) asset.sourceAssetId = record.userAssetId;
+    if (Array.isArray(record.userAssetIds)) asset.sourceAssetIds = record.userAssetIds;
+    if (record.prompt) asset.modifyPrompt = record.prompt;
+    if (record.model) asset.modifyModel = record.model;
+    if (record.upstreamTaskId || record.taskId) asset.modifyTaskId = record.upstreamTaskId || record.taskId;
+    if (record.params) asset.modifyParams = record.params;
+    asset.sourceGenerationTaskId = taskId;
+    asset.updatedAt = new Date().toISOString();
+    return asset;
+  };
   // Read the exact record instead of searching the latest page of records.
   // Canvas results can be much older than the current 500-record window.
   const record = await getGenerationRecord(taskId);
@@ -859,6 +898,31 @@ async function handleAddGenerationRecordToAssets(req, res, taskId) {
     addAssetPromise = (async () => {
       const existingAsset = findGenerationRecordAddedAsset(auth.db.userAssets, auth.user.id, taskId, record.resultAssetId);
       if (existingAsset) {
+        const existingIsImageRecord = String(existingAsset.mime || "").startsWith("image/");
+        const existingHasDimensions = Number(existingAsset.width || 0) > 0 && Number(existingAsset.height || 0) > 0;
+        if (existingIsImageRecord && !existingHasDimensions && generationRecordImageUrl(record)) {
+          const imageMetadata = await generationImageMetadata();
+          const asset = applyGenerationRecordMetadata({
+            ...existingAsset,
+            mime: imageMetadata.mime || existingAsset.mime,
+            width: imageMetadata.width,
+            height: imageMetadata.height,
+            sizeBytes: imageMetadata.sizeBytes,
+          }, true);
+          auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+          if (dbEnabled()) await upsertUserAssetInDb(asset);
+          else await writeDb(auth.db);
+          await updateGenerationRecord(taskId, {
+            resultAssetId: asset.id,
+            assetAddedAt: record.assetAddedAt || existingAsset.createdAt || new Date().toISOString(),
+            ...generationRecordResultAssetMediaFields(asset),
+            width: asset.width,
+            height: asset.height,
+            sizeBytes: asset.sizeBytes,
+            cdnImageStorageKeys: [asset.objectStorageKey],
+          }, "history-add-asset-dimensions-repair");
+          return { asset, alreadyAdded: true };
+        }
         const mediaFields = generationRecordResultAssetMediaFields(existingAsset);
         const missingFields = Object.fromEntries(Object.entries(mediaFields).filter(([key, value]) => String(value || "").trim() && !String(record[key] || "").trim()));
         const missingLink = String(record.resultAssetId || "").trim() !== existingAsset.id;
@@ -875,25 +939,21 @@ async function handleAddGenerationRecordToAssets(req, res, taskId) {
       const referenceAsset = generationRecordReferenceAssetCandidate(record, {
         assetId: generationRecordAddedAssetId(auth.user.id, taskId),
       });
+      const referenceIsImageRecord = Boolean(referenceAsset) && String(referenceAsset.mime || "").startsWith("image/");
+      if (referenceAsset && referenceIsImageRecord) {
+        const referenceHasDimensions = Number(referenceAsset.width || 0) > 0
+          && Number(referenceAsset.height || 0) > 0;
+        if (!referenceHasDimensions) {
+          const imageMetadata = await generationImageMetadata();
+          referenceAsset.mime = imageMetadata.mime || referenceAsset.mime;
+          referenceAsset.width = imageMetadata.width;
+          referenceAsset.height = imageMetadata.height;
+          referenceAsset.sizeBytes = imageMetadata.sizeBytes;
+        }
+      }
       if (referenceAsset) {
         referenceAsset.userId = auth.user.id;
-        const isImageRecord = !String(referenceAsset.mime || "").startsWith("video/");
-        if (isImageRecord) {
-          if (String(record.kind || "").includes("character") || String(record.source || "").includes("character")) {
-            referenceAsset.sourceCharacterId = record.characterId || "";
-            referenceAsset.characterPrompt = record.prompt || "";
-            referenceAsset.characterFinalPrompt = record.finalPrompt || record.prompt || "";
-            referenceAsset.characterModel = record.model || "";
-            referenceAsset.characterTaskId = record.upstreamTaskId || record.taskId || "";
-            referenceAsset.characterParams = record.params || null;
-          }
-          if (record.userAssetId) referenceAsset.sourceAssetId = record.userAssetId;
-          if (Array.isArray(record.userAssetIds)) referenceAsset.sourceAssetIds = record.userAssetIds;
-          if (record.prompt) referenceAsset.modifyPrompt = record.prompt;
-          if (record.model) referenceAsset.modifyModel = record.model;
-          if (record.upstreamTaskId || record.taskId) referenceAsset.modifyTaskId = record.upstreamTaskId || record.taskId;
-          if (record.params) referenceAsset.modifyParams = record.params;
-        }
+        applyGenerationRecordMetadata(referenceAsset, referenceIsImageRecord);
         auth.db.userAssets = [
           referenceAsset,
           ...(auth.db.userAssets || []).filter((entry) => entry.id !== referenceAsset.id),
@@ -904,7 +964,10 @@ async function handleAddGenerationRecordToAssets(req, res, taskId) {
           resultAssetId: referenceAsset.id,
           assetAddedAt: new Date().toISOString(),
           ...generationRecordResultAssetMediaFields(referenceAsset),
-          ...(isImageRecord ? {
+          ...(referenceIsImageRecord ? {
+            width: referenceAsset.width,
+            height: referenceAsset.height,
+            sizeBytes: referenceAsset.sizeBytes,
             cdnImageStorageKeys: [referenceAsset.objectStorageKey],
           } : {}),
         }, "history-add-asset-reference");
@@ -924,24 +987,7 @@ async function handleAddGenerationRecordToAssets(req, res, taskId) {
         maxBytes: 30 * 1024 * 1024,
         assetId: generationRecordAddedAssetId(auth.user.id, taskId),
       });
-      asset.sourceGenerationTaskId = taskId;
-      if (isImageRecord) {
-        if (String(record.kind || "").includes("character") || String(record.source || "").includes("character")) {
-          asset.sourceCharacterId = record.characterId || "";
-          asset.characterPrompt = record.prompt || "";
-          asset.characterFinalPrompt = record.finalPrompt || record.prompt || "";
-          asset.characterModel = record.model || "";
-          asset.characterTaskId = record.upstreamTaskId || record.taskId || "";
-          asset.characterParams = record.params || null;
-        }
-        if (record.userAssetId) asset.sourceAssetId = record.userAssetId;
-        if (Array.isArray(record.userAssetIds)) asset.sourceAssetIds = record.userAssetIds;
-        if (record.prompt) asset.modifyPrompt = record.prompt;
-        if (record.model) asset.modifyModel = record.model;
-        if (record.upstreamTaskId || record.taskId) asset.modifyTaskId = record.upstreamTaskId || record.taskId;
-        if (record.params) asset.modifyParams = record.params;
-      }
-      asset.updatedAt = new Date().toISOString();
+      applyGenerationRecordMetadata(asset, isImageRecord);
       auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
       if (dbEnabled()) await upsertUserAssetInDb(asset);
       else await writeDb(auth.db);
