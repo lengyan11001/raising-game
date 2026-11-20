@@ -1,3 +1,30 @@
+## 2026-11-20 Step FN: Plan 23/24 source-order audit and repair (local only)
+
+- Plan 23 failed with one backward source-order regression at shot 9/B04 (`708` after previous shot 8 at `841`). Plan 24 failed with five regressions across B03, B04, B06, and B07, plus broad `unsupported_description_clause` findings in adult action prose.
+- Root cause in cleanup: repaired shots were sorted only by beat and original array position. Shots created from source-action repair could contain the correct `sourceBasis`, but their original array position did not match the source offset; cleanup could therefore leave a later clause before an earlier one within the same beat.
+- `storyRepairNarrativeGrounding(...)` in `server.parts/part-49.js` now sorts by beat, then the actual source index resolved from the shot's `sourceBasis`, then original array position.
+- Verification after the patch: `node --check server.parts/part-49.js`, `node --check test/story-canvas-p1.test.js`, `node --test test/story-canvas-p1.test.js` (52/52), `npm run check:undef`, and scoped `git diff --check` all pass.
+- No deployment and no production project/database writes. Next: fresh Plans 25/26 with the patched ordering.
+
+## 2026-11-20 Step FM: Canvas-asset dimensions root cause confirmed (read-only)
+
+- Follow-up to the two Wan 3.0 failures for `user-1789207499148-734e3f44` (`cgt-20261120114913-0181a9`, `cgt-20261120115146-caa805`). The selected images came from Qwen Image 3.0 canvas results added to the user's asset library.
+- Confirmed from OSS bytes that both canvas results are valid and much larger than the upstream minimum: `img-20261118123640-759729` = 1776x2360, 6,791,755 bytes; `img-20261118123847-d1a73c` = 1776x2360, 7,181,521 bytes. Their corresponding assets `asset-f7d3ea6902dfd06aa30832bd` and `asset-63ea8fca159e8e37c3e84f1c` were persisted with `width=0`, `height=0`, `sizeBytes=0`, and empty `localUrl`.
+- Root cause is the canvas add-to-assets metadata-only shortcut, not a genuinely undersized image: `generationRecordReferenceAssetCandidate()` copies missing width/height from the generation record, while Qwen canvas records also lack those fields. Wan 3.0 validation later sees 0x0 and cannot probe bytes because the asset has no local URL; it rejects before creating any upstream media (the failed record has `mediaAssets=[]`).
+- Production scope: 1,794 non-deleted image assets have zero width and height, 12 of them have a source generation task, across 46 users. The two assets used by this user are among the source-generation subset. No business data or code was changed; production remains healthy.
+- User decision: do not change Wan/Seedance dimension validation or automatic resizing. The implementation only supplements generated-image metadata and performs controlled repair.
+- Implemented: generated-image add-to-assets reads durable bytes when needed, persists real `width`/`height`/`sizeBytes`, and repairs an existing zero-dimension generated asset in place. Existing valid metadata is preserved. Added focused Wan preparation coverage.
+- Production repair scope is the `12` traceable zero-dimension source-generated assets, not all `1,794` zero-dimension images. The repair command must default to dry-run and only mutate traceable candidates with `--apply`.
+
+## 2026-11-20 Step FL: Production generation failure audit (read-only)
+
+- Audited production `123vips.com` over the latest 24h. Services and readiness are healthy (`/api/health`, `/api/livez`, `/api/readyz` all 200); logs show no database outage, uncaught exception, OOM, or service crash.
+- Non-deleted generation records: 656 total, 40 terminal failures. The audit script reports 39 because one failure (`cgt-20261119132628-08080d`) is marked deleted; billing audit reports 32 refunded + 7 free and zero refund anomalies.
+- Failure classes: moderation/policy 21, other parameter/mixed 9, missing/invalid media 5, upstream/server 3, network/timeout 1. Most failures are upstream input/output safety review or content policy, not platform instability.
+- Seedream 5's six failures are the same `user-1794662487653-490d0b43` Python-urllib API probe requests with invalid/missing reference images; later requests from that user with valid assets succeeded. Seedance 2.0's four failures are `user-1795060619956-a57f425b` requests omitting duration/model fields; the same user's normal Seedance and Wan requests succeeded before and after. Wan 3.0's two failures are `user-1789207499148-734e3f44` requests rejected for reference image dimensions below 240px; the same user's subsequent Wan 3.0 request succeeded.
+- Seedance 2.5 Flash `cgt-20261120115843-213a8a` was an upstream input-image sensitive-content rejection, not a ratio/duration bug. Upstream moderation/copyright dominated the remaining failures.
+- No code, business data, or deployment changes were made. Files inspected: `scripts/audit-generation-failures.js`, `server.parts/part-11.js`, `server.parts/part-29.js`, `platform.create.parts/part-03.js`.
+
 ## 2026-11-20 Step FK: Restore coupon status badges; keep package badge removed
 
 - Restored the home reminder `Use soon / 尽快使用` badge and the top-up coupon entry status badge that were removed in Step FI. Those changes had missed the user's actual target and were incorrect.
@@ -10,6 +37,15 @@
 - Removed the `尽快使用 / Use soon` badge from the home coupon reminder and the `立减 / $5 OFF` status badge from the top-up coupon card title. The coupon remains usable through the existing action button and countdown copy.
 - Bumped the shared platform asset version to `canvas-20261119-14` for immediate cache refresh.
 - Cash-coupon tests pass `23/23`; focused cache-busting test, syntax checks, `npm run check:undef`, and scoped diff checks pass. Deployment is pending.
+
+## 2026-11-20 Step EX: Plan 19-21 QA and duplicate-dialogue cleanup (local only)
+
+- Ran three parallel offline shot-plan QA attempts: Plan 19 failed with `unsupported_source` on shot 25/B09 and missing beat 8; Plan 21 failed with unsupported description-only camera clauses on shots 12/16; Plan 20 saved successfully with 26 shots, seven beats, 162 seconds, 100% source-action coverage, and complete verbatim dialogue coverage.
+- Director review of Plan 20 found adequate chronology and full B05-B07 coverage, but flagged two deterministic defects: shot 24 was a repeated-dialogue source-summary fragment after the canonical D13 delivery in shot 23, and the market shot normalized to `市场(` instead of `市场`.
+- Added duplicate-fragment detection for action summaries that repeat an already covered dialogue/action fragment without new dialogue IDs, and normalized dangling location parentheses such as `市场(`.
+- Added regressions for the repeated-dialogue fragment and malformed market location. Story tests now pass 52/52; `node --check`, `npm run check:undef`, and scoped `git diff --check` pass.
+- Replayed Plan 20 through the updated cleanup: shots drop 26 -> 25, D13 exists only on shot 23, and shot 20 location becomes `市场`. No deployment and no production project/database writes.
+- Next: run Plan 22 with the fixes and review it as a director; if accepted, continue to asset planning, prompt optimization, video generation, and playback QA.
 
 ## 2026-11-20 Step EW continuation 3: B06 canonical source anchors (local only)
 
