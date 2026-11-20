@@ -1,3 +1,13 @@
+## 2026-11-20 Step FR: Compact upstream CreateAsset names
+
+- Production task `cgt-20261120170228-848036` advanced past local-file recovery but failed at BytePlus `CreateAsset` with `InvalidParameter.Name Name must be no more than 64 characters`.
+- The exact generated name was `raising-game-gateway-asset-63ea8fca159e8e37c3e84f1c-1795165546599`, 65 characters. The 64-character limit includes the `raising-game` site prefix, `gateway` kind, full asset id, and 13-digit timestamp.
+- Added `compactStorageIdentifier()` / `upstreamAssetName()` in `server.parts/part-01.js`. Long ids now become a short deterministic SHA-256 identifier instead of a truncated original id; `storageObjectName()` reserves the site/type/timestamp space and guarantees <= 64 characters.
+- Applied caps to Seedance, home-video, Seedream 5, Ignex, and public BytePlus `CreateAsset` paths in `part-18`, `part-27`, and `part-32`.
+- The affected asset now produces a name like `raising-game-gateway-a-0875d62f199ab651add94f-<timestamp>` (59 characters).
+- Added `test/upstream-asset-name.test.js`. Focused suite `52/52` passes with `node --require ./test/source-compat.js --test`; syntax checks, `npm run check:undef`, and scoped `git diff --check` pass. Full suite is `1475 pass / 15 fail / 2 skipped`; the 15 failures are the existing unrelated dirty story/optimizer/cache/source-split set.
+- Local only at this point: not committed, released, or deployed.
+
 ## 2026-11-20 Step FQ: Recover Seedance assets with an empty localUrl from OSS
 
 - Production failures `cgt-20261120131044-89b322`, `cgt-20261120131056-5b3261`, `cgt-20261120131103-098a4c`, `cgt-20261120131139-e9472c`, and `cgt-20261120131151-424d1d` all referenced the same valid asset: `asset-63ea8fca159e8e37c3e84f1c` owned by `user-1789207499148-734e3f44`.
@@ -5,6 +15,8 @@
 - Root cause: `ensureLocalUserAssetFile()` called `localPathForUserAsset()` and failed when `localUrl` was empty, before attempting the existing signed-OSS recovery path.
 - Fixed `server.parts/part-13.js` by deriving a safe deterministic local recovery path from `userId`, `assetId`, MIME, and source extension, then restoring the file from the signed OSS URL and persisting the restored `localUrl`.
 - Added `test/local-asset-oss-recovery.test.js` covering the exact empty-`localUrl` Seedance case. Focused recovery tests pass `14/14`; syntax checks, `npm run check:undef`, and scoped `git diff --check` pass. The broader suite still has unrelated pre-existing dirty-work failures.
+- Source commit `a6a7c7d2`; platform release `e149560957a715555fd7a88dde3ffaca6c8eae99` was built, pushed (`old-site`, `platform-release`), and deployed to Old only through `scripts/deploy_local.sh --site old`. Rolling cutover `4175 -> 4174` passed 1%/5% canaries (`OLD_ROLLING_DEPLOY_OK`).
+- Production verification: `/api/health`, `/api/livez`, and `/api/readyz` return `200`; active PID runs from the release above; deployed `server.parts/part-13.js` contains `restorableLocalPathForUserAsset`. Live was not deployed.
 
 ## 2026-11-20 Step FP: Historical image dimension batch backfill
 
