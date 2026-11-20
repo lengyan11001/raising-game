@@ -3,21 +3,27 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { Client } = require("pg");
+const { Pool } = require("pg");
 const { downloadObject } = require("../oss-storage");
 
 const ROOT = path.resolve(__dirname, "..");
 const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
+const IMAGE_HEADER_BYTES = 64 * 1024;
+const IMAGE_HEADER_FALLBACK_BYTES = 1024 * 1024;
+const DEFAULT_CONCURRENCY = 8;
 
 function parseArgs(argv) {
-  const args = { apply: false, envFile: process.env.ENV_FILE || "", taskIds: [], limit: 100 };
+  const args = { apply: false, allImages: false, summaryOnly: false, envFile: process.env.ENV_FILE || "", taskIds: [], limit: 10000, concurrency: DEFAULT_CONCURRENCY };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--apply") args.apply = true;
     else if (arg === "--dry-run") args.apply = false;
+    else if (arg === "--all-images") args.allImages = true;
+    else if (arg === "--summary-only") args.summaryOnly = true;
     else if (arg === "--env") args.envFile = argv[++index] || "";
     else if (arg === "--task-id") args.taskIds.push(String(argv[++index] || "").trim());
-    else if (arg === "--limit") args.limit = Math.max(1, Math.min(500, Number(argv[++index] || 0) || 100));
+    else if (arg === "--limit") args.limit = Math.max(1, Math.min(10000, Number(argv[++index] || 0) || 10000));
+    else if (arg === "--concurrency") args.concurrency = Math.max(1, Math.min(32, Number(argv[++index] || 0) || DEFAULT_CONCURRENCY));
     else if (arg === "--help" || arg === "-h") args.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
@@ -47,8 +53,11 @@ function usage() {
     "",
     "  --dry-run        Inspect candidates without writing (default)",
     "  --apply          Update asset and matching generation-record metadata",
+    "  --all-images     Include every zero-dimension image asset, not only generated images",
+    "  --summary-only   Print counts and failure details without every success row",
     "  --task-id <id>   Restrict to one generation task id; repeatable",
-    "  --limit <n>      Maximum candidates to inspect (default 100, max 500)",
+    "  --limit <n>      Maximum candidates to inspect (default 10000, max 10000)",
+    "  --concurrency <n> Concurrent image probes (default 8, max 32)",
     "  --env <path>     Load DATABASE_URL and OSS settings from an env file",
   ].join("\n");
 }
@@ -97,7 +106,48 @@ function imageDimensionsFromBuffer(bytes) {
   if (buffer.length >= 10 && (buffer.toString("ascii", 0, 6) === "GIF87a" || buffer.toString("ascii", 0, 6) === "GIF89a")) {
     return { width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8), type: "gif" };
   }
+  if (buffer.length >= 16 && buffer.toString("ascii", 4, 8) === "ftyp" && buffer.toString("ascii", 8, 12).startsWith("avi")) {
+    const dimensions = avifDimensionsFromBuffer(buffer);
+    if (dimensions) return dimensions;
+  }
   return null;
+}
+
+function readIsoBoxes(buffer, start = 0, end = buffer.length) {
+  const boxes = [];
+  let offset = start;
+  while (offset + 8 <= end) {
+    let size = buffer.readUInt32BE(offset);
+    const type = buffer.toString("ascii", offset + 4, offset + 8);
+    let header = 8;
+    if (size === 1 && offset + 16 <= end) {
+      const high = buffer.readUInt32BE(offset + 8);
+      const low = buffer.readUInt32BE(offset + 12);
+      size = high * 2 ** 32 + low;
+      header = 16;
+    } else if (size === 0) {
+      size = end - offset;
+    }
+    if (size < header || offset + size > end) break;
+    boxes.push({ offset, size, header, type, bodyStart: offset + header, bodyEnd: offset + size });
+    offset += size;
+  }
+  return boxes;
+}
+
+function avifDimensionsFromBuffer(buffer) {
+  const meta = readIsoBoxes(buffer).find((box) => box.type === "meta");
+  if (!meta) return null;
+  const children = readIsoBoxes(buffer, meta.bodyStart + 4, meta.bodyEnd);
+  const iprp = children.find((box) => box.type === "iprp");
+  const iprpChildren = iprp ? readIsoBoxes(buffer, iprp.bodyStart, iprp.bodyEnd) : [];
+  const ipco = iprpChildren.find((box) => box.type === "ipco");
+  const properties = ipco ? readIsoBoxes(buffer, ipco.bodyStart, ipco.bodyEnd) : [];
+  const ispe = properties.find((box) => box.type === "ispe");
+  if (!ispe || ispe.bodyStart + 12 > ispe.bodyEnd) return null;
+  const width = buffer.readUInt32BE(ispe.bodyStart + 4);
+  const height = buffer.readUInt32BE(ispe.bodyStart + 8);
+  return width && height ? { width, height, type: "avif" } : null;
 }
 
 function imageMimeFromType(type = "") {
@@ -105,6 +155,7 @@ function imageMimeFromType(type = "") {
   if (type === "webp") return "image/webp";
   if (type === "gif") return "image/gif";
   if (type === "bmp") return "image/bmp";
+  if (type === "avif") return "image/avif";
   return type === "jpeg" ? "image/jpeg" : "";
 }
 
@@ -120,14 +171,14 @@ function assetMediaUrl(asset = {}) {
   return nonEmptyStrings(asset.cdnUrl, asset.publicUrl, asset.localUrl, asset.imageResultUrl)[0] || "";
 }
 
-async function loadCandidateRows(client, { taskIds = [], limit = 100 } = {}) {
+async function loadCandidateRows(client, { taskIds = [], allImages = false, limit = 2000 } = {}) {
   const params = [];
   const filters = [
     "a.deleted_at IS NULL",
     "LOWER(a.mime) LIKE 'image/%'",
     "(COALESCE((a.payload->>'width')::numeric, 0) <= 0 OR COALESCE((a.payload->>'height')::numeric, 0) <= 0)",
-    "COALESCE(a.payload->>'sourceGenerationTaskId', '') <> ''",
   ];
+  if (!allImages) filters.push("COALESCE(a.payload->>'sourceGenerationTaskId', '') <> ''");
   if (taskIds.length) {
     params.push(taskIds);
     filters.push(`a.payload->>'sourceGenerationTaskId' = ANY($${params.length}::text[])`);
@@ -156,18 +207,32 @@ async function bytesFromStorageKey(key = "") {
   };
 }
 
-async function bytesFromUrl(url = "") {
+async function bytesFromUrlRange(url = "", end = IMAGE_HEADER_BYTES - 1) {
   if (!/^https?:\/\//i.test(url)) return null;
-  const response = await fetch(url, { signal: AbortSignal.timeout(120000) });
+  const response = await fetch(url, {
+    headers: { Range: `bytes=0-${end}` },
+    signal: AbortSignal.timeout(120000),
+  });
   if (!response.ok) throw new Error(`media download failed: ${response.status}`);
   const declaredLength = Number(response.headers.get("content-length") || 0);
-  if (declaredLength > MAX_IMAGE_BYTES) throw new Error("media exceeds 30MB");
+  if (response.status !== 206 && declaredLength > MAX_IMAGE_BYTES) throw new Error("media exceeds 30MB");
   const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.byteLength > MAX_IMAGE_BYTES) throw new Error("media exceeds 30MB");
+  if (bytes.byteLength > Math.min(MAX_IMAGE_BYTES, end + 1)) throw new Error("media response exceeds requested range");
+  const contentRange = String(response.headers.get("content-range") || "");
+  const totalMatch = contentRange.match(/\/(\d+)$/);
+  const totalBytes = Number(totalMatch?.[1] || 0);
   return {
     bytes,
+    sizeBytes: totalBytes || bytes.byteLength,
     mime: String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase(),
   };
+}
+
+async function bytesFromUrl(url = "") {
+  let media = await bytesFromUrlRange(url, IMAGE_HEADER_BYTES - 1);
+  if (!media || imageDimensionsFromBuffer(media.bytes)) return media;
+  media = await bytesFromUrlRange(url, IMAGE_HEADER_FALLBACK_BYTES - 1);
+  return media;
 }
 
 async function mediaForCandidate(row = {}) {
@@ -181,20 +246,20 @@ async function mediaForCandidate(row = {}) {
   );
   const urls = nonEmptyStrings(assetMediaUrl(asset), record.imageResultUrl, record.cdnImageUrl, record.localImageUrl);
   const errors = [];
+  for (const url of urls.filter((value) => /^https?:\/\//i.test(value))) {
+    try {
+      const media = await bytesFromUrl(url);
+      if (media) return { ...media, source: `url:${url}` };
+    } catch (error) {
+      errors.push(`url:${error.message || error}`);
+    }
+  }
   for (const key of storageKeys) {
     try {
       const media = await bytesFromStorageKey(key);
       if (media) return { ...media, source: `oss:${key}` };
     } catch (error) {
       errors.push(`oss:${error.message || error}`);
-    }
-  }
-  for (const url of urls) {
-    try {
-      const media = await bytesFromUrl(url);
-      if (media) return { ...media, source: `url:${url}` };
-    } catch (error) {
-      errors.push(`url:${error.message || error}`);
     }
   }
   throw new Error(errors.join(" | ") || "no readable media source");
@@ -246,15 +311,28 @@ async function persistCandidate(client, row, metadata) {
   return updatedAsset;
 }
 
-async function repairGeneratedImageAssetDimensions({ databaseUrl, apply = false, taskIds = [], limit = 100 } = {}) {
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+async function repairGeneratedImageAssetDimensions({ databaseUrl, apply = false, allImages = false, taskIds = [], limit = 10000, concurrency = DEFAULT_CONCURRENCY } = {}) {
   if (!databaseUrl) throw new Error("DATABASE_URL is required");
-  const client = new Client({ connectionString: databaseUrl });
-  await client.connect();
+  const client = new Pool({ connectionString: databaseUrl, max: Math.max(2, concurrency + 1) });
   const summary = { mode: apply ? "apply" : "dry-run", candidates: 0, repaired: 0, skipped: 0, failed: 0, results: [] };
   try {
-    const rows = await loadCandidateRows(client, { taskIds, limit });
+    const rows = await loadCandidateRows(client, { taskIds, allImages, limit });
     summary.candidates = rows.length;
-    for (const row of rows) {
+    const results = await mapWithConcurrency(rows, concurrency, async (row) => {
       const asset = row.payload && typeof row.payload === "object" ? row.payload : {};
       const taskId = String(asset.sourceGenerationTaskId || "").trim();
       try {
@@ -264,11 +342,10 @@ async function repairGeneratedImageAssetDimensions({ databaseUrl, apply = false,
         const metadata = {
           width: dimensions.width,
           height: dimensions.height,
-          sizeBytes: media.bytes.byteLength,
+          sizeBytes: Number(media.sizeBytes || media.bytes.byteLength),
         };
         if (apply) await persistCandidate(client, row, metadata);
-        summary.repaired += 1;
-        summary.results.push({
+        return {
           assetId: row.id,
           userId: row.user_id,
           taskId,
@@ -278,12 +355,14 @@ async function repairGeneratedImageAssetDimensions({ databaseUrl, apply = false,
           mime: imageMimeFromType(dimensions.type) || String(row.mime || ""),
           source: media.source,
           applied: apply,
-        });
+        };
       } catch (error) {
-        summary.skipped += 1;
-        summary.results.push({ assetId: row.id, userId: row.user_id, taskId, error: error.message || String(error), applied: false });
+        return { assetId: row.id, userId: row.user_id, taskId, error: error.message || String(error), applied: false };
       }
-    }
+    });
+    summary.results = results;
+    summary.repaired = results.filter((result) => !result.error).length;
+    summary.skipped = results.filter((result) => result.error).length;
   } catch (error) {
     summary.failed = 1;
     summary.error = error.message || String(error);
@@ -304,9 +383,14 @@ async function main() {
   const summary = await repairGeneratedImageAssetDimensions({
     databaseUrl: process.env.DATABASE_URL,
     apply: args.apply,
+    allImages: args.allImages,
     taskIds: args.taskIds,
     limit: args.limit,
+    concurrency: args.concurrency,
   });
+  if (args.summaryOnly) {
+    summary.results = summary.results.filter((result) => result.error).slice(0, 100);
+  }
   console.log(JSON.stringify(summary, null, 2));
   if (summary.failed) process.exitCode = 1;
 }
