@@ -5,6 +5,8 @@
 - Root cause: `ensureLocalUserAssetFile()` called `localPathForUserAsset()` and failed when `localUrl` was empty, before attempting the existing signed-OSS recovery path.
 - Fixed `server.parts/part-13.js` by deriving a safe deterministic local recovery path from `userId`, `assetId`, MIME, and source extension, then restoring the file from the signed OSS URL and persisting the restored `localUrl`.
 - Added `test/local-asset-oss-recovery.test.js` covering the exact empty-`localUrl` Seedance case. Focused recovery tests pass `14/14`; syntax checks, `npm run check:undef`, and scoped `git diff --check` pass. The broader suite still has unrelated pre-existing dirty-work failures.
+- Source commit `a6a7c7d2`; platform release `e149560957a715555fd7a88dde3ffaca6c8eae99` was built, pushed (`old-site`, `platform-release`), and deployed to Old only through `scripts/deploy_local.sh --site old`. Rolling cutover `4175 -> 4174` passed 1%/5% canaries (`OLD_ROLLING_DEPLOY_OK`).
+- Production verification: `/api/health`, `/api/livez`, and `/api/readyz` return `200`; active PID runs from the release above; deployed `server.parts/part-13.js` contains `restorableLocalPathForUserAsset`. Live was not deployed.
 
 ## 2026-11-20 Step FP: Historical image dimension batch backfill
 
