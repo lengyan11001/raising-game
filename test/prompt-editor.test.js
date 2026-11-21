@@ -152,6 +152,16 @@ test("rich mention decorations keep canonical labels whole with partial snapshot
   assert.deepEqual(matches.map((match) => match[0]), [...imageLabels, ...videoLabels]);
 });
 
+test("rich mention replacement updates the textarea once without a second full-document reset", () => {
+  const { sandbox, textarea } = setupAdapter();
+  let inputCount = 0;
+  textarea.dispatchEvent = () => { inputCount += 1; return true; };
+  assert.equal(sandbox.replaceAdvancedPromptText(0, textarea.value.length, "第一行\n@Image 1 后面"), true);
+  assert.equal(sandbox.getAdvancedPromptValue(), "第一行\n@Image 1 后面");
+  assert.equal(textarea.value, "第一行\n@Image 1 后面");
+  assert.equal(inputCount, 1);
+});
+
 test("rich mention support branches on editor selection while keeping textarea fallback", () => {
   assert.match(part05, /window\.VipeakPromptEditorAdapter\?\.rich/);
   assert.match(part05, /richEditor\.coordsAtSelection\(\)/);
