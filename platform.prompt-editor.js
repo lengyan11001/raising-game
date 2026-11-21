@@ -301,7 +301,7 @@
     coordsAtSelection: coordsAtAdvancedPromptSelection,
     replaceText: replaceAdvancedPromptText,
     setHeight(height) { editor?.setHeight?.(height); },
-    focus(position) { editor?.focus?.(position); },
+    focus(position = "end") { editor?.focus?.(position); },
     isEmpty() { return editor ? editor.isEmpty() : !textareaElement()?.value; },
   };
   window.getAdvancedPromptValue = getAdvancedPromptValue;
