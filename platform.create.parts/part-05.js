@@ -23,10 +23,7 @@ function syncAdvancedPromptMentionLabels(previousRefs = [], nextRefs = advancedP
   const edits = [];
   originalValue.replace(pattern, (match, offset) => {
     const replacement = replacementByToken.get(match.toLowerCase());
-    const tokenStart = offset - 1;
-    const beforeToken = tokenStart > 0 ? originalValue[tokenStart - 1] : "";
-    const startsReference = tokenStart === 0 || !beforeToken || /[\s，。；：！？、,.;:!?()[\]{}<>]/.test(beforeToken);
-    if (startsReference && replacement !== undefined && replacement !== match) {
+    if (replacement !== undefined && replacement !== match) {
       edits.push({ start: offset, end: offset + match.length, replacement });
     }
     return match;
@@ -260,12 +257,12 @@ function insertAdvancedPromptMention(index = state.advancedPromptMentionIndex ||
   const cursor = before.length + inserted.length;
   if (window.VipeakPromptEditorAdapter?.rich && typeof window.replaceAdvancedPromptText === "function") {
     window.replaceAdvancedPromptText(context.start, context.end, inserted);
+    window.VipeakPromptEditorAdapter.focus?.();
     window.setAdvancedPromptValue(window.getAdvancedPromptValue(), {
       selectionStart: cursor,
       selectionEnd: cursor,
-      emitInput: false,
+      emitInput: true,
     });
-    window.VipeakPromptEditorAdapter.focus?.();
   } else {
     textarea.value = `${before}${inserted}${after}`;
     textarea.focus?.();
