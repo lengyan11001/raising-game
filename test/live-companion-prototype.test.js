@@ -438,10 +438,11 @@ test("the main domain serves an independent one-screen landing page", () => {
   assert.match(landingHtml, /<a href="\/downloads\/vipeak-live\.apk" download>下载 App<\/a>/);
   assert.match(landingHtml, /href="#developer">开发者接入<\/a>/);
   assert.match(landingHtml, /id="developer"/);
-  assert.match(landingHtml, /Character API/);
-  assert.match(landingHtml, /Programmatic Session/);
-  assert.match(landingHtml, /Relay WebSocket/);
-  assert.match(landingHtml, /href="\/docs\/vidu-live-integration\.md"/);
+  assert.match(landingHtml, /Model API/);
+  assert.match(landingHtml, /Async Tasks/);
+  assert.match(landingHtml, /Account Balance/);
+  assert.match(landingHtml, /href="\/docs\/api\.md"/);
+  assert.doesNotMatch(landingHtml, /实时数字人|Vidu|vidu-live-integration/);
   assert.match(landingHtml, /site-landing\.css\?v=2026111001/);
   assert.match(landingHtml, /site-landing\.js\?v=2026111001/);
   assert.ok(fs.existsSync(path.join(root, "downloads", "vipeak-live.apk")));

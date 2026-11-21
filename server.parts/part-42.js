@@ -941,6 +941,10 @@ async function handleRequest(req, res) {
       return await handleModelsJson(req, res);
     }
 
+    if (req.method === "GET" && url.pathname === "/api/v3/account/balance") {
+      return await handleAccountBalance(req, res);
+    }
+
     if ((req.method === "GET" || req.method === "POST") && url.pathname === "/api/advanced/estimate") {
       return await handleAdvancedEstimate(req, res);
     }

@@ -5452,3 +5452,11 @@ CODEX_TASK_STATE.md
 - `scripts/audit-story-adaptation.js` supports offline `analyze --source ... --out ...` without a pre-existing analysis. Syntax check passed.
 - First real analysis reached the model but returned truncated JSON (`STORY_ANALYSIS_INVALID_JSON`), motivating the compact retry. No production deployment or database write occurred.
 - Working tree contains unrelated coupon/optimizer/story changes. Commit only story-analysis files for this task and exclude coupon files.
+
+## 2026-11-21 Step EX: Public API balance / Vidu / Vega exposure
+
+- Added authenticated `GET /api/v3/account/balance`; user tokens return `account.credits/currency`, subtokens additionally return sanitized `token` quota metadata, never the full token value. Responses use `cache-control: no-store`.
+- Updated public API JSON/Markdown docs, `/api/models`, and the landing developer entry to advertise model API, async tasks, and account balance instead of Vidu live integration. Internal `/api/chat-live/*`, `/api/embed/live/*`, and `/docs/vidu-live-integration.md` remain intact.
+- Public Vega docs now expose only `Vega 1.0 Lite`; legacy Vega Pro/Lite examples and constraints are filtered from the public view.
+- Verification passed: `node --check` for parts 30/31/32/42, `npm run check:undef`, `git diff --check`, and focused external docs/live/Vidu tests `41/41`.
+- Not committed and not deployed. Unrelated story/coupon/optimizer work remains untouched.
