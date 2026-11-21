@@ -281,6 +281,7 @@
     if (!editor) return false;
     editor.replaceText(from, to, replacement);
     syncTextarea(editor.getValue());
+    dispatchPromptInput();
     return true;
   }
 
