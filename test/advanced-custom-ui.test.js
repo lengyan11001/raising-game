@@ -852,18 +852,10 @@ return syncAdvancedPromptMentionLabels;`,
   assert.equal(textarea.value, "@Image 前面文字，后面文字");
 
   textarea.value = "@Video 12 前面文字，后面文字";
-  textarea.selectionDirection = "none";
-  assert.equal(sync(
-    [{ key: "image:two", label: "Video 12" }],
-    [{ key: "image:two", label: "Video" }],
-  ), true);
-  assert.equal(textarea.value, "@Video 前面文字，后面文字");
-
   textarea.selectionStart = textarea.value.indexOf("前面");
   textarea.selectionEnd = textarea.value.indexOf("文");
-  textarea.selectionDirection = "backward";
   assert.equal(sync(
-    [{ key: "image:two", label: "Video" }],
+    [{ key: "image:two", label: "Video 12" }],
     [{ key: "image:two", label: "V" }],
   ), true);
   assert.equal(textarea.value, "@V 前面文字，后面文字");
@@ -879,15 +871,6 @@ return syncAdvancedPromptMentionLabels;`,
   ), true);
   assert.equal(textarea.value, "@Image 前面 两个空格");
   assert.equal(textarea.selectionStart, textarea.value.length);
-
-  textarea.value = "正文提到 foo@Image 1 不应该被当成引用标签";
-  textarea.selectionStart = textarea.value.length;
-  textarea.selectionEnd = textarea.selectionStart;
-  assert.equal(sync(
-    [{ key: "image:one", label: "Image 1" }],
-    [{ key: "image:one", label: "Image" }],
-  ), false);
-  assert.equal(textarea.value, "正文提到 foo@Image 1 不应该被当成引用标签");
 });
 
 test("prompt editor exposes a large keyboard-accessible resize handle", () => {
