@@ -257,12 +257,7 @@ function insertAdvancedPromptMention(index = state.advancedPromptMentionIndex ||
   const cursor = before.length + inserted.length;
   if (window.VipeakPromptEditorAdapter?.rich && typeof window.replaceAdvancedPromptText === "function") {
     window.replaceAdvancedPromptText(context.start, context.end, inserted);
-    window.VipeakPromptEditorAdapter.focus?.();
-    window.setAdvancedPromptValue(window.getAdvancedPromptValue(), {
-      selectionStart: cursor,
-      selectionEnd: cursor,
-      emitInput: true,
-    });
+    window.VipeakPromptEditorAdapter.focus?.("selection");
   } else {
     textarea.value = `${before}${inserted}${after}`;
     textarea.focus?.();

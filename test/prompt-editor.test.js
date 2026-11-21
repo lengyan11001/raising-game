@@ -46,6 +46,23 @@ function fakeElement(extra = {}) {
   }, extra);
 }
 
+function fakeEditor(options = {}) {
+  let value = options.value || "";
+  let selection = options.selection || { start: value.length, end: value.length };
+  const calls = [];
+  return {
+    calls,
+    getValue: () => value,
+    setValue(next) { value = next; },
+    getElement: () => fakeElement({ value }),
+    getSelection: () => selection,
+    setSelection(start, end = start) { selection = { start, end }; },
+    replaceText(from, to, replacement) { value = value.slice(0, from) + replacement + value.slice(to); },
+    focus(position) { calls.push(["focus", position]); },
+    destroy() {},
+  };
+}
+
 function setupAdapter({ mode = "rich", withEditor = true } = {}) {
   const textarea = fakeElement({ value: "hello @Image1" });
   const mount = fakeElement();
@@ -79,25 +96,17 @@ function setupAdapter({ mode = "rich", withEditor = true } = {}) {
   };
   sandbox.window = sandbox;
   sandbox.window.VIPEAK_PROMPT_EDITOR_MODE = mode;
+  let editor = null;
   if (withEditor) {
     sandbox.window.VipeakPromptEditor = {
       create() {
-        let value = textarea.value;
-        return {
-          getValue: () => value,
-          setValue(next) { value = next; },
-          getElement: () => fakeElement({ value }),
-          getSelection: () => ({ start: value.length, end: value.length }),
-          setSelection() {},
-          replaceText(from, to, replacement) { value = value.slice(0, from) + replacement + value.slice(to); },
-          focus() {},
-          destroy() {},
-        };
+        editor = fakeEditor({ value: textarea.value });
+        return editor;
       },
     };
   }
   vm.runInNewContext(adapterSource, sandbox, { filename: "platform.prompt-editor.js" });
-  return { sandbox, textarea, mount, highlight, documentListeners };
+  return { sandbox, textarea, mount, highlight, documentListeners, editor };
 }
 
 test("rich mode mounts the editor but keeps textarea as the value source", () => {
@@ -108,6 +117,14 @@ test("rich mode mounts the editor but keeps textarea as the value source", () =>
   assert.equal(textarea.hidden, true);
   assert.equal(sandbox.getAdvancedPromptValue(), "hello @Image1");
   assert.equal(textarea.value, "hello @Image1");
+});
+
+test("adapter focus forwards the caller's requested position without changing the API default", () => {
+  const { sandbox, editor } = setupAdapter();
+  sandbox.VipeakPromptEditorAdapter.focus("selection");
+  assert.deepEqual(editor.calls, [["focus", "selection"]]);
+  sandbox.VipeakPromptEditorAdapter.focus();
+  assert.deepEqual(editor.calls, [["focus", "selection"], ["focus", "end"]]);
 });
 
 test("legacy mode keeps the old textarea path and does not require the bundle", () => {
@@ -156,6 +173,7 @@ test("rich mention support branches on editor selection while keeping textarea f
   assert.match(part05, /window\.VipeakPromptEditorAdapter\?\.rich/);
   assert.match(part05, /richEditor\.coordsAtSelection\(\)/);
   assert.match(part05, /window\.replaceAdvancedPromptText/);
+  assert.doesNotMatch(part05, /window\.replaceAdvancedPromptText[\s\S]{0,220}window\.setAdvancedPromptValue\(window\.getAdvancedPromptValue\(\)/);
   assert.match(main, /#advancedPromptEditorMount/);
 });
 
