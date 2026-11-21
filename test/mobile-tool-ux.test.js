@@ -165,7 +165,8 @@ test("login dialog keeps controls visible and uses an auth-specific high-contras
   assert.match(css, /\.auth-modal input:-webkit-autofill/);
   assert.match(css, /\.auth-modal input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):focus \{[\s\S]*?background-color: #fff;/);
   assert.match(css, /\.auth-password-field \{[\s\S]*?position: relative/);
-  assert.match(css, /\.auth-password-toggle \{[\s\S]*?position: absolute/);
+  assert.match(css, /\.auth-password-toggle \{[\s\S]*?position: absolute[\s\S]*?color: #4f4858/);
+  assert.match(css, /\.auth-password-toggle:hover,[\s\S]*?color: #087f78/);
   assert.match(css, /@media \(max-width: 460px\) \{[\s\S]*?\.auth-email-row \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(css, /\.auth-modal #loginMessage:not\(:empty\) \{[\s\S]*?color: #ff9aaa/);
 });
