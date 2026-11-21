@@ -863,7 +863,7 @@ function externalAdvancedApiDoc(origin) {
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and the three Vega video models use the asynchronous Advanced route. Z-Image Spicy Pro and Qwen Image Edit Spicy use the dedicated image endpoint.",
+    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and Vega 1.0 Lite use the asynchronous Advanced route. Z-Image Spicy Pro and Qwen Image Edit Spicy use the dedicated image endpoint.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     supportedModels: [
@@ -875,9 +875,6 @@ function externalAdvancedApiDoc(origin) {
       { name: "W3.0-VSR-Prime", provider: "wan30", capability: "w3.0-video-prime-pro", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: SEEDANCE25_DIRECT_LABEL, provider: SEEDANCE25_DIRECT_PROVIDER, capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
-      { name: "Vega 1.0 Pro", provider: "seedance20-vega", model: "wand-vega-video / 1.0-pro", capability: "text / first frame / last frame / first_last_frame / multimodal references", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
-      { name: "Vega 1.5 Pro", provider: "seedance25-vega", model: "wand-vega-video / 1.5-pro", capability: "text / frames / references / edit / extend / draft", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
-      { name: "Vega 1.5 Lite", provider: "h3-vega", model: "wand-vega-video / 1.5-lite", capability: "text / frames / references", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Vega 1.0 Lite", provider: "vega10-lite", model: "wand-vega-video / 1.0-lite", capability: "text / first frame / last frame / first_last_frame / multimodal references", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedream 5.0 Pro", model: "seedream-5.0-pro", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Qwen Image 3.0", model: "qwen-image-3.0-pro / qwen-image-3.0", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },

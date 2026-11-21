@@ -75,6 +75,7 @@ test("selective model exposure still produces complete and valid Markdown", () =
     "qwenImageEditSpicyParameterFields",
     "mulerouterRoutingMarkdown()",
     "Advanced Task Polling",
+    "accountBalanceMarkdown()",
   ]) {
     assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -176,13 +177,28 @@ test("structured API docs expose readable sections, canonical downloads, and sec
   const restrictedEnd = serverSource.indexOf("function templateDocMarkdown", restrictedStart);
   const restrictedSource = serverSource.slice(restrictedStart, restrictedEnd);
 
-  assert.match(restrictedSource, /embedLiveIntegrationMarkdown\(\)/);
+  assert.match(restrictedSource, /accountBalanceMarkdown\(\)/);
+  assert.doesNotMatch(restrictedSource, /embedLiveIntegrationMarkdown\(\)/);
+  assert.doesNotMatch(restrictedSource, /Embedded Live Chat/);
+  const publicVegaSource = serverSource.slice(
+    serverSource.indexOf("function restrictPublicVegaDocs"),
+    serverSource.indexOf("function buildRestrictedModelDocsMarkdown"),
+  );
+  assert.match(publicVegaSource, /vega10-lite/);
+  assert.match(publicVegaSource, /vega10ProExample/);
+  assert.match(publicVegaSource, /seedance25VegaExample/);
+  assert.match(publicVegaSource, /h3VegaExample/);
+  assert.doesNotMatch(publicVegaSource, /Vega 1\.0 Pro/);
+  assert.doesNotMatch(publicVegaSource, /Vega 1\.5 Pro/);
+  assert.doesNotMatch(publicVegaSource, /Vega 1\.5 Lite/);
   assert.match(structuredSource, /version: "1\.0"/);
   assert.match(structuredSource, /groups: \[/);
   assert.match(structuredSource, /sections: sections\.map/);
   assert.match(structuredSource, /id: count === 1 \? baseId : `\$\{baseId\}-\$\{count\}`/);
   assert.match(structuredSource, /"## Table of Contents"/);
   assert.match(structuredSource, /quickStartApiDocMarkdown/);
+  assert.match(serverSource, /GET \/api\/v3\/account\/balance/);
+  assert.match(serverSource, /\/api\/v3\/account\/balance/);
   assert.match(uiSource, /\/docs\/api\.json/);
   assert.match(uiSource, /\/docs\/api\.md/);
   assert.match(uiSource, /data-copy-api-section/);

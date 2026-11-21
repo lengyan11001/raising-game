@@ -182,6 +182,7 @@ async function buildModelDocs(req, res) {
       docsJson: `${origin}/docs/api.json`,
       legacyDocsMarkdown: `${origin}/docs/models.md`,
       modelsJson: `${origin}/api/models`,
+      accountBalance: `${origin}/api/v3/account/balance`,
       byteplusGenerate: `${origin}/api/v3/contents/generations/tasks`,
       byteplusTaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
       seedream5ImageGenerate: `${origin}/api/v3/images/generations`,
@@ -203,20 +204,43 @@ async function buildModelDocs(req, res) {
   };
 }
 
+function restrictPublicVegaDocs(external = {}) {
+  external.supportedModels = (Array.isArray(external.supportedModels) ? external.supportedModels : [])
+    .filter((item) => !/^vega\b/i.test(String(item.name || "")) || /^vega 1\.0 lite$/i.test(String(item.name || "").trim()));
+  ["vega10ProExample", "seedance25VegaExample", "h3VegaExample"].forEach((key) => delete external[key]);
+  if (Array.isArray(external.constraints?.vega?.providers)) {
+    external.constraints.vega.providers = external.constraints.vega.providers.filter((item) => item?.id === "vega10-lite");
+  }
+  const vega = external.constraints?.vega;
+  if (vega && typeof vega === "object") {
+    vega.taskTypes = { otherModels: ["auto", "reference"] };
+    if (vega.durationSeconds?.defaults) vega.durationSeconds.defaults = { "vega10-lite": vega.durationSeconds.defaults["vega10-lite"] ?? 5 };
+    if (vega.durationSeconds?.perModel) vega.durationSeconds.perModel = { "vega10-lite": "4-15, no -1" };
+    if (vega.resolutionsByModel) vega.resolutionsByModel = { "vega10-lite": vega.resolutionsByModel["vega10-lite"] || ["480P", "768P", "1080P", "2K", "4K"] };
+    if (vega.referenceLimits) vega.referenceLimits = { "vega10-lite": vega.referenceLimits["vega10-lite"] || { images: 9, videos: 3, audios: 3, total: 12 } };
+    vega.mediaTransport = "Media: public HTTP(S) URLs only. Vega 1.0 Lite submits public FileInfos Type=Url. Asset IDs and data URLs are rejected at the public API boundary.";
+  }
+  return external;
+}
+
 function publicModelDocsView(docs = {}) {
-  if (PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) return docs;
   const view = JSON.parse(JSON.stringify(docs || {}));
   const external = view.advancedExternalApi || {};
+  if (PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) {
+    view.advancedExternalApi = restrictPublicVegaDocs(external);
+    return view;
+  }
   const publicModelFamilies = [
     "Seedance 2.0 uses the V3 task route.",
     "Seedream 5.0 Pro uses the V3 images route.",
-    "Vega 1.0 Pro, Vega 1.5 Pro, Vega 1.5 Lite, and Vega 1.0 Lite use the Advanced route.",
+    "Vega 1.0 Lite uses the Advanced route.",
     ...(PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED ? ["Wan3.0 uses the Advanced route."] : []),
     ...(PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED ? ["Qwen Image 3.0 uses the image generation route."] : []),
   ];
   external.summary = `${publicModelFamilies.join(" ")} Other temporarily unavailable model families are omitted from this public guide.`;
   external.supportedModels = (Array.isArray(external.supportedModels) ? external.supportedModels : [])
     .filter((item) => !publicAliyunModelHidden(item.provider || item.model || item.name));
+  restrictPublicVegaDocs(external);
   if (external.constraints && typeof external.constraints === "object") {
     const restrictedConstraintKeys = [];
     if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("wan30");
@@ -364,9 +388,6 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     { title: "W3.0-VSR-Prime (w3.0-video-prime-pro)", example: external.wan30PrimeProExample, fields: () => wan30VideoParameterFields("w3.0-video-prime-pro") },
     { title: "Seedance 2.5 Video (seedance25)", example: external.seedance25Example, fields: seedance25VideoParameterFields },
     { title: "Seedance 2.5 Video (seedance-nsfw)", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
-    { title: "Vega 1.0 Pro", example: external.vega10ProExample, fields: () => vegaVideoParameterFields("seedance20-vega") },
-    { title: "Vega 1.5 Pro", example: external.seedance25VegaExample, fields: () => vegaVideoParameterFields("seedance25-vega") },
-    { title: "Vega 1.5 Lite", example: external.h3VegaExample, fields: () => vegaVideoParameterFields("h3-vega") },
     { title: "Vega 1.0 Lite", example: external.vega10LiteExample, fields: () => vegaVideoParameterFields("vega10-lite") },
   ];
   for (const section of advancedSections) {
@@ -428,8 +449,7 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
   }
 
   lines.push(
-    embedLiveIntegrationMarkdown(),
-    "",
+    accountBalanceMarkdown(),
     "## Billing",
     "",
     docs.billing?.note || "Credits are deducted according to the selected model and configured public rates.",
@@ -440,6 +460,22 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     "",
   );
   return lines.join("\n");
+}
+
+function accountBalanceMarkdown() {
+  return [
+    "## Account Balance",
+    "",
+    "Query the caller account balance and, when using a sub token, that token's quota.",
+    "",
+    markdownCodeBlock("http", [
+      "GET /api/v3/account/balance",
+      "Authorization: Bearer <user-token>",
+    ].join("\n")),
+    "",
+    "The response includes `account.credits`, the account currency, and `token` metadata for a sub token (`quotaLimit`, `usedAmount`, `usedCount`, and `remaining`). The token secret is never returned.",
+    "",
+  ].join("\n");
 }
 
 function templateDocMarkdown(item) {
@@ -512,13 +548,12 @@ function advancedConstraintsMarkdown(doc = {}) {
     "",
     `- Endpoint: \`${vega.route || "/api/advanced/generate"}\` with \`provider\`: ${(vega.providers || []).map((item) => `\`${item.id}\``).join(", ")}.`,
     `- \`modes\`: ${(vega.modes || ["text_to_video", "first_frame", "last_frame", "first_last_frame", "reference_video", "draft_followup"]).map((item) => `\`${item}\``).join(", ")}.`,
-    `- \`duration\`: per-model limits: Vega 1.0 Pro ${advancedDurationBounds("seedance20-vega").min}-${advancedDurationBounds("seedance20-vega").max} with no -1; Vega 1.5 Pro ${advancedDurationBounds("seedance25-vega").min}-${advancedDurationBounds("seedance25-vega").max} or -1; Vega 1.5 Lite ${advancedDurationBounds("h3-vega").min}-${advancedDurationBounds("h3-vega").max} or -1; Vega 1.0 Lite ${advancedDurationBounds("vega10-lite").min}-${advancedDurationBounds("vega10-lite").max} with no smart duration.`,
-    `- \`resolution\`: ${(vega.resolution || ["480P", "720P", "768P", "1080P", "2K", "4K"]).map((item) => `\`${item}\``).join(", ")} (per-model limits apply; Seedance Vega 1.0 Pro and 1.5 Pro support 480P/720P/1080P/2K/4K, while H3 Vega 1.0 Lite also supports 768P).`,
-    "- `reference limits`: Vega 1.5 Pro accepts up to 30 images + 10 videos + 10 audios (50 total). Each video/audio is 2-30 seconds; audio total <=30 seconds; images <=30MB, videos <=200MB, audio <=15MB. Vega 1.0 Pro keeps 9 images + 3 videos + 3 audios (12 total) with video/audio totals <=15 seconds. Vega 1.5 Lite keeps 10/5/5 (20 total) and Vega 1.0 Lite keeps 9/3/3 (12 total), both with video/audio totals <=15 seconds.",
+    `- \`duration\`: Vega 1.0 Lite supports ${advancedDurationBounds("vega10-lite").min}-${advancedDurationBounds("vega10-lite").max} seconds with no smart duration.`,
+    `- \`resolution\`: ${(vega.resolution || ["480P", "720P", "768P", "1080P", "2K", "4K"]).map((item) => `\`${item}\``).join(", ")}.`,
+    "- `reference limits`: Vega 1.0 Lite keeps 9 images + 3 videos + 3 audios (12 total); video/audio totals are at most 15 seconds.",
     `- \`ratio\`: ${(vega.ratio || ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]).map((item) => `\`${item}\``).join(", ")}.`,
     `- ${vega.mediaTransport || `${vega.mediaUrl || "Use public HTTP(S) URLs only."} FileInfos use Usage FirstFrame, LastFrame, or Reference.`}`,
-    `- ${vega.taskTypeRule || "Vega 1.5 Pro supports auto, reference, edit, and extend. Edit and extend both require a reference video and adaptive ratio."}`,
-    `- ${vega.draftRule || "Draft requires 480P; Draft to Final uses draft_task_id with no prompt or media inputs."}`,
+    "- Vega 1.0 Lite supports text, first frame, last frame, first + last frame, and multimodal references.",
     `- ExtInfo: ${(vega.extInfo || []).map((item) => `\`${item}\``).join(", ")}.`,
     `- ${vega.pricing || "Vega pricing is not configured; requests fail closed with HTTP 422 MODEL_PRICING_UNAVAILABLE."}`,
     "",
@@ -764,11 +799,11 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     docsParameterMarkdown(seedanceNsfwVideoParameterFields()),
     "",
-    "**Vega video models**",
+    "**Vega 1.0 Lite**",
     "",
-    "`Vega 1.0 Pro`, `Vega 1.5 Pro`, `Vega 1.5 Lite`, and `Vega 1.0 Lite` use Tencent VOD International through the same Advanced route. All four support text, first frame, last frame, first + last frame, and multimodal references. Vega 1.5 Pro additionally supports edit, extend, Draft, and Draft to Final. Vega 1.5 Pro supports 480P/720P/1080P/2K/4K, 4-30 second outputs (or -1), 30 images, 10 videos, 10 audios, and 50 references total; each video/audio is 2-30 seconds, audio totals at most 30 seconds, and upload limits are 30MB image, 200MB video, and 15MB audio. Vega 1.0 Pro supports 480P/720P/1080P/2K/4K and 4-15 second outputs, 9 images, 3 videos, 3 audios, and 12 references total with video/audio totals at most 15 seconds. Vega 1.5 Lite keeps 10 images, 5 videos, 5 audios, 20 references total, and 15-second video/audio totals; Vega 1.0 Lite keeps 9/3/3, 12 total, 2-15 seconds per video/audio, and 15-second totals. Send public HTTP(S) media URLs only; asset IDs and data URLs are rejected. Vega 1.0 Pro and 1.5 Pro require the VOD media library: the backend runs PullUpload and DescribeTaskDetail, then submits FileInfos Type=File with FileId and InputRegion=Oversea. Vega 1.5 Lite and 1.0 Lite keep FileInfos Type=Url. Vega output and reference-video input rates are stored separately in PostgreSQL; requests fail closed before charging or calling upstream when a required rate is missing.",
+    "Vega 1.0 Lite uses Tencent VOD International through the same Advanced route. It supports text, first frame, last frame, first + last frame, and multimodal references, plus 4-15 second outputs, 9 images, 3 videos, 3 audios, and 12 references total with video/audio totals at most 15 seconds. Send public HTTP(S) media URLs only; asset IDs and data URLs are rejected. Vega output and reference-video input rates are stored separately in PostgreSQL; requests fail closed before charging or calling upstream when a required rate is missing.",
     "",
-    ...["seedance20-vega", "seedance25-vega", "h3-vega", "vega10-lite"].flatMap((provider) => [
+    ...["vega10-lite"].flatMap((provider) => [
       `**${vegaProviderLabel(provider)} (provider \`${provider}\`)**`,
       "",
       markdownCodeBlock("http", [
@@ -786,7 +821,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
     ]),
     "**Advanced task polling**",
     "",
-    "W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and the Vega models return `taskId`. Poll the generation record until its status is terminal.",
+    "W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, and Vega 1.0 Lite return `taskId`. Poll the generation record until its status is terminal.",
     "",
     markdownCodeBlock("http", [
       `GET ${route(endpoints.generationRecordDetail, "/api/generation-records/<taskId>")}`,
@@ -846,8 +881,6 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     advancedConstraintsMarkdown(doc),
     "",
-    embedLiveIntegrationMarkdown(),
-    "",
   ].join("\n");
 }
 
@@ -875,7 +908,7 @@ function buildModelDocsMarkdown(docs) {
     "2. For V3 reusable media, create assets with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>`. For Advanced models, upload with `/api/user-assets`, then use the returned `asset.id`.",
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
     "4. Create a Seedream 5.0 Pro or Qwen Image 3.0 task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
-    "5. Create W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, or Seedance 2.5 tasks with `/api/advanced/generate` and the documented provider plus Mulerouter node name in `videoCapability`.",
+    "5. Create W3.0, W3.0-Pro, W3.0-Prime, W3.0-VSR-Prime, Seedance 2.5, or Vega 1.0 Lite tasks with `/api/advanced/generate` and the documented provider plus Mulerouter node name in `videoCapability`.",
     "6. Create Z-Image Spicy Pro text-to-image tasks or Qwen Image Edit Spicy image-edit tasks with `/api/wan27/image-edit`.",
     "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for V3 tasks and `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",
@@ -919,7 +952,7 @@ function buildModelDocsMarkdown(docs) {
       "}",
     ].join("\n")),
     "",
-    embedLiveIntegrationMarkdown(),
+    accountBalanceMarkdown(),
     "",
     "## Billing",
     "",
@@ -983,10 +1016,11 @@ function quickStartApiDocMarkdown(docs = {}) {
     "",
     "1. Keep your API token on your server and send it as `Authorization: Bearer <user-token>`.",
     "2. Query the model catalog with `GET /api/models` when you need machine-readable model metadata.",
-    "3. Upload reusable media first when your model supports asset references, then use the returned asset id in generation requests.",
-    "4. Create a video or image task with one of the documented endpoints and keep the returned task id.",
-    "5. Poll the matching task endpoint until the status is `succeeded` or `failed`.",
-    "6. Download successful output promptly; temporary upstream media links may expire.",
+    "3. Query the account balance with `GET /api/v3/account/balance`; when using a sub token, read `token.remaining` for that token's quota.",
+    "4. Upload reusable media first when your model supports asset references, then use the returned asset id in generation requests.",
+    "5. Create a video or image task with one of the documented endpoints and keep the returned task id.",
+    "6. Poll the matching task endpoint until the status is `succeeded` or `failed`.",
+    "7. Download successful output promptly; temporary upstream media links may expire.",
     "",
     `Base URL: ${docs.baseUrl || ""}`,
     "",
@@ -1013,13 +1047,12 @@ function buildStructuredApiDocs(docs = {}) {
     title: `${docs.title || "Vipeak AI"} API Documentation`,
     baseUrl: docs.baseUrl || "",
     updatedAt: docs.updatedAt || new Date().toISOString(),
-    summary: parsed.intro || "Structured HTTP API documentation for generation, assets, polling, and embedded live chat.",
+    summary: parsed.intro || "Structured HTTP API documentation for generation, assets, polling, and account balance.",
     groups: [
       { id: "basics", title: "基础与接入" },
       { id: "video", title: "视频生成" },
       { id: "image", title: "图片生成" },
       { id: "assets", title: "素材管理" },
-      { id: "live", title: "实时聊天嵌入" },
     ],
     sections: sections.map((section) => {
       const baseId = apiDocSlug(section.title);

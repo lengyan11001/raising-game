@@ -1089,6 +1089,31 @@ async function handleGetCompanionLevel(req, res) {
   return sendJson(res, 200, { ok: true, companionLevel: companionLevelSummary(auth.db, auth.user.id) });
 }
 
+async function handleAccountBalance(req, res) {
+  const auth = await requireExternalApiDocsAccess(req, res);
+  if (!auth) return;
+  const subtoken = auth.tokenSource === "subtoken" ? apiSubtokenView(auth.tokenRecord) : null;
+  res.setHeader("cache-control", "no-store");
+  return sendJson(res, 200, {
+    ok: true,
+    account: {
+      credits: Number(auth.user.credits || 0),
+      currency: "credits",
+    },
+    token: subtoken ? {
+      id: subtoken.id,
+      name: subtoken.name,
+      quotaType: subtoken.quotaType,
+      quotaLimit: subtoken.quotaLimit,
+      usedAmount: subtoken.usedAmount,
+      usedCount: subtoken.usedCount,
+      remaining: subtoken.remaining,
+      expiresAt: subtoken.expiresAt,
+      status: subtoken.status,
+    } : null,
+  });
+}
+
 async function handleGetCharacterRelationship(req, res, characterId) {
   const auth = await requireUser(req, res);
   if (!auth) return;

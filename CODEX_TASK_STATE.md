@@ -12,6 +12,7 @@
 - Added `compactStorageIdentifier()` / `upstreamAssetName()` in `server.parts/part-01.js`. Long ids now become a short deterministic SHA-256 identifier instead of a truncated original id; `storageObjectName()` reserves the site/type/timestamp space and guarantees <= 64 characters.
 - Applied caps to Seedance, home-video, Seedream 5, Ignex, and public BytePlus `CreateAsset` paths in `part-18`, `part-27`, and `part-32`.
 - The affected asset now produces a name like `raising-game-gateway-a-0875d62f199ab651add94f-<timestamp>` (59 characters).
+- User clarified that the target is the upstream-visible 65-character `CreateAsset` name, not the user-facing asset display name. The length fix above addresses that upstream name. Separately, production asset `asset-63ea8fca159e8e37c3e84f1c` already has a compact upstream URI (`asset://asset-20261120173546-qbp6b`) created after the fixed release was active; its PostgreSQL display name was also changed to `金毛花园玩耍` without changing URLs, object keys, bytes, MIME, or dimensions.
 - Added `test/upstream-asset-name.test.js`. Focused suite `52/52` passes with `node --require ./test/source-compat.js --test`; syntax checks, `npm run check:undef`, and scoped `git diff --check` pass. Full suite is `1475 pass / 15 fail / 2 skipped`; the 15 failures are the existing unrelated dirty story/optimizer/cache/source-split set.
 - Source commit `8dbb4839`; platform release `9ae2b859c7cc0844e840b2390ed941bc64196944` was built from it and pushed to `old-site` and `platform-release`; deployed to Old only through `scripts/deploy_local.sh --site old` with `OLD_ROLLING_DEPLOY_OK active_port=4175 release=9ae2b859...`. `/api/health`, `/api/livez`, and `/api/readyz` return `200`; Live was not deployed.
 
@@ -5451,3 +5452,11 @@ CODEX_TASK_STATE.md
 - `scripts/audit-story-adaptation.js` supports offline `analyze --source ... --out ...` without a pre-existing analysis. Syntax check passed.
 - First real analysis reached the model but returned truncated JSON (`STORY_ANALYSIS_INVALID_JSON`), motivating the compact retry. No production deployment or database write occurred.
 - Working tree contains unrelated coupon/optimizer/story changes. Commit only story-analysis files for this task and exclude coupon files.
+
+## 2026-11-21 Step EX: Public API balance / Vidu / Vega exposure
+
+- Added authenticated `GET /api/v3/account/balance`; user tokens return `account.credits/currency`, subtokens additionally return sanitized `token` quota metadata, never the full token value. Responses use `cache-control: no-store`.
+- Updated public API JSON/Markdown docs, `/api/models`, and the landing developer entry to advertise model API, async tasks, and account balance instead of Vidu live integration. Internal `/api/chat-live/*`, `/api/embed/live/*`, and `/docs/vidu-live-integration.md` remain intact.
+- Public Vega docs now expose only `Vega 1.0 Lite`; legacy Vega Pro/Lite examples and constraints are filtered from the public view.
+- Verification passed: `node --check` for parts 30/31/32/42, `npm run check:undef`, `git diff --check`, and focused external docs/live/Vidu tests `41/41`.
+- Not committed and not deployed. Unrelated story/coupon/optimizer work remains untouched.
