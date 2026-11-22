@@ -3,7 +3,8 @@ import { Document } from "@tiptap/extension-document";
 import { Paragraph } from "@tiptap/extension-paragraph";
 import { Text } from "@tiptap/extension-text";
 import { HardBreak } from "@tiptap/extension-hard-break";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { Fragment } from "@tiptap/pm/model";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
 function normalizeText(value = "") {
@@ -33,10 +34,59 @@ function mentionPattern(tokens = []) {
 }
 
 function inlineContentFromText(value = "") {
-  return normalizeText(value).split("\n").flatMap((line, index) => {
-    const nodes = index ? [{ type: "hardBreak" }] : [];
-    if (line) nodes.push({ type: "text", text: line });
-    return nodes;
+  return normalizeText(value).split("\n").map((line) => ({
+    type: "paragraph",
+    content: line ? [{ type: "text", text: line }] : [],
+  }));
+}
+
+function createParagraphNormalizationExtension() {
+  return Extension.create({
+    name: "vipeakPromptParagraphs",
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          key: new PluginKey("vipeakPromptParagraphs"),
+          appendTransaction(transactions, _oldState, newState) {
+            if (!transactions.some((transaction) => transaction.docChanged)) return null;
+            const replacements = [];
+            newState.doc.forEach((node, offset) => {
+              if (node.type.name !== "paragraph") return;
+              const lines = [];
+              let current = "";
+              let hasBreak = false;
+              node.forEach((child) => {
+                if (child.type.name === "hardBreak") {
+                  lines.push(current);
+                  current = "";
+                  hasBreak = true;
+                  return;
+                }
+                current += child.textContent || "";
+              });
+              if (!hasBreak) return;
+              lines.push(current);
+              replacements.push({
+                from: offset,
+                to: offset + node.nodeSize,
+                nodes: lines.map((line) => newState.schema.nodes.paragraph.create(
+                  null,
+                  line ? newState.schema.text(line) : undefined,
+                )),
+              });
+            });
+            if (!replacements.length) return null;
+            const transaction = newState.tr;
+            replacements.slice().reverse().forEach(({ from, to, nodes }) => {
+              transaction.replaceWith(from, to, Fragment.fromArray(nodes));
+            });
+            const mapped = transaction.mapping.map(newState.selection.from);
+            transaction.setSelection(TextSelection.near(transaction.doc.resolve(mapped)));
+            return transaction;
+          },
+        }),
+      ];
+    },
   });
 }
 
@@ -87,6 +137,7 @@ class PromptEditor {
         Paragraph,
         Text,
         HardBreak,
+        createParagraphNormalizationExtension(),
         createMentionDecorationExtension(options.getMentionTokens),
       ],
       content: contentFromText(options.value || ""),
@@ -116,6 +167,26 @@ class PromptEditor {
           if (text === undefined) return false;
           event.preventDefault();
           this.insertText(text);
+          return true;
+        },
+        handleDOMEvents: {
+          // Chromium can deliver a bulk insertText with embedded newlines as
+          // one beforeinput followed by many paragraph mutations. ProseMirror
+          // then keeps a stale text offset after the document has expanded.
+          // Route that input through the same block model as paste so the
+          // document and selection stay in sync.
+          beforeinput: (_view, event) => {
+            if (!/[\r\n]/.test(String(event.data || ""))) return false;
+            if (!/^(?:insertText|insertReplacementText)$/.test(event.inputType || "")) return false;
+            event.preventDefault();
+            const { from, to } = this.editor.state.selection;
+            this.insertTextAt(from, to, event.data);
+            return true;
+          },
+        },
+        handleTextInput: (_view, from, to, text) => {
+          if (!/[\r\n]/.test(text)) return false;
+          this.insertTextAt(from, to, text);
           return true;
         },
         handleKeyDown: (_view, event) => {
@@ -169,10 +240,17 @@ class PromptEditor {
   }
 
   insertText(value = "") {
+    const { from, to } = this.editor.state.selection;
+    this.insertTextAt(from, to, value);
+  }
+
+  insertTextAt(from, to, value = "") {
     const text = normalizeText(value);
     if (!text) return;
-    const { from, to } = this.editor.state.selection;
-    this.editor.chain().focus().insertContentAt({ from, to }, inlineContentFromText(text)).run();
+    this.editor.chain()
+      .focus()
+      .insertContentAt({ from, to }, inlineContentFromText(text))
+      .run();
   }
 
   plainTextOffsetForPosition(position = 0) {
