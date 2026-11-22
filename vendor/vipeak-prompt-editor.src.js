@@ -316,7 +316,10 @@ class PromptEditor {
     const scrollTop = this.getElement?.()?.scrollTop || 0;
     this.editor.chain()
       .focus(null, { scrollIntoView: false })
-      .insertContentAt({ from: start, to: end }, inlineContentFromText(value), { scrollIntoView: false })
+      .command(({ tr, dispatch }) => {
+        if (dispatch) tr.insertText(normalizeText(value), start, end);
+        return true;
+      })
       .run();
     const element = this.getElement?.();
     if (element) element.scrollTop = scrollTop;
