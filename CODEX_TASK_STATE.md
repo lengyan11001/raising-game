@@ -1,3 +1,36 @@
+## 2026-11-22 Step GA: Prompt editor unlimited height and long-text offset repair
+
+### Goal
+- Completely remove advanced prompt maximum height/content limits; users can drag the prompt editor as tall as needed.
+- Fix long prompts where continuing at the end inserts text at the beginning or middle.
+- Determine why middle positions worked while the tail failed, test all supported browser engines, then deploy Old only.
+
+### Root cause
+- All models share the same `#advancedPrompt` rich editor.
+- The document is a sequence of ProseMirror `paragraph` nodes. `getValue()` used one newline per paragraph, while browser bulk insertion/IME paths could create one paragraph with many `hardBreak` nodes. The internal ProseMirror position and the public plain-text offset therefore counted different separator structures.
+- Error accumulated per paragraph; short/middle input stayed inside the divergence threshold, while the 80-line tail was most exposed. Chromium/WebKit use `insertText`; Firefox can use `insertCompositionText`, so the bug was browser-dependent.
+
+### Changes
+- `vendor/vipeak-prompt-editor.src.js`: `getValue()` and selection offsets now use the same paragraph block separator; multi-line insertion creates one paragraph per line; multiline `beforeinput` and `handleTextInput` route through `insertTextAt`; a paragraph-normalization ProseMirror plugin splits hard-break paragraphs atomically into logical paragraphs and restores a nearby text selection.
+- `vendor/vipeak-prompt-editor.js`: rebuilt with esbuild from the source; do not hand-edit.
+- `platform.create.parts/part-04.js`, `platform.css`, `platform.prompt-editor.css`: maximum editor height is unlimited (`Infinity` / `max-height: none`), editor overflow remains visible/hidden rather than internally scrolling, the resize handle caps are removed, and the Test panel uses the same unlimited height behavior.
+- Added `test/long-prompt-offset.test.js`; updated prompt height assertions in `test/advanced-custom-ui.test.js`.
+
+### Verification
+- `test/long-prompt-offset.test.js` + `test/prompt-editor.test.js`: `14/14` pass.
+- Focused prompt UI tests: `3/3` pass.
+- `NODE_PATH=<main checkout node_modules> npm run check:undef`: pass.
+- Key browser acceptance after rebuilt bundle:
+  - Chromium: 80 paragraphs `after=3030/3030`, `typed=3046/3046`, menu `60`, height `3405`, `max-height: none`, no page errors.
+  - WebKit: `after=3030/3030`, `typed=3046/3046`, menu `60`, height `3405`, `max-height: none`, no page errors.
+  - Firefox: `after=3030/3030`, `typed=3046/3046`, menu `60`, height `3566`, `max-height: none`, no page errors.
+- Earlier full probe also passed real clipboard paste, line-by-line Enter input, bulk input/IME path, desktop and mobile 80-paragraph cases, and reference insertion followed by `XYZ后续`.
+- Desktop drag test reached `5138px` with no `aria-valuemax`; mobile 80 paragraphs grew to `3405px` on a `844px` viewport with no internal max-height.
+
+### Deployment status
+- Changes are in clean worktree `/tmp/raising-prompt-mention-release`, branch `codex/prompt-mention-release-integration`.
+- Pending commit, `old-site` integration commit, platform release build, pushing only `old-site` + `platform-release`, and Old-only deployment.
+
 ## 2026-11-20 Step FS: Preserve reference requirement only for generic Seedance 2.5
 
 - The exact browser message `Add at least one image, video, or audio reference.` was our frontend gate in `platform.create.parts/part-03.js`, not an upstream response. It had been applied to `seedance25`, `seedance25-flash`, and `seedance-nsfw` whenever multimodal mode had zero references.

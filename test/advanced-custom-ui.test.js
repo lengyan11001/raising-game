@@ -891,12 +891,14 @@ test("rich prompt editor keeps the composer outline visible around its shell", (
 
 test("prompt editor grows to show loaded generated copy and remeasures after the Generate tab is visible", () => {
   assert.match(create, /function autoSizeAdvancedPrompt\(/);
-  assert.match(create, /function advancedPromptHeightLimits\(\) \{[^}]*const minimumHeight = 136;/);
+  assert.match(create, /function advancedPromptHeightLimits\(\) \{[^}]*const minimumHeight = 136;[^}]*maximumHeight: Infinity/);
   assert.match(create, /const promptElement = richEditor\?\.getElement\?\.\(\) \|\| textarea/);
   assert.match(create, /promptElement\.style\.height = "0px"/);
   assert.match(create, /promptElement\.scrollHeight \+ 2/);
   assert.match(create, /Math\.min\(maximumHeight, Math\.max\(minimumHeight, contentHeight\)\)/);
-  assert.match(create, /textarea\.style\.overflowY = contentHeight > maximumHeight \+ 1 \? "auto" : "hidden"/);
+  assert.match(create, /textarea\.style\.overflowY = "hidden"/);
+  assert.match(css, /\.advanced-prompt-field \.advanced-prompt-input-shell textarea \{[\s\S]*?max-height: none;[\s\S]*?overflow-y: hidden;/);
+  assert.match(require("node:fs").readFileSync(require("node:path").join(root, "platform.prompt-editor.css"), "utf8"), /\.advanced-prompt-editor,[\s\S]*?max-height: none;[\s\S]*?overflow-y: visible;/);
   assert.match(create, /function scheduleAutoSizeAdvancedPrompt\(/);
   assert.match(platformExploreSource, /nextTab === "advanced"[\s\S]*?scheduleAutoSizeAdvancedPrompt\(\)/);
   assert.match(main, /els\.advancedPrompt\?\.addEventListener\("input", \(\) => scheduleAutoSizeAdvancedPrompt\(\{ force: true \}\)\)/);

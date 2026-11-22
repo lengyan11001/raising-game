@@ -519,8 +519,7 @@ async function hydrateRecordMediaUserAssetPreviews(record = {}, resolveAssets = 
 
 function advancedPromptHeightLimits() {
   const minimumHeight = 136;
-  const maximumHeight = Math.max(minimumHeight, Math.min(window.innerHeight * 0.62, 520));
-  return { minimumHeight, maximumHeight };
+  return { minimumHeight, maximumHeight: Infinity };
 }
 
 function advancedPromptMentionTokenPattern() {
@@ -582,15 +581,16 @@ function autoSizeAdvancedPrompt({ force = false, resetManual = false } = {}) {
   const nextHeight = Math.min(maximumHeight, Math.max(minimumHeight, contentHeight));
   if (richEditor) {
     promptElement.style.height = `${Math.round(nextHeight)}px`;
-    promptElement.style.overflowY = contentHeight > maximumHeight + 1 ? "auto" : "hidden";
+    promptElement.style.overflowY = "hidden";
   } else {
     textarea.style.height = `${Math.round(nextHeight)}px`;
-    textarea.style.overflowY = contentHeight > maximumHeight + 1 ? "auto" : "hidden";
+    textarea.style.overflowY = "hidden";
   }
   const handle = els.advancedPromptResizeHandle;
   if (handle) {
     handle.setAttribute("aria-valuemin", String(minimumHeight));
-    handle.setAttribute("aria-valuemax", String(Math.round(maximumHeight)));
+    if (Number.isFinite(maximumHeight)) handle.setAttribute("aria-valuemax", String(Math.round(maximumHeight)));
+    else handle.removeAttribute("aria-valuemax");
     handle.setAttribute("aria-valuenow", String(Math.round(nextHeight)));
   }
   return true;
@@ -618,10 +618,11 @@ function bindAdvancedPromptResizeHandle() {
       : textarea;
     if (promptElement) {
       promptElement.style.height = `${Math.round(next)}px`;
-      promptElement.style.overflowY = next >= maximumHeight ? "auto" : "hidden";
+      promptElement.style.overflowY = "hidden";
     }
     handle.setAttribute("aria-valuemin", String(minimumHeight));
-    handle.setAttribute("aria-valuemax", String(Math.round(maximumHeight)));
+    if (Number.isFinite(maximumHeight)) handle.setAttribute("aria-valuemax", String(Math.round(maximumHeight)));
+    else handle.removeAttribute("aria-valuemax");
     handle.setAttribute("aria-valuenow", String(Math.round(next)));
   };
   const finish = () => {
@@ -664,7 +665,7 @@ function bindAdvancedPromptResizeHandle() {
     event.preventDefault();
     const current = (window.VipeakPromptEditorAdapter?.rich ? window.VipeakPromptEditorAdapter.getElement() : textarea)?.getBoundingClientRect().height || minimumHeight;
     if (event.key === "Home") resize(minimumHeight, { manual: true });
-    else if (event.key === "End") resize(maximumHeight, { manual: true });
+    else if (event.key === "End") resize(Math.max(minimumHeight, current + 240), { manual: true });
     else resize(current + (event.key === "ArrowDown" ? 24 : -24), { manual: true });
   });
 }

@@ -6358,7 +6358,7 @@ dialog.tool-download-modal {
   z-index: 1;
   display: block;
   min-height: 136px;
-  max-height: min(62vh, 520px);
+  max-height: none;
   padding: 11px 38px 11px 12px;
   color: transparent;
   caret-color: var(--text);
@@ -6370,6 +6370,7 @@ dialog.tool-download-modal {
   word-break: normal;
   tab-size: 4;
   scrollbar-gutter: stable;
+  overflow-y: hidden;
   resize: none;
   field-sizing: content;
 }
