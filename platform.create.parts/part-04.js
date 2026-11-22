@@ -606,9 +606,16 @@ function bindAdvancedPromptResizeHandle() {
   if (!textarea || !handle || handle.dataset.resizeBound === "true") return;
   handle.dataset.resizeBound = "true";
   const { minimumHeight, maximumHeight } = advancedPromptHeightLimits();
-  let startY = 0;
-  let startHeight = 0;
+  let lastClientY = 0;
   let pointerId = null;
+  let autoScrollDirection = 0;
+  let autoScrollFrame = 0;
+
+  const currentPromptHeight = () => (
+    window.VipeakPromptEditorAdapter?.rich
+      ? window.VipeakPromptEditorAdapter.getElement()
+      : textarea
+  )?.getBoundingClientRect().height || minimumHeight;
 
   const resize = (height, { manual = false } = {}) => {
     if (manual) textarea.dataset.promptUserResized = "true";
@@ -625,7 +632,29 @@ function bindAdvancedPromptResizeHandle() {
     else handle.removeAttribute("aria-valuemax");
     handle.setAttribute("aria-valuenow", String(Math.round(next)));
   };
+  const stopAutoScroll = () => {
+    autoScrollDirection = 0;
+    if (autoScrollFrame) window.cancelAnimationFrame(autoScrollFrame);
+    autoScrollFrame = 0;
+  };
+  const scheduleAutoScroll = () => {
+    if (autoScrollFrame || !autoScrollDirection) return;
+    autoScrollFrame = window.requestAnimationFrame(() => {
+      autoScrollFrame = 0;
+      if (!pointerId || !autoScrollDirection) return;
+      const step = 14;
+      resize(currentPromptHeight() + autoScrollDirection * step, { manual: true });
+      window.scrollBy(0, autoScrollDirection * step);
+      scheduleAutoScroll();
+    });
+  };
+  const updateAutoScroll = (clientY) => {
+    const edge = 36;
+    autoScrollDirection = clientY <= edge ? -1 : clientY >= window.innerHeight - edge ? 1 : 0;
+    scheduleAutoScroll();
+  };
   const finish = () => {
+    stopAutoScroll();
     state.advancedPromptResizing = false;
     if (pointerId !== null && handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
     pointerId = null;
@@ -641,8 +670,7 @@ function bindAdvancedPromptResizeHandle() {
     event.stopPropagation();
     state.advancedPromptResizing = true;
     pointerId = event.pointerId;
-    startY = event.clientY;
-    startHeight = (window.VipeakPromptEditorAdapter?.rich ? window.VipeakPromptEditorAdapter.getElement() : textarea)?.getBoundingClientRect().height || minimumHeight;
+    lastClientY = event.clientY;
     handle.setPointerCapture?.(pointerId);
     handle.classList.add("is-resizing");
     document.body.classList.add("is-resizing-advanced-prompt");
@@ -650,11 +678,16 @@ function bindAdvancedPromptResizeHandle() {
   handle.addEventListener("pointermove", (event) => {
     if (event.pointerId !== pointerId) return;
     event.preventDefault();
-    resize(startHeight + event.clientY - startY, { manual: true });
+    const delta = event.clientY - lastClientY;
+    lastClientY = event.clientY;
+    const atVerticalEdge = event.clientY <= 36 || event.clientY >= window.innerHeight - 36;
+    if (!atVerticalEdge && delta) resize(currentPromptHeight() + delta, { manual: true });
+    updateAutoScroll(event.clientY);
   });
   handle.addEventListener("pointerup", finish);
   handle.addEventListener("pointercancel", finish);
   handle.addEventListener("lostpointercapture", () => {
+    stopAutoScroll();
     state.advancedPromptResizing = false;
     pointerId = null;
     handle.classList.remove("is-resizing");

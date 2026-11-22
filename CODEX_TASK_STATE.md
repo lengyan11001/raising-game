@@ -5497,3 +5497,11 @@ CODEX_TASK_STATE.md
 - Public Vega docs now expose only `Vega 1.0 Lite`; legacy Vega Pro/Lite examples and constraints are filtered from the public view.
 - Verification passed: `node --check` for parts 30/31/32/42, `npm run check:undef`, `git diff --check`, and focused external docs/live/Vidu tests `41/41`.
 - Not committed and not deployed. Unrelated story/coupon/optimizer work remains untouched.
+
+## 2026-11-22 Step FD: Prompt editor drag limit and optimize button overlap
+
+- User reported the prompt editor still stopped growing during a real drag and the page showed no vertical scrollbar, leaving lower content unreachable. Prior 5138px result used synthetic pointer coordinates beyond the viewport and was not representative.
+- Root causes: the AI optimize button occupied the same bottom-right hit area as the resize handle, so pointerdown hit the button and never started resizing on optimizer-capable models. For non-overlap cases, height was calculated from the original absolute `clientY`; at the viewport bottom the pointer cannot move farther, so height stopped and there was no edge auto-scroll.
+- Fix: resize now accumulates `clientY` deltas, keeps an unbounded height, auto-scrolls and grows every animation frame while the pointer stays in the top/bottom 36px edge zone, and stops on pointerup/cancel/lost capture. The resize handle has higher stacking priority and the AI optimize button is shifted to `right: 46px` so it no longer intercepts handle input.
+- Real-mouse acceptance at `1366x768`: Chromium grew `1137px` and scrolled `686px`; WebKit grew `1120px` and scrolled `672px`; Firefox grew `1134px` and scrolled `686px`. All three had no `aria-valuemax`, computed `max-height: none`, document height growth, correct tail typing after 80 paragraphs, and no page errors.
+- Focused core tests `14/14`; syntax and `git diff --check` pass. `test/advanced-custom-ui.test.js` still has 12 pre-existing unrelated source/baseline failures.

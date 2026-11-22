@@ -879,8 +879,12 @@ test("prompt editor exposes a large keyboard-accessible resize handle", () => {
   assert.match(css, /\.advanced-prompt-highlight \{[\s\S]*?padding: 11px 38px 11px 12px;[\s\S]*?word-break: normal;/);
   assert.match(css, /\.advanced-prompt-field \.advanced-prompt-input-shell textarea \{[\s\S]*?padding: 11px 38px 11px 12px;[\s\S]*?word-break: normal;/);
   assert.match(create, /function bindAdvancedPromptResizeHandle\(\)/);
-  assert.match(create, /startHeight \+ event\.clientY - startY/);
+  assert.match(create, /currentPromptHeight\(\) \+ delta/);
+  assert.match(create, /window\.innerHeight - edge/);
+  assert.match(create, /window\.scrollBy\(0, autoScrollDirection \* step\)/);
   assert.match(main, /bindAdvancedPromptResizeHandle\(\);/);
+  assert.match(css, /\.advanced-prompt-resize \{[\s\S]*?z-index: 4;/);
+  assert.match(css, /\.advanced-prompt-optimize-btn \{[\s\S]*?right: 46px;/);
 });
 
 test("rich prompt editor keeps the composer outline visible around its shell", () => {
