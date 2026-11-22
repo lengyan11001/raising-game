@@ -14,7 +14,7 @@ body.prompt-editor-rich .advanced-prompt-input-shell textarea {
 }
 
 .advanced-prompt-editor,
-.advanced-prompt-editor .ProseMirror {
+.advanced-prompt-editor > .ProseMirror {
   position: relative;
   box-sizing: border-box;
   width: 100%;
@@ -22,7 +22,7 @@ body.prompt-editor-rich .advanced-prompt-input-shell textarea {
   max-height: none;
   margin: 0;
   padding: 11px 38px 11px 12px;
-  overflow-y: visible;
+  overflow-y: auto;
   color: var(--text, #f5f5f7);
   background: transparent;
   font: inherit;
@@ -57,10 +57,11 @@ body.prompt-editor-rich .advanced-prompt-input-shell textarea {
 }
 
 body.platform-test-mode .advanced-prompt-editor,
-body.platform-test-mode .advanced-prompt-editor .ProseMirror {
+body.platform-test-mode .advanced-prompt-editor > .ProseMirror {
   min-height: 130px;
   max-height: none;
   padding: 18px;
+  overflow-y: auto;
   color: #fff;
   font-size: 15px;
   line-height: 1.8;
@@ -76,7 +77,7 @@ body.platform-test-mode .advanced-prompt-editor[data-empty="true"]::before {
 
 @media (max-width: 720px) {
   body.platform-test-mode .advanced-prompt-editor,
-  body.platform-test-mode .advanced-prompt-editor .ProseMirror {
+  body.platform-test-mode .advanced-prompt-editor > .ProseMirror {
     padding: 15px;
     font-size: 14px;
   }
