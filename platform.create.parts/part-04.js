@@ -522,6 +522,8 @@ function advancedPromptHeightLimits() {
   return { minimumHeight, maximumHeight: Infinity };
 }
 
+const ADVANCED_PROMPT_DEFAULT_HEIGHT = 240;
+
 function advancedPromptMentionTokenPattern() {
   const tokens = advancedReferenceDisplayItems(currentAdvancedProvider())
     .filter(({ item }) => item && !item.isPending && !item.pendingId)
@@ -566,26 +568,23 @@ function autoSizeAdvancedPrompt({ force = false, resetManual = false } = {}) {
   const textarea = els.advancedPrompt;
   if (!textarea) return false;
   syncAdvancedPromptHighlight();
-  if (resetManual) delete textarea.dataset.promptUserResized;
+  if (resetManual) {
+    delete textarea.dataset.promptUserResized;
+    delete textarea.dataset.promptUserHeight;
+  }
   if (!force && state.advancedPromptResizing) return false;
   if (!textarea.isConnected) return false;
   const richEditor = window.VipeakPromptEditorAdapter?.rich ? window.VipeakPromptEditorAdapter : null;
   const promptElement = richEditor?.getElement?.() || textarea;
   if (promptElement.offsetParent === null || promptElement.getClientRects().length === 0) return false;
   const { minimumHeight, maximumHeight } = advancedPromptHeightLimits();
-  // scrollHeight never reports less than the element's current height. Reset the
-  // previous inline height before measuring so deleting pasted content can shrink.
-  promptElement.style.height = "0px";
-  promptElement.style.overflowY = "hidden";
-  const contentHeight = Math.max(minimumHeight, promptElement.scrollHeight + 2);
-  const nextHeight = Math.min(maximumHeight, Math.max(minimumHeight, contentHeight));
-  if (richEditor) {
-    promptElement.style.height = `${Math.round(nextHeight)}px`;
-    promptElement.style.overflowY = "hidden";
-  } else {
-    textarea.style.height = `${Math.round(nextHeight)}px`;
-    textarea.style.overflowY = "hidden";
-  }
+  const manualHeight = Number(textarea.dataset.promptUserHeight);
+  const nextHeight = Math.min(
+    maximumHeight,
+    Math.max(minimumHeight, Number.isFinite(manualHeight) && manualHeight > 0 ? manualHeight : ADVANCED_PROMPT_DEFAULT_HEIGHT),
+  );
+  promptElement.style.height = `${Math.round(nextHeight)}px`;
+  promptElement.style.overflowY = "auto";
   const handle = els.advancedPromptResizeHandle;
   if (handle) {
     handle.setAttribute("aria-valuemin", String(minimumHeight));
@@ -618,14 +617,17 @@ function bindAdvancedPromptResizeHandle() {
   )?.getBoundingClientRect().height || minimumHeight;
 
   const resize = (height, { manual = false } = {}) => {
-    if (manual) textarea.dataset.promptUserResized = "true";
     const next = Math.max(minimumHeight, Math.min(maximumHeight, height));
+    if (manual) {
+      textarea.dataset.promptUserResized = "true";
+      textarea.dataset.promptUserHeight = String(Math.round(next));
+    }
     const promptElement = window.VipeakPromptEditorAdapter?.rich
       ? window.VipeakPromptEditorAdapter.getElement()
       : textarea;
     if (promptElement) {
       promptElement.style.height = `${Math.round(next)}px`;
-      promptElement.style.overflowY = "hidden";
+      promptElement.style.overflowY = "auto";
     }
     handle.setAttribute("aria-valuemin", String(minimumHeight));
     if (Number.isFinite(maximumHeight)) handle.setAttribute("aria-valuemax", String(Math.round(maximumHeight)));

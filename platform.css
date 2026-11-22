@@ -6336,7 +6336,7 @@ dialog.tool-download-modal {
   position: absolute;
   inset: 0;
   z-index: 0;
-  overflow: hidden;
+  overflow: auto;
   padding: 11px 38px 11px 12px;
   border: 1px solid transparent;
   color: var(--text);
@@ -6370,9 +6370,15 @@ dialog.tool-download-modal {
   word-break: normal;
   tab-size: 4;
   scrollbar-gutter: stable;
-  overflow-y: hidden;
+  overflow-y: auto;
   resize: none;
-  field-sizing: content;
+  field-sizing: fixed;
+}
+.advanced-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 28px;
+  margin-top: 6px;
 }
 .advanced-prompt-resize {
   position: absolute;
@@ -15599,18 +15605,8 @@ body.wan30-launch-visible .site-head { top: 0; }
   height: 13px;
 }
 .advanced-prompt-optimize-btn {
-  position: absolute;
-  right: 46px;
-  bottom: 10px;
-  z-index: 3;
-  min-height: 26px;
-  padding: 4px 9px;
-  background: rgba(27, 27, 33, .92);
-  backdrop-filter: blur(10px);
-}
-.advanced-prompt-input-shell:has(.advanced-prompt-optimize-btn:not([hidden])) textarea,
-.advanced-prompt-input-shell:has(.advanced-prompt-optimize-btn:not([hidden])) .advanced-prompt-highlight {
-  padding-bottom: 47px;
+  min-height: 28px;
+  padding: 5px 10px;
 }
 .workflow-prompt-optimizer-trigger {
   justify-self: start;

@@ -235,8 +235,8 @@ class PromptEditor {
   }
 
   focus(position = "end") {
-    if (position === "end") this.editor.commands.focus("end");
-    else this.editor.commands.focus();
+    if (position === "end") this.editor.commands.focus("end", { scrollIntoView: false });
+    else this.editor.commands.focus(null, { scrollIntoView: false });
   }
 
   insertText(value = "") {
@@ -247,10 +247,13 @@ class PromptEditor {
   insertTextAt(from, to, value = "") {
     const text = normalizeText(value);
     if (!text) return;
+    const scrollTop = this.getElement?.()?.scrollTop || 0;
     this.editor.chain()
-      .focus()
-      .insertContentAt({ from, to }, inlineContentFromText(text))
+      .focus(null, { scrollIntoView: false })
+      .insertContentAt({ from, to }, inlineContentFromText(text), { scrollIntoView: false })
       .run();
+    const element = this.getElement?.();
+    if (element) element.scrollTop = scrollTop;
   }
 
   plainTextOffsetForPosition(position = 0) {
@@ -301,7 +304,13 @@ class PromptEditor {
   replaceText(from = 0, to = from, value = "") {
     const start = this.positionForPlainTextOffset(from);
     const end = this.positionForPlainTextOffset(to);
-    this.editor.chain().focus().insertContentAt({ from: start, to: end }, inlineContentFromText(value)).run();
+    const scrollTop = this.getElement?.()?.scrollTop || 0;
+    this.editor.chain()
+      .focus(null, { scrollIntoView: false })
+      .insertContentAt({ from: start, to: end }, inlineContentFromText(value), { scrollIntoView: false })
+      .run();
+    const element = this.getElement?.();
+    if (element) element.scrollTop = scrollTop;
   }
 
   coordsAtPosition(position = 0) {

@@ -884,31 +884,38 @@ test("prompt editor exposes a large keyboard-accessible resize handle", () => {
   assert.match(create, /window\.scrollBy\(0, autoScrollDirection \* step\)/);
   assert.match(main, /bindAdvancedPromptResizeHandle\(\);/);
   assert.match(css, /\.advanced-prompt-resize \{[\s\S]*?z-index: 4;/);
-  assert.match(css, /\.advanced-prompt-optimize-btn \{[\s\S]*?right: 46px;/);
+  assert.match(html, /class="advanced-prompt-actions"[\s\S]*?id="advancedPromptOptimizeBtn"/);
+  assert.match(css, /\.advanced-prompt-actions \{[\s\S]*?display: flex;[\s\S]*?justify-content: flex-end;/);
+  assert.match(css, /\.advanced-prompt-optimize-btn \{[\s\S]*?min-height: 28px;/);
 });
 
 test("rich prompt editor keeps the composer outline visible around its shell", () => {
   assert.match(css, /\.advanced-prompt-input-shell \{[\s\S]*?border: 1px solid rgba\(255,255,255,\.14\);/);
   assert.match(css, /\.advanced-prompt-input-shell:focus-within \{[\s\S]*?border-color: rgba\(255,79,163,\.56\);[\s\S]*?box-shadow: 0 0 0 3px rgba\(255,79,163,\.13\);/);
   assert.match(html, /href="\.\/platform\.css\?v=[A-Za-z0-9._-]+"/);
-  assert.match(html, /href="\.\/platform\.prompt-editor\.css\?v=prompt-editor-drag-20261122-1"/);
+  assert.match(html, /href="\.\/platform\.prompt-editor\.css\?v=prompt-editor-fixed-scroll-20261122-1"/);
 });
 
-test("prompt editor grows to show loaded generated copy and remeasures after the Generate tab is visible", () => {
+test("prompt editor keeps a stable height and scrolls long copy inside", () => {
   assert.match(create, /function autoSizeAdvancedPrompt\(/);
+  assert.match(create, /const ADVANCED_PROMPT_DEFAULT_HEIGHT = 240/);
   assert.match(create, /function advancedPromptHeightLimits\(\) \{[^}]*const minimumHeight = 136;[^}]*maximumHeight: Infinity/);
   assert.match(create, /const promptElement = richEditor\?\.getElement\?\.\(\) \|\| textarea/);
-  assert.match(create, /promptElement\.style\.height = "0px"/);
-  assert.match(create, /promptElement\.scrollHeight \+ 2/);
-  assert.match(create, /Math\.min\(maximumHeight, Math\.max\(minimumHeight, contentHeight\)\)/);
-  assert.match(create, /textarea\.style\.overflowY = "hidden"/);
-  assert.match(css, /\.advanced-prompt-field \.advanced-prompt-input-shell textarea \{[\s\S]*?max-height: none;[\s\S]*?overflow-y: hidden;/);
-  assert.match(require("node:fs").readFileSync(require("node:path").join(root, "platform.prompt-editor.css"), "utf8"), /\.advanced-prompt-editor,[\s\S]*?max-height: none;[\s\S]*?overflow-y: visible;/);
+  assert.match(create, /promptElement\.style\.height = `\$\{Math\.round\(nextHeight\)\}px`/);
+  assert.match(create, /promptElement\.style\.overflowY = "auto"/);
+  assert.match(css, /\.advanced-prompt-field \.advanced-prompt-input-shell textarea \{[\s\S]*?max-height: none;[\s\S]*?overflow-y: auto;/);
+  assert.match(require("node:fs").readFileSync(require("node:path").join(root, "platform.prompt-editor.css"), "utf8"), /\.advanced-prompt-editor,[\s\S]*?max-height: none;[\s\S]*?overflow-y: auto;/);
   assert.match(create, /function scheduleAutoSizeAdvancedPrompt\(/);
   assert.match(platformExploreSource, /nextTab === "advanced"[\s\S]*?scheduleAutoSizeAdvancedPrompt\(\)/);
   assert.match(main, /els\.advancedPrompt\?\.addEventListener\("input", \(\) => scheduleAutoSizeAdvancedPrompt\(\{ force: true \}\)\)/);
   assert.match(platformExploreSource, /window\.setAdvancedPromptValue\?\.\(template\.prompt[\s\S]*?autoSizeAdvancedPrompt\(\{ force: true, resetManual: true \}\)/);
   assert.match(create, /window\.setAdvancedPromptValue\?\.\(els\.templatePrompt\?\.value[\s\S]*?autoSizeAdvancedPrompt\(\{ force: true, resetManual: true \}\)/);
+});
+
+test("prompt reference insertion preserves editor and page scroll positions", () => {
+  assert.match(create, /const editorScrollTop = richPromptElement\?\.scrollTop/);
+  assert.match(create, /richPromptElement\.scrollTop = editorScrollTop/);
+  assert.match(create, /window\.scrollTo\(window\.scrollX, pageScrollY\)/);
 });
 
 test("prompt @ reference tokens render in pink without changing textarea editing", () => {

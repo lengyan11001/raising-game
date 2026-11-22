@@ -269,6 +269,15 @@
     return legacyPromptSelection(textareaElement());
   }
 
+  function setAdvancedPromptSelection(start = 0, end = start) {
+    if (editor) {
+      editor.setSelection(start, end);
+      return true;
+    }
+    setTextareaSelection({ start, end });
+    return false;
+  }
+
   function getAdvancedPromptEditorElement() {
     return editor?.getElement?.() || null;
   }
@@ -298,6 +307,7 @@
     initialize,
     getElement: getAdvancedPromptEditorElement,
     getSelection: getAdvancedPromptSelection,
+    setSelection: setAdvancedPromptSelection,
     coordsAtSelection: coordsAtAdvancedPromptSelection,
     replaceText: replaceAdvancedPromptText,
     setHeight(height) { editor?.setHeight?.(height); },

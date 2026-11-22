@@ -255,9 +255,16 @@ function insertAdvancedPromptMention(index = state.advancedPromptMentionIndex ||
   const needsSpace = after && /^\s/.test(after) ? "" : " ";
   const inserted = `${item.mention}${needsSpace}`;
   const cursor = before.length + inserted.length;
+  const richPromptElement = window.VipeakPromptEditorAdapter?.rich
+    ? window.VipeakPromptEditorAdapter.getElement?.()
+    : null;
+  const editorScrollTop = richPromptElement?.scrollTop;
+  const pageScrollY = window.scrollY;
   if (window.VipeakPromptEditorAdapter?.rich && typeof window.replaceAdvancedPromptText === "function") {
     window.replaceAdvancedPromptText(context.start, context.end, inserted);
     window.VipeakPromptEditorAdapter.focus?.("selection");
+    if (richPromptElement && Number.isFinite(editorScrollTop)) richPromptElement.scrollTop = editorScrollTop;
+    if (Number.isFinite(pageScrollY)) window.scrollTo(window.scrollX, pageScrollY);
   } else {
     textarea.value = `${before}${inserted}${after}`;
     textarea.focus?.();
