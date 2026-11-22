@@ -29,7 +29,11 @@
 
 ### Deployment status
 - Changes are in clean worktree `/tmp/raising-prompt-mention-release`, branch `codex/prompt-mention-release-integration`.
-- Pending commit, `old-site` integration commit, platform release build, pushing only `old-site` + `platform-release`, and Old-only deployment.
+- Correct final source commit `c9be8643` is based directly on `origin/old-site` `705555a9`; the earlier `b83b51aa` base also contained historical commit ancestry and was not used as the deployment base.
+- Pushed only `old-site` (`705555a9..c9be8643`) and `platform-release` (`dbf6aa60..11599f59`); `live-release` was not pushed.
+- Old-only deployment succeeded through `scripts/deploy_local.sh --site old`: `OLD_ROLLING_DEPLOY_OK active_port=4175 release=11599f5971685a417e4e01583a950cd184a58f31`; 1% and 5% canaries passed.
+- Production `/api/health`, `/api/livez`, and `/api/readyz` all return `200`; runtime release marker is `11599f59`. Public editor bundle contains `vipeakPromptParagraphs`, and public `part-04.js` contains `maximumHeight: Infinity`.
+- User should now test the deployed Old site.
 
 ## 2026-11-20 Step FS: Preserve reference requirement only for generic Seedance 2.5
 
