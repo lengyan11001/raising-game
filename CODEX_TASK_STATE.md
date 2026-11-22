@@ -5505,3 +5505,11 @@ CODEX_TASK_STATE.md
 - Fix: resize now accumulates `clientY` deltas, keeps an unbounded height, auto-scrolls and grows every animation frame while the pointer stays in the top/bottom 36px edge zone, and stops on pointerup/cancel/lost capture. The resize handle has higher stacking priority and the AI optimize button is shifted to `right: 46px` so it no longer intercepts handle input.
 - Real-mouse acceptance at `1366x768`: Chromium grew `1137px` and scrolled `686px`; WebKit grew `1120px` and scrolled `672px`; Firefox grew `1134px` and scrolled `686px`. All three had no `aria-valuemax`, computed `max-height: none`, document height growth, correct tail typing after 80 paragraphs, and no page errors.
 - Focused core tests `14/14`; syntax and `git diff --check` pass. `test/advanced-custom-ui.test.js` still has 12 pre-existing unrelated source/baseline failures.
+
+## 2026-11-22 Step FE: Prompt editor stylesheet cache corrected on Old
+
+- First drag-fix deployment was healthy but online computed `max-height: 476.16px`. The release file was correct; `platform.html` still referenced `platform.prompt-editor.css?v=main-site-compat-20261111-1`, and Cloudflare served an immutable year-cached older stylesheet containing `max-height: min(62vh, 520px); overflow-y: auto`.
+- Added version `prompt-editor-drag-20261122-1` to the stylesheet URL and a source regression assertion. Source commit `a8b9c3f4`; platform release `30acf06f`; pushed only `old-site` and `platform-release`; Old-only deployment exit 0 and release-boundary check passed.
+- Online `/api/health`, `/api/livez`, `/api/readyz` return 200; readyz reports clean release `30acf06f...`. Public HTML references the new stylesheet version, which serves `max-height: none` and `overflow-y: visible`.
+- Online real-mouse drag at `1366x768`: editor grew `138px -> 1359px`, page scrolled `770px`, document height grew `1091px`, handle hit target was correct, no `aria-valuemax`, and no page errors.
+- Online 80-paragraph regression: full `2390` characters inserted, editor grew to `1704px`; appending `末尾XYZ` produced length `2395`, caret at end `2395`, `max-height: none`, no page errors.
