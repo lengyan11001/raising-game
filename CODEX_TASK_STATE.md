@@ -1,3 +1,30 @@
+## 2026-11-22 Step GB: Mention insertion stays on the current line
+
+### Goal
+- Fix the reported case where a line containing a single Chinese character plus `@` pushes the selected mention onto a new line, even though the editor is much wider than the text.
+
+### Root cause
+- This was not a CSS width/wrapping issue.
+- `PromptEditor.replaceText()` replaced text with `insertContentAt(..., inlineContentFromText(value))`. The helper returns ProseMirror paragraph nodes, so inserting a mention was treated as block content and created a new paragraph.
+- Reproduced online before the fix as `<p>字</p><p><span class="advanced-prompt-mention-token">@Image 1</span> </p>` with value `字\n@Image 1 `.
+
+### Changes
+- `vendor/vipeak-prompt-editor.src.js`: `replaceText()` now performs an inline transaction with `tr.insertText(normalizeText(value), start, end)` and keeps the existing no-scroll behavior.
+- `vendor/vipeak-prompt-editor.js`: rebuilt from source with `npm run build:prompt-editor`; not hand-edited.
+- `test/long-prompt-offset.test.js`: regression assertion rejects `insertContentAt(inlineContentFromText(value))` for mention replacement.
+
+### Verification
+- `node --test test/prompt-editor.test.js test/long-prompt-offset.test.js`: `17/17` passed.
+- `npm run check:undef`: passed.
+- Online Old at 1366px, Chromium/WebKit/Firefox: `字@` plus `Image 1` produces one paragraph, value `字@Image 1 `, one mention token rectangle, no page errors.
+- Online mention regression in all three engines: second-line single-character mention, 80-paragraph tail insertion and delete-mention all pass.
+- Online Chromium regressions: selected newline copies as exactly `\n`, mention tokens use `white-space: nowrap`, and existing inner-scroll behavior remains.
+
+### Deployment status
+- Correct source commit `5eb43f27`; platform release `58ae68416018959fd6527c74e76c5b5f99d6b90a` built from `origin/old-site`, pushed to `platform-release`, and deployed Old only with `scripts/deploy_local.sh --site old`.
+- `/api/livez` and `/api/readyz` return `200`, clean release `58ae68416018959fd6527c74e76c5b5f99d6b90a`.
+- Live release was not pushed or deployed.
+
 ## 2026-11-22 Step GA: Prompt editor unlimited height and long-text offset repair
 
 ### Goal
