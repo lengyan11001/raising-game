@@ -1113,8 +1113,8 @@ test("Vega regeneration restores and persists user asset ids end to end", () => 
 test("Vega UI only exposes the active Lite model while retaining historical labels", () => {
   const videoGroup = html.match(/<optgroup label="Video">([\s\S]*?)<\/optgroup>/)?.[1] || "";
   const options = [...videoGroup.matchAll(/<option value="([^"]+)"[^>]*>([^<]+)<\/option>/g)].map((match) => [match[1], match[2]]);
-  assert.deepEqual(options.slice(-1), [["vega10-lite", "h3（vega）"]]);
-  assert.equal(options.some(([id]) => ["seedance20-vega", "seedance25-vega", "h3-vega"].includes(id)), false);
+  assert.deepEqual(options.slice(-1), [["h3-vega", "wan（vega）"]]);
+  assert.equal(options.some(([id]) => ["seedance20-vega", "seedance25-vega", "vega10-lite"].includes(id)), false);
   assert.equal(options.some(([id]) => /^seedance20-(?:fast|mini|lite)-vega$/.test(id)), false);
   assert.deepEqual(options.slice(0, 6).map(([id]) => id), ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance"]);
   assert.match(ui, /if \(VEGA_MODEL_LABELS\[normalized\]\) return VEGA_MODEL_LABELS\[normalized\]/);
@@ -1358,17 +1358,17 @@ test("Vega local uploads use the dedicated public-URL upload path", () => {
 
 test("Vega keeps historical definitions but exposes only the active Lite entrypoint", () => {
   assert.deepEqual(vega.VEGA_PROVIDER_IDS, ["seedance20-vega", "seedance25-vega", "h3-vega", "vega10-lite"]);
-  assert.deepEqual([...vega.VEGA_RETIRED_PROVIDER_IDS].sort(), ["h3-vega", "seedance20-vega", "seedance25-vega"]);
+  assert.deepEqual([...vega.VEGA_RETIRED_PROVIDER_IDS].sort(), ["seedance20-vega", "seedance25-vega", "vega10-lite"]);
   assert.equal(vega.isRetiredVegaProvider("seedance20-vega"), true);
   assert.equal(vega.isRetiredVegaProvider("seedance25-vega"), true);
-  assert.equal(vega.isRetiredVegaProvider("h3-vega"), true);
+  assert.equal(vega.isRetiredVegaProvider("h3-vega"), false);
   assert.equal(vega.isRetiredVegaProvider("seedance2.5vega"), true);
   assert.equal(vega.isRetiredVegaProvider("vega1.5pro"), true);
-  assert.equal(vega.isRetiredVegaProvider("h3vega"), true);
-  assert.equal(vega.isRetiredVegaProvider("vega10-lite"), false);
+  assert.equal(vega.isRetiredVegaProvider("vega10-lite"), true);
+  assert.equal(vega.isRetiredVegaProvider("vega1.0lite"), true);
   for (const text of [config, html, ui, server]) assert.doesNotMatch(text, /seedance20-(fast|mini|lite)-vega/);
-  assert.doesNotMatch(html, /value="(?:seedance20-vega|seedance25-vega|h3-vega)"/);
-  assert.match(html, /value="vega10-lite">h3（vega）/);
+  assert.doesNotMatch(html, /value="(?:seedance20-vega|seedance25-vega|vega10-lite)"/);
+  assert.match(html, /value="h3-vega">wan（vega）/);
   assert.match(server, /if \(isRetiredVegaProvider\(value\)\) \{[\s\S]*?throw advancedValidationError\([\s\S]*?"MODEL_RETIRED"/);
 });
 

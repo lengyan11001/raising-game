@@ -338,7 +338,7 @@ return { advancedEngineValue };`;
     () => "seedance25",
     { advancedProvider: { value: "", options: [{ value: "seedance-nsfw" }] } },
     "seedance-nsfw",
-    (value) => ["seedance20-vega", "seedance25-vega", "h3-vega"].includes(String(value || "").trim().toLowerCase()),
+    (value) => ["seedance20-vega", "seedance25-vega", "vega10-lite"].includes(String(value || "").trim().toLowerCase()),
   );
   assert.equal(engine.advancedEngineValue("seedance25"), "seedance-nsfw");
   assert.equal(engine.advancedEngineValue("seedance-nsfw"), "seedance-nsfw");
@@ -893,7 +893,7 @@ test("rich prompt editor keeps the composer outline visible around its shell", (
   assert.match(css, /\.advanced-prompt-input-shell \{[\s\S]*?border: 1px solid rgba\(255,255,255,\.14\);/);
   assert.match(css, /\.advanced-prompt-input-shell:focus-within \{[\s\S]*?border-color: rgba\(255,79,163,\.56\);[\s\S]*?box-shadow: 0 0 0 3px rgba\(255,79,163,\.13\);/);
   assert.match(html, /href="\.\/platform\.css\?v=[A-Za-z0-9._-]+"/);
-  assert.match(html, /href="\.\/platform\.prompt-editor\.css\?v=prompt-editor-newline-20261122-2"/);
+  assert.match(html, /href="\.\/platform\.prompt-editor\.css\?v=prompt-editor-fixed-scroll-20261122-1"/);
 });
 
 test("prompt editor keeps a stable height and scrolls long copy inside", () => {

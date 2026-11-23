@@ -54,7 +54,6 @@ body.prompt-editor-rich .advanced-prompt-input-shell textarea {
 .advanced-prompt-editor .advanced-prompt-mention-token {
   color: #ff4fa3;
   background: transparent;
-  white-space: nowrap;
 }
 
 body.platform-test-mode .advanced-prompt-editor,
