@@ -5567,3 +5567,12 @@ CODEX_TASK_STATE.md
 - Source `old-site` and platform release were pushed. Live release was not changed. Old-only deployment through `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=f83850bd...`.
 - Public `/api/livez` and `/api/readyz` return `200` with clean release `f83850bdafdfb5937dc0446917b24ad9c5f41762`. Public `platform.html` now requests `platform.prompt-editor.css?v=prompt-editor-newline-20261122-2`; that URL contains `white-space: nowrap`.
 - Online acceptance passed in all three engines. Chromium copied one selected newline as exactly `\n` and an empty line as `\n\n`. WebKit/Firefox deny programmatic clipboard reads, but editor value and paragraph structure remain exactly one/two newlines. `@Image 1` has a single bounding rectangle in leading-padding, line-end, long-prefix, and Chinese-adjacent cases in every engine.
+## 2026-11-23 Step FD: Re-enable Vega 1.5 Lite only
+
+- User request: reopen the previously closed Vega 1.5 Lite (`h3-vega`) and keep all other Vega models closed.
+- Active Vega picker entry is now `h3-vega` / `wan（vega）`. `seedance20-vega`, `seedance25-vega`, and `vega10-lite` are retired from the picker and server validation; they are hidden from the active pricing list while historical pricing definitions remain intact.
+- Historical Vega 1.0/1.5 provider definitions, capability data, pricing rows, labels, regeneration display mapping, and historical-record rendering remain intact. Only retirement/exposure flags and the native picker option changed.
+- Added returned-1.5-Lite aliases (`h3vega`, `vega15lite`, `vega1.5lite`, `wandvegavideo1.5lite`) back to active behavior; 1.0 Lite aliases (`vega10lite`, `vega1.0lite`, `wandvegavideo1.0lite`) are retired.
+- Verification: `node --check` for changed source/tests, `npm run check:undef`, scoped `git diff --check`, and focused Vega/pricing/model-doc suite `192/192` pass.
+- A separate earlier regression test now also checks that `vega10-lite` is rejected when an old record is restored into the native select, while `h3-vega` remains selectable.
+- Deployment pending; unrelated prompt-editor/story dirty work must not be included in the commit or release.

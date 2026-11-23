@@ -58,8 +58,8 @@ test("admin pricing exposes active groups and hides retired Vega routes", async 
   assert.ok(admin.rows.filter((row) => row.modelKey === "seedance25").every((row) => row.pricingVisible === false));
   assert.equal(admin.rows.some((row) => row.modelKey === "seedance25-vega"), false);
   assert.equal(admin.rows.some((row) => row.modelKey === "seedance20-vega"), false);
-  assert.equal(admin.rows.some((row) => row.modelKey === "h3-vega"), false);
-  assert.ok(admin.rows.some((row) => row.modelKey === "vega10-lite" && row.pricingVisible === true));
+  assert.ok(admin.rows.some((row) => row.modelKey === "h3-vega" && row.pricingVisible === true));
+  assert.equal(admin.rows.some((row) => row.modelKey === "vega10-lite"), false);
   assert.ok(admin.rows.every((row) => !Object.prototype.hasOwnProperty.call(row, "modelSubtitle")));
 
   const seeded = await application.adminAdvancedPricingView({
@@ -122,16 +122,16 @@ test("public and admin pricing list only models visible on the generation page",
   const publicRows = application.publicAdvancedPricingRows();
   assert.equal(publicRows.some((row) => row.provider === "seedance20-vega"), false);
   assert.equal(publicRows.some((row) => row.provider === "seedance25-vega"), false);
-  assert.equal(publicRows.some((row) => row.provider === "h3-vega"), false);
-  assert.equal(publicRows.some((row) => row.provider === "vega10-lite"), true);
+  assert.equal(publicRows.some((row) => row.provider === "h3-vega"), true);
+  assert.equal(publicRows.some((row) => row.provider === "vega10-lite"), false);
   assert.equal(publicRows.some((row) => row.provider === "seedance25"), false);
   assert.equal(publicRows.some((row) => row.provider === "happyhorse"), false);
   assert.equal(publicRows.some((row) => row.key === "z-image-spicy-pro"), true);
   assert.equal(publicRows.some((row) => row.key === "qwen-image-edit-spicy"), true);
 
   const admin = await application.adminAdvancedPricingView({});
-  assert.equal(admin.rows.some((row) => row.key === "vega10-lite-1080p" && row.pricingVisible === true), true);
-  assert.equal(admin.rows.some((row) => ["seedance20-vega", "seedance25-vega", "h3-vega"].includes(row.provider)), false);
+  assert.equal(admin.rows.some((row) => row.key === "h3-vega-1080p" && row.pricingVisible === true), true);
+  assert.equal(admin.rows.some((row) => ["seedance20-vega", "seedance25-vega", "vega10-lite"].includes(row.provider)), false);
   assert.equal(admin.rows.some((row) => row.key === "seedance25-480p" && row.pricingVisible === false), true);
   assert.equal(admin.rows.some((row) => row.key === "seedance-fast-720p" && row.pricingVisible === true), true);
   assert.equal(admin.rows.some((row) => row.key === "z-image-spicy-pro" && row.pricingVisible === true), true);
@@ -139,7 +139,7 @@ test("public and admin pricing list only models visible on the generation page",
 });
 
 test("retired Vega pricing rows cannot be submitted back through admin save", () => {
-  for (const key of ["vega10-pro-1080p", "vega15-pro-1080p", "h3-vega-1080p"]) {
+  for (const key of ["vega10-pro-1080p", "vega15-pro-1080p", "vega10-lite-1080p"]) {
     assert.throws(
       () => application.advancedPricingFromBody({ rows: [{ key }] }),
       (error) => error?.code === "PRICING_MODEL_RETIRED" && error?.message?.includes(key),
@@ -199,9 +199,9 @@ test("Vega 1.5 Lite has editable output and input-video pricing rows", () => {
 
 test("Vega purchase prices are complete, editable, and retain a 1.5x sale margin", async () => {
   const pricing = await application.adminAdvancedPricingView({});
-  const vegaRows = pricing.rows.filter((row) => row.provider === "vega10-lite");
-  assert.equal(vegaRows.length, 11);
-  assert.equal(pricing.rows.some((row) => ["h3-vega", "seedance20-vega", "seedance25-vega"].includes(row.provider)), false);
+  const vegaRows = pricing.rows.filter((row) => row.provider === "h3-vega");
+  assert.equal(vegaRows.length, 10);
+  assert.equal(pricing.rows.some((row) => ["vega10-lite", "seedance20-vega", "seedance25-vega"].includes(row.provider)), false);
   for (const row of vegaRows) {
     assert.equal(row.purchaseEditable, true, `${row.key} must expose an editable purchase price`);
     assert.equal(row.purchaseSource, "admin_configured", `${row.key} must use the configured Vega purchase price`);
@@ -209,16 +209,16 @@ test("Vega purchase prices are complete, editable, and retain a 1.5x sale margin
     assert.ok(Number(row.saleUsdPerSecond) > 0, `${row.key} must have a positive sale price`);
     assert.ok(Math.abs(Number(row.saleUsdPerSecond) / Number(row.purchaseUsdPerSecond) - 1.5) < 1e-5, `${row.key} must keep a 1.5x margin`);
   }
-  const reference = vegaRows.find((row) => row.key === "vega10-lite-reference-image");
-  assert.equal(reference?.purchaseUsdPerSecond, 0.03);
-  assert.equal(reference?.saleUsdPerSecond, 0.045);
+  const output1080p = vegaRows.find((row) => row.key === "h3-vega-1080p");
+  assert.equal(output1080p?.purchaseUsdPerSecond, 0.18);
+  assert.equal(output1080p?.saleUsdPerSecond, 0.27);
 });
 
 test("model discount applies consistently to admin, public, and runtime sale prices", async () => {
   const advancedPricing = {
     modelSettings: {
-      "vega10-lite": {
-        displayName: "h3（vega）",
+      "h3-vega": {
+        displayName: "wan（vega）",
         subtitle: "旧版副标题应被丢弃",
         discount: 0.9,
         order: 7,
@@ -226,33 +226,33 @@ test("model discount applies consistently to admin, public, and runtime sale pri
     },
   };
   const admin = await application.adminAdvancedPricingView({ platform: { advancedPricing } });
-  const adminRow = admin.rows.find((row) => row.key === "vega10-lite-1080p");
+  const adminRow = admin.rows.find((row) => row.key === "h3-vega-1080p");
   assert.ok(adminRow);
-  assert.equal(adminRow.modelDisplayName, "h3（vega）");
+  assert.equal(adminRow.modelDisplayName, "wan（vega）");
   assert.equal(Object.prototype.hasOwnProperty.call(adminRow, "modelSubtitle"), false);
   assert.equal(adminRow.modelOrder, 7);
   assert.equal(adminRow.modelDiscount, 0.9);
-  assert.equal(Object.prototype.hasOwnProperty.call(admin.modelSettings["vega10-lite"], "subtitle"), false);
-  assert.equal(adminRow.configuredSaleCreditsPerSecond, 11.535);
-  assert.equal(adminRow.saleCreditsPerSecond, 10.3815);
-  assert.equal(adminRow.purchaseCreditsPerSecond, 7.69);
+  assert.equal(Object.prototype.hasOwnProperty.call(admin.modelSettings["h3-vega"], "subtitle"), false);
+  assert.equal(adminRow.configuredSaleCreditsPerSecond, 27);
+  assert.equal(adminRow.saleCreditsPerSecond, 24.3);
+  assert.equal(adminRow.purchaseCreditsPerSecond, 18);
 
   assert.equal(adminRow.pricingVisible, true);
   const publicRow = application.publicAdvancedPricingRows(advancedPricing)
-    .find((row) => row.key === "vega10-lite-1080p");
-  assert.equal(publicRow?.saleCreditsPerUnit, 10.3815);
+    .find((row) => row.key === "h3-vega-1080p");
+  assert.equal(publicRow?.saleCreditsPerUnit, 24.3);
 
-  const runtime = application.advancedModelPricing("vega10-lite", {
+  const runtime = application.advancedModelPricing("h3-vega", {
     advancedPricing,
     duration: 5,
     resolution: "1080P",
     ratio: "16:9",
     mode: "reference_video",
   });
-  assert.equal(runtime.modelKey, "vega10-lite");
+  assert.equal(runtime.modelKey, "h3-vega");
   assert.equal(runtime.modelDiscount, 0.9);
-  assert.equal(runtime.configuredCredits, 57.675);
-  assert.equal(runtime.credits, 51.9075);
+  assert.equal(runtime.configuredCredits, 135);
+  assert.equal(runtime.credits, 121.5);
   assert.equal(runtime.creditsPerSecond, adminRow.saleCreditsPerSecond);
 });
 
@@ -431,16 +431,14 @@ test("Vega 1.0 Lite pricing rows, defaults, validation, and reference-image fees
   assert.equal(sixImages.credits - fiveImages.credits, 4.5);
 });
 
-test("public Vega 1.0 Lite pricing rows keep 768P and extra-reference-image rates", () => {
+test("public Vega 1.5 Lite pricing rows expose output and input-video rates", () => {
   const rows = application.publicAdvancedPricingRows({
-    vega10LiteCreditsPerSecondByResolution: { "480p": 6.855, "768p": 8.655, "1080p": 11.535, "2k": 14.43, "4k": 17.31 },
-    vega10LiteInputVideoCreditsPerSecondByResolution: { "480p": 6.855, "768p": 8.655, "1080p": 11.535, "2k": 14.43, "4k": 17.31 },
-    vega10LiteReferenceImageCreditsEach: 4.5,
+    h3VegaCreditsPerSecondByResolution: { "480p": 6.75, "720p": 13.5, "1080p": 27, "2k": 32.4, "4k": 38.88 },
+    h3VegaInputVideoCreditsPerSecondByResolution: { "480p": 6.75, "720p": 13.5, "1080p": 27, "2k": 27, "4k": 27 },
   });
   const byKey = Object.fromEntries(rows.map((row) => [row.key, row]));
-  assert.equal(byKey["vega10-lite-768p"].saleCreditsPerUnit, 8.655);
-  assert.equal(byKey["vega10-lite-video-input-768p"].saleCreditsPerUnit, 8.655);
-  assert.equal(byKey["vega10-lite-reference-image"].saleCreditsPerUnit, 4.5);
+  assert.equal(byKey["h3-vega-1080p"].saleCreditsPerUnit, 27);
+  assert.equal(byKey["h3-vega-video-input-1080p"].saleCreditsPerUnit, 27);
 });
 
 test("Vega 1.0 Pro history keeps rates while public pricing no longer exposes it", () => {

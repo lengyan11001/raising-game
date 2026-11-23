@@ -481,7 +481,7 @@ const VEGA_PROVIDER_IDS = Object.freeze([
 const VEGA_RETIRED_PROVIDER_IDS = Object.freeze([
   "seedance20-vega",
   "seedance25-vega",
-  "h3-vega",
+  "vega10-lite",
 ]);
 const VEGA_MODEL_LABELS = Object.freeze({
   "seedance20-vega": "seedance2.0（vega）",
@@ -552,10 +552,9 @@ function isRetiredVegaProviderId(value = "") {
       "vega15pro",
       "vega1.5pro",
       "wandvegavideo1.5pro",
-      "h3vega",
-      "vega15lite",
-      "vega1.5lite",
-      "wandvegavideo1.5lite",
+      "vega10lite",
+      "vega1.0lite",
+      "wandvegavideo1.0lite",
     ].some((alias) => alias.replace(/[\s_.-]+/g, "") === compact);
 }
 

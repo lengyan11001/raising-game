@@ -36,7 +36,7 @@ const VEGA_PROVIDER_IDS = Object.freeze(Object.keys(VEGA_PROVIDERS));
 const VEGA_RETIRED_PROVIDER_IDS = Object.freeze(new Set([
   "seedance20-vega",
   "seedance25-vega",
-  "h3-vega",
+  "vega10-lite",
 ]));
 const VEGA_USAGES = Object.freeze(new Set(["FirstFrame", "LastFrame", "Reference"]));
 const VEGA_MEDIA_MODES = Object.freeze({
@@ -147,10 +147,9 @@ function isRetiredVegaProvider(value = "") {
       "vega15pro",
       "vega1.5pro",
       "wandvegavideo1.5pro",
-      "h3vega",
-      "vega15lite",
-      "vega1.5lite",
-      "wandvegavideo1.5lite",
+      "vega10lite",
+      "vega1.0lite",
+      "wandvegavideo1.0lite",
     ].some((alias) => alias.replace(/[\s_.-]+/g, "") === compact);
 }
 

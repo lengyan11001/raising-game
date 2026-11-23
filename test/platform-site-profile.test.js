@@ -148,7 +148,7 @@ test("model picker selection writes through the native select and skips duplicat
       return true;
     },
   };
-  const isRetiredVegaProviderId = (value) => ["seedance20-vega", "seedance25-vega", "h3-vega"].includes(String(value || "").trim().toLowerCase());
+  const isRetiredVegaProviderId = (value) => ["seedance20-vega", "seedance25-vega", "vega10-lite"].includes(String(value || "").trim().toLowerCase());
   const setAdvancedParameterValue = new Function(
     "advancedParameterNativeSelect",
     "closeAdvancedParameterPanel",
@@ -163,22 +163,22 @@ return setAdvancedParameterValue;`,
     isRetiredVegaProviderId,
   );
 
-  setAdvancedParameterValue("model", "vega10-lite");
-  assert.equal(select.value, "vega10-lite");
+  setAdvancedParameterValue("model", "h3-vega");
+  assert.equal(select.value, "h3-vega");
   assert.equal(events.length, 1);
   assert.equal(events[0].type, "change");
   assert.equal(events[0].bubbles, true);
   assert.equal(closeCount, 1);
   assert.equal(syncCount, 1);
 
-  setAdvancedParameterValue("model", "vega10-lite");
-  assert.equal(select.value, "vega10-lite");
+  setAdvancedParameterValue("model", "h3-vega");
+  assert.equal(select.value, "h3-vega");
   assert.equal(events.length, 1, "re-selecting the current model must not replay change handlers");
   assert.equal(closeCount, 2);
   assert.equal(syncCount, 2);
 
   setAdvancedParameterValue("model", "seedance25-vega");
-  assert.equal(select.value, "vega10-lite", "retired models must never be written into the native select");
+  assert.equal(select.value, "h3-vega", "retired models must never be written into the native select");
   assert.equal(events.length, 1);
   assert.equal(closeCount, 2);
   assert.equal(syncCount, 2);
@@ -196,7 +196,7 @@ test("model picker filters hidden and disabled options in native order", () => {
     { value: "vega10-lite", textContent: "h3（vega）", hidden: false, disabled: false, closest: () => ({ hidden: false, label: "Video" }) },
   ];
   const select = { options };
-  const isRetiredVegaProviderId = (value) => ["seedance20-vega", "seedance25-vega", "h3-vega"].includes(String(value || "").trim().toLowerCase());
+  const isRetiredVegaProviderId = (value) => ["seedance20-vega", "seedance25-vega", "vega10-lite"].includes(String(value || "").trim().toLowerCase());
   const advancedParameterVisibleOptions = new Function(
     "advancedParameterNativeSelect",
     "isRetiredVegaProviderId",
@@ -207,7 +207,7 @@ return advancedParameterVisibleOptions;`,
   assert.deepEqual(advancedParameterVisibleOptions("model"), [
     { value: "seedance-nsfw", label: "Seedance 2.5（NSFW）", group: "" },
     { value: "seedance", label: "Seedance 2.0", group: "Video" },
-    { value: "vega10-lite", label: "h3（vega）", group: "Video" },
+    { value: "h3-vega", label: "wan（vega）", group: "Video" },
   ]);
 });
 
