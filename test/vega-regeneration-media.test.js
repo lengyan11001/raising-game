@@ -392,7 +392,7 @@ test("Vega hydration prefers legacy URL and asset-URI arrays over an empty canon
     }),
   });
   const record = {
-    provider: "h3-vega",
+    provider: "vega15-lite",
     mediaAssets: [],
     params: {
       mediaMode: "reference_video",

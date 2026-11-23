@@ -6630,7 +6630,7 @@ const PRICING_MODEL_DEFAULT_LABELS = {
   "seedance-nsfw": "Seedance 2.5（NSFW）",
   "seedance20-vega": "seedance2.0（vega）",
   "seedance25-vega": "seedance2.5vega",
-  "h3-vega": "wan（vega）",
+  "vega15-lite": "wan（vega）",
   "vega10-lite": "h3（vega）",
   "wan30": "W3.0",
   "wan30-prime": "W3.0-Prime",
