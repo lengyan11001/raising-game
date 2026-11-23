@@ -141,6 +141,15 @@ class PromptEditor {
         createMentionDecorationExtension(options.getMentionTokens),
       ],
       content: contentFromText(options.value || ""),
+      coreExtensionOptions: {
+        // Prompt lines are stored as separate paragraphs but the rest of the
+        // platform treats one newline as one line. Tiptap otherwise copies a
+        // paragraph boundary as "\n\n", so copying a single selected newline
+        // pastes back as two.
+        clipboardTextSerializer: {
+          blockSeparator: "\n",
+        },
+      },
       editorProps: {
         attributes: {
           class: "advanced-prompt-editor",
@@ -307,7 +316,10 @@ class PromptEditor {
     const scrollTop = this.getElement?.()?.scrollTop || 0;
     this.editor.chain()
       .focus(null, { scrollIntoView: false })
-      .insertContentAt({ from: start, to: end }, inlineContentFromText(value), { scrollIntoView: false })
+      .command(({ tr, dispatch }) => {
+        if (dispatch) tr.insertText(normalizeText(value), start, end);
+        return true;
+      })
       .run();
     const element = this.getElement?.();
     if (element) element.scrollTop = scrollTop;

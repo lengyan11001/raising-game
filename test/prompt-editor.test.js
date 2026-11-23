@@ -169,6 +169,11 @@ test("rich mention decorations keep canonical labels whole with partial snapshot
   assert.deepEqual(matches.map((match) => match[0]), [...imageLabels, ...videoLabels]);
 });
 
+test("rich mention tokens never split inside their label", () => {
+  const css = fs.readFileSync(path.join(root, "platform.prompt-editor.css"), "utf8");
+  assert.match(css, /\.advanced-prompt-editor \.advanced-prompt-mention-token\s*\{[^}]*white-space:\s*nowrap/);
+});
+
 test("rich mention support branches on editor selection while keeping textarea fallback", () => {
   assert.match(part05, /window\.VipeakPromptEditorAdapter\?\.rich/);
   assert.match(part05, /richEditor\.coordsAtSelection\(\)/);
@@ -177,11 +182,11 @@ test("rich mention support branches on editor selection while keeping textarea f
   assert.match(main, /#advancedPromptEditorMount/);
 });
 
-test("rich prompt auto-size resets height before measuring so deletion can shrink", () => {
-  assert.match(part04, /promptElement\.style\.height = "0px"/);
-  assert.match(part04, /promptElement\.style\.overflowY = "hidden"/);
-  assert.match(part04, /const contentHeight = Math\.max\(minimumHeight, promptElement\.scrollHeight \+ 2\)/);
-  assert.doesNotMatch(part04, /richEditor \? Math\.max\(minimumHeight, promptElement\.scrollHeight \+ 2\)/);
+test("rich prompt keeps the user-resized fixed height instead of growing or shrinking", () => {
+  assert.match(part04, /const manualHeight = Number\(textarea\.dataset\.promptUserHeight\)/);
+  assert.match(part04, /Math\.max\(minimumHeight, Number\.isFinite\(manualHeight\) && manualHeight > 0 \? manualHeight : ADVANCED_PROMPT_DEFAULT_HEIGHT\)/);
+  assert.match(part04, /promptElement\.style\.overflowY = "auto"/);
+  assert.doesNotMatch(part04, /promptElement\.style\.height = "0px"/);
 });
 
 test("rich editor captures paste at document level before ProseMirror consumes Safari clipboard media", () => {

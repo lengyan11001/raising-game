@@ -1,3 +1,30 @@
+## 2026-11-22 Step GB: Mention insertion stays on the current line
+
+### Goal
+- Fix the reported case where a line containing a single Chinese character plus `@` pushes the selected mention onto a new line, even though the editor is much wider than the text.
+
+### Root cause
+- This was not a CSS width/wrapping issue.
+- `PromptEditor.replaceText()` replaced text with `insertContentAt(..., inlineContentFromText(value))`. The helper returns ProseMirror paragraph nodes, so inserting a mention was treated as block content and created a new paragraph.
+- Reproduced online before the fix as `<p>字</p><p><span class="advanced-prompt-mention-token">@Image 1</span> </p>` with value `字\n@Image 1 `.
+
+### Changes
+- `vendor/vipeak-prompt-editor.src.js`: `replaceText()` now performs an inline transaction with `tr.insertText(normalizeText(value), start, end)` and keeps the existing no-scroll behavior.
+- `vendor/vipeak-prompt-editor.js`: rebuilt from source with `npm run build:prompt-editor`; not hand-edited.
+- `test/long-prompt-offset.test.js`: regression assertion rejects `insertContentAt(inlineContentFromText(value))` for mention replacement.
+
+### Verification
+- `node --test test/prompt-editor.test.js test/long-prompt-offset.test.js`: `17/17` passed.
+- `npm run check:undef`: passed.
+- Online Old at 1366px, Chromium/WebKit/Firefox: `字@` plus `Image 1` produces one paragraph, value `字@Image 1 `, one mention token rectangle, no page errors.
+- Online mention regression in all three engines: second-line single-character mention, 80-paragraph tail insertion and delete-mention all pass.
+- Online Chromium regressions: selected newline copies as exactly `\n`, mention tokens use `white-space: nowrap`, and existing inner-scroll behavior remains.
+
+### Deployment status
+- Correct source commit `5eb43f27`; platform release `58ae68416018959fd6527c74e76c5b5f99d6b90a` built from `origin/old-site`, pushed to `platform-release`, and deployed Old only with `scripts/deploy_local.sh --site old`.
+- `/api/livez` and `/api/readyz` return `200`, clean release `58ae68416018959fd6527c74e76c5b5f99d6b90a`.
+- Live release was not pushed or deployed.
+
 ## 2026-11-22 Step GA: Prompt editor unlimited height and long-text offset repair
 
 ### Goal
@@ -5528,6 +5555,18 @@ CODEX_TASK_STATE.md
 - Online verification: `/api/health`, `/api/livez`, `/api/readyz` return `200`, ready release is clean `dbb8257c...`; public HTML uses `platform.prompt-editor.css?v=prompt-editor-fixed-scroll-20261122-1`, and both versioned CSS files contain the new rules.
 - Online browser acceptance at `https://123vips.com/platform.html#custom` passed in Chromium, WebKit, and Firefox: fixed `240px` editor with inner scroll, long-text middle `@`, correct in-place insertion, unchanged page/editor scroll, optimizer outside the shell and no overlap, no page errors.
 
+## 2026-11-22 Step FG: Single-newline copy and mention-token wrapping
+
+- User reported two regressions: a single copied newline became more than one newline, and mention labels wrapped internally (`@Image 1` split across lines).
+- Root causes were independent of mention association logic: Tiptap/ProseMirror's clipboard text serializer used a double newline between paragraphs, while the mention decoration token inherited normal wrapping at the space in `@Image 1`.
+- `vendor/vipeak-prompt-editor.src.js` now sets `clipboardTextSerializer.blockSeparator` to one newline. `vendor/vipeak-prompt-editor.js` was rebuilt from source rather than hand-edited. Mention association and insertion logic were not changed.
+- `platform.prompt-editor.css` now applies `white-space: nowrap` to `.advanced-prompt-mention-token`, so a label moves to the next line as one unit rather than splitting internally.
+- The first fix shipped as source commit `05d6c6c6` / platform release `021d9458`. Production JS was fixed, but the public stylesheet URL was immutable-cached by Cloudflare without the new CSS rule.
+- Cache version was changed from `prompt-editor-fixed-scroll-20261122-1` to `prompt-editor-newline-20261122-2` in `platform.html`; `test/advanced-custom-ui.test.js` was synchronized. Source commit `5f0aa818`; platform release `f83850bdafdfb5937dc0446917b24ad9c5f41762`.
+- Local focused tests passed: advanced-custom-ui + prompt-editor + long-prompt-offset `64/64`; `npm run check:undef` passed. Real-browser tests passed in Chromium, WebKit, and Firefox for newline selection, mention wrapping, fixed scrolling, @ insertion, and optimizer placement.
+- Source `old-site` and platform release were pushed. Live release was not changed. Old-only deployment through `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4174 release=f83850bd...`.
+- Public `/api/livez` and `/api/readyz` return `200` with clean release `f83850bdafdfb5937dc0446917b24ad9c5f41762`. Public `platform.html` now requests `platform.prompt-editor.css?v=prompt-editor-newline-20261122-2`; that URL contains `white-space: nowrap`.
+- Online acceptance passed in all three engines. Chromium copied one selected newline as exactly `\n` and an empty line as `\n\n`. WebKit/Firefox deny programmatic clipboard reads, but editor value and paragraph structure remain exactly one/two newlines. `@Image 1` has a single bounding rectangle in leading-padding, line-end, long-prefix, and Chinese-adjacent cases in every engine.
 ## 2026-11-23 Step FD: Re-enable Vega 1.5 Lite only
 
 - User request: reopen the previously closed Vega 1.5 Lite (`h3-vega`) and keep all other Vega models closed.

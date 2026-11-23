@@ -19,3 +19,13 @@ test("multi-line insertion keeps one paragraph per logical line", () => {
   assert.match(source, /function inlineContentFromText[\s\S]*?\.map\(\(line\) => \(\{[\s\S]*?type: "paragraph"/);
   assert.match(source, /handleTextInput:[\s\S]*?this\.insertTextAt\(from, to, text\)/);
 });
+
+test("inline text replacement does not split a paragraph around a mention", () => {
+  assert.match(source, /replaceText\(from = 0, to = from, value = ""\)[\s\S]*?tr\.insertText\(normalizeText\(value\), start, end\)/);
+  assert.doesNotMatch(source, /replaceText\(from = 0, to = from, value = ""\)[\s\S]*?insertContentAt\([\s\S]*?inlineContentFromText\(value\)/);
+});
+
+test("copying a selected line break preserves exactly one newline", () => {
+  assert.match(source, /coreExtensionOptions:\s*\{[\s\S]*?clipboardTextSerializer:\s*\{[\s\S]*?blockSeparator:\s*"\\n"/);
+  assert.match(source, /getText\(\{ blockSeparator: "\\n" \}\)/);
+});
