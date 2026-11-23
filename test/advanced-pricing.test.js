@@ -58,7 +58,7 @@ test("admin pricing exposes active groups and hides retired Vega routes", async 
   assert.ok(admin.rows.filter((row) => row.modelKey === "seedance25").every((row) => row.pricingVisible === false));
   assert.equal(admin.rows.some((row) => row.modelKey === "seedance25-vega"), false);
   assert.equal(admin.rows.some((row) => row.modelKey === "seedance20-vega"), false);
-  assert.ok(admin.rows.some((row) => row.modelKey === "h3-vega" && row.pricingVisible === true));
+  assert.ok(admin.rows.some((row) => row.modelKey === "vega15-lite" && row.pricingVisible === true));
   assert.equal(admin.rows.some((row) => row.modelKey === "vega10-lite"), false);
   assert.ok(admin.rows.every((row) => !Object.prototype.hasOwnProperty.call(row, "modelSubtitle")));
 
@@ -122,7 +122,7 @@ test("public and admin pricing list only models visible on the generation page",
   const publicRows = application.publicAdvancedPricingRows();
   assert.equal(publicRows.some((row) => row.provider === "seedance20-vega"), false);
   assert.equal(publicRows.some((row) => row.provider === "seedance25-vega"), false);
-  assert.equal(publicRows.some((row) => row.provider === "h3-vega"), true);
+  assert.equal(publicRows.some((row) => row.provider === "vega15-lite"), true);
   assert.equal(publicRows.some((row) => row.provider === "vega10-lite"), false);
   assert.equal(publicRows.some((row) => row.provider === "seedance25"), false);
   assert.equal(publicRows.some((row) => row.provider === "happyhorse"), false);
@@ -130,7 +130,7 @@ test("public and admin pricing list only models visible on the generation page",
   assert.equal(publicRows.some((row) => row.key === "qwen-image-edit-spicy"), true);
 
   const admin = await application.adminAdvancedPricingView({});
-  assert.equal(admin.rows.some((row) => row.key === "h3-vega-1080p" && row.pricingVisible === true), true);
+  assert.equal(admin.rows.some((row) => row.key === "vega15-lite-1080p" && row.pricingVisible === true), true);
   assert.equal(admin.rows.some((row) => ["seedance20-vega", "seedance25-vega", "vega10-lite"].includes(row.provider)), false);
   assert.equal(admin.rows.some((row) => row.key === "seedance25-480p" && row.pricingVisible === false), true);
   assert.equal(admin.rows.some((row) => row.key === "seedance-fast-720p" && row.pricingVisible === true), true);
@@ -184,10 +184,10 @@ test("Vega 1.5 Lite has editable output and input-video pricing rows", () => {
     server.indexOf("const ADVANCED_PRICING_ROW_KEYS"),
   );
   for (const resolution of ["480p", "720p", "1080p", "2k", "4k"]) {
-    assert.match(pricingRowsSource, new RegExp(`key: "h3-vega-${resolution}"[^\\n]*provider: "h3-vega"[^\\n]*providerLabel: "Vega 1\\.5 Lite"[^\\n]*resolution: "${resolution}"`));
-    assert.match(pricingRowsSource, new RegExp(`key: "h3-vega-video-input-${resolution}"[^\\n]*provider: "h3-vega"[^\\n]*resolution: "${resolution}"[^\\n]*rateKind: "video_input"`));
-    assert.match(server, new RegExp(`key === "h3-vega-${resolution}"\\) next\\.h3VegaCreditsPerSecondByResolution\\["${resolution}"\\] = credits`));
-    assert.match(server, new RegExp(`key === "h3-vega-video-input-${resolution}"\\) next\\.h3VegaInputVideoCreditsPerSecondByResolution\\["${resolution}"\\] = credits`));
+    assert.match(pricingRowsSource, new RegExp(`key: "vega15-lite-${resolution}"[^\\n]*provider: "vega15-lite"[^\\n]*providerLabel: "Vega 1\\.5 Lite"[^\\n]*resolution: "${resolution}"`));
+    assert.match(pricingRowsSource, new RegExp(`key: "vega15-lite-video-input-${resolution}"[^\\n]*provider: "vega15-lite"[^\\n]*resolution: "${resolution}"[^\\n]*rateKind: "video_input"`));
+    assert.match(server, new RegExp(`key === "vega15-lite-${resolution}"\\) next\\.h3VegaCreditsPerSecondByResolution\\["${resolution}"\\] = credits`));
+    assert.match(server, new RegExp(`key === "vega15-lite-video-input-${resolution}"\\) next\\.h3VegaInputVideoCreditsPerSecondByResolution\\["${resolution}"\\] = credits`));
   }
   assert.match(server, /h3VegaCreditsPerSecondByResolution: \{\s*"480p": 6\.75,\s*"720p": 13\.5,\s*"1080p": 27,\s*"2k": 32\.4,\s*"4k": 38\.88,?\s*\}/);
   assert.match(server, /h3VegaInputVideoCreditsPerSecondByResolution: \{\s*"480p": 6\.75,\s*"720p": 13\.5,\s*"1080p": 27,\s*"2k": 27,\s*"4k": 27,?\s*\}/);
@@ -199,7 +199,7 @@ test("Vega 1.5 Lite has editable output and input-video pricing rows", () => {
 
 test("Vega purchase prices are complete, editable, and retain a 1.5x sale margin", async () => {
   const pricing = await application.adminAdvancedPricingView({});
-  const vegaRows = pricing.rows.filter((row) => row.provider === "h3-vega");
+  const vegaRows = pricing.rows.filter((row) => row.provider === "vega15-lite");
   assert.equal(vegaRows.length, 10);
   assert.equal(pricing.rows.some((row) => ["vega10-lite", "seedance20-vega", "seedance25-vega"].includes(row.provider)), false);
   for (const row of vegaRows) {
@@ -209,7 +209,7 @@ test("Vega purchase prices are complete, editable, and retain a 1.5x sale margin
     assert.ok(Number(row.saleUsdPerSecond) > 0, `${row.key} must have a positive sale price`);
     assert.ok(Math.abs(Number(row.saleUsdPerSecond) / Number(row.purchaseUsdPerSecond) - 1.5) < 1e-5, `${row.key} must keep a 1.5x margin`);
   }
-  const output1080p = vegaRows.find((row) => row.key === "h3-vega-1080p");
+  const output1080p = vegaRows.find((row) => row.key === "vega15-lite-1080p");
   assert.equal(output1080p?.purchaseUsdPerSecond, 0.18);
   assert.equal(output1080p?.saleUsdPerSecond, 0.27);
 });
@@ -217,7 +217,7 @@ test("Vega purchase prices are complete, editable, and retain a 1.5x sale margin
 test("model discount applies consistently to admin, public, and runtime sale prices", async () => {
   const advancedPricing = {
     modelSettings: {
-      "h3-vega": {
+      "vega15-lite": {
         displayName: "wan（vega）",
         subtitle: "旧版副标题应被丢弃",
         discount: 0.9,
@@ -226,30 +226,30 @@ test("model discount applies consistently to admin, public, and runtime sale pri
     },
   };
   const admin = await application.adminAdvancedPricingView({ platform: { advancedPricing } });
-  const adminRow = admin.rows.find((row) => row.key === "h3-vega-1080p");
+  const adminRow = admin.rows.find((row) => row.key === "vega15-lite-1080p");
   assert.ok(adminRow);
   assert.equal(adminRow.modelDisplayName, "wan（vega）");
   assert.equal(Object.prototype.hasOwnProperty.call(adminRow, "modelSubtitle"), false);
   assert.equal(adminRow.modelOrder, 7);
   assert.equal(adminRow.modelDiscount, 0.9);
-  assert.equal(Object.prototype.hasOwnProperty.call(admin.modelSettings["h3-vega"], "subtitle"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(admin.modelSettings["vega15-lite"], "subtitle"), false);
   assert.equal(adminRow.configuredSaleCreditsPerSecond, 27);
   assert.equal(adminRow.saleCreditsPerSecond, 24.3);
   assert.equal(adminRow.purchaseCreditsPerSecond, 18);
 
   assert.equal(adminRow.pricingVisible, true);
   const publicRow = application.publicAdvancedPricingRows(advancedPricing)
-    .find((row) => row.key === "h3-vega-1080p");
+    .find((row) => row.key === "vega15-lite-1080p");
   assert.equal(publicRow?.saleCreditsPerUnit, 24.3);
 
-  const runtime = application.advancedModelPricing("h3-vega", {
+  const runtime = application.advancedModelPricing("vega15-lite", {
     advancedPricing,
     duration: 5,
     resolution: "1080P",
     ratio: "16:9",
     mode: "reference_video",
   });
-  assert.equal(runtime.modelKey, "h3-vega");
+  assert.equal(runtime.modelKey, "vega15-lite");
   assert.equal(runtime.modelDiscount, 0.9);
   assert.equal(runtime.configuredCredits, 135);
   assert.equal(runtime.credits, 121.5);
@@ -437,8 +437,8 @@ test("public Vega 1.5 Lite pricing rows expose output and input-video rates", ()
     h3VegaInputVideoCreditsPerSecondByResolution: { "480p": 6.75, "720p": 13.5, "1080p": 27, "2k": 27, "4k": 27 },
   });
   const byKey = Object.fromEntries(rows.map((row) => [row.key, row]));
-  assert.equal(byKey["h3-vega-1080p"].saleCreditsPerUnit, 27);
-  assert.equal(byKey["h3-vega-video-input-1080p"].saleCreditsPerUnit, 27);
+  assert.equal(byKey["vega15-lite-1080p"].saleCreditsPerUnit, 27);
+  assert.equal(byKey["vega15-lite-video-input-1080p"].saleCreditsPerUnit, 27);
 });
 
 test("Vega 1.0 Pro history keeps rates while public pricing no longer exposes it", () => {
@@ -601,7 +601,7 @@ test("Vega 1.5 Lite bills output and reference input video separately and fails 
     server.indexOf("function advancedModelPricingRaw("),
     server.indexOf("function seedream5ImagePricingEstimate("),
   );
-  assert.match(pricingSource, /normalizedProvider === "h3-vega" \|\| normalizedProvider === "vega10-lite"/);
+  assert.match(pricingSource, /normalizedProvider === "vega15-lite" \|\| normalizedProvider === "vega10-lite"/);
   assert.match(pricingSource, /const duration = options\.duration \?\? options\.durationSeconds/);
   assert.match(pricingSource, /const normalizedDuration = normalizeVegaDuration\(normalizedProvider, duration\)/);
   assert.match(pricingSource, /const adaptiveDuration = normalizedDuration === -1/);
@@ -619,7 +619,7 @@ test("Vega 1.5 Lite bills output and reference input video separately and fails 
   assert.match(pricingSource, /configured_\$\{pricingKey\}_input_output_and_reference_rates/);
   assert.match(server, /isVega10Lite\s*\?\s*advancedPricing\.vega10LiteCreditsPerSecondByResolution\s*:\s*advancedPricing\.h3VegaCreditsPerSecondByResolution/);
   assert.ok(
-    pricingSource.indexOf('normalizedProvider === "h3-vega"')
+    pricingSource.indexOf('normalizedProvider === "vega15-lite"')
       < pricingSource.indexOf("if (isVegaProvider(normalizedProvider)) throw vegaPricingUnavailableError(normalizedProvider);"),
   );
 });

@@ -463,7 +463,7 @@ function vegaVideoParameterFields(provider = "seedance25-vega") {
     ? "Up to 30 images, 10 videos, and 10 audios (50 references total). Each video and audio must be 2-30 seconds; reference audio must total at most 30 seconds. Image max 30MB, video max 200MB, audio max 15MB."
     : definition.id === "seedance20-vega"
     ? "Up to 9 images, 3 videos, and 3 audios (12 references total). Reference video and audio durations must each total at most 15 seconds. Image max 30MB, video max 50MB, audio max 15MB."
-    : definition.id === "h3-vega"
+    : definition.id === "vega15-lite"
     ? "Up to 10 images, 5 videos, and 5 audios (20 references total). Reference video and audio durations must each total at most 15 seconds."
     : "Up to 9 images, 3 videos, and 3 audios (12 references total). Each video and audio must be 2-15 seconds, and each media type must total at most 15 seconds. Image max 30MB, video max 50MB, audio max 15MB.";
   const mediaTransportDescription = definition.id === "seedance20-vega" || definition.id === "seedance25-vega"
@@ -504,15 +504,15 @@ function vegaProviderExample(provider = "seedance25-vega") {
   const definition = vegaProviderDefinition(provider) || vegaProviderDefinition("seedance25-vega");
   return {
     provider: definition.id,
-    prompt: definition.id === "h3-vega"
+    prompt: definition.id === "vega15-lite"
       ? "Create a premium cinematic product reveal with precise motion."
       : "Use the supplied references to create a cinematic shot.",
-    ...(definition.id === "h3-vega"
+    ...(definition.id === "vega15-lite"
       ? { referenceVideos: ["https://example.com/reference.mp4"] }
       : definition.id === "vega10-lite"
       ? { mediaMode: "first_frame", firstFrameUrl: "https://example.com/first-frame.png" }
       : { referenceImages: ["https://example.com/reference.png"] }),
-    ratio: definition.id === "h3-vega" ? "21:9" : "16:9",
+    ratio: definition.id === "vega15-lite" ? "21:9" : "16:9",
     resolution: definition.id === "seedance25-vega" ? "2K" : definition.id === "vega10-lite" ? "768P" : "1080P",
     duration: advancedDurationBounds(definition.id).fallback,
   };
@@ -747,18 +747,18 @@ function advancedGenerateConstraintsDoc() {
       providers: [
         { id: "seedance20-vega", label: "Vega 1.0 Pro", modelName: "wand-vega-video", modelVersion: "1.0-pro" },
         { id: "seedance25-vega", label: "Vega 1.5 Pro", modelName: "wand-vega-video", modelVersion: "1.5-pro" },
-        { id: "h3-vega", label: "Vega 1.5 Lite", modelName: "wand-vega-video", modelVersion: "1.5-lite" },
+        { id: "vega15-lite", label: "wan（vega）", modelName: "wand-vega-video", modelVersion: "1.5-lite" },
         { id: "vega10-lite", label: "Vega 1.0 Lite", modelName: "wand-vega-video", modelVersion: "1.0-lite" },
       ],
       route: "/api/advanced/generate",
       modes: ["text_to_video", "first_frame", "last_frame", "first_last_frame", "reference_video", "draft_followup"],
       taskTypes: { "seedance25-vega": ["auto", "reference", "edit", "extend"], otherModels: ["auto", "reference"] },
-      durationSeconds: { integer: true, min: 2, max: 30, smart: -1, defaults: { "seedance20-vega": 5, "seedance25-vega": 5, "h3-vega": 6, "vega10-lite": 5 }, perModel: { "seedance20-vega": "4-15, no -1", "seedance25-vega": "4-30 or -1", "h3-vega": "2-30 or -1", "vega10-lite": "4-15, no -1" } },
+      durationSeconds: { integer: true, min: 2, max: 30, smart: -1, defaults: { "seedance20-vega": 5, "seedance25-vega": 5, "vega15-lite": 6, "vega10-lite": 5 }, perModel: { "seedance20-vega": "4-15, no -1", "seedance25-vega": "4-30 or -1", "vega15-lite": "2-30 or -1", "vega10-lite": "4-15, no -1" } },
       resolution: ["480P", "720P", "768P", "1080P", "2K", "4K"],
       resolutionsByModel: {
         "seedance20-vega": ["480P", "720P", "1080P", "2K", "4K"],
         "seedance25-vega": ["480P", "720P", "1080P", "2K", "4K"],
-        "h3-vega": ["480P", "720P", "1080P", "2K", "4K"],
+        "vega15-lite": ["480P", "720P", "1080P", "2K", "4K"],
         "vega10-lite": ["480P", "768P", "1080P", "2K", "4K"],
       },
       ratio: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
@@ -770,7 +770,7 @@ function advancedGenerateConstraintsDoc() {
       referenceLimits: {
         "seedance20-vega": { images: 9, videos: 3, audios: 3, total: 12, videoSeconds: 15, audioSeconds: 15 },
         "seedance25-vega": { images: 30, videos: 10, audios: 10, total: 50, perFileMinSeconds: 2, perFileMaxSeconds: 30, audioSeconds: 30 },
-        "h3-vega": { images: 10, videos: 5, audios: 5, total: 20, videoSeconds: 15, audioSeconds: 15 },
+        "vega15-lite": { images: 10, videos: 5, audios: 5, total: 20, videoSeconds: 15, audioSeconds: 15 },
         "vega10-lite": { images: 9, videos: 3, audios: 3, total: 12, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 },
       },
       mediaTransport: "Media: public HTTP(S) URLs only. Vega 1.0 Pro and 1.5 Pro URLs are registered with VOD CreateAigcMaterial first, then submitted as FileInfos Type=Url with Url=asset://asset-.... Vega 1.5 Lite and 1.0 Lite continue to submit public FileInfos Type=Url. Asset IDs and data URLs are rejected at the public API boundary.",
@@ -1062,12 +1062,12 @@ function externalAdvancedApiDoc(origin) {
         duration: 5,
       },
     },
-    h3VegaExample: {
+    vega15LiteExample: {
       method: "POST",
       url: advancedGenerate,
       headers: { Authorization: "Bearer <user-token>", "Content-Type": "application/json" },
       body: {
-        provider: "h3-vega",
+        provider: "vega15-lite",
         prompt: "Create a premium cinematic product reveal with precise motion.",
         referenceVideos: ["https://example.com/reference.mp4"],
         ratio: "21:9",

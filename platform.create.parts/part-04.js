@@ -7,7 +7,7 @@ function advancedMediaUploadMaxBytes(kind = "", provider = currentAdvancedProvid
         ? ADVANCED_VEGA15_PRO_VIDEO_MAX_BYTES
         : ADVANCED_VEGA15_PRO_AUDIO_MAX_BYTES;
   }
-  if (normalized === "h3-vega") {
+  if (normalized === "vega15-lite") {
     return kind === "image"
       ? ADVANCED_VEGA15_LITE_IMAGE_MAX_BYTES
       : kind === "video"
@@ -31,7 +31,7 @@ function vegaProviderUsesMediaLibrary(provider = currentAdvancedProvider()) {
 
 function vegaProviderUsesTransientObjectStorage(provider = currentAdvancedProvider()) {
   const normalized = normalizeAdvancedProvider(provider);
-  return ["vega10-lite", "h3-vega"].includes(normalized);
+  return ["vega10-lite", "vega15-lite"].includes(normalized);
 }
 
 function vegaMediaSource(item = {}, provider = currentAdvancedProvider()) {

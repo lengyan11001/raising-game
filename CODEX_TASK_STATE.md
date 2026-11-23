@@ -5576,3 +5576,13 @@ CODEX_TASK_STATE.md
 - Verification: `node --check` for changed source/tests, `npm run check:undef`, scoped `git diff --check`, and focused Vega/pricing/model-doc suite `192/192` pass.
 - A separate earlier regression test now also checks that `vega10-lite` is rejected when an old record is restored into the native select, while `h3-vega` remains selectable.
 - Deployment pending; unrelated prompt-editor/story dirty work must not be included in the commit or release.
+
+## 2026-11-23 Step FE: Rename Vega Lite 1.5 provider id to vega15-lite
+
+- User decision: do not keep `h3-vega` compatibility or aliases; treat the provider as a new public id.
+- Canonical active provider id is now `vega15-lite`, with public label `wan（vega）`. The old `h3-vega` public id is no longer accepted or selectable.
+- `vega15-lite` keeps the existing Vega Lite 1.5 behavior, capabilities, pricing values, regeneration mapping, and saved-price semantics. Internal PostgreSQL fields named `h3VegaCreditsPerSecondByResolution` and `h3VegaInputVideoCreditsPerSecondByResolution` were intentionally retained to avoid losing existing saved prices.
+- Public pricing keys and admin pricing rows are now `vega15-lite-*`; the retired provider ids remain `seedance20-vega`, `seedance25-vega`, and `vega10-lite` with `vega10-lite` still present only where needed for historical records/documents, not as an active picker option.
+- Updated frontend picker/config, server validation/routing, VOD mapping, prompt-optimizer normalization, model documentation, and focused regression tests across the provider rename.
+- Verification passed: all changed JS files pass `node --check`; `npm run check:undef`; scoped `git diff --check`; focused Vega/pricing/UI/docs suite `265/265`; production-code search finds no `h3-vega` or `h3vega` references.
+- Commit, release snapshot, and Old-only deployment remain pending. Unrelated prompt-editor/story dirty files in the main worktree must not be staged or deployed.
