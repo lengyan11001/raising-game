@@ -823,6 +823,8 @@ const SEEDANCE_IMAGE_DIMENSION_MIN = 300;
 const SEEDANCE_IMAGE_DIMENSION_MAX = 6000;
 const SEEDANCE_VIDEO_PIXEL_COUNT_MIN = 409600;
 const SEEDANCE_VIDEO_PIXEL_COUNT_MAX = 8847360;
+const SEEDANCE_VIDEO_FPS_MIN = 23.8;
+const SEEDANCE_VIDEO_FPS_NORMALIZED = 24;
 
 function readLittleEndian24(buffer, offset) {
   return buffer[offset] + (buffer[offset + 1] << 8) + (buffer[offset + 2] << 16);
@@ -969,22 +971,60 @@ async function probeLocalVideoDimensions(videoPath = "") {
       "-select_streams",
       "v:0",
       "-show_entries",
-      "stream=width,height,duration",
+      "stream=width,height,duration,r_frame_rate,avg_frame_rate",
       "-of",
       "json",
       videoPath,
     ], { timeout: VIDEO_DURATION_PROBE_TIMEOUT_MS });
     const stream = Array.isArray(result?.streams) ? result.streams[0] : null;
     if (!stream) return null;
+    const frameRate = videoFrameRateFromProbeStream(stream);
     return {
       width: Number(stream.width || 0),
       height: Number(stream.height || 0),
       durationSeconds: durationSecondsFromValue(stream.duration),
+      fps: frameRate,
+      frameRate,
     };
   } catch (error) {
     console.warn("[video-dimensions-probe-failed]", videoPath, error.message || error);
     return null;
   }
+}
+
+function videoFrameRateFromProbeStream(stream = {}) {
+  for (const value of [stream.avg_frame_rate, stream.r_frame_rate]) {
+    const text = String(value || "").trim();
+    if (!text || text === "0/0") continue;
+    const [numeratorText, denominatorText] = text.split("/");
+    const numerator = Number(numeratorText);
+    const denominator = denominatorText === undefined ? 1 : Number(denominatorText);
+    const fps = denominator > 0 ? numerator / denominator : 0;
+    if (Number.isFinite(fps) && fps > 0) return Number(fps.toFixed(3));
+  }
+  return null;
+}
+
+function seedanceVideoFrameRate(dimensions = {}) {
+  const fps = Number(firstPresent(dimensions.fps, dimensions.frameRate));
+  return Number.isFinite(fps) && fps > 0 ? fps : null;
+}
+
+function seedanceVideoNeedsFrameRateNormalization(dimensions = {}) {
+  const fps = seedanceVideoFrameRate(dimensions);
+  return Number.isFinite(fps) && fps < SEEDANCE_VIDEO_FPS_MIN;
+}
+
+function applySeedanceVideoDimensionsToAsset(asset = {}, dimensions = {}) {
+  const fps = seedanceVideoFrameRate(dimensions);
+  asset.videoWidth = dimensions.width || asset.videoWidth || 0;
+  asset.videoHeight = dimensions.height || asset.videoHeight || 0;
+  asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
+  if (Number.isFinite(fps) && fps > 0) {
+    asset.videoFps = fps;
+    asset.frameRate = fps;
+  }
+  return asset;
 }
 
 function evenVideoDimension(value, mode = "ceil") {
@@ -1027,8 +1067,10 @@ async function normalizeSeedanceVideoFileForRequest(sourcePath = "", targetPath 
     throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Seedance.`);
   }
   const sourcePixelCount = Number(sourceDimensions.width || 0) * Number(sourceDimensions.height || 0);
+  const needsScaling = sourcePixelCount < SEEDANCE_VIDEO_PIXEL_COUNT_MIN || sourcePixelCount > SEEDANCE_VIDEO_PIXEL_COUNT_MAX;
+  const needsFrameRateNormalization = seedanceVideoNeedsFrameRateNormalization(sourceDimensions);
   const outputPath = targetPath || sourcePath;
-  if (sourcePixelCount >= SEEDANCE_VIDEO_PIXEL_COUNT_MIN && sourcePixelCount <= SEEDANCE_VIDEO_PIXEL_COUNT_MAX) {
+  if (!needsScaling && !needsFrameRateNormalization) {
     if (outputPath && path.resolve(sourcePath) !== path.resolve(outputPath)) {
       await fs.mkdir(path.dirname(outputPath), { recursive: true });
       await fs.copyFile(sourcePath, outputPath);
@@ -1038,12 +1080,15 @@ async function normalizeSeedanceVideoFileForRequest(sourcePath = "", targetPath 
   const tempPath = `${outputPath}.${Date.now()}.seedance-normalized.mp4`;
   try {
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    const videoFilters = [];
+    if (needsScaling) videoFilters.push(`scale=${targetDimensions.width}:${targetDimensions.height}:flags=lanczos`);
+    if (needsFrameRateNormalization) videoFilters.push(`fps=${SEEDANCE_VIDEO_FPS_NORMALIZED}`);
     await execFileQuiet("ffmpeg", [
       "-y",
       "-i",
       sourcePath,
       "-vf",
-      `scale=${targetDimensions.width}:${targetDimensions.height}:flags=lanczos`,
+      videoFilters.join(","),
       "-map",
       "0:v:0",
       "-map",
@@ -1072,11 +1117,12 @@ async function normalizeSeedanceVideoFileForRequest(sourcePath = "", targetPath 
     if (error?.code === "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID" || error?.code === "SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE") throw error;
     const wrapped = advancedValidationError(
       "SEEDANCE_VIDEO_NORMALIZE_FAILED",
-      `${label} could not be normalized for Seedance. Re-upload a video between ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN} and ${SEEDANCE_VIDEO_PIXEL_COUNT_MAX} pixels.`,
+      `${label} could not be normalized for Seedance. Re-upload a video between ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN} and ${SEEDANCE_VIDEO_PIXEL_COUNT_MAX} pixels at ${SEEDANCE_VIDEO_FPS_MIN} FPS or higher.`,
       {
         width: sourceDimensions.width,
         height: sourceDimensions.height,
         pixelCount: sourcePixelCount,
+        fps: seedanceVideoFrameRate(sourceDimensions),
       },
     );
     wrapped.cause = error;

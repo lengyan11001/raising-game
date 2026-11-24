@@ -1073,8 +1073,11 @@ async function ensureSeedanceGatewayPublicAsset(db, userAsset) {
   if (mime.startsWith("video/")) {
     const before = storedVideoDimensionsForAsset(userAsset);
     const dimensions = await validateSeedanceVideoAssetForRequest(db, userAsset, "Seedance gateway video");
+    applySeedanceVideoDimensionsToAsset(userAsset, dimensions);
     const dimensionsChanged = Number(before?.width || 0) !== Number(dimensions?.width || 0)
-      || Number(before?.height || 0) !== Number(dimensions?.height || 0);
+      || Number(before?.height || 0) !== Number(dimensions?.height || 0)
+      || !seedanceVideoFrameRate(before || {})
+      || seedanceVideoNeedsFrameRateNormalization(before || {});
     if (dimensionsChanged || !userAssetHasConfiguredObjectStorageMirror(userAsset)) {
       const { localPath, bytes } = await readLocalUserAssetBytes(db, userAsset, {
         label: "Seedance gateway video",
@@ -1279,12 +1282,16 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   if (userAsset[cacheField]) {
     if (assetType !== "Video") return userAsset;
     const storedDimensions = storedVideoDimensionsForAsset(userAsset);
-    if (!storedDimensions) return userAsset;
-    try {
-      assertSeedanceVideoPixelCount(storedDimensions, "Seedance video asset");
-      return userAsset;
-    } catch (error) {
-      if (error.code !== "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID") throw error;
+    if (!storedDimensions || !seedanceVideoFrameRate(storedDimensions) || seedanceVideoNeedsFrameRateNormalization(storedDimensions)) {
+      // Missing/low FPS metadata cannot prove an existing upstream asset is usable.
+      userAsset[cacheField] = "";
+    } else {
+      try {
+        assertSeedanceVideoPixelCount(storedDimensions, "Seedance video asset");
+        return userAsset;
+      } catch (error) {
+        if (error.code !== "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID") throw error;
+      }
     }
   }
 
@@ -1301,9 +1308,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     userAsset.imageType = dimensions.type || userAsset.imageType || "";
   } else if (assetType === "Video") {
     const dimensions = await normalizeSeedanceVideoFileForRequest(localPath, localPath, "Seedance video asset");
-    userAsset.videoWidth = dimensions.width;
-    userAsset.videoHeight = dimensions.height;
-    userAsset.durationSeconds = dimensions.durationSeconds || userAsset.durationSeconds || 0;
+    applySeedanceVideoDimensionsToAsset(userAsset, dimensions);
     userAsset.seedanceVideoAssetId = "";
     userAsset.seedanceVideoAssetUri = "";
     bytes = await fs.readFile(localPath);
