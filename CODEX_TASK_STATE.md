@@ -5595,3 +5595,13 @@ CODEX_TASK_STATE.md
 - The guarded asset path covers direct generation, queued retry/regeneration, gateway publishing, Flash, URL-created references, video-tool uploads, and direct NSFW video inputs.
 - Verification passed: new low-FPS suite `8/8`; focused Seedance/advanced suite `143/143`; `npm run check:undef`; changed server parts `node --check`; `git diff --check`.
 - Deployment is pending. Next: commit, build `platform-release` from the committed `old-site` integration commit, deploy Old through `scripts/deploy_local.sh --site old`, and verify the production asset becomes 24 FPS.
+
+## 2026-11-24 Step FG: Fix null video probe metadata regression
+
+- First Old deployment of the low-FPS normalization (`platform-release 7e3e7ff3`) exposed a regression in `/api/user-assets`: probes that returned `null` caused `Cannot read properties of null (reading 'fps')`.
+- `server.parts/part-13.js` now normalizes non-object probe input with `plainObject()` before reading `fps`/`frameRate`, and applies the same guard to video-dimension persistence. Unknown probe metadata no longer crashes asset listing or falls through with unsafe property access.
+- Fix commits: implementation branch `09f44eb6`; `old-site-integration` cherry-pick `97a2b981`.
+- The real production source asset `/opt/raising-game-shared/assets/user-uploads/user-1777972853765-6da5a3f7/asset-1795505868997-6cc52262.mp4` was tested on the server with the same ffmpeg command as production: `720x1280 / 20 FPS / 6.9s` input became `720x1280 / 24 FPS / 6.916s` output.
+- Existing cached assets without `videoFps` are re-probed and re-uploaded on the next Seedance use, so the original `cgt-20261124154031-5fdb40` reference is repaired without requiring a new asset.
+- Verification passed after the null guard: focused low-FPS suite `8/8`; Seedance/regeneration/queue suite `81/81`; `npm run check:undef`; changed server files `node --check`; scoped `git diff --check`.
+- Next: commit this state record, push `old-site-integration` to `old-site`, build a new `platform-release` snapshot from the new integration commit using a temporary live branch, push only `platform-release`, deploy Old, then verify health endpoints and that the null `fps` error is gone.

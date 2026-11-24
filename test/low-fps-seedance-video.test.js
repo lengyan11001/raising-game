@@ -13,6 +13,7 @@ test("Seedance video probing reads frame rate as well as dimensions", () => {
   assert.match(server, /function videoFrameRateFromProbeStream\(stream = \{\}\)/);
   assert.match(server, /for \(const value of \[stream\.avg_frame_rate, stream\.r_frame_rate\]\)/);
   assert.match(server, /fps: frameRate,[\s\S]*?frameRate,/);
+  assert.match(server, /function seedanceVideoFrameRate\(dimensions = \{\}\) \{\n  const source = plainObject\(dimensions\);/);
 });
 
 test("low FPS Seedance videos are normalized to 24 FPS", () => {

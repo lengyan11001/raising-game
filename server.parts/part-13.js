@@ -1006,7 +1006,8 @@ function videoFrameRateFromProbeStream(stream = {}) {
 }
 
 function seedanceVideoFrameRate(dimensions = {}) {
-  const fps = Number(firstPresent(dimensions.fps, dimensions.frameRate));
+  const source = plainObject(dimensions);
+  const fps = Number(firstPresent(source.fps, source.frameRate));
   return Number.isFinite(fps) && fps > 0 ? fps : null;
 }
 
@@ -1016,6 +1017,7 @@ function seedanceVideoNeedsFrameRateNormalization(dimensions = {}) {
 }
 
 function applySeedanceVideoDimensionsToAsset(asset = {}, dimensions = {}) {
+  dimensions = plainObject(dimensions);
   const fps = seedanceVideoFrameRate(dimensions);
   asset.videoWidth = dimensions.width || asset.videoWidth || 0;
   asset.videoHeight = dimensions.height || asset.videoHeight || 0;
