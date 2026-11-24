@@ -732,7 +732,7 @@ return { advancedPastedMediaUsesLibrary, advancedPromptPasteSupportsVideoReferen
       () => provider.includes("vega"),
       (value) => String(value || "reference_video"),
       () => true,
-      (value) => ["vega10-lite", "h3-vega"].includes(value),
+      (value) => ["vega10-lite", "vega15-lite"].includes(value),
       async (file, kind, options) => { calls.push({ method: "transient", file, kind, options }); return { url: "https://media.example.test/transient.mp4", publicUrl: "https://media.example.test/transient.mp4" }; },
       async (file, kind, options) => { calls.push({ method: "library", file, kind, options }); return { assetId: "asset-1", url: "https://media.example.test/library.mp4", publicUrl: "https://media.example.test/library.mp4" }; },
       async (url, kind, options) => {
@@ -766,14 +766,14 @@ return { advancedPastedMediaUsesLibrary, advancedPromptPasteSupportsVideoReferen
   assert.equal(await vegaPro.api.addAdvancedPromptPasteVideoFiles([video]), true);
   assert.equal(vegaPro.calls[0].method, "library");
 
-  const vegaLite = makeHarness({ provider: "h3-vega" });
+  const vegaLite = makeHarness({ provider: "vega15-lite" });
   assert.equal(await vegaLite.api.addAdvancedPromptPasteVideoFiles([video]), true);
   assert.equal(vegaLite.calls[0].method, "transient");
 
-  const vegaLiteUrl = makeHarness({ provider: "h3-vega" });
+  const vegaLiteUrl = makeHarness({ provider: "vega15-lite" });
   assert.equal(await vegaLiteUrl.api.addAdvancedPromptPasteUrlVideos([{ url: "https://cdn.example.test/v.mp4", kind: "video" }]), true);
   assert.equal(vegaLiteUrl.calls[0].method, "url");
-  assert.equal(vegaLite.api.advancedPastedMediaUsesLibrary("h3-vega"), false, "Vega Lite URLs must not enter the media library");
+  assert.equal(vegaLite.api.advancedPastedMediaUsesLibrary("vega15-lite"), false, "Vega Lite URLs must not enter the media library");
 });
 
 test("prompt image paste and @ mentions follow the shared upload control for every model", () => {

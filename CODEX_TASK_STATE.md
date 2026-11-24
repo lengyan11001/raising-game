@@ -5576,3 +5576,50 @@ CODEX_TASK_STATE.md
 - Verification: `node --check` for changed source/tests, `npm run check:undef`, scoped `git diff --check`, and focused Vega/pricing/model-doc suite `192/192` pass.
 - A separate earlier regression test now also checks that `vega10-lite` is rejected when an old record is restored into the native select, while `h3-vega` remains selectable.
 - Deployment pending; unrelated prompt-editor/story dirty work must not be included in the commit or release.
+
+## 2026-11-23 Step FE: Rename Vega Lite 1.5 provider id to vega15-lite
+
+- User decision: do not keep `h3-vega` compatibility or aliases; treat the provider as a new public id.
+- Canonical active provider id is now `vega15-lite`, with public label `wan（vega）`. The old `h3-vega` public id is no longer accepted or selectable.
+- `vega15-lite` keeps the existing Vega Lite 1.5 behavior, capabilities, pricing values, regeneration mapping, and saved-price semantics. Internal PostgreSQL fields named `h3VegaCreditsPerSecondByResolution` and `h3VegaInputVideoCreditsPerSecondByResolution` were intentionally retained to avoid losing existing saved prices.
+- Public pricing keys and admin pricing rows are now `vega15-lite-*`; the retired provider ids remain `seedance20-vega`, `seedance25-vega`, and `vega10-lite` with `vega10-lite` still present only where needed for historical records/documents, not as an active picker option.
+- Updated frontend picker/config, server validation/routing, VOD mapping, prompt-optimizer normalization, model documentation, and focused regression tests across the provider rename.
+- Verification passed: all changed JS files pass `node --check`; `npm run check:undef`; scoped `git diff --check`; focused Vega/pricing/UI/docs suite `265/265`; production-code search finds no `h3-vega` or `h3vega` references.
+- Commit, release snapshot, and Old-only deployment remain pending. Unrelated prompt-editor/story dirty files in the main worktree must not be staged or deployed.
+
+## 2026-11-24 Step FF: Normalize low-FPS Seedance reference videos
+
+- Task `cgt-20261124154031-5fdb40` failed upstream because the source video `/Users/x042/Desktop/2.mp4` is 20 FPS, while Seedance requires at least 23.8 FPS.
+- Seedance video probing now records `videoFps`/`frameRate`; low-FPS local videos are re-encoded to 24 FPS before upstream upload, while normal videos keep the existing fast path.
+- Existing Seedance video caches are invalidated when stored FPS is missing or below 23.8, forcing a re-probe and re-upload. Gateway object-storage mirrors are refreshed when FPS metadata was missing, even if dimensions did not change.
+- The guarded asset path covers direct generation, queued retry/regeneration, gateway publishing, Flash, URL-created references, video-tool uploads, and direct NSFW video inputs.
+- Verification passed: new low-FPS suite `8/8`; focused Seedance/advanced suite `143/143`; `npm run check:undef`; changed server parts `node --check`; `git diff --check`.
+- Deployment is pending. Next: commit, build `platform-release` from the committed `old-site` integration commit, deploy Old through `scripts/deploy_local.sh --site old`, and verify the production asset becomes 24 FPS.
+
+## 2026-11-24 Step FG: Fix null video probe metadata regression
+
+- First Old deployment of the low-FPS normalization (`platform-release 7e3e7ff3`) exposed a regression in `/api/user-assets`: probes that returned `null` caused `Cannot read properties of null (reading 'fps')`.
+- `server.parts/part-13.js` now normalizes non-object probe input with `plainObject()` before reading `fps`/`frameRate`, and applies the same guard to video-dimension persistence. Unknown probe metadata no longer crashes asset listing or falls through with unsafe property access.
+- Fix commits: implementation branch `09f44eb6`; `old-site-integration` cherry-pick `97a2b981`.
+- The real production source asset `/opt/raising-game-shared/assets/user-uploads/user-1777972853765-6da5a3f7/asset-1795505868997-6cc52262.mp4` was tested on the server with the same ffmpeg command as production: `720x1280 / 20 FPS / 6.9s` input became `720x1280 / 24 FPS / 6.916s` output.
+- Existing cached assets without `videoFps` are re-probed and re-uploaded on the next Seedance use, so the original `cgt-20261124154031-5fdb40` reference is repaired without requiring a new asset.
+- Verification passed after the null guard: focused low-FPS suite `8/8`; Seedance/regeneration/queue suite `81/81`; `npm run check:undef`; changed server files `node --check`; scoped `git diff --check`.
+- Deployment completed from integration commit `8b84477e`: `platform-release 0d85887c`, pushed only to `platform-release`; Old rolling deploy finished with `OLD_ROLLING_DEPLOY_OK active_port=4175`. The preceding release is an ancestor and the release audit reported `NO_FOREIGN_PATHS`; Live was not pushed or deployed.
+- Production verification: `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`, all reporting release `0d85887c27e967fc2e5b7c2e839ed55f0ed45a99`. The deployed `server.parts/part-13.js` contains the `plainObject()` guard. The old process `3297271` emitted the null-`fps` error through 16:25, while the new process `3301133` started at 16:21:42 on the fixed release and emitted no such error.
+- Post-deploy focused verification passed again: low-FPS and Seedance/regeneration/queue suite `81/81`, `npm run check:undef`, and `git diff --check`.
+
+## 2026-11-24 Step FH: Show generation creation and success times
+
+- Root cause of `cgt-20261123225857-73065f` appearing recently updated: adding the result to the asset library mutated generic `updatedAt` (`lastUpdateReason=history-add-asset-reference`); generation completion polling had already stopped.
+- `publicGenerationRecord()` now exposes `completedAt` only for succeeded records, using `completedAt` then `billingSettledAt`; failed/active records return an empty value and never fall back to `updatedAt`.
+- Admin generation list/detail/history now show creation time and generation success time, not generic update time. User history detail payload also exposes `completedAt` instead of `updatedAt`.
+- Added focused serialization and UI regression assertions; updated `admin-media-preview.test.js` to read composed server source. Focused suites pass `37/37`; `npm run check:undef` and syntax checks pass. Full suite: `1475 pass / 2 skipped / 6 existing source-split/cache-version failures`, none in this change.
+- Source commit `ca7c3e39` was pushed to `old-site`; platform release `50c295cdca6017e0cd31a5c99f06beb80a25c86e` was built from it and pushed only to `platform-release`. `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4174`.
+- Production `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; livez/readyz report clean release `50c295cd...`. Deployed `admin.js` contains `创建 / 成功` and `生成成功时间`; generation detail no longer uses the generic update time. Live was not pushed or deployed.
+
+## 2026-11-24 Step FI: Correct Seedance success-time source
+
+- Production record `cgt-20261124164329-7de7c2` showed a false success time because `publicGenerationRecord()` fell back to `billingSettledAt`, which is the pre-deduction/submission timestamp. The stored upstream task has `created_at=1795509813` and `updated_at=1795509957`; actual generation completed about 2m24s after submission.
+- `generationRecordCompletionTimestamp()` now prefers an explicit local completion timestamp and provider completion fields. For BytePlus-direct Seedance records it derives the terminal completion time from `queryResponse.updated_at`. It never falls back to `billingSettledAt`; a succeeded record without a trustworthy completion field displays no completion time instead of a false one.
+- Generic ARK status refresh now persists the derived completion timestamp on success, while existing historical records are corrected by the serializer from their stored `queryResponse.updated_at` without a database backfill.
+- Added a regression proving the reported Seedance timestamp resolves to `2026-11-24T08:45:57.000Z` and another proving missing completion data stays empty. Focused generation-record suite passes `23/23`; changed files pass syntax checks, `npm run check:undef`, and `git diff --check`.

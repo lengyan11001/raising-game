@@ -359,7 +359,10 @@ async function seedance25PublicAssetUrls(db, assets = [], { preprocessReference 
     const preparedReference = preprocessReference
       ? await prepareSeedanceReferenceAsset(db, asset, true)
       : null;
-    const prepared = preparedReference?.asset || await ensurePublicUrlForUserAsset(db, asset);
+    const isVideo = String(asset?.mime || "").toLowerCase().startsWith("video/");
+    const prepared = preparedReference?.asset
+      || (isVideo ? await prepareSeedanceVideoAsset(db, asset) : null)?.asset
+      || await ensurePublicUrlForUserAsset(db, asset);
     const url = preprocessReference
       ? publicHttpUrlForUpstream(firstPresent(
           preparedReference?.publicImageUrl,
@@ -392,6 +395,27 @@ function seedance25UpstreamAssetUriForUserAsset(asset, kind = "image") {
     throw error;
   }
   return uri;
+}
+
+async function seedance25DirectVideoAssetUri(db, user, {
+  asset = null,
+  url = "",
+  index = 0,
+  name = "Seedance 2.5 reference video",
+} = {}) {
+  let resolved = asset;
+  if (!resolved && url) {
+    resolved = await createSeedanceReferenceVideoAssetFromUrl(db, user, url, index);
+  }
+  if (resolved) {
+    const prepared = await ensureSeedanceAssetForUserAsset(db, resolved);
+    return seedance25UpstreamAssetUriForUserAsset(prepared, "video");
+  }
+  const publicUrl = publicHttpUrlForUpstream(url);
+  if (!isPublicHttpUrl(publicUrl)) {
+    throw advancedValidationError("INVALID_MEDIA_URL", `${name} must be a public http(s) URL.`);
+  }
+  return ensureSeedanceAssetUriForPublicUrl(publicUrl, "Video", name);
 }
 
 async function seedance25FlashReferenceAsset(db, user, {
@@ -464,6 +488,7 @@ async function runSeedance25GenerationJob(job = {}, submission = null, options =
     provider = "seedance25",
     preprocessReference = false,
     imageAssetIds = [],
+    videoAssetIds = [],
     firstFrameAssetId = "",
     lastFrameAssetId = "",
   } = job;
@@ -522,9 +547,20 @@ async function runSeedance25GenerationJob(job = {}, submission = null, options =
       for (let index = 0; index < upstreamInput.imageFiles.length; index += 1) {
         imageAssets.push(await ensureSeedanceAssetUriForPublicUrl(upstreamInput.imageFiles[index], "Image", `seedance-nsfw-image-${index + 1}`));
       }
+      const db = await readDb();
+      const record = await getGenerationRecord(taskId);
+      const userId = String(record?.userId || "");
       const videoAssets = [];
       for (let index = 0; index < upstreamInput.videoFiles.length; index += 1) {
-        videoAssets.push(await ensureSeedanceAssetUriForPublicUrl(upstreamInput.videoFiles[index], "Video", `seedance-nsfw-video-${index + 1}`));
+        const asset = videoAssetIds[index]
+          ? seedance25OwnedAssets(db, userId, [videoAssetIds[index]], "video")[0]
+          : null;
+        videoAssets.push(await seedance25DirectVideoAssetUri(db, record?.userId ? { id: userId } : null, {
+          asset,
+          url: upstreamInput.videoFiles[index],
+          index,
+          name: `seedance-nsfw-video-${index + 1}`,
+        }));
       }
       const audioAssets = [];
       for (let index = 0; index < upstreamInput.audioFiles.length; index += 1) {
@@ -970,6 +1006,7 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       provider,
       preprocessReference,
       imageAssetIds: imageAssets.map((asset) => asset?.id).filter(Boolean),
+      videoAssetIds: videoUrls.map((url, index) => videoAssets[index]?.id || ""),
       firstFrameAssetId: firstFrameAsset?.id || "",
       lastFrameAssetId: lastFrameAsset?.id || "",
     };

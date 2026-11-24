@@ -73,7 +73,7 @@ function loadHelpers(state) {
      return { advancedEstimateKey, advancedCostLabel };`,
   )(
     state,
-    (provider) => ["h3-vega", "vega10-lite", "seedance20-vega"].includes(provider),
+    (provider) => ["vega15-lite", "vega10-lite", "seedance20-vega"].includes(provider),
     (provider) => String(provider || ""),
     () => "Vega 1.5 Lite",
     (pricing) => String(pricing?.message || "Pricing unavailable. Generation was not started."),
@@ -91,7 +91,7 @@ function loadHelpers(state) {
 }
 
 function keyFor(helpers, options = {}) {
-  return helpers.advancedEstimateKey(6, "h3-vega", "720P", "16:9", options);
+  return helpers.advancedEstimateKey(6, "vega15-lite", "720P", "16:9", options);
 }
 
 test("Vega Lite renders the successful estimate instead of a pricing error", () => {
@@ -101,7 +101,7 @@ test("Vega Lite renders the successful estimate instead of a pricing error", () 
   state.advancedEstimateKey = keyFor(helpers, options);
   state.advancedEstimate = { available: true, credits: 81, duration: 6, resolution: "720P", videoInputSeconds: 0 };
 
-  const label = helpers.advancedCostLabel(6, "h3-vega", "720P", "16:9", options);
+  const label = helpers.advancedCostLabel(6, "vega15-lite", "720P", "16:9", options);
   assert.equal(label, "81 credits · 6s - 720P");
   assert.doesNotMatch(label, /pricing|unavailable|not configured/i);
 });
@@ -112,7 +112,7 @@ test("Vega Lite shows checking while its matching estimate is pending", () => {
   const options = { inputVideoSeconds: 0, referenceVideoDurations: [], referenceVideoUrls: [] };
   state.advancedEstimatePendingKey = keyFor(helpers, options);
 
-  assert.equal(helpers.advancedCostLabel(6, "h3-vega", "720P", "16:9", options), "Checking cost...");
+  assert.equal(helpers.advancedCostLabel(6, "vega15-lite", "720P", "16:9", options), "Checking cost...");
 });
 
 test("Vega Lite only exposes a pricing failure after the matching estimate fails", () => {
@@ -123,7 +123,7 @@ test("Vega Lite only exposes a pricing failure after the matching estimate fails
   state.advancedEstimate = { available: false, message: "Upstream pricing service failed." };
 
   assert.equal(
-    helpers.advancedCostLabel(6, "h3-vega", "720P", "16:9", options),
+    helpers.advancedCostLabel(6, "vega15-lite", "720P", "16:9", options),
     "Upstream pricing service failed.",
   );
 });
@@ -163,7 +163,7 @@ test("Vega 1.0 Lite keeps its provider identity instead of falling back to Seeda
     assert.equal(normalizeAdvancedProvider(provider), "vega10-lite");
   }
   assert.equal(normalizeAdvancedProvider("seedance25-vega"), "seedance25-vega");
-  assert.equal(normalizeAdvancedProvider("h3-vega"), "h3-vega");
+  assert.equal(normalizeAdvancedProvider("vega15-lite"), "vega15-lite");
 });
 
 test("Changing the video resolution refreshes the estimated button cost", () => {

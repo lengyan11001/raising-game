@@ -121,9 +121,7 @@ async function createSeedanceReferenceVideoAssetFromUrl(db, user, videoUrl = "",
       });
       asset.sourceUrl = normalizedAssetSourceUrl(url);
       asset.hidden = true;
-      asset.videoWidth = dimensions.width;
-      asset.videoHeight = dimensions.height;
-      asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
+      applySeedanceVideoDimensionsToAsset(asset, dimensions);
       asset.meta = { fromWorkflowPreset: true, upstreamUse: "seedance_reference_video" };
       asset.updatedAt = new Date().toISOString();
       db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
@@ -1033,7 +1031,7 @@ function generationRecordIsVideoOutput(record = {}) {
     || record.cdnVideoUrl
     || record.videoUrl
     || kind.includes("video")
-    || ["apiz", "seedance", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex", "seedance25-vega", "h3-vega"].includes(provider),
+    || ["apiz", "seedance", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex", "seedance25-vega", "vega15-lite"].includes(provider),
   );
 }
 
@@ -1089,6 +1087,39 @@ function generationRecordR2PublicationPending(record = {}) {
   }
   if (isImageGenerationRecord(record)) return !generationRecordImageStorageReady(record);
   return false;
+}
+
+function generationRecordCompletionTimestamp(record = {}) {
+  const provider = normalizeAdvancedProvider(record.provider || record.params?.provider || "");
+  const query = record.queryResponse || {};
+  const candidates = [
+    record.completedAt,
+    query.completed_at,
+    query.completedAt,
+    query.finished_at,
+    query.finishedAt,
+    query.finish_time,
+    query.finishTime,
+  ];
+  // BytePlus Seedance task queries expose the terminal status transition as
+  // updated_at. It is a real upstream completion timestamp, unlike our local
+  // billingSettledAt, which records the earlier pre-deduction/submission time.
+  if (
+    [SEEDANCE25_DIRECT_PROVIDER, SEEDANCE25_FLASH_PROVIDER].includes(provider)
+    || String(record.upstreamSource || "").startsWith("byteplus-direct-seedance")
+  ) {
+    candidates.push(query.updated_at, query.updatedAt);
+  }
+  for (const value of candidates) {
+    const text = String(value || "").trim();
+    if (!text) continue;
+    const numeric = Number(text);
+    const timestamp = Number.isFinite(numeric) && numeric > 0
+      ? numeric < 1e12 ? numeric * 1000 : numeric
+      : Date.parse(text);
+    if (Number.isFinite(timestamp) && timestamp > 0) return new Date(timestamp).toISOString();
+  }
+  return "";
 }
 
 function publicGenerationRecord(record = {}, options = {}) {
@@ -1255,6 +1286,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     advancedDownloadStatus: String(record.advancedDownloadStatus || "").toLowerCase(),
     billing: publicBilling(record),
     createdAt: String(record.createdAt || ""),
+    completedAt: isSucceededStatus(record.status)
+      ? generationRecordCompletionTimestamp(record)
+      : "",
     updatedAt: String(record.updatedAt || ""),
     awaitingUpstreamTask: record.awaitingUpstreamTask === true,
     apiTokenId: String(record.apiTokenId || ""),

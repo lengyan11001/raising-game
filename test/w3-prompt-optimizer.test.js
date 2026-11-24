@@ -246,7 +246,7 @@ test("5000-character truncation keeps a positive final constraint stack and sent
 test("Wan provider detection covers all Wan families and excludes non-Wan", () => {
   const scope = { window: {}, document: {}, localStorage: { getItem() { return ""; } } };
   new Function("window", "document", "localStorage", client)(scope.window, scope.document, scope.localStorage);
-  for (const provider of ["wan30", "wan30-video-prime", "wan27", "wan-animate", "h3-vega", "wan-legacy"]) {
+  for (const provider of ["wan30", "wan30-video-prime", "wan27", "wan-animate", "vega15-lite", "wan-legacy"]) {
     assert.equal(scope.window.isWanPromptOptimizerProvider(provider), true, provider);
   }
   for (const provider of ["seedance", "seedance-nsfw", "papaya"]) {

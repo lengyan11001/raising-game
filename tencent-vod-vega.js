@@ -19,9 +19,9 @@ const VEGA_PROVIDERS = Object.freeze({
     modelName: VEGA_MODEL_NAME,
     modelVersion: "1.5-pro",
   }),
-  "h3-vega": Object.freeze({
-    id: "h3-vega",
-    label: "Vega 1.5 Lite",
+  "vega15-lite": Object.freeze({
+    id: "vega15-lite",
+    label: "wan（vega）",
     modelName: VEGA_MODEL_NAME,
     modelVersion: "1.5-lite",
   }),
@@ -104,7 +104,7 @@ const VEGA_CAPABILITIES = Object.freeze({
     qualityMode: false,
     limits: VEGA_15_PRO_LIMITS,
   }),
-  "h3-vega": capability({
+  "vega15-lite": capability({
     resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]),
     durationSeconds: Object.freeze({ min: 2, max: 30, fallback: 6, smart: true }),
     generateMode: false,

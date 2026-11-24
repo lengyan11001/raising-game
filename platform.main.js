@@ -1147,7 +1147,7 @@ els.advancedProvider?.addEventListener("change", () => {
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
     if (els.advancedRatio) els.advancedRatio.value = "adaptive";
     if (els.advancedResolution) els.advancedResolution.value = provider === "vega10-lite" ? "768P" : "1080P";
-    if (els.advancedDuration) els.advancedDuration.value = provider === "h3-vega" ? "6" : provider === "seedance20-vega" ? "5" : "5";
+    if (els.advancedDuration) els.advancedDuration.value = provider === "vega15-lite" ? "6" : provider === "seedance20-vega" ? "5" : "5";
     if (els.advancedWanSeed) els.advancedWanSeed.value = "";
     if (els.advancedVegaTaskType) els.advancedVegaTaskType.value = "auto";
     if (els.advancedVegaDraft) els.advancedVegaDraft.checked = false;
