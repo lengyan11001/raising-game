@@ -547,6 +547,7 @@ function generationRecordSignature(record = {}) {
   return [
     record.taskId,
     record.updatedAt,
+    record.completedAt,
     record.status,
     record.error,
     recordPreviewUrl(record),
@@ -844,7 +845,7 @@ async function renderDashboard() {
         <div class="adm-card-body adm-table-wrap">
           ${recentFailures.length ? `
             <table class="adm-table adm-dashboard-table">
-              <thead><tr><th>任务</th><th>用户</th><th>模型 / 渠道</th><th>状态</th><th>错误</th><th>更新时间</th></tr></thead>
+              <thead><tr><th>任务</th><th>用户</th><th>模型 / 渠道</th><th>状态</th><th>错误</th><th>创建时间</th></tr></thead>
               <tbody>
                 ${recentFailures.map((row) => `
                   <tr>
@@ -853,7 +854,7 @@ async function renderDashboard() {
                     <td>${escapeHtml(shortText(row.model || "unknown", 34))}<span class="adm-block adm-muted">${escapeHtml(row.provider || "unknown")}</span></td>
                     <td>${statusPill(row.status)}</td>
                     <td class="adm-record-prompt-cell" title="${escapeHtml(row.error || "")}">${escapeHtml(shortText(row.error || "-", 150))}</td>
-                    <td>${fmtRelative(row.updatedAt || row.createdAt)}</td>
+                    <td>${fmtDate(row.createdAt)}</td>
                   </tr>`).join("")}
               </tbody>
             </table>` : '<div class="adm-empty"><i data-lucide="circle-check"></i><p>暂无失败任务。</p></div>'}
@@ -1913,7 +1914,7 @@ function historyRecordHtml(r, idx) {
       <header class="adm-history-head">
         <div>
           <strong>${escapeHtml(ownerLine || r.taskId || "—")}</strong>
-          <em>${statusPill(r.status)} · ${escapeHtml(fmtRelative(r.updatedAt || r.createdAt))}</em>
+          <em>${statusPill(r.status)} · 创建 ${escapeHtml(fmtDate(r.createdAt))}${r.completedAt ? ` · 成功 ${escapeHtml(fmtDate(r.completedAt))}` : ""}</em>
         </div>
         <div class="adm-row">
           ${r.localVideoUrl ? `<a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(r.localVideoUrl)}" target="_blank" rel="noopener"><i data-lucide="play"></i>本地视频</a>` : ""}
@@ -2381,7 +2382,7 @@ function renderGenerationRecordTable(records, payload = {}, load = null) {
         <table class="adm-table adm-record-table">
           <thead>
             <tr>
-              <th>时间</th>
+              <th>创建 / 成功</th>
               <th>用户</th>
               <th>类型</th>
               <th>状态</th>
@@ -2467,7 +2468,7 @@ function generationRecordRowHtml(record, index) {
       : '<span class="adm-muted">暂无结果</span>';
   return `
     <tr>
-      <td><span class="adm-mono">${escapeHtml(fmtDate(record.createdAt).slice(5))}</span><span class="adm-block adm-muted">${escapeHtml(fmtRelative(record.updatedAt || record.createdAt))}</span></td>
+      <td><span class="adm-mono">${escapeHtml(fmtDate(record.createdAt).slice(5))}</span><span class="adm-block adm-muted">成功 ${escapeHtml(record.completedAt ? fmtDate(record.completedAt).slice(5) : "—")}</span></td>
       <td><strong>${escapeHtml(recordOwnerText(record))}</strong><span class="adm-block adm-mono adm-record-id">${escapeHtml((record.userId || "").slice(0, 12))}</span></td>
       <td><span class="adm-pill">${escapeHtml(record.provider || "n/a")}</span><span class="adm-block adm-muted">${escapeHtml(record.kind || record.source || "")}</span><span class="adm-block adm-truncate" title="${escapeHtml(label)}">${escapeHtml(label)}</span></td>
       <td>${statusPill(record.status)}${statusIssue ? `<span class="adm-block adm-error-text" title="${escapeHtml(statusIssue)}">${escapeHtml(shortText(statusIssue, 54))}</span>` : ""}</td>
@@ -2873,7 +2874,7 @@ function generationRecordDetailBody(record = {}, { loading = false, error = "" }
         <span>类型</span><strong>${escapeHtml(record.kind || "")}</strong>
         <span>扣费</span><strong>${escapeHtml(recordBillingText(record))}</strong>
         <span>创建时间</span><strong>${escapeHtml(fmtDate(record.createdAt))}</strong>
-        <span>更新时间</span><strong>${escapeHtml(fmtDate(record.updatedAt))}</strong>
+        <span>生成成功时间</span><strong>${escapeHtml(fmtDate(record.completedAt))}</strong>
       </div>
       ${record.referenceAssetUri ? `<div class="adm-record-line"><span>参考素材</span><code>${escapeHtml(record.referenceAssetUri)}</code></div>` : ""}
       ${record.imageUrl ? `<div class="adm-record-line"><span>图片</span><a href="${escapeHtml(record.imageUrl)}" target="_blank" rel="noopener">${escapeHtml(record.imageUrl)}</a></div>` : ""}

@@ -7,6 +7,7 @@ const path = require("node:path");
 
 const server = require("../server-source").readServerSource();
 const platformCreate = fs.readdirSync(path.join(__dirname, "..", "platform.create.parts")).filter((name) => /^part-\d+\.js$/.test(name)).sort().map((name) => fs.readFileSync(path.join(__dirname, "..", "platform.create.parts", name), "utf8")).join("");
+const admin = fs.readFileSync(path.join(__dirname, "..", "admin.js"), "utf8");
 
 function functionSource(name, nextName) {
   const start = server.indexOf(`async function ${name}`);
@@ -427,14 +428,14 @@ test("full serializer keeps its original field order and browser/API media URL c
     "sceneId", "sceneName", "sceneEntryId", "sceneEntryName", "companionId", "companionName",
     "partnerCharacterId", "partnerCharacterName", "imageUrl", "imageUrls", "sourceImageUrl",
     "sourceImageUrls", "syntheticReferenceLocalUrl", "syntheticReferenceUrl", "userAssetId",
-    "userAssetIds", "referenceAssetUri", "mediaMode", "mediaAssets", "posterUrl", "posterPending",
+    "userAssetIds", "resultAssetId", "resultAssetIds", "referenceAssetUri", "mediaMode", "mediaAssets", "posterUrl", "posterPending",
     "cdnPosterUrl", "localPosterUrl", "prompt", "finalPrompt", "params", "model", "provider",
     "providerLabel", "ratio", "resolution", "duration", "quality", "videoUrl", "downloadUrl",
     "cdnVideoUrl", "cdnImageUrl", "cdnImageUrls", "providerVideoUrl", "upstreamVideoUrl",
     "remoteVideoUrl", "imageResultUrl", "imageResultUrls", "providerImageUrl", "providerImageUrls",
     "upstreamImageUrl", "remoteImageUrl", "textResult", "responseText", "usage", "error",
     "cdnError", "r2DownloadReady", "advancedDownloadAvailable", "advancedDownloadStatus",
-    "billing", "createdAt", "updatedAt", "awaitingUpstreamTask", "apiTokenId",
+    "billing", "createdAt", "completedAt", "updatedAt", "awaitingUpstreamTask", "apiTokenId",
     "apiTokenName", "apiTokenType", "resultLocked", "unlockCredits", "unlockType",
     "lockedPreviewUrl", "localVideoUrl", "localVideoPath", "localPosterPath",
     "localImageUrl", "localImagePath", "localImageUrls", "upstreamPayload",
@@ -445,6 +446,44 @@ test("full serializer keeps its original field order and browser/API media URL c
   assert.equal(Object.hasOwn(api, "upstreamPayload"), false);
   assert.equal(typeof browser.billing, "object");
   assert.equal(typeof api.billing, "object");
+});
+
+test("generation records expose a dedicated successful completion time", () => {
+  const application = require("../server");
+  const succeeded = application.publicGenerationRecord({
+    taskId: "cgt-completed",
+    status: "succeeded",
+    completedAt: "2026-11-23T14:58:58.000Z",
+    billingSettledAt: "2026-11-23T14:59:00.000Z",
+    updatedAt: "2026-11-24T04:26:11.645Z",
+  });
+  assert.equal(succeeded.completedAt, "2026-11-23T14:58:58.000Z");
+
+  const legacySucceeded = application.publicGenerationRecord({
+    taskId: "cgt-legacy-completed",
+    status: "succeeded",
+    billingSettledAt: "2026-11-23T15:00:00.000Z",
+    updatedAt: "2026-11-24T04:26:11.645Z",
+  });
+  assert.equal(legacySucceeded.completedAt, "2026-11-23T15:00:00.000Z");
+
+  const failed = application.publicGenerationRecord({
+    taskId: "cgt-failed",
+    status: "failed",
+    completedAt: "2026-11-23T14:58:58.000Z",
+    updatedAt: "2026-11-24T04:26:11.645Z",
+  });
+  assert.equal(failed.completedAt, "");
+});
+
+test("admin generation records show creation and generation completion times only", () => {
+  assert.match(admin, /<th>创建 \/ 成功<\/th>/);
+  assert.match(admin, /成功 \$\{escapeHtml\(record\.completedAt \? fmtDate\(record\.completedAt\)\.slice\(5\) : "—"\)\}/);
+  assert.match(admin, /<span>生成成功时间<\/span><strong>\$\{escapeHtml\(fmtDate\(record\.completedAt\)\)\}<\/strong>/);
+  assert.doesNotMatch(admin, /fmtRelative\(record\.updatedAt \|\| record\.createdAt\)/);
+  assert.doesNotMatch(admin, /<span>更新时间<\/span><strong>\$\{escapeHtml\(fmtDate\(record\.updatedAt\)\)\}<\/strong>/);
+  const explore = fs.readFileSync(path.join(__dirname, "..", "platform.explore.js"), "utf8");
+  assert.match(explore, /createdAt: record\.createdAt \|\| "",\s+completedAt: record\.completedAt \|\| "",/);
 });
 
 test("frontend polling merges partial snapshots without erasing full record fields", () => {

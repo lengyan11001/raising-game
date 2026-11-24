@@ -1253,6 +1253,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     advancedDownloadStatus: String(record.advancedDownloadStatus || "").toLowerCase(),
     billing: publicBilling(record),
     createdAt: String(record.createdAt || ""),
+    completedAt: isSucceededStatus(record.status)
+      ? String(record.completedAt || record.billingSettledAt || "")
+      : "",
     updatedAt: String(record.updatedAt || ""),
     awaitingUpstreamTask: record.awaitingUpstreamTask === true,
     apiTokenId: String(record.apiTokenId || ""),

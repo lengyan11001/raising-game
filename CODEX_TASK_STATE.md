@@ -5607,3 +5607,10 @@ CODEX_TASK_STATE.md
 - Deployment completed from integration commit `8b84477e`: `platform-release 0d85887c`, pushed only to `platform-release`; Old rolling deploy finished with `OLD_ROLLING_DEPLOY_OK active_port=4175`. The preceding release is an ancestor and the release audit reported `NO_FOREIGN_PATHS`; Live was not pushed or deployed.
 - Production verification: `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`, all reporting release `0d85887c27e967fc2e5b7c2e839ed55f0ed45a99`. The deployed `server.parts/part-13.js` contains the `plainObject()` guard. The old process `3297271` emitted the null-`fps` error through 16:25, while the new process `3301133` started at 16:21:42 on the fixed release and emitted no such error.
 - Post-deploy focused verification passed again: low-FPS and Seedance/regeneration/queue suite `81/81`, `npm run check:undef`, and `git diff --check`.
+
+## 2026-11-24 Step FH: Show generation creation and success times
+
+- Root cause of `cgt-20261123225857-73065f` appearing recently updated: adding the result to the asset library mutated generic `updatedAt` (`lastUpdateReason=history-add-asset-reference`); generation completion polling had already stopped.
+- `publicGenerationRecord()` now exposes `completedAt` only for succeeded records, using `completedAt` then `billingSettledAt`; failed/active records return an empty value and never fall back to `updatedAt`.
+- Admin generation list/detail/history now show creation time and generation success time, not generic update time. User history detail payload also exposes `completedAt` instead of `updatedAt`.
+- Added focused serialization and UI regression assertions; updated `admin-media-preview.test.js` to read composed server source. Focused suites pass `37/37`; `npm run check:undef` and syntax checks pass. Full suite: `1475 pass / 2 skipped / 6 existing source-split/cache-version failures`, none in this change.
