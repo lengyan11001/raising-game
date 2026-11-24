@@ -5,11 +5,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { readServerSource } = require("../server-source");
 
 const admin = fs.readFileSync(path.join(__dirname, "..", "admin.js"), "utf8");
 const css = fs.readFileSync(path.join(__dirname, "..", "admin.css"), "utf8");
 const html = fs.readFileSync(path.join(__dirname, "..", "admin.html"), "utf8");
-const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+const server = readServerSource();
 
 function extractFunction(name) {
   const start = admin.indexOf(`function ${name}(`);

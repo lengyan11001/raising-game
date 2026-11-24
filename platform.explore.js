@@ -4148,7 +4148,7 @@ function historyDetailPayload(record = {}) {
     poster: generationPosterUrl(record) || "",
     result: generationVideoUrl(record) || generationImageResultUrl(record) || "",
     createdAt: record.createdAt || "",
-    updatedAt: record.updatedAt || "",
+    completedAt: record.completedAt || "",
   };
 }
 
