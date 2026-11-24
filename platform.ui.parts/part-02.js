@@ -1437,7 +1437,7 @@ function normalizeAdvancedProvider(value = "") {
   if (["seedancefast", "seedance20fast", "seedance2.0fast", "vipeak2fast", "vp2fast", "ep20260429142538fkm9d"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("fast")) || (normalized.includes("vipeak2") && normalized.includes("fast"))) return "seedance";
   if (["seedance20vega", "seedance2.0vega", "vega10pro", "vega1.0pro", "vega10", "vega1.0"].includes(normalized) || (normalized.includes("seedance20") && normalized.includes("vega")) || (normalized.includes("seedance2.0") && normalized.includes("vega"))) return "seedance20-vega";
   if (["seedance25vega", "seedance2.5vega"].includes(normalized) || (normalized.includes("seedance25") && normalized.includes("vega")) || (normalized.includes("seedance2.5") && normalized.includes("vega"))) return "seedance25-vega";
-  if (["vega15lite", "vega1.5lite"].includes(normalized) || normalized.includes("vega15lite") || normalized.includes("vega1.5lite")) return "vega15-lite";
+  if (["h3vega", "h3"].includes(normalized) || normalized.includes("h3vega")) return "h3-vega";
   if (["vega10lite", "vega1.0lite", "10lite"].includes(normalized) || normalized.includes("vega10lite") || normalized.includes("vega1.0lite")) return "vega10-lite";
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["zimagespicypro", "zimagespicy", "zimage", "zimagepro", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return "z-image-spicy-pro";

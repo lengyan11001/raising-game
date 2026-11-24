@@ -163,22 +163,22 @@ return setAdvancedParameterValue;`,
     isRetiredVegaProviderId,
   );
 
-  setAdvancedParameterValue("model", "vega15-lite");
-  assert.equal(select.value, "vega15-lite");
+  setAdvancedParameterValue("model", "h3-vega");
+  assert.equal(select.value, "h3-vega");
   assert.equal(events.length, 1);
   assert.equal(events[0].type, "change");
   assert.equal(events[0].bubbles, true);
   assert.equal(closeCount, 1);
   assert.equal(syncCount, 1);
 
-  setAdvancedParameterValue("model", "vega15-lite");
-  assert.equal(select.value, "vega15-lite");
+  setAdvancedParameterValue("model", "h3-vega");
+  assert.equal(select.value, "h3-vega");
   assert.equal(events.length, 1, "re-selecting the current model must not replay change handlers");
   assert.equal(closeCount, 2);
   assert.equal(syncCount, 2);
 
   setAdvancedParameterValue("model", "seedance25-vega");
-  assert.equal(select.value, "vega15-lite", "retired models must never be written into the native select");
+  assert.equal(select.value, "h3-vega", "retired models must never be written into the native select");
   assert.equal(events.length, 1);
   assert.equal(closeCount, 2);
   assert.equal(syncCount, 2);
@@ -192,7 +192,7 @@ test("model picker filters hidden and disabled options in native order", () => {
     { value: "seedance", textContent: "Seedance 2.0", hidden: false, disabled: false, closest: () => ({ hidden: false, label: "Video" }) },
     { value: "seedance25-vega", textContent: "seedance2.5-vega", hidden: false, disabled: true, closest: () => null },
     { value: "seedance20-vega", textContent: "seedance2.0（vega）", hidden: false, disabled: false, closest: () => ({ hidden: false, label: "Video" }) },
-    { value: "vega15-lite", textContent: "wan（vega）", hidden: false, disabled: false, closest: () => ({ hidden: false, label: "Video" }) },
+    { value: "h3-vega", textContent: "wan（vega）", hidden: false, disabled: false, closest: () => ({ hidden: false, label: "Video" }) },
     { value: "vega10-lite", textContent: "h3（vega）", hidden: false, disabled: false, closest: () => ({ hidden: false, label: "Video" }) },
   ];
   const select = { options };
@@ -207,7 +207,7 @@ return advancedParameterVisibleOptions;`,
   assert.deepEqual(advancedParameterVisibleOptions("model"), [
     { value: "seedance-nsfw", label: "Seedance 2.5（NSFW）", group: "" },
     { value: "seedance", label: "Seedance 2.0", group: "Video" },
-    { value: "vega15-lite", label: "wan（vega）", group: "Video" },
+    { value: "h3-vega", label: "wan（vega）", group: "Video" },
   ]);
 });
 

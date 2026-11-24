@@ -353,7 +353,7 @@ function advancedPricingRowKey(row = {}) {
   if (provider === "seedance" && isFast) return `seedance-fast-${resolution}`;
   if (provider === "seedance" && isVideoInput) return `seedance-video-input-${resolution}`;
   if (provider === SEEDANCE25_DIRECT_PROVIDER && isVideoInput) return `seedance-nsfw-video-input-${resolution}`;
-  if (provider === "vega15-lite" && isVideoInput) return `vega15-lite-video-input-${resolution}`;
+  if (provider === "h3-vega" && isVideoInput) return `h3-vega-video-input-${resolution}`;
   if (provider === "vega10-lite" && isVideoInput) return `vega10-lite-video-input-${resolution}`;
   if (provider === "seedance20-vega" && isVideoInput) return `vega10-pro-video-${resolution}`;
   if (provider === "vega10-lite" && (rateKindRaw === "reference_image" || resolutionRaw === "reference")) return "vega10-lite-reference-image";
@@ -415,9 +415,9 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     ? normalized.seedanceFlashVideoCreditsPerSecondByResolution
     : normalizedProvider === SEEDANCE25_FLASH_PROVIDER
     ? normalized.seedanceFlashCreditsPerSecondByResolution
-    : normalizedProvider === "vega15-lite" && rateKind === "video_input"
+    : normalizedProvider === "h3-vega" && rateKind === "video_input"
     ? normalized.h3VegaInputVideoCreditsPerSecondByResolution
-    : normalizedProvider === "vega15-lite"
+    : normalizedProvider === "h3-vega"
     ? normalized.h3VegaCreditsPerSecondByResolution
     : normalizedProvider === "vega10-lite" && rateKind === "video_input"
     ? normalized.vega10LiteInputVideoCreditsPerSecondByResolution
@@ -715,7 +715,7 @@ function advancedVegaPurchaseForRow(pricing = DEFAULT_ADVANCED_PRICING, row = {}
   let table = null;
   let usdPerSecond = null;
   let rateKey = resolution;
-  if (provider === "vega15-lite") {
+  if (provider === "h3-vega") {
     table = rateKind === "video_input"
       ? normalized.h3VegaInputVideoPurchaseUsdPerSecondByResolution
       : normalized.h3VegaPurchaseUsdPerSecondByResolution;
@@ -1365,7 +1365,7 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     if (!Number.isFinite(rawCredits) || rawCredits < 0 || (definedRow?.provider === "wan30" && rawCredits <= 0)) {
       throw pricingPayloadError(`Invalid sale price for ${key}`);
     }
-    const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") || key.startsWith("seedance-flash-") || key.startsWith("seedance-nsfw-") || key.startsWith("seedance-fast-") || key.startsWith("vega15-lite-") || key.startsWith("vega10-lite-") || key.startsWith("vega15-pro-") ? 6 : 4);
+    const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") || key.startsWith("seedance-flash-") || key.startsWith("seedance-nsfw-") || key.startsWith("seedance-fast-") || key.startsWith("h3-vega-") || key.startsWith("vega10-lite-") || key.startsWith("vega15-pro-") ? 6 : 4);
     if (key === "wan27-720p") next.wan27CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "wan27-1080p") next.wan27CreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "wan30-480p") next.wan30CreditsPerSecondByResolution["480p"] = credits;
@@ -1417,16 +1417,16 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     else if (key === "seedance-flash-video-input-720p") next.seedanceFlashVideoCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance25-480p") next.seedance25CreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance25-720p") next.seedance25CreditsPerSecondByResolution["720p"] = credits;
-    else if (key === "vega15-lite-480p") next.h3VegaCreditsPerSecondByResolution["480p"] = credits;
-    else if (key === "vega15-lite-720p") next.h3VegaCreditsPerSecondByResolution["720p"] = credits;
-    else if (key === "vega15-lite-1080p") next.h3VegaCreditsPerSecondByResolution["1080p"] = credits;
-    else if (key === "vega15-lite-2k") next.h3VegaCreditsPerSecondByResolution["2k"] = credits;
-    else if (key === "vega15-lite-4k") next.h3VegaCreditsPerSecondByResolution["4k"] = credits;
-    else if (key === "vega15-lite-video-input-480p") next.h3VegaInputVideoCreditsPerSecondByResolution["480p"] = credits;
-    else if (key === "vega15-lite-video-input-720p") next.h3VegaInputVideoCreditsPerSecondByResolution["720p"] = credits;
-    else if (key === "vega15-lite-video-input-1080p") next.h3VegaInputVideoCreditsPerSecondByResolution["1080p"] = credits;
-    else if (key === "vega15-lite-video-input-2k") next.h3VegaInputVideoCreditsPerSecondByResolution["2k"] = credits;
-    else if (key === "vega15-lite-video-input-4k") next.h3VegaInputVideoCreditsPerSecondByResolution["4k"] = credits;
+    else if (key === "h3-vega-480p") next.h3VegaCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "h3-vega-720p") next.h3VegaCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "h3-vega-1080p") next.h3VegaCreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "h3-vega-2k") next.h3VegaCreditsPerSecondByResolution["2k"] = credits;
+    else if (key === "h3-vega-4k") next.h3VegaCreditsPerSecondByResolution["4k"] = credits;
+    else if (key === "h3-vega-video-input-480p") next.h3VegaInputVideoCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "h3-vega-video-input-720p") next.h3VegaInputVideoCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "h3-vega-video-input-1080p") next.h3VegaInputVideoCreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "h3-vega-video-input-2k") next.h3VegaInputVideoCreditsPerSecondByResolution["2k"] = credits;
+    else if (key === "h3-vega-video-input-4k") next.h3VegaInputVideoCreditsPerSecondByResolution["4k"] = credits;
     else if (key === "seedance-nsfw-480p") next.seedanceNsfwCreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance-nsfw-720p") next.seedanceNsfwCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance-nsfw-1080p") next.seedanceNsfwCreditsPerSecondByResolution["1080p"] = credits;

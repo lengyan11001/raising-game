@@ -29,7 +29,7 @@ const STORY_VIDEO_MODELS = Object.freeze([
   { id: "seedance25-flash", label: "Seedance 2.5 Flash", family: "seedance", promptOptimizer: true },
   { id: "seedance20-vega", label: "Vega 1.0 Pro", family: "seedance", promptOptimizer: true },
   { id: "seedance25-vega", label: "Vega 1.5 Pro", family: "seedance", promptOptimizer: true },
-  { id: "vega15-lite", label: "wan（vega）", family: "vega", promptOptimizer: false },
+  { id: "h3-vega", label: "Vega 1.5 Lite", family: "vega", promptOptimizer: false },
   { id: "vega10-lite", label: "Vega 1.0 Lite", family: "vega", promptOptimizer: false },
 ]);
 

@@ -207,7 +207,7 @@ async function buildModelDocs(req, res) {
 function restrictPublicVegaDocs(external = {}) {
   external.supportedModels = (Array.isArray(external.supportedModels) ? external.supportedModels : [])
     .filter((item) => !/^vega\b/i.test(String(item.name || "")) || /^vega 1\.0 lite$/i.test(String(item.name || "").trim()));
-  ["vega10ProExample", "seedance25VegaExample", "vega15LiteExample"].forEach((key) => delete external[key]);
+  ["vega10ProExample", "seedance25VegaExample", "h3VegaExample"].forEach((key) => delete external[key]);
   if (Array.isArray(external.constraints?.vega?.providers)) {
     external.constraints.vega.providers = external.constraints.vega.providers.filter((item) => item?.id === "vega10-lite");
   }

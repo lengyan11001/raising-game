@@ -13,9 +13,6 @@ function storedVideoDimensionsForAsset(asset = {}) {
       width,
       height,
       durationSeconds: durationSecondsFromValue(firstPresent(asset.durationSeconds, asset.meta?.durationSeconds)),
-      fps: seedanceVideoFrameRate({
-        fps: firstPresent(asset.videoFps, asset.frameRate, asset.meta?.videoFps, asset.meta?.frameRate),
-      }),
     };
   }
   return null;
@@ -26,7 +23,7 @@ async function validateSeedanceVideoAssetForRequest(db, asset = {}, label = "See
   validateWan27MediaKind(asset, "video", label);
   let localPath = localPathForUserAsset(asset);
   const storedDimensions = storedVideoDimensionsForAsset(asset);
-  if (storedDimensions && seedanceVideoFrameRate(storedDimensions) && !seedanceVideoNeedsFrameRateNormalization(storedDimensions)) {
+  if (storedDimensions) {
     try {
       return assertSeedanceVideoPixelCount(storedDimensions, label);
     } catch (error) {
@@ -39,7 +36,9 @@ async function validateSeedanceVideoAssetForRequest(db, asset = {}, label = "See
     throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Seedance.`, { assetId: asset.id || "" });
   }
   const dimensions = await normalizeSeedanceVideoFileForRequest(localPath, localPath, label);
-  applySeedanceVideoDimensionsToAsset(asset, dimensions);
+  asset.videoWidth = dimensions.width;
+  asset.videoHeight = dimensions.height;
+  asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
   asset.seedanceVideoAssetId = "";
   asset.seedanceVideoAssetUri = "";
   asset.updatedAt = new Date().toISOString();
@@ -321,8 +320,6 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     height: imageDimensions?.height || 0,
     videoWidth: videoDimensions?.width || 0,
     videoHeight: videoDimensions?.height || 0,
-    videoFps: seedanceVideoFrameRate(videoDimensions) || 0,
-    frameRate: seedanceVideoFrameRate(videoDimensions) || 0,
     imageType: imageDimensions?.type || "",
     durationSeconds: mime.startsWith("video/") || mime.startsWith("audio/")
       ? durationSecondsFromValue(durationSeconds || videoDimensions?.durationSeconds)
@@ -410,7 +407,7 @@ function userMediaUploadLimits(provider = "") {
       audio: VEGA_10_LITE_AUDIO_UPLOAD_MAX_BYTES,
     };
   }
-  if (normalized === "vega15-lite") {
+  if (normalized === "h3-vega") {
     return {
       image: VEGA_15_LITE_IMAGE_UPLOAD_MAX_BYTES,
       video: VEGA_15_LITE_VIDEO_UPLOAD_MAX_BYTES,
@@ -558,7 +555,9 @@ async function refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, asset = {},
   const targetPath = localPathForUserAsset(asset);
   if (!sourcePath || !targetPath) return asset;
   const sourceDimensions = await normalizeSeedanceVideoFileForRequest(sourcePath, targetPath, "Seedance reference video source");
-  applySeedanceVideoDimensionsToAsset(asset, sourceDimensions);
+  asset.videoWidth = sourceDimensions.width;
+  asset.videoHeight = sourceDimensions.height;
+  asset.durationSeconds = sourceDimensions.durationSeconds || asset.durationSeconds || 0;
   asset.seedanceVideoAssetId = "";
   asset.seedanceVideoAssetUri = "";
   const refreshedBytes = await fs.readFile(targetPath);

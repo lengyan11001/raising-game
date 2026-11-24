@@ -58,7 +58,7 @@ test("Vega provider identities are exact and preserve the provider id", () => {
   const expected = [
     ["seedance20-vega", "Vega 1.0 Pro", "wand-vega-video", "1.0-pro"],
     ["seedance25-vega", "Vega 1.5 Pro", "wand-vega-video", "1.5-pro"],
-    ["vega15-lite", "wan（vega）", "wand-vega-video", "1.5-lite"],
+    ["h3-vega", "Vega 1.5 Lite", "wand-vega-video", "1.5-lite"],
     ["vega10-lite", "Vega 1.0 Lite", "wand-vega-video", "1.0-lite"],
   ];
   for (const [id, label, modelName, modelVersion] of expected) {
@@ -110,12 +110,12 @@ test("Vega Pro public display aliases normalize new and historical records", () 
 
   const lite = application.publicGenerationRecord({
     taskId: "vega-15-lite",
-    provider: "vega15-lite",
+    provider: "h3-vega",
     templateTitle: "Vega 1.5 Lite",
     model: "wand-vega-video:1.5-lite",
   });
-  assert.equal(lite.provider, "vega15-lite");
-  assert.equal(lite.providerLabel, "wan（vega）");
+  assert.equal(lite.provider, "h3-vega");
+  assert.equal(lite.providerLabel, "Vega 1.5 Lite");
   assert.equal(lite.templateTitle, "Vega 1.5 Lite");
 });
 
@@ -139,11 +139,11 @@ test("Vega Pro pricing labels use the same public display aliases without changi
   assert.equal(pricing20.providerLabel, "seedance2.0（vega）");
 
   const lite = providers.publicPricingValue({
-    provider: "vega15-lite",
+    provider: "h3-vega",
     providerLabel: "Vega 1.5 Lite",
     resolution: "720p",
   });
-  assert.equal(lite.providerLabel, "wan（vega）");
+  assert.equal(lite.providerLabel, "Vega 1.5 Lite");
   assert.match(read("platform.ui.parts/part-04.js"), /label: String\(row\.modelDisplayName \|\| publicGenerationDisplayLabel\(row\.provider\) \|\| row\.providerLabel/);
 });
 
@@ -190,7 +190,7 @@ test("Tencent VOD calls use the international endpoint and region", async () => 
 
 test("Vega models omit unsupported GenerateMode and VideoQualityMode", () => {
   const lite = vega.buildVegaCreatePayload({
-    provider: "vega15-lite",
+    provider: "h3-vega",
     prompt: "test",
     mediaMode: "text_to_video",
     generateMode: "Fast",
@@ -219,8 +219,8 @@ test("Vega models omit unsupported GenerateMode and VideoQualityMode", () => {
   assert.equal(Object.prototype.hasOwnProperty.call(proWand, "VideoQualityMode"), false);
   assert.equal(vega.vegaProviderCapabilities("seedance25-vega").generateMode, false);
   assert.equal(vega.vegaProviderCapabilities("seedance25-vega").qualityMode, false);
-  assert.equal(vega.vegaProviderCapabilities("vega15-lite").generateMode, false);
-  assert.equal(vega.vegaProviderCapabilities("vega15-lite").qualityMode, false);
+  assert.equal(vega.vegaProviderCapabilities("h3-vega").generateMode, false);
+  assert.equal(vega.vegaProviderCapabilities("h3-vega").qualityMode, false);
 
   const vega10Pro = vega.buildVegaCreatePayload({
     provider: "seedance20-vega",
@@ -251,7 +251,7 @@ test("Vega 1.0 Lite omits ModerationMode and GenerateMode while other Vega model
   assert.equal(Object.prototype.hasOwnProperty.call(liteWand, "ModerationMode"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(liteWand, "GenerateMode"), false);
 
-  for (const provider of ["seedance20-vega", "seedance25-vega", "vega15-lite"]) {
+  for (const provider of ["seedance20-vega", "seedance25-vega", "h3-vega"]) {
     const payload = vega.buildVegaCreatePayload({
       provider,
       prompt: "test",
@@ -266,12 +266,12 @@ test("Vega 1.0 Lite omits ModerationMode and GenerateMode while other Vega model
 test("Vega duration validates boundaries, defaults, and integer seconds", () => {
   assert.equal(vega.normalizeVegaDuration("seedance25-vega", 4), 4);
   assert.equal(vega.normalizeVegaDuration("seedance25-vega", -1), -1);
-  assert.equal(vega.normalizeVegaDuration("vega15-lite"), 6);
-  assert.equal(vega.normalizeVegaDuration("vega15-lite", 15), 15);
-  assert.equal(vega.normalizeVegaDuration("vega15-lite", -1), -1);
-  assertCode(() => vega.normalizeVegaDuration("vega15-lite", 0), "INVALID_DURATION");
-  assertCode(() => vega.normalizeVegaDuration("vega15-lite", 31), "INVALID_DURATION");
-  assertCode(() => vega.normalizeVegaDuration("vega15-lite", 2.5), "INVALID_DURATION");
+  assert.equal(vega.normalizeVegaDuration("h3-vega"), 6);
+  assert.equal(vega.normalizeVegaDuration("h3-vega", 15), 15);
+  assert.equal(vega.normalizeVegaDuration("h3-vega", -1), -1);
+  assertCode(() => vega.normalizeVegaDuration("h3-vega", 0), "INVALID_DURATION");
+  assertCode(() => vega.normalizeVegaDuration("h3-vega", 31), "INVALID_DURATION");
+  assertCode(() => vega.normalizeVegaDuration("h3-vega", 2.5), "INVALID_DURATION");
   assert.equal(vega.normalizeVegaDuration("seedance25-vega", -1, { taskType: "edit" }), -1);
   assertCode(() => vega.normalizeVegaDuration("seedance25-vega", 8, { taskType: "edit" }), "INVALID_DURATION");
   assert.equal(vega.normalizeVegaDuration("seedance25-vega", 8, { taskType: "extend" }), 8);
@@ -285,8 +285,8 @@ test("Vega duration validates boundaries, defaults, and integer seconds", () => 
 
 test("Vega resolution and ratio accept only documented values", () => {
   for (const value of ["480P", "720P", "768P", "1080P", "2K", "4K", "2k", "4k"]) assert.equal(vega.normalizeVegaResolution(value), value.toUpperCase());
-  assert.equal(vega.normalizeVegaResolution("720P", "vega15-lite"), "720P");
-  assertCode(() => vega.normalizeVegaResolution("768P", "vega15-lite"), "INVALID_RESOLUTION");
+  assert.equal(vega.normalizeVegaResolution("720P", "h3-vega"), "720P");
+  assertCode(() => vega.normalizeVegaResolution("768P", "h3-vega"), "INVALID_RESOLUTION");
   for (const value of ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]) assert.equal(vega.normalizeVegaRatio(value), value);
   assert.equal(vega.normalizeVegaRatio("adaptive"), "adaptive");
   assert.equal(vega.normalizeVegaRatio("adaptive", "seedance25-vega", { taskType: "edit" }), "adaptive");
@@ -389,7 +389,7 @@ test("Vega Pro media-library import runs before charging and CreateAigcVideoTask
 });
 
 test("Vega Lite providers keep the URL FileInfos path and never call the asset API", async () => {
-  for (const provider of ["vega15-lite", "vega10-lite"]) {
+  for (const provider of ["h3-vega", "vega10-lite"]) {
     assert.equal(vega.vegaProviderUsesMediaLibrary(provider), false);
     let called = false;
     const files = await vega.prepareVegaMediaLibraryFileInfos({
@@ -405,14 +405,14 @@ test("Vega Lite providers keep the URL FileInfos path and never call the asset A
 
 test("Vega Lite never queries the media library when resolving stale asset ids", async () => {
   assertCode(() => vega.buildVegaFileInfos({
-    provider: "vega15-lite",
+    provider: "h3-vega",
     mediaMode: "reference_video",
     referenceImages: ["asset://asset-lite-only"],
   }), "INVALID_MEDIA_URL");
 
   let sourceLookupCalled = false;
   const resolved = await vega.resolveVegaLiteMediaAssetSources({
-    provider: "vega15-lite",
+    provider: "h3-vega",
     userId: "user-1",
     media: {
       referenceImages: ["asset://asset-lite-source"],
@@ -426,7 +426,7 @@ test("Vega Lite never queries the media library when resolving stale asset ids",
   });
   assert.equal(sourceLookupCalled, false);
   const files = vega.buildVegaFileInfos({
-    provider: "vega15-lite",
+    provider: "h3-vega",
     mediaMode: "reference_video",
     referenceImages: resolved.referenceImages,
   });
@@ -638,13 +638,13 @@ test("Vega media URL validation rejects local/private/credential URLs and preser
 
 test("Vega frame modes are mutually exclusive and complete", () => {
   assert.doesNotThrow(() => vega.buildVegaCreatePayload({
-    provider: "vega15-lite",
+    provider: "h3-vega",
     prompt: "test",
     mediaMode: "last_frame",
     lastFrameUrl: "https://cdn.example.com/last.png",
   }, { subAppId: 1 }));
   assertCode(() => vega.buildVegaCreatePayload({
-    provider: "vega15-lite",
+    provider: "h3-vega",
     prompt: "test",
     mediaMode: "first_last_frame",
     lastFrameUrl: "https://cdn.example.com/last.png",
@@ -677,7 +677,7 @@ test("Vega draft follow-up uses only a draft id and output settings", () => {
   assert.equal(stale.FileInfos.length, 1);
   assert.doesNotMatch(stale.ExtInfo, /draft_task_id/);
   assertCode(() => vega.buildVegaCreatePayload({
-    provider: "vega15-lite",
+    provider: "h3-vega",
     draftTaskId: "draft-task-lite",
     resolution: "1080P",
   }, { subAppId: 123 }), "DRAFT_UNSUPPORTED");
@@ -837,7 +837,7 @@ test("Vega model upload limits keep Lite and Pro 1.0 behavior while allowing Pro
   assert.match(create, /if \(provider === "seedance25-vega"\) return vegaReferenceLimits\(provider\)\.images/);
   assert.match(config, /"seedance20-vega": Object\.freeze\(\{ images: 9, videos: 3, audios: 3, total: 12 \}\)/);
   assert.match(config, /"seedance25-vega": Object\.freeze\(\{ images: 30, videos: 10, audios: 10, total: 50 \}\)/);
-  assert.match(config, /"vega15-lite": Object\.freeze\(\{ images: 10, videos: 5, audios: 5, total: 20 \}\)/);
+  assert.match(config, /"h3-vega": Object\.freeze\(\{ images: 10, videos: 5, audios: 5, total: 20 \}\)/);
   assert.match(config, /"vega10-lite": Object\.freeze\(\{ images: 9, videos: 3, audios: 3, total: 12 \}\)/);
   assert.match(server, /VEGA_15_PRO_IMAGE_UPLOAD_MAX_BYTES = 30 \* 1024 \* 1024/);
   assert.match(server, /VEGA_15_PRO_VIDEO_UPLOAD_MAX_BYTES = 200 \* 1024 \* 1024/);
@@ -906,7 +906,7 @@ test("Vega 1.5 Pro keeps a real draft-to-final request and requires an id for dr
 
 test("Vega 1.5 Lite stale draft state is normalized into a normal generation", () => {
   const staleInput = {
-    provider: "vega15-lite",
+    provider: "h3-vega",
     prompt: "make a normal lite video",
     draftTaskId: "draft-task-from-template",
     mediaMode: "draft_followup",
@@ -935,12 +935,12 @@ test("Vega 1.5 Lite stale draft state is normalized into a normal generation", (
 
 test("Vega 1.5 Lite draft-only intent fails closed before upstream submission", () => {
   assertCode(() => vega.resolveVegaDraftSelection({
-    provider: "vega15-lite",
+    provider: "h3-vega",
     mediaMode: "draft_followup",
     draftTaskId: "draft-only",
   }), "DRAFT_UNSUPPORTED");
   assertCode(() => vega.buildVegaCreatePayload({
-    provider: "vega15-lite",
+    provider: "h3-vega",
     draftTaskId: "draft-only",
     mediaMode: "draft_followup",
   }, { subAppId: 123 }), "DRAFT_UNSUPPORTED");
@@ -973,7 +973,7 @@ test("Vega Lite request handler ignores stale draft state before validation and 
         },
       },
       body: {
-        provider: "vega15-lite",
+        provider: "h3-vega",
         prompt: "normal lite generation",
         mediaMode: "draft_followup",
         draftTaskId: "stale-template-draft",
@@ -983,7 +983,7 @@ test("Vega Lite request handler ignores stale draft state before validation and 
       bodyParams: {},
       caseParams: { draftTaskId: "stale-template-draft", mediaMode: "draft_followup" },
       prompt: "normal lite generation",
-      provider: "vega15-lite",
+      provider: "h3-vega",
       selectedCase: null,
     });
   } finally {
@@ -1041,8 +1041,8 @@ test("Vega pricing fails closed with HTTP 422", () => {
   assert.equal(error.statusCode, 422);
   assert.equal(error.code, "MODEL_PRICING_UNAVAILABLE");
   assert.match(error.message, /pricing is not configured/i);
-  assert.equal(vega.assertVegaPricingConfigured("vega15-lite", { credits: 1 }).credits, 1);
-  assertCode(() => vega.assertVegaPricingConfigured("vega15-lite", { credits: 0 }), "MODEL_PRICING_UNAVAILABLE");
+  assert.equal(vega.assertVegaPricingConfigured("h3-vega", { credits: 1 }).credits, 1);
+  assertCode(() => vega.assertVegaPricingConfigured("h3-vega", { credits: 0 }), "MODEL_PRICING_UNAVAILABLE");
   assert.match(server, /if \(isVegaProvider\(normalizedProvider\)\) throw vegaPricingUnavailableError\(normalizedProvider\)/);
 });
 
@@ -1113,7 +1113,7 @@ test("Vega regeneration restores and persists user asset ids end to end", () => 
 test("Vega UI only exposes the active Lite model while retaining historical labels", () => {
   const videoGroup = html.match(/<optgroup label="Video">([\s\S]*?)<\/optgroup>/)?.[1] || "";
   const options = [...videoGroup.matchAll(/<option value="([^"]+)"[^>]*>([^<]+)<\/option>/g)].map((match) => [match[1], match[2]]);
-  assert.deepEqual(options.slice(-1), [["vega15-lite", "wan（vega）"]]);
+  assert.deepEqual(options.slice(-1), [["h3-vega", "wan（vega）"]]);
   assert.equal(options.some(([id]) => ["seedance20-vega", "seedance25-vega", "vega10-lite"].includes(id)), false);
   assert.equal(options.some(([id]) => /^seedance20-(?:fast|mini|lite)-vega$/.test(id)), false);
   assert.deepEqual(options.slice(0, 6).map(([id]) => id), ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance"]);
@@ -1121,12 +1121,12 @@ test("Vega UI only exposes the active Lite model while retaining historical labe
   for (const [id, label] of [
     ["seedance20-vega", "seedance2\.0（vega）"],
     ["seedance25-vega", "seedance2\.5vega"],
-    ["vega15-lite", "wan（vega）"],
+    ["h3-vega", "wan（vega）"],
   ]) assert.match(config, new RegExp(`"${id}": "${label}"`));
 });
 
 test("Vega UI exposes the full capability matrix and duration controls", () => {
-  for (const id of ["seedance20-vega", "seedance25-vega", "vega15-lite"]) {
+  for (const id of ["seedance20-vega", "seedance25-vega", "h3-vega"]) {
     assert.match(config, new RegExp(`"${id}"`));
   }
   assert.match(config, /VEGA_ALL_RESOLUTIONS = Object\.freeze\(\["480P", "720P", "768P", "1080P", "2K", "4K"\]\)/);
@@ -1137,7 +1137,7 @@ test("Vega UI exposes the full capability matrix and duration controls", () => {
   assert.match(config, /VEGA_ALL_RATIOS = Object\.freeze\(\["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"\]\)/);
   assert.match(config, /"seedance20-vega": Object\.freeze\(\{ min: 4, max: 15, fallback: 5, smart: false \}\)/);
   assert.match(config, /"seedance25-vega": Object\.freeze\(\{ min: 4, max: 30, fallback: 5, smart: true \}\)/);
-  assert.match(config, /"vega15-lite": Object\.freeze\(\{ min: 2, max: 30, fallback: 6, smart: true \}\)/);
+  assert.match(config, /"h3-vega": Object\.freeze\(\{ min: 2, max: 30, fallback: 6, smart: true \}\)/);
   assert.match(ui, /advancedPricingUnavailableLabel/);
   assert.match(ui, /MODEL_PRICING_UNAVAILABLE/);
 });
@@ -1258,13 +1258,13 @@ test("prompt paste routes video files through the correct storage for every mode
     "vegaProviderUsesTransientObjectStorage",
     `${extractFunction(create, "advancedPastedMediaUsesLibrary")}
 return advancedPastedMediaUsesLibrary;`,
-  )((provider) => ["vega10-lite", "vega15-lite"].includes(provider));
+  )((provider) => ["vega10-lite", "h3-vega"].includes(provider));
   assert.equal(routing("seedance-nsfw"), true, "Seedance 2.5 must use the normal media library");
   assert.equal(routing("seedance"), true, "Seedance 2.0 must use the normal media library");
   assert.equal(routing("seedance20-vega"), true, "Vega Pro must use the media library");
   assert.equal(routing("seedance25-vega"), true, "Vega Pro 1.5 must use the media library");
   assert.equal(routing("vega10-lite"), false, "Vega Lite must use transient storage");
-  assert.equal(routing("vega15-lite"), false, "Vega Lite 1.5 must use transient storage");
+  assert.equal(routing("h3-vega"), false, "Vega Lite 1.5 must use transient storage");
 });
 
 test("Vega prompt paste branches before legacy data-URL paste handling", () => {
@@ -1357,18 +1357,18 @@ test("Vega local uploads use the dedicated public-URL upload path", () => {
 });
 
 test("Vega keeps historical definitions but exposes only the active Lite entrypoint", () => {
-  assert.deepEqual(vega.VEGA_PROVIDER_IDS, ["seedance20-vega", "seedance25-vega", "vega15-lite", "vega10-lite"]);
+  assert.deepEqual(vega.VEGA_PROVIDER_IDS, ["seedance20-vega", "seedance25-vega", "h3-vega", "vega10-lite"]);
   assert.deepEqual([...vega.VEGA_RETIRED_PROVIDER_IDS].sort(), ["seedance20-vega", "seedance25-vega", "vega10-lite"]);
   assert.equal(vega.isRetiredVegaProvider("seedance20-vega"), true);
   assert.equal(vega.isRetiredVegaProvider("seedance25-vega"), true);
-  assert.equal(vega.isRetiredVegaProvider("vega15-lite"), false);
+  assert.equal(vega.isRetiredVegaProvider("h3-vega"), false);
   assert.equal(vega.isRetiredVegaProvider("seedance2.5vega"), true);
   assert.equal(vega.isRetiredVegaProvider("vega1.5pro"), true);
   assert.equal(vega.isRetiredVegaProvider("vega10-lite"), true);
   assert.equal(vega.isRetiredVegaProvider("vega1.0lite"), true);
   for (const text of [config, html, ui, server]) assert.doesNotMatch(text, /seedance20-(fast|mini|lite)-vega/);
   assert.doesNotMatch(html, /value="(?:seedance20-vega|seedance25-vega|vega10-lite)"/);
-  assert.match(html, /value="vega15-lite">wan（vega）/);
+  assert.match(html, /value="h3-vega">wan（vega）/);
   assert.match(server, /if \(isRetiredVegaProvider\(value\)\) \{[\s\S]*?throw advancedValidationError\([\s\S]*?"MODEL_RETIRED"/);
 });
 
@@ -1376,7 +1376,7 @@ test("Vega public API docs expose all supported models and the full media contra
   for (const [id, label, version] of [
     ["seedance20-vega", "Vega 1\\.0 Pro", "1\\.0-pro"],
     ["seedance25-vega", "Vega 1\\.5 Pro", "1\\.5-pro"],
-    ["vega15-lite", "wan（vega）", "1\\.5-lite"],
+    ["h3-vega", "Vega 1\\.5 Lite", "1\\.5-lite"],
     ["vega10-lite", "Vega 1\\.0 Lite", "1\\.0-lite"],
   ]) {
     assert.match(server, new RegExp(`${id}"[\\s\\S]{0,120}label: "${label}"[\\s\\S]{0,120}modelVersion: "${version}"`));
@@ -1404,7 +1404,7 @@ test("Vega media helper maps all five public targets for every Vega model", () =
     video: { id: "ref-video", kind: "video", publicUrl: "https://cdn.example.com/ref.mp4" },
     audio: { id: "ref-audio", kind: "audio", publicUrl: "https://cdn.example.com/ref.mp3" },
   };
-  for (const provider of ["seedance25-vega", "vega15-lite", "vega10-lite"]) {
+  for (const provider of ["seedance25-vega", "h3-vega", "vega10-lite"]) {
     assert.ok(provider);
     assert.deepEqual(
       Object.keys(assets).map((targetId) => vegaMedia.selectionForAsset({ asset: assets[targetId], targetId }).action),

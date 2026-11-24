@@ -6,7 +6,7 @@
     { id: "byteplus-language", label: "BytePlus Language" },
   ]);
   const DEFAULT_OPTIMIZER_MODEL = OPTIMIZER_MODELS[0].id;
-  const WAN_PROVIDERS = new Set(["wan30", "wan30-prime", "wan27", "wan-animate", "vega15-lite"]);
+  const WAN_PROVIDERS = new Set(["wan30", "wan30-prime", "wan27", "wan-animate", "h3-vega"]);
   const SEEDANCE_PROVIDERS = new Set(["seedance", "seedance25", "seedance-nsfw", "seedance20-vega", "seedance25-vega"]);
   let activeModal = null;
 
@@ -18,8 +18,7 @@
     if (raw.includes("wan30") || raw.includes("wan3.0") || raw === "w3" || raw === "w3-prime") return raw.includes("prime") ? "wan30-prime" : "wan30";
     if (raw.includes("wan27") || raw.includes("wan2.7")) return "wan27";
     if (raw.includes("wan-animate") || raw.includes("wananimate")) return "wan-animate";
-    if (raw === "vega15-lite" || raw === "vega15lite" || raw === "vega1.5lite") return "vega15-lite";
-    if (raw.includes("vega")) return "vega15-lite";
+    if (raw === "h3-vega" || raw.includes("vega")) return "h3-vega";
     return raw.replace(/[\s_]+/g, "-");
   }
 

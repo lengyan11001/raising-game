@@ -121,7 +121,9 @@ async function createSeedanceReferenceVideoAssetFromUrl(db, user, videoUrl = "",
       });
       asset.sourceUrl = normalizedAssetSourceUrl(url);
       asset.hidden = true;
-      applySeedanceVideoDimensionsToAsset(asset, dimensions);
+      asset.videoWidth = dimensions.width;
+      asset.videoHeight = dimensions.height;
+      asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
       asset.meta = { fromWorkflowPreset: true, upstreamUse: "seedance_reference_video" };
       asset.updatedAt = new Date().toISOString();
       db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
@@ -1031,7 +1033,7 @@ function generationRecordIsVideoOutput(record = {}) {
     || record.cdnVideoUrl
     || record.videoUrl
     || kind.includes("video")
-    || ["apiz", "seedance", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex", "seedance25-vega", "vega15-lite"].includes(provider),
+    || ["apiz", "seedance", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "pivox", "ignex", "seedance25-vega", "h3-vega"].includes(provider),
   );
 }
 
@@ -1253,9 +1255,6 @@ function publicGenerationRecord(record = {}, options = {}) {
     advancedDownloadStatus: String(record.advancedDownloadStatus || "").toLowerCase(),
     billing: publicBilling(record),
     createdAt: String(record.createdAt || ""),
-    completedAt: isSucceededStatus(record.status)
-      ? String(record.completedAt || record.billingSettledAt || "")
-      : "",
     updatedAt: String(record.updatedAt || ""),
     awaitingUpstreamTask: record.awaitingUpstreamTask === true,
     apiTokenId: String(record.apiTokenId || ""),

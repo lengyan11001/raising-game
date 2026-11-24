@@ -780,14 +780,14 @@ function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, 
 
 function advancedModelPricingRaw(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (normalizedProvider === "vega15-lite" || normalizedProvider === "vega10-lite" || normalizedProvider === "seedance20-vega" || normalizedProvider === "seedance25-vega") {
+  if (normalizedProvider === "h3-vega" || normalizedProvider === "vega10-lite" || normalizedProvider === "seedance20-vega" || normalizedProvider === "seedance25-vega") {
     const isVega10Pro = normalizedProvider === "seedance20-vega";
     const isVega15Pro = normalizedProvider === "seedance25-vega";
     const isVegaProWithReferenceRates = isVega10Pro || isVega15Pro;
     const isVega10Lite = normalizedProvider === "vega10-lite";
     const providerLabel = isVega10Pro ? "Vega 1.0 Pro" : isVega15Pro ? "Vega 1.5 Pro" : isVega10Lite ? "Vega 1.0 Lite" : "Vega 1.5 Lite";
     const modelVersion = isVega10Pro ? "1.0-pro" : isVega15Pro ? "1.5-pro" : isVega10Lite ? "1.0-lite" : "1.5-lite";
-    const pricingKey = isVega10Pro ? "vega10_pro" : isVega15Pro ? "vega15_pro" : isVega10Lite ? "vega10_lite" : "vega15_lite";
+    const pricingKey = isVega10Pro ? "vega10_pro" : isVega15Pro ? "vega15_pro" : isVega10Lite ? "vega10_lite" : "h3_vega";
     const duration = options.duration ?? options.durationSeconds;
     const normalizedDuration = normalizeVegaDuration(normalizedProvider, duration);
     const adaptiveDuration = normalizedDuration === -1;

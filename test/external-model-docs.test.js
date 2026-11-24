@@ -187,7 +187,7 @@ test("structured API docs expose readable sections, canonical downloads, and sec
   assert.match(publicVegaSource, /vega10-lite/);
   assert.match(publicVegaSource, /vega10ProExample/);
   assert.match(publicVegaSource, /seedance25VegaExample/);
-  assert.match(publicVegaSource, /vega15LiteExample/);
+  assert.match(publicVegaSource, /h3VegaExample/);
   assert.doesNotMatch(publicVegaSource, /Vega 1\.0 Pro/);
   assert.doesNotMatch(publicVegaSource, /Vega 1\.5 Pro/);
   assert.doesNotMatch(publicVegaSource, /Vega 1\.5 Lite/);
