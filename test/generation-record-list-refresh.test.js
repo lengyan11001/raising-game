@@ -462,10 +462,22 @@ test("generation records expose a dedicated successful completion time", () => {
   const legacySucceeded = application.publicGenerationRecord({
     taskId: "cgt-legacy-completed",
     status: "succeeded",
+    provider: "seedance-nsfw",
+    upstreamSource: "byteplus-direct-seedance25",
+    billingSettledAt: "2026-11-23T15:00:00.000Z",
+    queryResponse: { status: "succeeded", updated_at: 1795509957 },
+    updatedAt: "2026-11-24T04:26:11.645Z",
+  });
+  assert.equal(legacySucceeded.completedAt, "2026-11-24T08:45:57.000Z");
+
+  const noUpstreamCompletion = application.publicGenerationRecord({
+    taskId: "cgt-no-completion-time",
+    status: "succeeded",
+    provider: "seedance-nsfw",
     billingSettledAt: "2026-11-23T15:00:00.000Z",
     updatedAt: "2026-11-24T04:26:11.645Z",
   });
-  assert.equal(legacySucceeded.completedAt, "2026-11-23T15:00:00.000Z");
+  assert.equal(noUpstreamCompletion.completedAt, "");
 
   const failed = application.publicGenerationRecord({
     taskId: "cgt-failed",

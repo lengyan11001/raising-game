@@ -1328,6 +1328,9 @@ async function refreshGenerationRecordStatus(record = {}) {
       cdnError,
       error: task.error || downloadError || record.error || "",
       queryResponse: raw,
+      completedAt: isSucceededStatus(task.status)
+        ? (record.completedAt || generationRecordCompletionTimestamp({ ...record, queryResponse: raw }))
+        : record.completedAt || "",
     }, "query");
   } catch (error) {
     console.warn("[generation-record-refresh-failed]", record.taskId, error.message || error);

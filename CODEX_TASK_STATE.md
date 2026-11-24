@@ -5616,3 +5616,10 @@ CODEX_TASK_STATE.md
 - Added focused serialization and UI regression assertions; updated `admin-media-preview.test.js` to read composed server source. Focused suites pass `37/37`; `npm run check:undef` and syntax checks pass. Full suite: `1475 pass / 2 skipped / 6 existing source-split/cache-version failures`, none in this change.
 - Source commit `ca7c3e39` was pushed to `old-site`; platform release `50c295cdca6017e0cd31a5c99f06beb80a25c86e` was built from it and pushed only to `platform-release`. `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4174`.
 - Production `/api/health`, `/api/livez`, and `/api/readyz` return HTTP `200`; livez/readyz report clean release `50c295cd...`. Deployed `admin.js` contains `创建 / 成功` and `生成成功时间`; generation detail no longer uses the generic update time. Live was not pushed or deployed.
+
+## 2026-11-24 Step FI: Correct Seedance success-time source
+
+- Production record `cgt-20261124164329-7de7c2` showed a false success time because `publicGenerationRecord()` fell back to `billingSettledAt`, which is the pre-deduction/submission timestamp. The stored upstream task has `created_at=1795509813` and `updated_at=1795509957`; actual generation completed about 2m24s after submission.
+- `generationRecordCompletionTimestamp()` now prefers an explicit local completion timestamp and provider completion fields. For BytePlus-direct Seedance records it derives the terminal completion time from `queryResponse.updated_at`. It never falls back to `billingSettledAt`; a succeeded record without a trustworthy completion field displays no completion time instead of a false one.
+- Generic ARK status refresh now persists the derived completion timestamp on success, while existing historical records are corrected by the serializer from their stored `queryResponse.updated_at` without a database backfill.
+- Added a regression proving the reported Seedance timestamp resolves to `2026-11-24T08:45:57.000Z` and another proving missing completion data stays empty. Focused generation-record suite passes `23/23`; changed files pass syntax checks, `npm run check:undef`, and `git diff --check`.
