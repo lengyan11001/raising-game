@@ -469,6 +469,8 @@ async function handleUploadVideoToolAsset(req, res) {
       height: imageDimensions?.height || 0,
       videoWidth: videoDimensions?.width || 0,
       videoHeight: videoDimensions?.height || 0,
+      videoFps: seedanceVideoFrameRate(videoDimensions) || 0,
+      frameRate: seedanceVideoFrameRate(videoDimensions) || 0,
       imageType: imageDimensions?.type || "",
       durationSeconds,
       hidden: true,

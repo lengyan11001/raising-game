@@ -121,9 +121,7 @@ async function createSeedanceReferenceVideoAssetFromUrl(db, user, videoUrl = "",
       });
       asset.sourceUrl = normalizedAssetSourceUrl(url);
       asset.hidden = true;
-      asset.videoWidth = dimensions.width;
-      asset.videoHeight = dimensions.height;
-      asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
+      applySeedanceVideoDimensionsToAsset(asset, dimensions);
       asset.meta = { fromWorkflowPreset: true, upstreamUse: "seedance_reference_video" };
       asset.updatedAt = new Date().toISOString();
       db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));

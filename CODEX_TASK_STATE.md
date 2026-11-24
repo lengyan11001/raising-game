@@ -5586,3 +5586,12 @@ CODEX_TASK_STATE.md
 - Updated frontend picker/config, server validation/routing, VOD mapping, prompt-optimizer normalization, model documentation, and focused regression tests across the provider rename.
 - Verification passed: all changed JS files pass `node --check`; `npm run check:undef`; scoped `git diff --check`; focused Vega/pricing/UI/docs suite `265/265`; production-code search finds no `h3-vega` or `h3vega` references.
 - Commit, release snapshot, and Old-only deployment remain pending. Unrelated prompt-editor/story dirty files in the main worktree must not be staged or deployed.
+
+## 2026-11-24 Step FF: Normalize low-FPS Seedance reference videos
+
+- Task `cgt-20261124154031-5fdb40` failed upstream because the source video `/Users/x042/Desktop/2.mp4` is 20 FPS, while Seedance requires at least 23.8 FPS.
+- Seedance video probing now records `videoFps`/`frameRate`; low-FPS local videos are re-encoded to 24 FPS before upstream upload, while normal videos keep the existing fast path.
+- Existing Seedance video caches are invalidated when stored FPS is missing or below 23.8, forcing a re-probe and re-upload. Gateway object-storage mirrors are refreshed when FPS metadata was missing, even if dimensions did not change.
+- The guarded asset path covers direct generation, queued retry/regeneration, gateway publishing, Flash, URL-created references, video-tool uploads, and direct NSFW video inputs.
+- Verification passed: new low-FPS suite `8/8`; focused Seedance/advanced suite `143/143`; `npm run check:undef`; changed server parts `node --check`; `git diff --check`.
+- Deployment is pending. Next: commit, build `platform-release` from the committed `old-site` integration commit, deploy Old through `scripts/deploy_local.sh --site old`, and verify the production asset becomes 24 FPS.
