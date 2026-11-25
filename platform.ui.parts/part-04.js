@@ -1003,6 +1003,7 @@ function sessionDeviceId() {
 
 async function requestJson(url, options = {}) {
   const headers = { "content-type": "application/json", ...(options.headers || {}) };
+  if (state.lang && !headers["x-lang"] && !headers["X-Lang"]) headers["x-lang"] = state.lang;
   // Bind auth rejection handling to the token used for this request. A slow
   // session-restore response carrying an old token must never clear a newer
   // login token that completed while that request was in flight.
@@ -1038,9 +1039,13 @@ async function requestJson(url, options = {}) {
       ? plainText.slice(0, 500)
       : "";
     const statusLabel = `Request failed: ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
-    const error = new Error(payload.message || payload.detail || visibleResponseText || statusLabel);
+    const localizedMessage = (payload.errorInfo && globalThis.PlatformErrorCatalog?.formatErrorInfo)
+      ? globalThis.PlatformErrorCatalog.formatErrorInfo(payload.errorInfo, state.lang || "en")
+      : "";
+    const error = new Error(localizedMessage || payload.message || payload.detail || visibleResponseText || statusLabel);
     error.statusCode = response.status;
     error.code = payload.code || "";
+    error.errorInfo = payload.errorInfo || null;
     error.payload = payload;
     error.details = payload.details || null;
     error.responseText = responseText;

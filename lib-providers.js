@@ -20,6 +20,10 @@ const {
   vegaProviderDefinition,
 } = require("./tencent-vod-vega");
 const {
+  resolveGenerationErrorInfo,
+  publicGenerationErrorText,
+} = require("./lib-media-error-resolver");
+const {
   GPT_IMAGE2_LABEL,
   GPT_IMAGE2_PROVIDER,
 } = require("./gpt-image2");
@@ -214,35 +218,14 @@ function publicModelText(value = "") {
   return String(value ?? "");
 }
 
-function publicGenerationErrorMessage(value = "") {
-  const raw = String(value ?? "").replace(/https?:\/\/\S+/gi, "").replace(/\s+/g, " ").trim();
-  if (!raw) return "";
-  if (/output.?audio.*copyright|outputaudiocopyright|output video contains.*(?:bgm|music)|background music.*copyright|生成结果.*背景音乐.*版权/i.test(raw)) {
-    return "生成结果中的音频触发版权限制，通常是自动生成的背景音乐（BGM）导致。平台已加入禁止生成 BGM 的约束，请重新生成；如仍失败，请关闭“生成音频”后再试。";
-  }
-  if (/copyright|infring(?:e|ement)|版权|侵权/i.test(raw)) {
-    return "参考素材可能涉及版权限制，请更换素材后重试。";
-  }
-  if (/content.?policy|moderation|safety|sensitive|nsfw|violat|prohibited|inappropriate|blocked|risk.?control|审核|违规|敏感|违法|色情|涉黄|内容不(?:合规|安全)/i.test(raw)) {
-    return "内容审核未通过，请调整提示词或参考素材后重试。";
-  }
-  if (/rate.?limit|too many requests|429\b|限流|请求过于频繁/i.test(raw)) {
-    return "当前生成请求较多，请稍后再试。";
-  }
-  if (/insufficient (?:balance|credits?|quota)|balance (?:is )?(?:insufficient|low|zero)|not enough (?:balance|credits?|quota)|out of credits|quota exceeded|payment required|billing|402\b|余额|额度|欠费|积分不足/i.test(raw)) {
-    return "生成额度不足，请充值或稍后再试。";
-  }
-  if (/timeout|timed out|etimedout|econnreset|socket hang up|network|fetch failed|eai_again|enotfound|502\b|503\b|504\b|网络|超时/i.test(raw)) {
-    return "生成服务暂时连接失败，本次如已扣积分会自动退回，请稍后重试。";
-  }
-  if (/unauthorized|invalid.?api.?key|authentication|401\b|403\b|鉴权|认证失败/i.test(raw)) {
-    return "生成服务连接异常，本次如已扣积分会自动退回，请稍后重试。";
-  }
-  if (/invalid|unsupported|validation|bad request|400\b|parameter|not support|参数|不支持/i.test(raw)) {
-    return "生成参数不受支持，请调整模型、时长、比例或素材后重试。";
-  }
-  if (/[\u3400-\u9fff]/.test(raw) && !/[A-Za-z]{4,}/.test(raw)) return raw.slice(0, 160);
-  return "生成失败，本次如已扣积分会自动退回。请调整提示词或参考素材后重试，仍有问题请联系客服。";
+function publicGenerationErrorMessage(value = "", options = {}) {
+  return publicGenerationErrorText(value, options);
+}
+
+function publicGenerationErrorInfo(recordOrValue = null, options = {}) {
+  const info = resolveGenerationErrorInfo(recordOrValue, options);
+  if (!info || info.code === "CUSTOM_MESSAGE") return null;
+  return info;
 }
 
 function publicModelKey(key = "") {
@@ -350,6 +333,7 @@ module.exports = {
   publicGenerationDisplayTitle,
   publicModelText,
   publicGenerationErrorMessage,
+  publicGenerationErrorInfo,
   publicModelKey,
   publicModelValue,
   slimGenerationRecordValue,
