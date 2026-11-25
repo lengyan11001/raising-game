@@ -333,6 +333,15 @@ function advancedCostLabel(duration, provider = "seedance", resolution = "720p",
     const tier = String(pricing.qwenTier || options.qwenTier || "pro") === "standard" ? "Standard" : "Pro";
     return `${t("cost.credits", { credits: formatCredits(pricing.credits) })} - ${tier} ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)}`;
   }
+  if (normalizeAdvancedProvider(provider) === "gpt-image-2") {
+    const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
+    const pricing = state.advancedEstimate && state.advancedEstimateKey === key
+      ? state.advancedEstimate
+      : advancedPricing(duration, provider, resolution, ratio, options);
+    const qualityRaw = normalizeGptImage2QualityUi(pricing.quality || options.quality || currentGptImage2Quality());
+    const qualityLabel = qualityRaw === "low" ? "Low" : qualityRaw === "high" ? "High" : "Medium";
+    return `${t("cost.credits", { credits: formatCredits(pricing.credits) })} - ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)} ${qualityLabel}`;
+  }
   if (normalizeAdvancedProvider(provider) === "seedream55-image") {
     const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
     const pricing = state.advancedEstimate && state.advancedEstimateKey === key
@@ -575,6 +584,11 @@ function renderPricing() {
       note: "仅上传参考视频时叠加",
     };
   };
+  const gptImage2Price = (resolution, quality) => publicPricingCredits(advancedPricing(1, "gpt-image-2", resolution, "1:1", { quality, referenceImageCount: 0 }));
+  const gptImage2ReferenceExtra = creditsAmount(
+    Number(state.config?.platform?.advancedPricing?.gptImage2?.saleUsdPerReferenceImage ?? ADVANCED_GPT_IMAGE2_REFERENCE_USD_PER_IMAGE)
+    * creditsPerUsd
+  );
   const seedream55Price = (resolution) => publicPricingCredits(advancedPricing(1, "seedream55-image", resolution, "1:1", { referenceImageCount: 0 }));
   const seedream55ReferenceExtra = creditsAmount(
     Number(state.config?.platform?.advancedPricing?.seedream55Image?.saleUsdPerReferenceImage ?? ADVANCED_SEEDREAM55_REFERENCE_USD_PER_IMAGE)
@@ -605,6 +619,14 @@ function renderPricing() {
       unit: `${publicCredits(assetImageModifyCostCredits())}/张`,
       common: `单张 ${publicCredits(assetImageModifyCostCredits())}`,
     },
+    ...["1K", "2K", "4K"].flatMap((resolution) => ["low", "medium", "high"].map((quality) => ({
+      category: "图片生成",
+      model: "GPT Image 2",
+      spec: `${resolution} ${quality}`,
+      unit: `${publicCredits(gptImage2Price(resolution, quality))}/张`,
+      common: `单张 ${publicCredits(gptImage2Price(resolution, quality))}`,
+      note: `每张参考图 +${publicCredits(gptImage2ReferenceExtra)}/张`,
+    }))),
     {
       category: "图片生成",
       model: "Seedream 5.5",
@@ -722,6 +744,15 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
       Number(state.user?.pricingMultiplier || 1),
     ].join("|");
   }
+  if (normalizedProvider === "gpt-image-2") {
+    return [
+      normalizedProvider,
+      normalizeAdvancedResolution(resolution, normalizedProvider),
+      normalizeGptImage2QualityUi(options.quality ?? currentGptImage2Quality()),
+      Math.max(0, Math.min(ADVANCED_GPT_IMAGE2_REFERENCE_LIMIT, Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("gpt-image-2").length) || 0)),
+      Number(state.user?.pricingMultiplier || 1),
+    ].join("|");
+  }
   if (normalizedProvider === "seedream55-image") {
     return [
       normalizedProvider,
@@ -806,6 +837,7 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
           mode: options.mode || options.animateMode,
           seedreamTier: options.seedreamTier || options.seedream5Tier,
           qwenTier: options.qwenTier,
+          quality: options.quality,
           inputTokens: options.inputTokens,
           outputTokens: options.outputTokens ?? options.maxTokens,
           max_tokens: options.outputTokens ?? options.maxTokens,
@@ -891,6 +923,7 @@ function updateAdvancedButtonCost() {
     referenceVideoUrls: ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "vega15-lite", "vega10-lite", "seedance20-vega"].includes(provider) ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
     seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
     qwenTier: provider === "qwen-image3" ? currentQwenImage3Tier() : undefined,
+    quality: provider === "gpt-image-2" ? currentGptImage2Quality() : undefined,
     outputImageCount: provider === "qwen-image3" ? Number(els.advancedQwenOutputCount?.value || 1) : 1,
     inputTokens: ["qwen37-flash", "byteplus-language", "papaya"].includes(provider) ? Math.max(1, Math.ceil(new TextEncoder().encode(String(els.advancedPrompt?.value || "")).length / 2) + 32) : undefined,
     outputTokens: ["qwen37-flash", "byteplus-language", "papaya"].includes(provider) ? Number(els.advancedQwen37MaxTokens?.value || 8192) : undefined,
@@ -898,7 +931,7 @@ function updateAdvancedButtonCost() {
     temperature: ["qwen37-flash", "byteplus-language", "papaya"].includes(provider) ? Number(els.advancedQwen37Temperature?.value || 0.7) : undefined,
     referenceImageCount: ["vega10-lite", "seedance20-vega"].includes(provider)
       ? selectedAdvancedReferenceImages(provider).length
-      : ["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
+      : ["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
       ? selectedAdvancedReferenceImages(provider).length
       : 0,
     videoCapability,

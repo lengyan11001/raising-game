@@ -306,6 +306,17 @@ async function handleAdvancedGenerate(req, res) {
       prompt,
     });
   }
+  if (provider === GPT_IMAGE2_PROVIDER) {
+    return await handleAdvancedGptImage2Generate(req, res, {
+      auth,
+      body,
+      bodyParams,
+      caseParams,
+      selectedCase,
+      config,
+      prompt,
+    });
+  }
   if (provider === "seedream55-image") {
     return await handleAdvancedSeedream55ImageGenerate(req, res, {
       auth,
@@ -1368,7 +1379,7 @@ function advancedRegenerateBody(record = {}) {
     resolution: record.resolution || params.resolution || "720p",
     duration: record.duration || params.duration || 5,
   };
-  if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+  if (["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
     const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
     const recordedImageItems = (items) => (Array.isArray(items) ? items : []).map((item) => {
       if (typeof item === "string") return item.trim() ? item.trim() : null;
@@ -1468,6 +1479,11 @@ function advancedRegenerateBody(record = {}) {
     fallbackIds.map((assetId) => ({ assetId })).forEach((item) => addReference(item));
     referenceImageUrls.map((url) => ({ url })).forEach((item) => addReference(item));
     body.preservePublicMediaUrls = true;
+    if (provider === "gpt-image-2") {
+      body.quality = firstPresent(params.quality, record.quality, "medium");
+      body.output_format = firstPresent(params.output_format, params.outputFormat, "png");
+      if (params.mask_url || params.maskUrl) body.mask_url = firstPresent(params.mask_url, params.maskUrl);
+    }
     if (provider === "seedream5-image") body.seedreamTier = firstPresent(params.seedreamTier, params.seedream5Tier, params.seedanceTier);
     if (provider === "qwen-image3") {
       body.qwenTier = firstPresent(params.qwenTier, params.qwenImageTier, params.tier);

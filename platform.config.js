@@ -33,6 +33,16 @@ const ADVANCED_SEEDREAM55_REFERENCE_LIMIT = 10;
 const ADVANCED_SEEDREAM55_1K_USD_PER_IMAGE = 0.030;
 const ADVANCED_SEEDREAM55_2K_USD_PER_IMAGE = 0.0525;
 const ADVANCED_SEEDREAM55_REFERENCE_USD_PER_IMAGE = 0.012;
+const ADVANCED_GPT_IMAGE2_REFERENCE_LIMIT = 10;
+const ADVANCED_GPT_IMAGE2_DEFAULT_RESOLUTION = "1K";
+const ADVANCED_GPT_IMAGE2_DEFAULT_QUALITY = "medium";
+const ADVANCED_GPT_IMAGE2_DEFAULT_FORMAT = "png";
+const ADVANCED_GPT_IMAGE2_SALE_USD_BY_SPEC = Object.freeze({
+  "1K": Object.freeze({ low: 0.011244, medium: 0.096702, high: 0.38231 }),
+  "2K": Object.freeze({ low: 0.011244, medium: 0.12144, high: 0.775862 }),
+  "4K": Object.freeze({ low: 0.011244, medium: 0.12144, high: 0.775862 }),
+});
+const ADVANCED_GPT_IMAGE2_REFERENCE_USD_PER_IMAGE = 0.015743;
 const ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT = 3;
 const ADVANCED_QWEN_IMAGE3_REFERENCE_MAX_BYTES = 10 * 1024 * 1024;
 const ADVANCED_QWEN_IMAGE3_PRO_1K_USD_PER_IMAGE = 0.03438;
@@ -145,6 +155,7 @@ const WORKFLOW_NODE_GAP = 56;
 const WORKFLOW_DEFAULT_NODES = [];
 const WORKFLOW_DEFAULT_EDGES = [];
 const WORKFLOW_IMAGE_MODEL_LIBRARY = Object.freeze([
+  Object.freeze({ id: "gpt-image-2", label: "GPT Image 2", resolution: "1K", ratio: "1:1", resolutions: ["1K", "2K", "4K"], ratios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9"], tiers: ["low", "medium", "high"], defaultTier: "medium", referenceLimit: 10 }),
   Object.freeze({ id: "qwen-image3", label: "Qwen Image 3.0", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], tiers: ["pro", "standard"], defaultTier: "pro", outputCounts: [1, 2, 3, 4, 5, 6], promptExtend: true, watermark: false, referenceLimit: 3 }),
   Object.freeze({ id: "seedream55-image", label: "Seedream 5.5", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], referenceLimit: 10 }),
   Object.freeze({ id: "seedream5-image", label: "Seedream 5.0 Image", resolution: "2K", ratio: "1:1", resolutions: ["1K", "2K"], ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"], tiers: ["pro"], defaultTier: "pro", referenceLimit: 9 }),
@@ -703,7 +714,7 @@ function currentAdvancedSeedanceUploadMode() {
 
 function advancedCreateUploadIsVideo(mode = state.advancedCreateMode) {
   const provider = currentAdvancedProvider();
-  if (["seedream55-image", "seedream5-image", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider)) return false;
+  if (["gpt-image-2", "seedream55-image", "seedream5-image", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider)) return false;
   if (provider === "seedance" || provider === "wan30") return false;
   return advancedCreateModeAcceptsVideoUpload(mode) && !advancedCreateModeAcceptsImageUpload(mode);
 }
@@ -1551,6 +1562,8 @@ const els = {
   advancedVideoCapability: document.querySelector("#advancedVideoCapability"),
   advancedSeedanceTier: document.querySelector("#advancedSeedanceTier"),
   advancedSeedreamTier: document.querySelector("#advancedSeedreamTier"),
+  advancedGptImageQuality: document.querySelector("#advancedGptImageQuality"),
+  advancedGptImageFormat: document.querySelector("#advancedGptImageFormat"),
   advancedQwenTier: document.querySelector("#advancedQwenTier"),
   advancedQwenOutputCount: document.querySelector("#advancedQwenOutputCount"),
   advancedQwenPromptExtend: document.querySelector("#advancedQwenPromptExtend"),

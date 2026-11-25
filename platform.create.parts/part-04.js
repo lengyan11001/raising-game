@@ -708,6 +708,7 @@ function bindAdvancedPromptResizeHandle() {
 function restoreRecordProvider(record = {}) {
   const params = recordParams(record);
   const imageProviders = new Set([
+    "gpt-image-2",
     "seedream55-image",
     "seedream5-image",
     "qwen-image3",
@@ -750,6 +751,7 @@ function restoreRecordImageLimit(record = {}) {
   const params = recordParams(record);
   const capability = String(params.videoCapability || record.mediaMode || "").trim();
   if (provider === "qwen-image3") return ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT;
+  if (provider === "gpt-image-2") return ADVANCED_GPT_IMAGE2_REFERENCE_LIMIT;
   if (provider === "seedream55-image") return ADVANCED_SEEDREAM55_REFERENCE_LIMIT;
   if (provider === "wan30") return ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;
   if (provider === "seedance25-vega") return vegaReferenceLimits(provider).images;
@@ -1468,6 +1470,13 @@ function applyRecordToAdvancedCreate(record = {}, button = null) {
     els.advancedSeedanceTier.value = fast ? "fast" : "standard";
     if (fast && els.advancedProvider && Array.from(els.advancedProvider.options).some((option) => option.value === "seedance-fast")) {
       els.advancedProvider.value = "seedance-fast";
+    }
+  }
+  if (provider === "gpt-image-2") {
+    if (els.advancedGptImageQuality) els.advancedGptImageQuality.value = normalizeGptImage2QualityUi(params.quality || record.quality || ADVANCED_GPT_IMAGE2_DEFAULT_QUALITY);
+    if (els.advancedGptImageFormat) {
+      const fmt = String(params.output_format || params.outputFormat || ADVANCED_GPT_IMAGE2_DEFAULT_FORMAT).trim().toLowerCase();
+      els.advancedGptImageFormat.value = ["png", "jpeg", "webp"].includes(fmt) ? fmt : ADVANCED_GPT_IMAGE2_DEFAULT_FORMAT;
     }
   }
   if (provider === "qwen-image3") {
@@ -2202,6 +2211,7 @@ function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "wan27-image-edit" || isAdvancedImageProvider(normalizedProvider)) return images.slice(0, (normalizedProvider === "qwen-image-edit-spicy" || normalizedProvider === "wan27-image-edit") && advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (normalizedProvider === "qwen-image3") return images.slice(0, ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT);
+  if (normalizedProvider === "gpt-image-2") return images.slice(0, ADVANCED_GPT_IMAGE2_REFERENCE_LIMIT);
   if (normalizedProvider === "seedream55-image") return images.slice(0, ADVANCED_SEEDREAM55_REFERENCE_LIMIT);
   if (normalizedProvider === "seedream5-image") return images.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (normalizedProvider === "wan30") return images.slice(0, ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT);

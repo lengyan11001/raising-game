@@ -76,7 +76,7 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (needsSeedanceFailureRefund(record)) return true;
   if (generationRecordR2Expired(record)) return false;
   if (record.upstreamSource === "video-tool-orchestrator") return false;
-  if (["seedream5-image", "qwen-image3"].includes(String(record.provider || "").toLowerCase())) {
+  if (["gpt-image-2", "seedream5-image", "qwen-image3"].includes(String(record.provider || "").toLowerCase())) {
     if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
     const imageStatus = String(record.status || "").toLowerCase();
     if (isFailedStatus(imageStatus)) return false;
@@ -134,7 +134,7 @@ function isStalePreSubmitGenerationRecord(record = {}, staleMs = GENERATION_SUBM
   if (!record.awaitingUpstreamTask || record.upstreamTaskId) return false;
   if (isSucceededStatus(record.status) || isFailedStatus(record.status)) return false;
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_FLASH_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "apiz", "seedream5-image", "qwen-image3"].includes(provider) && !isVegaProvider(provider)) return false;
+  if (!["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_FLASH_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "apiz", "gpt-image-2", "seedream5-image", "qwen-image3"].includes(provider) && !isVegaProvider(provider)) return false;
   const status = String(record.status || "").toLowerCase();
   if (!["preparing", "submitting", "submitted", "running", "processing", "queued", "pending"].includes(status)) return false;
   const time = generationRecordCreatedTime(record);
@@ -1077,6 +1077,15 @@ async function refreshGenerationRecordStatus(record = {}) {
       return await refreshApizGenerationRecord(record);
     } catch (error) {
       console.warn("[apiz-generation-record-refresh-failed]", record.taskId, error.message || error);
+      return record;
+    }
+  }
+  if (record.provider === "gpt-image-2" && record.upstreamSource !== "gateway") {
+    if (!APIZ_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+    try {
+      return await refreshGptImage2GenerationRecord(record, "query");
+    } catch (error) {
+      console.warn("[gpt-image2-generation-record-refresh-failed]", record.taskId, error.message || error);
       return record;
     }
   }

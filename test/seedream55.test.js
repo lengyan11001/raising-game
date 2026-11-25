@@ -130,7 +130,7 @@ test("Seedream 5.5 is exposed in image generation with 1K/2K, five ratios, and t
 test("Seedream 5.5 regeneration restores its provider and reference mode", () => {
   assert.match(platformCreate, /"seedream55-image",[\s\S]*?"seedream5-image",[\s\S]*?"qwen-image3"/);
   assert.match(platformCreate, /provider === "seedream55-image"\) return ADVANCED_SEEDREAM55_REFERENCE_LIMIT/);
-  assert.match(platformCreate, /\["seedream55-image", "seedream5-image", "qwen-image3"\]\.includes\(provider\)/);
+  assert.match(platformCreate, /\["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"\]\.includes\(provider\)/);
 });
 
 test("Seedream 5.5 persists canonical reference media assets", () => {

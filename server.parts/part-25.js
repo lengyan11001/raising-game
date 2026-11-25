@@ -82,6 +82,9 @@ async function settleWan30AdaptiveDuration(record = {}, reason = "query") {
 }
 
 async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
+  if (String(record.provider || "").toLowerCase() === GPT_IMAGE2_PROVIDER) {
+    return settleGptImage2GenerationRecord(record, reason);
+  }
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
   if (usesWan30AdaptiveDurationPricing(record) && isSucceededStatus(record.status) && !record.billingSettledAt) {
     return settleWan30AdaptiveDuration(record, reason);

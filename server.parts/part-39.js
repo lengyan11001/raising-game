@@ -27,8 +27,8 @@ function advancedPricingModelGroup(row = {}) {
     return "language";
   }
   if (
-    ["z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image", "wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
-    || ["z-image-spicy-pro", "qwen-image-edit-spicy", "seedream55-image", "seedream5-image"].includes(modelKey)
+    ["gpt-image-2", "z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image", "wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
+    || ["gpt-image-2", "z-image-spicy-pro", "qwen-image-edit-spicy", "seedream55-image", "seedream5-image"].includes(modelKey)
     || modelKey.startsWith("qwen-image3")
   ) {
     return "image";
@@ -155,6 +155,57 @@ function publicAdvancedPricingRows(pricing = DEFAULT_ADVANCED_PRICING) {
         saleCreditsPerUnit: applyAdvancedModelDiscount(configuredSaleCreditsPerUnit, normalized, modelKey),
       };
     }),
+    ...GPT_IMAGE2_RESOLUTIONS.flatMap((resolution) => GPT_IMAGE2_QUALITIES.map((quality) => {
+      const modelKey = GPT_IMAGE2_PROVIDER;
+      const modelSetting = advancedModelSetting(normalized, modelKey);
+      const configuredSaleCreditsPerUnit = pricingNumber(
+        (normalized.gptImage2?.saleUsdByResolutionQuality?.[resolution]?.[quality] ?? 0) * DEFAULT_CREDITS_PER_USD,
+        0,
+        0,
+        6,
+      );
+      return {
+        key: gptImage2PricingRowKey(resolution, quality),
+        provider: GPT_IMAGE2_PROVIDER,
+        providerLabel: GPT_IMAGE2_LABEL,
+        model: GPT_IMAGE2_TEXT_MODEL,
+        modelKey,
+        modelDisplayName: modelSetting.displayName,
+        modelDiscount: modelSetting.discount,
+        configuredSaleCreditsPerUnit,
+        resolution: `${resolution} ${quality}`,
+        quality,
+        rateKind: "output",
+        unit: "image",
+        usageLabel: "Generated image",
+        saleCreditsPerUnit: applyAdvancedModelDiscount(configuredSaleCreditsPerUnit, normalized, modelKey),
+      };
+    })),
+    (() => {
+      const modelKey = GPT_IMAGE2_PROVIDER;
+      const modelSetting = advancedModelSetting(normalized, modelKey);
+      const configuredSaleCreditsPerUnit = pricingNumber(
+        (normalized.gptImage2?.saleUsdPerReferenceImage ?? GPT_IMAGE2_SALE_USD_PER_REFERENCE) * DEFAULT_CREDITS_PER_USD,
+        0,
+        0,
+        6,
+      );
+      return {
+        key: "gpt-image-2-reference",
+        provider: GPT_IMAGE2_PROVIDER,
+        providerLabel: `${GPT_IMAGE2_LABEL} Reference`,
+        model: GPT_IMAGE2_EDIT_MODEL,
+        modelKey,
+        modelDisplayName: modelSetting.displayName,
+        modelDiscount: modelSetting.discount,
+        configuredSaleCreditsPerUnit,
+        resolution: "reference",
+        rateKind: "input",
+        unit: "reference_image",
+        usageLabel: "Each reference image",
+        saleCreditsPerUnit: applyAdvancedModelDiscount(configuredSaleCreditsPerUnit, normalized, modelKey),
+      };
+    })(),
     ...["1K", "2K"].map((resolution) => {
       const modelKey = "seedream55-image";
       const modelSetting = advancedModelSetting(normalized, modelKey);
@@ -493,6 +544,32 @@ function advancedSaleSeedream5Credits(pricing = DEFAULT_ADVANCED_PRICING, resolu
     6,
   );
   return applyAdvancedModelDiscount(pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6), normalized, "seedream5-image");
+}
+
+function advancedSaleGptImage2Credits(pricing = DEFAULT_ADVANCED_PRICING, resolution = GPT_IMAGE2_DEFAULT_RESOLUTION, quality = GPT_IMAGE2_DEFAULT_QUALITY) {
+  const normalized = normalizeAdvancedPricing(pricing);
+  const publicResolution = normalizeGptImage2Resolution(resolution);
+  const publicQuality = normalizeGptImage2Quality(quality);
+  const configured = normalized.gptImage2 || DEFAULT_ADVANCED_PRICING.gptImage2;
+  const saleUsd = pricingNumber(
+    configured.saleUsdByResolutionQuality?.[publicResolution]?.[publicQuality],
+    DEFAULT_ADVANCED_PRICING.gptImage2.saleUsdByResolutionQuality?.[publicResolution]?.[publicQuality] ?? 0,
+    0,
+    6,
+  );
+  return applyAdvancedModelDiscount(pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6), normalized, GPT_IMAGE2_PROVIDER);
+}
+
+function advancedSaleGptImage2ReferenceCredits(pricing = DEFAULT_ADVANCED_PRICING) {
+  const normalized = normalizeAdvancedPricing(pricing);
+  const configured = normalized.gptImage2 || DEFAULT_ADVANCED_PRICING.gptImage2;
+  const saleUsd = pricingNumber(
+    configured.saleUsdPerReferenceImage,
+    GPT_IMAGE2_SALE_USD_PER_REFERENCE,
+    0,
+    6,
+  );
+  return applyAdvancedModelDiscount(pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6), normalized, GPT_IMAGE2_PROVIDER);
 }
 
 function advancedSaleSeedream55Credits(pricing = DEFAULT_ADVANCED_PRICING, resolution = "2K") {
@@ -1019,6 +1096,64 @@ async function adminAdvancedPricingView(config = {}) {
       model,
     });
   }
+  for (const resolution of GPT_IMAGE2_RESOLUTIONS) {
+    for (const quality of GPT_IMAGE2_QUALITIES) {
+      const upstreamPoints = gptImage2UpstreamPoints(resolution, quality);
+      const purchaseUsd = gptImage2PointsToPurchaseUsd(upstreamPoints, GPT_IMAGE2_CNY_PER_USD_CONFIGURED);
+      const purchaseCredits = pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+      const saleCredits = advancedSaleGptImage2Credits(pricing, resolution, quality);
+      const configuredSaleCredits = pricingNumber(advancedSaleGptImage2Credits({ ...pricing, modelSettings: {} }, resolution, quality), 0, 0, 6);
+      const modelSetting = advancedModelSetting(pricing, GPT_IMAGE2_PROVIDER);
+      rows.push({
+        key: gptImage2PricingRowKey(resolution, quality),
+        provider: GPT_IMAGE2_PROVIDER,
+        providerLabel: GPT_IMAGE2_LABEL,
+        resolution: `${resolution} ${quality}`,
+        quality,
+        unit: "image",
+        purchaseCreditsPerSecond: purchaseCredits,
+        purchaseUsdPerSecond: purchaseUsd,
+        purchaseSource: "apiz_gpt_image2_pricing",
+        purchaseMessage: `APIZ openai/gpt-image-2 ${resolution} ${quality}: ${upstreamPoints} APIZ points (${(upstreamPoints * GPT_IMAGE2_CNY_PER_POINT).toFixed(2)} CNY) converted at ${GPT_IMAGE2_CNY_PER_USD_CONFIGURED} CNY/USD.`,
+        pricingVisible: publicPricingModelVisible({ provider: GPT_IMAGE2_PROVIDER }),
+        modelKey: GPT_IMAGE2_PROVIDER,
+        modelDisplayName: modelSetting.displayName,
+        modelDiscount: modelSetting.discount,
+        configuredSaleCreditsPerSecond: configuredSaleCredits,
+        configuredSaleUsdPerSecond: pricingNumber(configuredSaleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+        saleCreditsPerSecond: saleCredits,
+        saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+        model: GPT_IMAGE2_TEXT_MODEL,
+      });
+    }
+  }
+  {
+    const purchaseUsd = GPT_IMAGE2_PURCHASE_USD_PER_REFERENCE;
+    const purchaseCredits = pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+    const saleCredits = advancedSaleGptImage2ReferenceCredits(pricing);
+    const configuredSaleCredits = pricingNumber(advancedSaleGptImage2ReferenceCredits({ ...pricing, modelSettings: {} }), 0, 0, 6);
+    const modelSetting = advancedModelSetting(pricing, GPT_IMAGE2_PROVIDER);
+    rows.push({
+      key: "gpt-image-2-reference",
+      provider: GPT_IMAGE2_PROVIDER,
+      providerLabel: `${GPT_IMAGE2_LABEL} Reference`,
+      resolution: "reference",
+      unit: "reference_image",
+      purchaseCreditsPerSecond: purchaseCredits,
+      purchaseUsdPerSecond: purchaseUsd,
+      purchaseSource: "apiz_gpt_image2_pricing",
+      purchaseMessage: `APIZ openai/gpt-image-2/edit reference add-on: ${GPT_IMAGE2_UPSTREAM_REFERENCE_POINTS} APIZ points (${(GPT_IMAGE2_UPSTREAM_REFERENCE_POINTS * GPT_IMAGE2_CNY_PER_POINT).toFixed(2)} CNY) per reference image at ${GPT_IMAGE2_CNY_PER_USD_CONFIGURED} CNY/USD.`,
+      pricingVisible: publicPricingModelVisible({ provider: GPT_IMAGE2_PROVIDER }),
+      modelKey: GPT_IMAGE2_PROVIDER,
+      modelDisplayName: modelSetting.displayName,
+      modelDiscount: modelSetting.discount,
+      configuredSaleCreditsPerSecond: configuredSaleCredits,
+      configuredSaleUsdPerSecond: pricingNumber(configuredSaleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      saleCreditsPerSecond: saleCredits,
+      saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      model: GPT_IMAGE2_EDIT_MODEL,
+    });
+  }
   for (const resolution of ["1K", "2K"]) {
     const purchaseUsd = normalizeSeedream5Resolution(resolution) === "1K"
       ? SEEDREAM55_1K_USD_PER_IMAGE
@@ -1287,6 +1422,34 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
       const target = next[targetKey] || (next[targetKey] = { ...DEFAULT_ADVANCED_PRICING[targetKey] });
       target.saleCnyPerImage = pricingNumber(rawSale, target.saleCnyPerImage, 0, 6);
       target.userConfigured = true;
+      continue;
+    }
+    const gptImage2SpecMatch = key.match(/^gpt-image-2-(1k|2k|4k)-(low|medium|high)$/);
+    if (gptImage2SpecMatch || key === "gpt-image-2-reference") {
+      const rawSaleUsd = row.saleUsdPerSecond !== undefined
+        ? Number(row.saleUsdPerSecond)
+        : row.saleCreditsPerSecond !== undefined
+        ? Number(row.saleCreditsPerSecond) / DEFAULT_CREDITS_PER_USD
+        : NaN;
+      if (!Number.isFinite(rawSaleUsd) || rawSaleUsd < 0) {
+        throw pricingPayloadError(`Invalid sale price for ${key}`);
+      }
+      if (key === "gpt-image-2-reference") {
+        const nextUsd = pricingNumber(rawSaleUsd, next.gptImage2.saleUsdPerReferenceImage, 0, 6);
+        if (Math.abs(nextUsd - Number(next.gptImage2.saleUsdPerReferenceImage || 0)) > 0.000001) {
+          next.gptImage2.userConfigured = true;
+        }
+        next.gptImage2.saleUsdPerReferenceImage = nextUsd;
+      } else {
+        const resolution = gptImage2SpecMatch[1].toUpperCase();
+        const quality = gptImage2SpecMatch[2].toLowerCase();
+        const currentUsd = next.gptImage2.saleUsdByResolutionQuality?.[resolution]?.[quality] ?? 0;
+        const nextUsd = pricingNumber(rawSaleUsd, currentUsd, 0, 6);
+        if (Math.abs(nextUsd - Number(currentUsd || 0)) > 0.000001) {
+          next.gptImage2.userConfigured = true;
+        }
+        next.gptImage2.saleUsdByResolutionQuality[resolution][quality] = nextUsd;
+      }
       continue;
     }
     if (key === "seedream55-1k" || key === "seedream55-2k" || key === "seedream55-reference") {

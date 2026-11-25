@@ -5637,3 +5637,20 @@ CODEX_TASK_STATE.md
 - Verification: `node --check`, `npm run check:undef`, `git diff --check`, and focused Vega/docs/pricing/profile tests `179/179` pass plus `test/independent-release.test.js` `4/4` pass.
 - Deployment: built `platform-release` `c782e3e4f6afc23b44c5e6b42651e1d51cd045c4` from `185dec729ba5fe2187317a433405f8da3b90a899`, pushed only `platform-release`, and deployed Old only via `scripts/deploy_local.sh --site old` (`OLD_ROLLING_DEPLOY_OK active_port=4175`, `release_boundary=ok`). Live was not pushed or deployed.
 - Production verification: `https://123vips.com/api/health`, `/api/livez`, and `/api/readyz` all return HTTP `200` with clean release `c782e3e4f6afc23b44c5e6b42651e1d51cd045c4`, and served HTML lists `value="vega15-lite">wan（vega）`.
+
+## 2026-11-25 Step FJ: Add APIZ GPT Image 2 (`gpt-image-2`) image generation
+
+- Verified production `/etc/raising-game-demo.env` has active `APIZ_API_KEY` on `https://api.apiz.ai` (`user_id=12432268`). Measured live APIZ pricing and parameter behavior across `1K/2K/4K` × `low/medium/high`, aspect ratios, output formats, and `openai/gpt-image-2/edit` with reference images (`100 APIZ points = 1 CNY`):
+  - `1K`: low `5`, medium `43`, high `170` APIZ pts
+  - `2K`: low `5`, medium `54`, high `345` APIZ pts
+  - `4K`: low `5`, medium `54`, high `345` APIZ pts
+  - Edit reference add-on: `+7` APIZ pts per reference image
+- Added dedicated module `gpt-image2.js` and backend runtime `server.parts/part-53.js` wired into `lib-providers.js`, `server.parts/part-01,02,11,21,24,25,29,30,38,39,43.js`, and `scripts/sync_old_to_new2.py`:
+  - Provider id `gpt-image-2` (`GPT Image 2`), routing to `openai/gpt-image-2` (t2i) or `openai/gpt-image-2/edit` (1–10 reference images, optional `mask_url`).
+  - Pricing converts APIZ CNY points at `0.01 CNY/pt` ÷ `6.67 CNY/USD` × `1.5` sale markup × `100 site credits/USD` (editable per spec in Admin Pricing; unchanged admin saves preserve `userConfigured=false`).
+  - Async submit + `/api/v3/tasks/query` refresh + R2 persistence + post-completion upstream `price` true-up (多退少补 at exact 1.5x USD unless admin explicitly customized prices) + 100% refund on failure.
+- Added frontend support across `platform.html`, `platform.config.js`, `platform.ui.parts/part-02,03,04,06.js`, `platform.create.parts/part-01,02,03,04.js`, `platform.main.js`, and `admin.js`:
+  - Exposed `GPT Image 2` under Image models (both `123vips.com` and `123vip.fans` share the Generate workspace and Workflow Canvas library).
+  - Exposed `ratio` (all 10 ratios + `auto` when editing with references), `resolution` (`1K/2K/4K`), `quality` (`low/medium/high`), and `format` (`png/jpeg/webp`) as active parameter chips, live credit estimation, submission payload, and regenerate restoration.
+- Verification in clean worktree `/Users/x042/.codex/worktrees/gpt-image-2/raising-game-old` (based on `origin/old-site` `185dec72`): `node --check` on all changed JS files, `npm run check:undef`, `git diff --check`, and focused 10-file suite (`test/gpt-image2.test.js` + 9 related suites) pass `223/223`.
+- Deployment status: implemented and verified locally in worktree `/Users/x042/.codex/worktrees/gpt-image-2/raising-game-old`, not yet pushed to `old-site`/`platform-release` or deployed.

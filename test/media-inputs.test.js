@@ -330,7 +330,7 @@ test("image regeneration restores original providers and input media without a n
   assert.match(regenerateSource, /function imageEditRegenerateBody\(record = \{\}\)/);
   assert.match(regenerateSource, /if \(\["z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image-edit"\]\.includes\(explicitProvider\)\)[\s\S]*?handleWan27ImageEdit/);
   assert.match(regenerateSource, /rawProvider === "aliyun-wan27-image"[\s\S]*?handleWan27ImageEdit/);
-  assert.match(regenerateSource, /if \(\["seedream55-image", "seedream5-image", "qwen-image3"\]\.includes\(provider\)\)/);
+  assert.match(regenerateSource, /if \(\["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"\]\.includes\(provider\)\)/);
   assert.match(regenerateSource, /body\.preservePublicMediaUrls = true/);
   assert.match(publicRecords, /publicRecord\.userAssetIds = \[\];[\s\S]*?publicRecord\.imageUrls = \[\];[\s\S]*?publicRecord\.sourceImageUrls = \[\];/);
   const editHelper = regenerateSource.slice(

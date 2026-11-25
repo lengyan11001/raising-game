@@ -513,10 +513,12 @@ async function addAssetToAdvancedTarget(assetId = "") {
         syncSeedanceReferenceMode();
       }
       if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
-    } else if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+    } else if (["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
       const ref = stampAdvancedReferenceOrder({ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true });
       const imageLimit = provider === "qwen-image3"
         ? ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT
+        : provider === "gpt-image-2"
+        ? ADVANCED_GPT_IMAGE2_REFERENCE_LIMIT
         : provider === "seedream55-image"
         ? ADVANCED_SEEDREAM55_REFERENCE_LIMIT
         : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
@@ -726,7 +728,7 @@ function isPublicQwenImage3ProviderOption(value = "") {
 
 function advancedProviderMatchesCustomKind(value = "", kind = state.advancedCustomMediaKind) {
   const provider = String(value || "").trim().toLowerCase();
-  if (kind === "image") return ["wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider);
+  if (kind === "image") return ["gpt-image-2", "wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3", "z-image-spicy-pro", "qwen-image-edit-spicy"].includes(provider);
   if (kind === "conversation") return ["byteplus-language", "papaya", "qwen37-flash"].includes(provider);
   return ["seedance-nsfw", "wan30", "wan30-prime", "wan27", "happyhorse", "seedance", "seedance-fast", "seedance25", "seedance25-flash"].includes(provider) || isVegaProviderId(provider);
 }
@@ -853,10 +855,11 @@ function updateAdvancedModelControls() {
   const isImageEdit = isAdvancedImageProvider(provider);
   const isZImageText = provider === "z-image-spicy-pro";
   const isQwenEditImage = provider === "qwen-image-edit-spicy";
+  const isGptImage2 = provider === "gpt-image-2";
   const isSeedreamImage = ["seedream55-image", "seedream5-image"].includes(provider);
   const isQwenImage = provider === "qwen-image3";
   const isQwenText = ["qwen37-flash", "byteplus-language", "papaya"].includes(provider);
-  const isStandaloneImage = isSeedreamImage || isQwenImage;
+  const isStandaloneImage = isGptImage2 || isSeedreamImage || isQwenImage;
   const simpleEdit = advancedCreateModeIsSimpleEdit();
   const simpleAction = state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt();
   const aliyunVideo = provider === "wan30" || provider === "wan27" || provider === "happyhorse";
@@ -892,8 +895,9 @@ function updateAdvancedModelControls() {
   if (els.advancedResolution) {
     const imageEditOptions = imageCreateResolutionOptions();
     const seedreamOptions = ["1K", "2K"];
+    const gptImage2Options = ["1K", "2K", "4K"];
     const videoOptions = advancedVideoResolutionOptions(provider);
-    const options = isStandaloneImage ? seedreamOptions : isImageEdit ? imageEditOptions : videoOptions;
+    const options = isGptImage2 ? gptImage2Options : isStandaloneImage ? seedreamOptions : isImageEdit ? imageEditOptions : videoOptions;
     const current = normalizeAdvancedResolution(els.advancedResolution.value, provider);
     els.advancedResolution.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedResolution.value = options[0];
@@ -910,6 +914,9 @@ function updateAdvancedModelControls() {
     els.advancedSeedreamTier.value = "pro";
     els.advancedSeedreamTier.closest(".field")?.setAttribute("hidden", "");
   }
+  document.querySelectorAll(".advanced-gpt-image2-option").forEach((item) => {
+    item.hidden = simpleAction || simpleEdit || !isGptImage2;
+  });
   document.querySelectorAll(".advanced-qwen-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isQwenImage;
   });
@@ -956,13 +963,23 @@ function updateAdvancedModelControls() {
       : provider === "wan30" || provider === "seedance-nsfw"
       ? ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"]
       : ["9:16", "16:9", "1:1"];
+    const gptImage2HasRefs = isGptImage2 && selectedAdvancedReferenceImages("gpt-image-2").length > 0;
+    const gptImage2Ratios = gptImage2HasRefs
+      ? ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9"]
+      : ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9"];
     const options = isImageEdit || isSeedreamImage || isQwenImage ? imageRatios : videoRatios;
+    const ratioOptions = isGptImage2 ? gptImage2Ratios : options;
     if (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) els.advancedRatio.value = "adaptive";
     const fallbackRatio = vegaProvider || ["seedance25", "seedance25-flash"].includes(provider) ? "16:9" : ["wan30", "seedance-nsfw"].includes(provider) ? "adaptive" : "9:16";
-    const rawRatio = String(els.advancedRatio.value || fallbackRatio).trim();
-    const current = (["wan30", "seedance-nsfw"].includes(provider) || vegaProvider) && rawRatio.toLowerCase() === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
-    els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
-    if (!options.includes(current)) els.advancedRatio.value = fallbackRatio;
+    const effectiveFallbackRatio = isGptImage2 ? "1:1" : fallbackRatio;
+    const rawRatio = String(els.advancedRatio.value || effectiveFallbackRatio).trim();
+    const current = (["wan30", "seedance-nsfw"].includes(provider) || vegaProvider) && rawRatio.toLowerCase() === "adaptive"
+      ? "adaptive"
+      : isGptImage2 && gptImage2HasRefs && rawRatio.toLowerCase() === "auto"
+      ? "auto"
+      : normalizeVideoRatio(rawRatio);
+    els.advancedRatio.innerHTML = ratioOptions.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value === "auto" ? "Auto" : value)}</option>`).join("");
+    if (!ratioOptions.includes(current)) els.advancedRatio.value = effectiveFallbackRatio;
     els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isQwenEditImage || isQwenText || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) || vegaDraftFollowup);
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
@@ -1119,6 +1136,8 @@ function advancedParameterNativeSelect(kind = "") {
   }
   if (kind === "ratio") return els.advancedRatio;
   if (kind === "resolution") return els.advancedResolution;
+  if (kind === "quality") return els.advancedGptImageQuality;
+  if (kind === "format") return els.advancedGptImageFormat;
   if (kind === "duration") return els.advancedDuration;
   return null;
 }
@@ -1148,6 +1167,7 @@ function advancedParameterValueLabel(kind = "", select = advancedParameterNative
   const selected = select.options[select.selectedIndex];
   const raw = String(selected?.textContent || select.value || "").trim();
   if (kind === "ratio" && String(select.value).toLowerCase() === "adaptive") return "Adaptive";
+  if (kind === "ratio" && String(select.value).toLowerCase() === "auto") return "Auto";
   if (kind === "resolution") return advancedVideoResolutionLabel(select.value);
   return raw || String(select.value || "");
 }
@@ -1158,6 +1178,8 @@ function advancedParameterChipIcon(kind = "") {
     mode: "sliders-horizontal",
     ratio: "ratio",
     resolution: "scan",
+    quality: "gauge",
+    format: "file-image",
     duration: "timer",
     size: "image",
   }[kind] || "settings-2";
@@ -1169,6 +1191,8 @@ function advancedParameterChipLabel(kind = "") {
     mode: "Mode",
     ratio: t("field.ratio"),
     resolution: t("field.resolution"),
+    quality: String(state.lang || "").toLowerCase().startsWith("zh") ? "质量" : "Quality",
+    format: String(state.lang || "").toLowerCase().startsWith("zh") ? "格式" : "Format",
     duration: t("field.duration"),
     size: "尺寸",
   }[kind] || kind;
@@ -1182,7 +1206,7 @@ function advancedParameterChipItems() {
   const modeSelect = advancedParameterNativeSelect("mode");
   const modeOptions = advancedParameterVisibleOptions("mode");
   if (modeSelect && modeOptions.length > 1) items.push({ kind: "mode", valueLabel: advancedParameterValueLabel("mode", modeSelect) });
-  ["ratio", "resolution", "duration"].forEach((kind) => {
+  ["ratio", "resolution", "quality", "format", "duration"].forEach((kind) => {
     const select = advancedParameterNativeSelect(kind);
     const options = advancedParameterVisibleOptions(kind);
     if (select && options.length && advancedParameterFieldVisible(kind, select)) {
@@ -1541,7 +1565,7 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = 
       : provider === "seedance-nsfw" && ["edit", "extend"].includes(mode)
       ? "video"
       : "referenceImages";
-  } else if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+  } else if (["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
     state.advancedAssetTarget = "referenceImages";
   } else if (isAdvancedImageProvider(provider)) {
     state.advancedAssetTarget = "sourceImages";
@@ -1559,7 +1583,7 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = 
       ].filter(Boolean).join(",") || advancedCreateUploadAcceptValue()
     : "image/*";
   els.advancedImage.multiple = !characterPresetUpload && (
-    ["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
+    ["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
     || (sharedUpload
       ? (!["seedance", "seedance25", "seedance25-flash", "seedance-nsfw", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || ""))
       : !advancedCreateModeUsesSingleUpload())

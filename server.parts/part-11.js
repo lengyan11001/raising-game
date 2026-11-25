@@ -734,7 +734,7 @@ function seedanceTokenPricing(options = {}) {
 function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (isVegaProvider(normalizedProvider)) { const bounds = vegaDurationBounds(normalizedProvider); return { fallback: bounds.fallback, min: bounds.min, max: bounds.max }; }
-  if (["seedream5-image", "seedream55-image", "qwen-image3", "qwen37-flash", "byteplus-language", "papaya", "z-image-spicy-pro"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
+  if (["gpt-image-2", "seedream5-image", "seedream55-image", "qwen-image3", "qwen37-flash", "byteplus-language", "papaya", "z-image-spicy-pro"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
   if (["seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER].includes(normalizedProvider)) return { fallback: 4, min: 4, max: 30 };
   if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
@@ -1020,6 +1020,9 @@ function advancedModelPricingRaw(provider = "seedance", options = {}) {
   const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, bounds.min, bounds.max);
   if (normalizedProvider === "qwen-image3") {
     return qwenImage3PricingEstimate(advancedPricing, options);
+  }
+  if (normalizedProvider === GPT_IMAGE2_PROVIDER) {
+    return gptImage2PricingEstimate(advancedPricing, options);
   }
   if (normalizedProvider === "seedream55-image") {
     return seedream55ImagePricingEstimate(advancedPricing, options);
@@ -1358,6 +1361,67 @@ function seedream5ImagePricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICIN
     credits,
     markup: 1,
     source: "byteplus_seedream5_official_image_pricing",
+  };
+}
+
+function gptImage2PricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, options = {}) {
+  const pricing = normalizeAdvancedPricing(advancedPricing);
+  const gptPricing = pricing.gptImage2 || DEFAULT_ADVANCED_PRICING.gptImage2;
+  const resolution = normalizeGptImage2Resolution(
+    options.resolution || options.size || gptPricing.defaultResolution || GPT_IMAGE2_DEFAULT_RESOLUTION,
+  );
+  const quality = normalizeGptImage2Quality(
+    options.quality || options.gptImageQuality || gptPricing.defaultQuality || GPT_IMAGE2_DEFAULT_QUALITY,
+  );
+  const referenceImageCount = Math.max(0, Math.min(GPT_IMAGE2_REFERENCE_LIMIT, Math.floor(Number(firstPresent(
+    options.referenceImageCount,
+    options.imageCount,
+    arrayFromBody(options.referenceImages).length || undefined,
+    arrayFromBody(options.imageUrls).length || undefined,
+    arrayFromBody(options.image_urls).length || undefined,
+    arrayFromBody(options.images).length || undefined,
+  ) || 0))));
+  const outputImageCount = 1;
+  const outputUsdPerImage = pricingNumber(
+    gptPricing.saleUsdByResolutionQuality?.[resolution]?.[quality],
+    DEFAULT_ADVANCED_PRICING.gptImage2.saleUsdByResolutionQuality?.[resolution]?.[quality] ?? 0,
+    0,
+    6,
+  );
+  const referenceUsdPerImage = pricingNumber(
+    gptPricing.saleUsdPerReferenceImage,
+    GPT_IMAGE2_SALE_USD_PER_REFERENCE,
+    0,
+    6,
+  );
+  const outputUsd = pricingNumber(outputUsdPerImage * outputImageCount, 0, 0, 6);
+  const referenceUsd = pricingNumber(referenceUsdPerImage * referenceImageCount, 0, 0, 6);
+  const totalUsd = pricingNumber(outputUsd + referenceUsd, 0, 0, 6);
+  const credits = creditsAmount(totalUsd * DEFAULT_CREDITS_PER_USD);
+  return {
+    provider: GPT_IMAGE2_PROVIDER,
+    providerLabel: GPT_IMAGE2_LABEL,
+    model: referenceImageCount > 0 ? GPT_IMAGE2_EDIT_MODEL : GPT_IMAGE2_TEXT_MODEL,
+    resolution,
+    quality,
+    size: resolution,
+    duration: 1,
+    outputImageCount,
+    referenceImageCount,
+    billableReferenceImages: referenceImageCount,
+    outputUsdPerImage,
+    referenceUsdPerImage,
+    outputUsd,
+    referenceUsd,
+    totalUsd,
+    creditsPerUsd: DEFAULT_CREDITS_PER_USD,
+    cnyPerUsd: GPT_IMAGE2_CNY_PER_USD_CONFIGURED,
+    saleMarkup: GPT_IMAGE2_MARKUP_CONFIGURED,
+    userConfigured: Boolean(gptPricing.userConfigured),
+    baseCredits: credits,
+    credits,
+    markup: 1,
+    source: "apiz_gpt_image2_pricing",
   };
 }
 

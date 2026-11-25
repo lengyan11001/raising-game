@@ -71,6 +71,38 @@ const {
   normalizeSeedance25FlashMode,
 } = require("./seedance25-flash");
 const {
+  GPT_IMAGE2_PROVIDER,
+  GPT_IMAGE2_LABEL,
+  GPT_IMAGE2_TEXT_MODEL,
+  GPT_IMAGE2_EDIT_MODEL,
+  GPT_IMAGE2_RESOLUTIONS,
+  GPT_IMAGE2_QUALITIES,
+  GPT_IMAGE2_OUTPUT_FORMATS,
+  GPT_IMAGE2_RATIOS,
+  GPT_IMAGE2_EDIT_RATIOS,
+  GPT_IMAGE2_DEFAULT_RESOLUTION,
+  GPT_IMAGE2_DEFAULT_QUALITY,
+  GPT_IMAGE2_DEFAULT_RATIO,
+  GPT_IMAGE2_DEFAULT_OUTPUT_FORMAT,
+  GPT_IMAGE2_REFERENCE_LIMIT,
+  GPT_IMAGE2_CNY_PER_POINT,
+  GPT_IMAGE2_CNY_PER_USD,
+  GPT_IMAGE2_SALE_MARKUP,
+  GPT_IMAGE2_UPSTREAM_POINTS_BY_SPEC,
+  GPT_IMAGE2_UPSTREAM_REFERENCE_POINTS,
+  normalizeGptImage2Resolution,
+  normalizeGptImage2Quality,
+  normalizeGptImage2OutputFormat,
+  normalizeGptImage2Ratio,
+  gptImage2PointsToPurchaseUsd,
+  gptImage2PointsToSaleUsd,
+  gptImage2UpstreamPoints,
+  gptImage2PricingRowKey,
+  buildGptImage2UpstreamPayload,
+  extractGptImage2OutputUrls,
+  extractGptImage2ReportedPoints,
+} = require("./gpt-image2");
+const {
   QWEN_IMAGE3_MODELS,
   QWEN_IMAGE3_OFFICIAL_USD,
   QWEN_IMAGE3_OUTPUT_MAX,
@@ -544,6 +576,7 @@ const {
   vegaTaskFailureMessage,
 } = require("./tencent-vod-vega");
 const {
+  isGptImage2Provider,
   isSeedream55ImageProvider,
   isSeedream5ImageProvider,
   isSeedance25FlashProvider,
@@ -1361,6 +1394,39 @@ const SEEDREAM55_2K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM55_2K_USD_
 const SEEDREAM55_REFERENCE_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM55_REFERENCE_USD_PER_IMAGE, 0.008, 0, 6);
 const SEEDREAM55_REFERENCE_LIMIT = 10;
 const SEEDREAM_QWEN_IMAGE_SALE_MARKUP = 1.5;
+const GPT_IMAGE2_CNY_PER_USD_CONFIGURED = pricingNumber(
+  process.env.GPT_IMAGE2_CNY_PER_USD || process.env.APIZ_CNY_PER_USD,
+  GPT_IMAGE2_CNY_PER_USD,
+  0.0001,
+  6,
+);
+const GPT_IMAGE2_MARKUP_CONFIGURED = pricingNumber(
+  process.env.GPT_IMAGE2_SALE_MARKUP,
+  GPT_IMAGE2_SALE_MARKUP,
+  0.1,
+  6,
+);
+function defaultGptImage2SpecUsdTable(sale = false) {
+  const table = {};
+  for (const resolution of GPT_IMAGE2_RESOLUTIONS) {
+    table[resolution] = {};
+    for (const quality of GPT_IMAGE2_QUALITIES) {
+      const points = gptImage2UpstreamPoints(resolution, quality);
+      table[resolution][quality] = sale
+        ? gptImage2PointsToSaleUsd(points, { cnyPerUsd: GPT_IMAGE2_CNY_PER_USD_CONFIGURED, markup: GPT_IMAGE2_MARKUP_CONFIGURED })
+        : gptImage2PointsToPurchaseUsd(points, GPT_IMAGE2_CNY_PER_USD_CONFIGURED);
+    }
+  }
+  return table;
+}
+const GPT_IMAGE2_PURCHASE_USD_PER_REFERENCE = gptImage2PointsToPurchaseUsd(
+  GPT_IMAGE2_UPSTREAM_REFERENCE_POINTS,
+  GPT_IMAGE2_CNY_PER_USD_CONFIGURED,
+);
+const GPT_IMAGE2_SALE_USD_PER_REFERENCE = gptImage2PointsToSaleUsd(
+  GPT_IMAGE2_UPSTREAM_REFERENCE_POINTS,
+  { cnyPerUsd: GPT_IMAGE2_CNY_PER_USD_CONFIGURED, markup: GPT_IMAGE2_MARKUP_CONFIGURED },
+);
 
 function defaultAliyunSaleCredits(capability, options = {}, fallback = ADVANCED_WAN27_720P_CREDITS_PER_SECOND) {
   const purchase = officialSingaporePurchaseDetails(capability, options);
@@ -1709,6 +1775,27 @@ const DEFAULT_ADVANCED_PRICING = {
     resolutions: ["1K", "2K"],
     defaultResolution: "2K",
     defaultTier: "pro",
+  },
+  gptImage2: {
+    model: GPT_IMAGE2_TEXT_MODEL,
+    editModel: GPT_IMAGE2_EDIT_MODEL,
+    cnyPerPoint: GPT_IMAGE2_CNY_PER_POINT,
+    cnyPerUsd: GPT_IMAGE2_CNY_PER_USD_CONFIGURED,
+    saleMarkup: GPT_IMAGE2_MARKUP_CONFIGURED,
+    purchaseUsdByResolutionQuality: defaultGptImage2SpecUsdTable(false),
+    saleUsdByResolutionQuality: defaultGptImage2SpecUsdTable(true),
+    purchaseUsdPerReferenceImage: GPT_IMAGE2_PURCHASE_USD_PER_REFERENCE,
+    saleUsdPerReferenceImage: GPT_IMAGE2_SALE_USD_PER_REFERENCE,
+    referenceLimit: GPT_IMAGE2_REFERENCE_LIMIT,
+    resolutions: [...GPT_IMAGE2_RESOLUTIONS],
+    qualities: [...GPT_IMAGE2_QUALITIES],
+    outputFormats: [...GPT_IMAGE2_OUTPUT_FORMATS],
+    ratios: [...GPT_IMAGE2_RATIOS],
+    editRatios: [...GPT_IMAGE2_EDIT_RATIOS],
+    defaultResolution: GPT_IMAGE2_DEFAULT_RESOLUTION,
+    defaultQuality: GPT_IMAGE2_DEFAULT_QUALITY,
+    defaultRatio: GPT_IMAGE2_DEFAULT_RATIO,
+    defaultOutputFormat: GPT_IMAGE2_DEFAULT_OUTPUT_FORMAT,
   },
   seedream55Image: {
     model: SEEDREAM55_ENDPOINT_ID,

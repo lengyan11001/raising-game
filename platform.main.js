@@ -167,10 +167,12 @@ els.advancedImage?.addEventListener("change", async () => {
     }
     return;
   }
-  if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+  if (["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
     try {
       const imageLimit = provider === "qwen-image3"
         ? ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT
+        : provider === "gpt-image-2"
+        ? ADVANCED_GPT_IMAGE2_REFERENCE_LIMIT
         : provider === "seedream55-image"
         ? ADVANCED_SEEDREAM55_REFERENCE_LIMIT
         : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
@@ -1179,7 +1181,14 @@ els.advancedProvider?.addEventListener("change", () => {
     if (els.advancedWanPromptExtend) els.advancedWanPromptExtend.checked = false;
     if (els.advancedWanPromptOptimize) els.advancedWanPromptOptimize.checked = false;
   }
-  if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(currentAdvancedProvider())) {
+  if (["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"].includes(currentAdvancedProvider())) {
+    if (currentAdvancedProvider() === "gpt-image-2") {
+      if (els.advancedRatio) els.advancedRatio.value = "1:1";
+      if (els.advancedResolution) els.advancedResolution.value = ADVANCED_GPT_IMAGE2_DEFAULT_RESOLUTION;
+      if (els.advancedGptImageQuality) els.advancedGptImageQuality.value = ADVANCED_GPT_IMAGE2_DEFAULT_QUALITY;
+      if (els.advancedGptImageFormat) els.advancedGptImageFormat.value = ADVANCED_GPT_IMAGE2_DEFAULT_FORMAT;
+      if (els.advancedDuration) els.advancedDuration.value = "1";
+    }
     if (currentAdvancedProvider() === "qwen-image3") {
       if (els.advancedRatio) els.advancedRatio.value = "1:1";
       if (els.advancedResolution) els.advancedResolution.value = "2K";
@@ -1221,10 +1230,11 @@ els.advancedSeedanceTier?.addEventListener("change", () => {
 els.advancedSeedreamTier?.addEventListener("change", () => {
   updateAdvancedModelControls();
 });
-[els.advancedQwenTier, els.advancedQwenOutputCount, els.advancedQwenPromptExtend, els.advancedQwenWatermark, els.advancedWanPromptExtend, els.advancedWanPromptOptimize].forEach((control) => {
+[els.advancedGptImageQuality, els.advancedGptImageFormat, els.advancedQwenTier, els.advancedQwenOutputCount, els.advancedQwenPromptExtend, els.advancedQwenWatermark, els.advancedWanPromptExtend, els.advancedWanPromptOptimize].forEach((control) => {
   control?.addEventListener("change", () => {
     state.advancedEstimateKey = "";
     updateAdvancedButtonCost();
+    syncAdvancedParameterChips();
   });
 });
 [els.advancedQwen37Thinking, els.advancedQwen37MaxTokens, els.advancedQwen37Temperature].forEach((control) => {
@@ -1404,7 +1414,7 @@ els.advancedUploadBox?.addEventListener("click", () => {
     ? (vegaTargets.some((target) => target.id === state.advancedAssetTarget) ? state.advancedAssetTarget : (vegaTargets[0]?.id || "referenceImages"))
     : provider === "wan27-image-edit"
     ? "sourceImages"
-    : ["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
+    : ["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
     ? "referenceImages"
     : provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)
     ? "video"
