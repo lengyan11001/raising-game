@@ -263,6 +263,10 @@
       if (transferStatus === "preparing" || transferStatus === "queued" || transferStatus === "processing") return "已完成 · 素材加速中…";
       if (transferStatus === "failed") return "已完成 · 素材加速失败，可重试 download2";
     }
+    if (record && record.errorInfo && window.PlatformErrorCatalog && typeof window.PlatformErrorCatalog.formatErrorInfo === "function") {
+      var localizedNodeErr = window.PlatformErrorCatalog.formatErrorInfo(record.errorInfo, document.documentElement.lang || "zh");
+      if (localizedNodeErr) return localizedNodeErr;
+    }
     if (node.data && node.data.error) return userFacingGenerationError(node.data.error);
     if (node.data && node.data.status) return userFacingStatus(node.data.status) || String(node.data.status);
     return "Ready";

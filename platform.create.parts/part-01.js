@@ -1173,7 +1173,7 @@ function advancedResultCardView(record = {}, index = 0) {
     <strong>${escapeHtml(publicModelText(publicGenerationDisplayTitle(record, "Generation")))}</strong>
     <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
     ${advancedDownloadStatusPill(record)}
-    ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
+    ${localizedGenerationRecordError(record) ? `<p>${escapeHtml(localizedGenerationRecordError(record))}</p>` : ""}
     <div class="advanced-result-actions">
       ${textResult ? `<button class="history-download advanced-result-copy" type="button" data-advanced-result-copy="${escapeHtml(String(index))}"><i data-lucide="copy"></i>Copy</button>` : ""}
       ${canDownload ? `
@@ -1209,7 +1209,7 @@ function advancedResultCardView(record = {}, index = 0) {
     status,
     visibleTaskId,
     advancedDownloadStatusPill(record),
-    record.error || "",
+    localizedGenerationRecordError(record),
     textResult ? "copy" : "",
     canDownload,
     videoUrl || imageUrl ? advancedDownloadState : "",

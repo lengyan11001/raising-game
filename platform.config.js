@@ -580,22 +580,42 @@ function vegaReferenceLimits(provider = "") {
 function advancedVegaMediaDurationError(provider = "", videoDurations = [], audioDurations = [], videoCount = 0, audioCount = 0) {
   const normalizedProvider = String(provider || "").trim().toLowerCase();
   if (!isVegaProviderId(normalizedProvider)) return "";
-  const limits = vegaReferenceLimits(normalizedProvider);
+  const catalog = typeof globalThis !== "undefined" ? globalThis.PlatformErrorCatalog : null;
+  const currentLang = (typeof state !== "undefined" && state?.lang) ? state.lang : "";
+  const localized = (code, target, params, fallback) => {
+    if (catalog?.formatErrorInfo && currentLang) {
+      const text = catalog.formatErrorInfo({ code, ...(target ? { target } : {}), ...(params ? { params } : {}) }, currentLang);
+      if (text) return text;
+    }
+    return fallback;
+  };
   const caps = vegaCapabilities(normalizedProvider) || {};
   const min = Number(caps.perFileMinSeconds || 0);
   const max = Number(caps.perFileMaxSeconds || 0);
   const videos = (Array.isArray(videoDurations) ? videoDurations : []).map(Number).filter((value) => value > 0);
   const audios = (Array.isArray(audioDurations) ? audioDurations : []).map(Number).filter((value) => value > 0);
   if (min > 0 && max > 0) {
-    if (videos.length !== Number(videoCount || 0)) return "Each Vega reference video must have a readable duration.";
-    if (audios.length !== Number(audioCount || 0)) return "Each Vega reference audio must have a readable duration.";
-    if (videos.some((seconds) => seconds < min || seconds > max)) return `Each Vega reference video must be ${min}-${max} seconds.`;
-    if (audios.some((seconds) => seconds < min || seconds > max)) return `Each Vega reference audio must be ${min}-${max} seconds.`;
+    if (videos.length !== Number(videoCount || 0)) {
+      return localized("MEDIA_DURATION_REQUIRED", { slot: "reference_video" }, null, "Each Vega reference video must have a readable duration.");
+    }
+    if (audios.length !== Number(audioCount || 0)) {
+      return localized("MEDIA_DURATION_REQUIRED", { slot: "reference_audio" }, null, "Each Vega reference audio must have a readable duration.");
+    }
+    if (videos.some((seconds) => seconds < min || seconds > max)) {
+      return localized("MEDIA_DURATION_INVALID", { slot: "reference_video" }, { minSec: min, maxSec: max }, `Each Vega reference video must be ${min}-${max} seconds.`);
+    }
+    if (audios.some((seconds) => seconds < min || seconds > max)) {
+      return localized("MEDIA_DURATION_INVALID", { slot: "reference_audio" }, { minSec: min, maxSec: max }, `Each Vega reference audio must be ${min}-${max} seconds.`);
+    }
   }
   const videoSeconds = videos.reduce((sum, seconds) => sum + seconds, 0);
   const audioSeconds = audios.reduce((sum, seconds) => sum + seconds, 0);
-  if (Number(caps.videoSeconds || 0) > 0 && videoSeconds > Number(caps.videoSeconds)) return `Vega reference videos must total ${caps.videoSeconds} seconds or less.`;
-  if (Number(caps.audioSeconds || 0) > 0 && audioSeconds > Number(caps.audioSeconds)) return `Vega reference audio must total ${caps.audioSeconds} seconds or less.`;
+  if (Number(caps.videoSeconds || 0) > 0 && videoSeconds > Number(caps.videoSeconds)) {
+    return localized("MEDIA_DURATION_INVALID", { slot: "reference_video" }, { maxSec: Number(caps.videoSeconds) }, `Vega reference videos must total ${caps.videoSeconds} seconds or less.`);
+  }
+  if (Number(caps.audioSeconds || 0) > 0 && audioSeconds > Number(caps.audioSeconds)) {
+    return localized("MEDIA_DURATION_INVALID", { slot: "reference_audio" }, { maxSec: Number(caps.audioSeconds) }, `Vega reference audio must total ${caps.audioSeconds} seconds or less.`);
+  }
   return "";
 }
 

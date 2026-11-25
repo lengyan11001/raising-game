@@ -4144,7 +4144,7 @@ function historyDetailPayload(record = {}) {
     duration: record.upstreamPayload?.duration || record.duration || "",
     mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
     billing: record.billing || null,
-    error: record.error || "",
+    error: localizedGenerationRecordError(record),
     poster: generationPosterUrl(record) || "",
     result: generationVideoUrl(record) || generationImageResultUrl(record) || "",
     createdAt: record.createdAt || "",
@@ -4217,7 +4217,7 @@ function openHistoryDetail(index) {
             <figcaption>${escapeHtml(t("history.result"))}</figcaption>
           </figure>
         </div>
-      ` : `<pre>${escapeHtml(record.error || statusLabel(record.status))}</pre>`}
+      ` : `<pre>${escapeHtml(localizedGenerationRecordError(record) || statusLabel(record.status))}</pre>`}
     </section>
     <section class="history-detail-section">
       <header><strong>${escapeHtml(t("history.parameters"))}</strong></header>

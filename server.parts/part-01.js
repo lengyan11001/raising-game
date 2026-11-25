@@ -591,6 +591,7 @@ const {
   publicGenerationDisplayLabel,
   publicModelText,
   publicGenerationErrorMessage,
+  publicGenerationErrorInfo,
   publicModelKey,
   publicModelValue,
   slimGenerationRecordValue,
@@ -601,7 +602,16 @@ const {
   normalizeSeedanceTier,
 } = require("./lib-providers");
 const {
-  sendJson,
+  detectRequestLang,
+  formatErrorInfo,
+  normalizeErrorLang,
+} = require("./platform.errors");
+const {
+  resolveGenerationErrorInfo,
+  resolveHttpErrorInfo,
+} = require("./lib-media-error-resolver");
+const {
+  sendJson: rawSendJson,
   sendText,
   sendHtml,
   publicLegalPageHtml,
@@ -740,6 +750,7 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.prompt-editor.css",
   "platform.js",
   "platform-sw.js",
+  "platform.errors.js",
   "platform.config.js",
   "platform.vega-media.js",
   "platform.copy.js",
@@ -2051,6 +2062,30 @@ const ARK_OPENAPI = {
 
 const demoTasks = new Map();
 const requestContext = new AsyncLocalStorage();
+
+function currentRequestLang() {
+  return String(requestContext.getStore()?.lang || "").trim();
+}
+
+function sendJson(res, statusCode, payload, options = {}) {
+  try {
+    if (statusCode >= 400 && payload && typeof payload === "object" && !Array.isArray(payload) && payload.ok === false) {
+      const errorInfo = resolveHttpErrorInfo(payload);
+      if (errorInfo) {
+        const lang = currentRequestLang();
+        const localizedMessage = lang ? formatErrorInfo(errorInfo, lang) : "";
+        return rawSendJson(res, statusCode, {
+          ...payload,
+          ...(localizedMessage ? { message: localizedMessage } : {}),
+          errorInfo,
+        }, options);
+      }
+    }
+  } catch {
+    // Never fail an HTTP response due to error localization.
+  }
+  return rawSendJson(res, statusCode, payload, options);
+}
 let legacyAppStateWriteLock = Promise.resolve();
 
 async function withAppStateWriteLock(fn) {

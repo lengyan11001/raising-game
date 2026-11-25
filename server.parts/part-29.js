@@ -32,12 +32,36 @@ async function recordAdvancedPreparationFailure(req, res, auth, {
 } = {}) {
   const taskId = localGenerationTaskId("cgt");
   const message = advancedPreparationErrorMessage(error);
+  const targetFromAsset = error.target || (userAsset ? {
+    slot: "reference_image",
+    index: 1,
+    mention: "@Image 1",
+    assetId: userAsset.id || "",
+    fileName: userAsset.name || userAsset.fileName || "",
+  } : null);
+  const structuredErrorInfo = resolveGenerationErrorInfo({
+    error: message,
+    failureStage,
+    preparationErrorCode: String(error.code || "MEDIA_PREPARATION_FAILED"),
+    mediaAssets: userAsset ? [{
+      type: "reference_image",
+      userAssetId: userAsset.id || "",
+      name: userAsset.name || userAsset.fileName || "",
+      url: userAsset.publicUrl || userAsset.localUrl || "",
+    }, ...extraUserAssets.map((asset) => ({
+      type: "reference_image",
+      userAssetId: asset?.id || "",
+      name: asset?.name || asset?.fileName || "",
+      url: asset?.publicUrl || asset?.localUrl || "",
+    }))] : [],
+  }, { target: targetFromAsset, params: error.errorParams || null });
   const record = await upsertGenerationRecord({
     taskId,
     status: "failed",
     failureStage,
     preparationErrorCode: String(error.code || "MEDIA_PREPARATION_FAILED"),
     error: message,
+    ...(structuredErrorInfo ? { errorInfo: structuredErrorInfo } : {}),
     model: String(runtime.model || requestParams.model || ""),
     provider: String(runtime.providerName || provider || ""),
     source: String(runtime.recordSource || "advanced"),
@@ -107,6 +131,7 @@ async function sendAdvancedRequestFailure(req, res, auth, {
     ok: false,
     code: code || error.code || "INVALID_ADVANCED_REQUEST",
     message: failed.message,
+    ...(failed.record?.errorInfo ? { errorInfo: failed.record.errorInfo } : {}),
     ...response,
     taskId: failed.taskId,
   });

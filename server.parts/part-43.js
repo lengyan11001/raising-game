@@ -26,7 +26,7 @@ const server = http.createServer((req, res) => {
     res.once("finish", finalize);
     res.once("close", finalize);
   }
-  requestContext.run({ auth: null, appStateWriteLocked: false }, () => {
+  requestContext.run({ auth: null, appStateWriteLocked: false, lang: detectRequestLang(req, "") }, () => {
     Promise.resolve(handleRequest(req, res)).catch((error) => {
       console.error("[request-failed]", error.message || error);
       if (!res.headersSent) {

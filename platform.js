@@ -1,5 +1,6 @@
 (() => {
   const criticalChunkFiles = [
+    "platform.errors.js",
     "platform.config.js",
     "platform.coupon.js",
     "platform.vega-media.js",

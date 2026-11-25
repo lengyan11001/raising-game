@@ -218,6 +218,8 @@ function sendAdvancedValidationError(res, error, fallback = "Invalid advanced ge
     code: error.code || "INVALID_ADVANCED_REQUEST",
     message: publicModelText(error.message || fallback),
     ...(error.details ? { details: publicDocsValue(error.details) } : {}),
+    ...(error.target ? { target: error.target } : {}),
+    ...(error.errorParams ? { errorParams: error.errorParams } : {}),
   });
 }
 
@@ -227,6 +229,7 @@ function sendReferenceAssetNotFound(res, kind = "image", assetId = "") {
     ok: false,
     code: `REFERENCE_${normalizedKind.toUpperCase()}_NOT_FOUND`,
     message: `Reference ${normalizedKind} not found.`,
+    target: { slot: `reference_${normalizedKind}`, ...(assetId ? { assetId } : {}) },
     ...(assetId ? { assetId, missingAssetIds: [assetId] } : {}),
   });
 }

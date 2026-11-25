@@ -1272,8 +1272,16 @@ function publicGenerationRecord(record = {}, options = {}) {
     ...(pollOnly ? {} : {
       usage: listGenerationRecordValue(record.usage || null),
     }),
-    error: publicGenerationErrorMessage(recordError),
-    cdnError: publicGenerationErrorMessage(record.cdnError || ""),
+    error: (recordError || record.errorInfo)
+      ? publicGenerationErrorMessage(recordError, { lang: options.lang || currentRequestLang() || "zh", record })
+      : "",
+    ...((recordError || record.errorInfo)
+      ? (() => {
+        const info = publicGenerationErrorInfo(record, { lang: options.lang || currentRequestLang() || "zh" });
+        return info ? { errorInfo: info } : {};
+      })()
+      : {}),
+    cdnError: publicGenerationErrorMessage(record.cdnError || "", { lang: options.lang || currentRequestLang() || "zh" }),
     r2DownloadReady: generationRecordIsVideoOutput(record)
       ? Boolean(String(record.cdnVideoUrl || "").trim() && String(record.storageKey || "").trim())
       : generationRecordImageStorageReady(record),

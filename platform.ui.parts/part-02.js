@@ -988,6 +988,18 @@ function recordVideoAssets(record = {}) {
     .filter((asset) => asset.videoUrl);
 }
 
+function localizedGenerationRecordError(record = {}) {
+  try {
+    if (record && typeof record === "object" && record.errorInfo && globalThis.PlatformErrorCatalog?.formatErrorInfo) {
+      const formatted = globalThis.PlatformErrorCatalog.formatErrorInfo(record.errorInfo, state.lang || "en");
+      if (formatted) return formatted;
+    }
+  } catch {
+    // Fall back to string error.
+  }
+  return String(record?.error || record?.errorMessage || "").trim();
+}
+
 function generationRecordSignature(record = {}) {
   const billing = record.billing || {};
   return [
@@ -997,7 +1009,8 @@ function generationRecordSignature(record = {}) {
     generationVideoUrl(record),
     generationPosterUrl(record),
     record.downloadUrl,
-    record.error,
+    localizedGenerationRecordError(record),
+    state.lang || "",
     record.ratio,
     record.resolution,
     record.duration,
@@ -1073,7 +1086,7 @@ function showGenerationCompletionNotice(record = {}) {
   const root = els.generationCompletionNotices;
   if (!root) return;
   const failed = isFailedGenerationRecord(record);
-  const failureDetail = String(record.error || record.errorMessage || "").trim();
+  const failureDetail = localizedGenerationRecordError(record);
   const item = document.createElement("div");
   item.className = `generation-completion-notice${failed ? " is-failed" : ""}`;
   item.setAttribute("role", "status");
