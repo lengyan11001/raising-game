@@ -174,10 +174,13 @@ async function submitAdvancedGenerateInternal() {
     }
     return;
   }
-  if (["seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+  if (["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)) {
+    const gptImage2 = provider === "gpt-image-2";
     const qwenImage = provider === "qwen-image3";
     const seedream55Image = provider === "seedream55-image";
     const qwenTier = qwenImage ? currentQwenImage3Tier() : "";
+    const gptQuality = gptImage2 ? currentGptImage2Quality() : "";
+    const gptFormat = gptImage2 ? currentGptImage2Format() : "";
     const outputImageCount = qwenImage ? Math.max(1, Math.min(6, Number(els.advancedQwenOutputCount?.value || 1))) : 1;
     const references = selectedAdvancedReferenceImages(provider);
     const referencesReady = await guardAdvancedSubmitAssets(references.map((item) => item.assetId));
@@ -192,7 +195,7 @@ async function submitAdvancedGenerateInternal() {
       status: "submitting",
       model: advancedProviderLabel(provider),
       provider,
-      source: qwenImage ? "advanced-qwen-image3" : seedream55Image ? "advanced-seedream55-image" : "advanced-seedream5-image",
+      source: gptImage2 ? "advanced-gpt-image-2" : qwenImage ? "advanced-qwen-image3" : seedream55Image ? "advanced-seedream55-image" : "advanced-seedream5-image",
       kind: "advanced-image",
       prompt,
       presets: advancedPresetSelection,
@@ -202,6 +205,7 @@ async function submitAdvancedGenerateInternal() {
         presets: advancedPresetSelection,
         seedreamTier,
         ...(qwenImage ? { qwenTier, outputImageCount } : {}),
+        ...(gptImage2 ? { quality: gptQuality, output_format: gptFormat } : {}),
         referenceImageCount: references.length,
       },
       resolution: currentAdvancedResolution(),
@@ -227,7 +231,7 @@ async function submitAdvancedGenerateInternal() {
                 watermark: els.advancedQwenWatermark?.value === "true",
                 seed: normalizeAdvancedSeed(els.advancedWanSeed?.value, { min: 0 }),
               }
-            : seedream55Image ? {} : { seedreamTier }),
+            : gptImage2 ? { quality: gptQuality, output_format: gptFormat } : seedream55Image ? {} : { seedreamTier }),
           prompt,
           referenceImages: references.map(seedanceImageRefPayload),
           resolution: currentAdvancedResolution(),

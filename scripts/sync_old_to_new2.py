@@ -71,6 +71,7 @@ SHARED_APP_FILES = (
     "aliyun-video.js",
     "db.js",
     "media-inputs.js",
+    "gpt-image2.js",
     "qwen-image3.js",
     "local-media-retention.js",
     "telegram-bot.js",

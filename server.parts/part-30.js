@@ -1268,6 +1268,7 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
     mode: firstPresent(params.mode, params.functionMode, params.seedanceMode),
     seedreamTier: firstPresent(params.seedreamTier, params.seedream5Tier, params.seedanceTier),
     qwenTier: firstPresent(params.qwenTier, params.qwenImageTier, params.tier),
+    quality: firstPresent(params.quality, params.gptImageQuality),
     inputTokens: firstPresent(params.inputTokens, params.promptTokens),
     outputTokens: firstPresent(params.outputTokens, params.completionTokens, params.max_tokens, params.maxTokens),
     size: params.size,
@@ -1291,6 +1292,7 @@ async function handleAdvancedEstimate(req, res) {
     ...body,
     duration,
     resolution: body.resolution ?? url.searchParams.get("resolution"),
+    quality: body.quality ?? body.gptImageQuality ?? url.searchParams.get("quality"),
     ratio: body.ratio ?? body.aspect_ratio ?? url.searchParams.get("ratio") ?? url.searchParams.get("aspect_ratio"),
   };
   const tenant = requestTenantDescriptor(req);

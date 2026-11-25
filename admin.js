@@ -4502,7 +4502,7 @@ function fmtPriceRange(values = [], suffix = "") {
 function isImagePricingRow(row = {}) {
   const provider = String(row.provider || "").toLowerCase();
   const unit = String(row.unit || "").toLowerCase();
-  return provider === "wan27-image" || provider === "seedream5-image" || provider === "z-image-spicy-pro" || provider === "qwen-image-edit-spicy" || unit.includes("image");
+  return provider === "gpt-image-2" || provider === "wan27-image" || provider === "seedream55-image" || provider === "seedream5-image" || provider === "z-image-spicy-pro" || provider === "qwen-image-edit-spicy" || unit.includes("image");
 }
 
 function rowPriceUnit(row = {}, credits = false) {
@@ -6694,8 +6694,8 @@ function pricingModelGroup(row = {}) {
   const key = pricingModelFilterKey(row);
   if (["byteplus-language", "papaya", "qwen37-flash"].includes(key) || key.startsWith("qwen37") || key.includes("language")) return "language";
   if (
-    ["z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image", "wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
-    || ["z-image-spicy-pro", "qwen-image-edit-spicy", "seedream55-image", "seedream5-image"].includes(key)
+    ["gpt-image-2", "z-image-spicy-pro", "qwen-image-edit-spicy", "wan27-image", "wan27-image-edit", "seedream55-image", "seedream5-image", "qwen-image3"].includes(provider)
+    || ["gpt-image-2", "z-image-spicy-pro", "qwen-image-edit-spicy", "seedream55-image", "seedream5-image"].includes(key)
     || key.startsWith("qwen-image3")
   ) {
     return "image";

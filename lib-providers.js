@@ -19,6 +19,27 @@ const {
   isVegaProvider,
   vegaProviderDefinition,
 } = require("./tencent-vod-vega");
+const {
+  GPT_IMAGE2_LABEL,
+  GPT_IMAGE2_PROVIDER,
+} = require("./gpt-image2");
+
+function isGptImage2Provider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_\/-]+/g, "");
+  return [
+    "gptimage2",
+    "gptimage20",
+    "gptimage2.0",
+    "openaigptimage2",
+    "openaigptimage2edit",
+    "gptimage2edit",
+    "chatgptimages2",
+    "chatgptimages20",
+    "chatgptimages2.0",
+    "chatgptimage2",
+    "gtpimage2",
+  ].includes(normalized);
+}
 
 function isSeedream55ImageProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
@@ -90,6 +111,7 @@ function normalizeAdvancedProvider(value = "") {
   if (isByteplusLanguageProvider(value)) return "byteplus-language";
   if (isQwen37FlashProvider(value)) return "qwen37-flash";
   if (isQwenImage3Provider(value)) return "qwen-image3";
+  if (isGptImage2Provider(value)) return GPT_IMAGE2_PROVIDER;
   if (isSeedream55ImageProvider(value)) return "seedream55-image";
   if (isSeedream5ImageProvider(value)) return "seedream5-image";
   if (["zimagespicypro", "zimagespicy", "zimagepro", "zimage", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return "z-image-spicy-pro";
@@ -118,6 +140,7 @@ function publicProviderId(value = "") {
   if (isByteplusLanguageProvider(raw)) return "byteplus-language";
   if (isQwen37FlashProvider(raw)) return "qwen37-flash";
   if (isQwenImage3Provider(raw)) return "qwen-image3";
+  if (isGptImage2Provider(raw)) return GPT_IMAGE2_PROVIDER;
   if (isSeedream55ImageProvider(raw)) return "seedream55-image";
   if (isSeedream5ImageProvider(raw)) return "seedream5-image";
   if (["zimagespicypro", "zimagespicy", "zimagepro", "zimage", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return "z-image-spicy-pro";
@@ -140,6 +163,7 @@ function publicProviderLabel(value = "") {
   if (id === "byteplus-language") return "BytePlus Language";
   if (id === "qwen37-flash") return "Qwen3.7 Flash";
   if (id === "qwen-image3") return "Qwen Image 3.0";
+  if (id === GPT_IMAGE2_PROVIDER) return GPT_IMAGE2_LABEL;
   if (id === "seedream55-image") return "Seedream 5.5";
   if (id === "seedream5-image") return "Seedream 5.0 Image";
   if (id === "z-image-spicy-pro") return "Z-Image Spicy Pro";
@@ -310,6 +334,7 @@ function normalizeSeedanceTier(value = "") {
 }
 
 module.exports = {
+  isGptImage2Provider,
   isSeedream55ImageProvider,
   isSeedream5ImageProvider,
   isQwenImage3Provider,

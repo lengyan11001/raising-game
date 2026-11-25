@@ -221,6 +221,48 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       userPricingMultiplier: multiplier,
     };
   }
+  if (normalizedProvider === "gpt-image-2") {
+    const configPricing = state.config?.platform?.advancedPricing || {};
+    const gptPricing = configPricing.gptImage2 || {};
+    const creditsPerUsd = Number(configPricing.creditsPerUsd || state.wallet?.creditsPerUsd || 100) || 100;
+    const normalizedResolution = normalizeAdvancedResolution(resolution || gptPricing.defaultResolution || ADVANCED_GPT_IMAGE2_DEFAULT_RESOLUTION, normalizedProvider);
+    const normalizedQuality = normalizeGptImage2QualityUi(options.quality ?? currentGptImage2Quality());
+    const referenceImageCount = Math.max(0, Math.min(
+      ADVANCED_GPT_IMAGE2_REFERENCE_LIMIT,
+      Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("gpt-image-2").length) || 0,
+    ));
+    const outputUsdPerImage = Number(
+      gptPricing.saleUsdByResolutionQuality?.[normalizedResolution]?.[normalizedQuality]
+      ?? ADVANCED_GPT_IMAGE2_SALE_USD_BY_SPEC[normalizedResolution]?.[normalizedQuality]
+      ?? ADVANCED_GPT_IMAGE2_SALE_USD_BY_SPEC["1K"].medium
+    );
+    const referenceUsdPerImage = Number(gptPricing.saleUsdPerReferenceImage ?? ADVANCED_GPT_IMAGE2_REFERENCE_USD_PER_IMAGE);
+    const modelDiscount = Number(configPricing.modelSettings?.["gpt-image-2"]?.discount ?? 1) || 1;
+    const outputUsd = Math.max(0, outputUsdPerImage);
+    const referenceUsd = Math.max(0, referenceUsdPerImage * referenceImageCount);
+    const totalUsd = outputUsd + referenceUsd;
+    const originalCredits = creditsAmount(totalUsd * creditsPerUsd * modelDiscount);
+    const multiplier = userPricingMultiplier();
+    return {
+      provider: "gpt-image-2",
+      duration: 1,
+      resolution: normalizedResolution,
+      quality: normalizedQuality,
+      size: normalizedResolution,
+      referenceImageCount,
+      billableReferenceImages: referenceImageCount,
+      outputUsdPerImage,
+      referenceUsdPerImage,
+      outputUsd,
+      referenceUsd,
+      totalUsd,
+      baseCredits: originalCredits,
+      originalCredits,
+      credits: creditsAmount(originalCredits * multiplier),
+      markup: 1,
+      userPricingMultiplier: multiplier,
+    };
+  }
   if (normalizedProvider === "seedream55-image") {
     const configPricing = state.config?.platform?.advancedPricing || {};
     const seedreamPricing = configPricing.seedream55Image || {};
@@ -531,11 +573,26 @@ function currentQwenImage3Tier() {
   return els.advancedQwenTier?.value === "standard" ? "standard" : "pro";
 }
 
+function normalizeGptImage2QualityUi(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "low" || raw === "medium" || raw === "high") return raw;
+  return ADVANCED_GPT_IMAGE2_DEFAULT_QUALITY;
+}
+
+function currentGptImage2Quality() {
+  return normalizeGptImage2QualityUi(els.advancedGptImageQuality?.value || ADVANCED_GPT_IMAGE2_DEFAULT_QUALITY);
+}
+
+function currentGptImage2Format() {
+  const raw = String(els.advancedGptImageFormat?.value || ADVANCED_GPT_IMAGE2_DEFAULT_FORMAT).trim().toLowerCase();
+  return ["png", "jpeg", "webp"].includes(raw) ? raw : ADVANCED_GPT_IMAGE2_DEFAULT_FORMAT;
+}
+
 function currentAdvancedResolution() {
   const provider = currentAdvancedProvider();
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "qwen-image-edit-spicy") return "";
-  const fallback = ["seedream55-image", "seedream5-image", "qwen-image3"].includes(normalizedProvider) ? "2K" : ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw"].includes(normalizedProvider) ? "480p" : "720p";
+  const fallback = normalizedProvider === "gpt-image-2" ? "1K" : ["seedream55-image", "seedream5-image", "qwen-image3"].includes(normalizedProvider) ? "2K" : ["seedance", "seedance25", "seedance25-flash", "seedance-nsfw"].includes(normalizedProvider) ? "480p" : "720p";
   return normalizeAdvancedResolution(els.advancedResolution?.value || fallback, provider);
 }
 
@@ -552,6 +609,7 @@ function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
   if (String(els.advancedProvider?.value || "").trim().toLowerCase() === "seedance-fast" || (normalizeAdvancedProvider(provider) === "seedance" && currentSeedanceTier() === "fast")) return ["480p", "720p"];
   if (isVegaProviderId(normalizeAdvancedProvider(provider))) return [...(vegaCapabilities(normalizeAdvancedProvider(provider))?.resolutions || VEGA_ALL_RESOLUTIONS)];
   if (normalizeAdvancedProvider(provider) === "qwen-image3") return ["1K", "2K"];
+  if (normalizeAdvancedProvider(provider) === "gpt-image-2") return ["1K", "2K", "4K"];
   if (["seedream55-image", "seedream5-image"].includes(normalizeAdvancedProvider(provider))) return ["1K", "2K"];
   if (["seedance25", "seedance25-flash"].includes(normalizeAdvancedProvider(provider))) return ["480p", "720p"];
   if (normalizeAdvancedProvider(provider) === "seedance-nsfw") return ["480p", "720p", "1080p"];

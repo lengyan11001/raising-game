@@ -392,7 +392,7 @@ test("server enforces Z-Image text-only and Qwen Image Edit reference-image requ
 test("Seedream 5 is image generation, never an image-edit mode", () => {
   assert.match(createSource, /const ADVANCED_IMAGE_PROVIDERS = \["z-image-spicy-pro", "qwen-image-edit-spicy"\];/);
   assert.doesNotMatch(createSource, /ADVANCED_IMAGE_PROVIDERS = \[[^\]]*seedream5-image/);
-  assert.match(createSource, /if \(\["seedream55-image", "seedream5-image", "qwen-image3"\]\.includes\(provider\)\)[\s\S]*?requestJson\("\/api\/advanced\/generate"/);
+  assert.match(createSource, /if \(\["gpt-image-2", "seedream55-image", "seedream5-image", "qwen-image3"\]\.includes\(provider\)\)[\s\S]*?requestJson\("\/api\/advanced\/generate"/);
   assert.match(serverSource, /action: referenceInputs\.length \? "image_reference" : "text_to_image"/);
 
   const modeForProvider = new Function(

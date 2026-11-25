@@ -686,6 +686,8 @@ function workflowImageGenerationBody(node = {}) {
     body.watermark = node.data?.watermark === true;
   } else if (model.id === "seedream5-image") {
     body.seedreamTier = node.data?.seedreamTier || model.defaultTier || "pro";
+  } else if (model.id === "gpt-image-2") {
+    body.quality = node.data?.quality || node.data?.qwenTier || model.defaultTier || "medium";
   }
   if (model.id === "qwen-image-edit-spicy") {
     const first = workflowMediaBodyValue(references[0] || "");

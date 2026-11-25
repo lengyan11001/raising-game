@@ -1270,7 +1270,7 @@ function needsApizFailureRefund(record = {}) {
 
 function needsSeedanceFailureRefund(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider) && !isVegaProvider(provider)) return false;
+  if (!["seedance", "seedance-nsfw", "seedance25", SEEDANCE25_FLASH_PROVIDER, SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "gpt-image-2", "seedream5-image"].includes(provider) && !isVegaProvider(provider)) return false;
   if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
   const billingStatus = String(record.billingStatus || "").toLowerCase();
   if (billingStatus === "refunded") return false;

@@ -1177,6 +1177,25 @@ function normalizeAdvancedPricing(pricing = {}) {
   const rawSeedream5ImageSource = source.seedream5Image && typeof source.seedream5Image === "object" && !Array.isArray(source.seedream5Image)
     ? source.seedream5Image
     : {};
+  const rawGptImage2Source = source.gptImage2 && typeof source.gptImage2 === "object" && !Array.isArray(source.gptImage2)
+    ? source.gptImage2
+    : {};
+  const gptImage2Default = DEFAULT_ADVANCED_PRICING.gptImage2 || {};
+  const normalizeGptImage2UsdMatrix = (rawMatrix = {}, fallbackMatrix = {}) => {
+    const out = {};
+    for (const resolution of GPT_IMAGE2_RESOLUTIONS) {
+      out[resolution] = {};
+      for (const quality of GPT_IMAGE2_QUALITIES) {
+        out[resolution][quality] = pricingNumber(
+          rawMatrix?.[resolution]?.[quality],
+          fallbackMatrix?.[resolution]?.[quality] ?? 0,
+          0,
+          6,
+        );
+      }
+    }
+    return out;
+  };
   const rawSeedream55ImageSource = source.seedream55Image && typeof source.seedream55Image === "object" && !Array.isArray(source.seedream55Image)
     ? source.seedream55Image
     : {};
@@ -1641,6 +1660,46 @@ function normalizeAdvancedPricing(pricing = {}) {
       resolutions: ["1K", "2K"],
       defaultResolution: normalizeSeedream5Resolution(seedream55Source.defaultResolution || seedream55Default.defaultResolution || "2K"),
     },
+    gptImage2: {
+      ...gptImage2Default,
+      ...rawGptImage2Source,
+      model: GPT_IMAGE2_TEXT_MODEL,
+      editModel: GPT_IMAGE2_EDIT_MODEL,
+      cnyPerPoint: GPT_IMAGE2_CNY_PER_POINT,
+      cnyPerUsd: GPT_IMAGE2_CNY_PER_USD_CONFIGURED,
+      saleMarkup: GPT_IMAGE2_MARKUP_CONFIGURED,
+      purchaseUsdByResolutionQuality: normalizeGptImage2UsdMatrix(
+        rawGptImage2Source.purchaseUsdByResolutionQuality,
+        gptImage2Default.purchaseUsdByResolutionQuality,
+      ),
+      saleUsdByResolutionQuality: normalizeGptImage2UsdMatrix(
+        rawGptImage2Source.saleUsdByResolutionQuality,
+        gptImage2Default.saleUsdByResolutionQuality,
+      ),
+      purchaseUsdPerReferenceImage: pricingNumber(
+        rawGptImage2Source.purchaseUsdPerReferenceImage,
+        gptImage2Default.purchaseUsdPerReferenceImage ?? GPT_IMAGE2_PURCHASE_USD_PER_REFERENCE,
+        0,
+        6,
+      ),
+      saleUsdPerReferenceImage: pricingNumber(
+        rawGptImage2Source.saleUsdPerReferenceImage,
+        gptImage2Default.saleUsdPerReferenceImage ?? GPT_IMAGE2_SALE_USD_PER_REFERENCE,
+        0,
+        6,
+      ),
+      referenceLimit: GPT_IMAGE2_REFERENCE_LIMIT,
+      resolutions: [...GPT_IMAGE2_RESOLUTIONS],
+      qualities: [...GPT_IMAGE2_QUALITIES],
+      outputFormats: [...GPT_IMAGE2_OUTPUT_FORMATS],
+      ratios: [...GPT_IMAGE2_RATIOS],
+      editRatios: [...GPT_IMAGE2_EDIT_RATIOS],
+      defaultResolution: normalizeGptImage2Resolution(rawGptImage2Source.defaultResolution || gptImage2Default.defaultResolution),
+      defaultQuality: normalizeGptImage2Quality(rawGptImage2Source.defaultQuality || gptImage2Default.defaultQuality),
+      defaultRatio: normalizeGptImage2Ratio(rawGptImage2Source.defaultRatio || gptImage2Default.defaultRatio),
+      defaultOutputFormat: normalizeGptImage2OutputFormat(rawGptImage2Source.defaultOutputFormat || gptImage2Default.defaultOutputFormat),
+      userConfigured: Boolean(rawGptImage2Source.userConfigured),
+    },
     qwenImage3: {
       pro: normalizeQwenImage3TierPricing("pro"),
       standard: normalizeQwenImage3TierPricing("standard"),
@@ -1685,6 +1744,7 @@ function publicAdvancedPricingView(pricing = {}) {
   const normalized = normalizeAdvancedPricing(pricing);
   const imagePricing = normalized.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro || {};
   const seedreamPricing = normalized.seedream5Image || DEFAULT_ADVANCED_PRICING.seedream5Image || {};
+  const gptImage2Pricing = normalized.gptImage2 || DEFAULT_ADVANCED_PRICING.gptImage2 || {};
   const seedream55Pricing = normalized.seedream55Image || DEFAULT_ADVANCED_PRICING.seedream55Image || {};
   const qwenPricing = normalized.qwenImage3 || DEFAULT_ADVANCED_PRICING.qwenImage3 || {};
   const qwen37Pricing = normalized.qwen37Flash || DEFAULT_ADVANCED_PRICING.qwen37Flash || {};
@@ -1746,6 +1806,25 @@ function publicAdvancedPricingView(pricing = {}) {
         },
         referenceUsdPerImageAfterFirst: seedreamPricing.pro?.referenceUsdPerImageAfterFirst ?? SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST,
       },
+    },
+    gptImage2: {
+      model: GPT_IMAGE2_TEXT_MODEL,
+      editModel: GPT_IMAGE2_EDIT_MODEL,
+      resolutions: [...GPT_IMAGE2_RESOLUTIONS],
+      qualities: [...GPT_IMAGE2_QUALITIES],
+      outputFormats: [...GPT_IMAGE2_OUTPUT_FORMATS],
+      ratios: [...GPT_IMAGE2_RATIOS],
+      editRatios: [...GPT_IMAGE2_EDIT_RATIOS],
+      defaultResolution: gptImage2Pricing.defaultResolution || GPT_IMAGE2_DEFAULT_RESOLUTION,
+      defaultQuality: gptImage2Pricing.defaultQuality || GPT_IMAGE2_DEFAULT_QUALITY,
+      defaultRatio: gptImage2Pricing.defaultRatio || GPT_IMAGE2_DEFAULT_RATIO,
+      defaultOutputFormat: gptImage2Pricing.defaultOutputFormat || GPT_IMAGE2_DEFAULT_OUTPUT_FORMAT,
+      referenceLimit: GPT_IMAGE2_REFERENCE_LIMIT,
+      saleUsdByResolutionQuality: Object.fromEntries(GPT_IMAGE2_RESOLUTIONS.map((resolution) => [
+        resolution,
+        { ...(gptImage2Pricing.saleUsdByResolutionQuality?.[resolution] || {}) },
+      ])),
+      saleUsdPerReferenceImage: gptImage2Pricing.saleUsdPerReferenceImage,
     },
     seedream55Image: {
       model: SEEDREAM55_ENDPOINT_ID,
