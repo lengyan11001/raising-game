@@ -1676,3 +1676,72 @@ test("Seedance 2.5 reference-video modes expose and persist video references", (
   assert.equal(api.advancedVideoReferenceLimit("seedance-nsfw"), 0);
   assert.equal(api.advancedAudioReferenceLimit("seedance-nsfw"), 0);
 });
+
+test("Vega 1.5 Lite sets ExtInfo.AdditionalParameters.prompt_extend to false by default and accepts boolean overrides", () => {
+  const defaultPayload = vega.buildVegaCreatePayload({
+    provider: "vega15-lite",
+    prompt: "test",
+    mediaMode: "text_to_video",
+  }, { subAppId: 123 });
+  const defaultExt = JSON.parse(defaultPayload.ExtInfo);
+  assert.deepEqual(JSON.parse(defaultExt.AdditionalParameters), { prompt_extend: false });
+
+  const uiLikePayload = vega.buildVegaCreatePayload({
+    provider: "vega15-lite",
+    prompt: "test",
+    mediaMode: "reference_video",
+    referenceImages: ["https://cdn.example.com/a.png"],
+    outputFormat: "mp4",
+  }, { subAppId: 123 });
+  assert.deepEqual(
+    JSON.parse(JSON.parse(uiLikePayload.ExtInfo).AdditionalParameters),
+    { prompt_extend: false, output_format: "mp4" },
+  );
+
+  const enabledPayload = vega.buildVegaCreatePayload({
+    provider: "vega15-lite",
+    prompt: "test",
+    mediaMode: "text_to_video",
+    prompt_extend: true,
+  }, { subAppId: 123 });
+  assert.deepEqual(
+    JSON.parse(JSON.parse(enabledPayload.ExtInfo).AdditionalParameters),
+    { prompt_extend: true },
+  );
+
+  const camelDisabledPayload = vega.buildVegaCreatePayload({
+    provider: "vega15-lite",
+    prompt: "test",
+    mediaMode: "text_to_video",
+    promptExtend: "false",
+  }, { subAppId: 123 });
+  assert.deepEqual(
+    JSON.parse(JSON.parse(camelDisabledPayload.ExtInfo).AdditionalParameters),
+    { prompt_extend: false },
+  );
+
+  assertCode(() => vega.buildVegaCreatePayload({
+    provider: "vega15-lite",
+    prompt: "test",
+    mediaMode: "text_to_video",
+    prompt_extend: "maybe",
+  }, { subAppId: 123 }), "INVALID_PROMPT_EXTEND");
+
+  for (const provider of ["seedance20-vega", "seedance25-vega", "vega10-lite"]) {
+    const other = vega.buildVegaCreatePayload({
+      provider,
+      prompt: "test",
+      mediaMode: "text_to_video",
+    }, { subAppId: 123 });
+    const otherExt = JSON.parse(other.ExtInfo);
+    assert.equal(Object.prototype.hasOwnProperty.call(otherExt, "AdditionalParameters"), false, `${provider} should not receive prompt_extend by default`);
+  }
+
+  const handler = sourceBetween(server, "async function handleAdvancedVegaGenerate(", "function advancedRuntimeForProvider(");
+  assert.match(handler, /body\.prompt_extend/);
+  assert.match(handler, /normalizeVegaPromptExtend\(rawPromptExtend, false\)/);
+  assert.match(handler, /advancedOptions\.prompt_extend = normalizedPromptExtend/);
+  const regenerate = sourceBetween(server, "function advancedRegenerateBody(record = {})", "async function handleRegenerateGenerationRecord(");
+  assert.match(regenerate, /params\.prompt_extend, params\.promptExtend/);
+  assert.match(regenerate, /body\.prompt_extend = boolFromRequest\(regenPromptExtend, false\)/);
+});

@@ -145,6 +145,14 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
       message: "Tencent VOD is not configured. Generation was not started.",
     });
   }
+  const rawPromptExtend = firstPresent(
+    body.prompt_extend,
+    body.promptExtend,
+    bodyParams.prompt_extend,
+    bodyParams.promptExtend,
+    caseParams.prompt_extend,
+    caseParams.promptExtend,
+  );
   const advancedOptions = {
     taskType,
     draftTaskId,
@@ -161,6 +169,11 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
   };
   let payload;
   try {
+    if (vegaProviderCapabilities(provider)?.promptExtend) {
+      const normalizedPromptExtend = normalizeVegaPromptExtend(rawPromptExtend, false);
+      advancedOptions.promptExtend = normalizedPromptExtend;
+      advancedOptions.prompt_extend = normalizedPromptExtend;
+    }
     payload = buildVegaCreatePayload({
       provider,
       prompt,

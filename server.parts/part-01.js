@@ -524,6 +524,7 @@ const {
   isVegaProvider,
   normalizeVegaDuration,
   normalizeVegaMediaMode,
+  normalizeVegaPromptExtend,
   normalizeVegaRatio,
   normalizeVegaResolution,
   resolveVegaDraftSelection,
