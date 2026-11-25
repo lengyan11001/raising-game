@@ -54,6 +54,11 @@ function vegaMediaSource(item = {}, provider = currentAdvancedProvider()) {
 }
 
 function applyResolvedVegaMediaSource(item = {}, resolved = {}) {
+  const resolvedDuration = Number(resolved?.durationSeconds ?? resolved?.duration ?? 0);
+  const existingDuration = Number(item?.durationSeconds ?? item?.duration ?? 0);
+  if (Number.isFinite(resolvedDuration) && resolvedDuration > 0 && !(Number.isFinite(existingDuration) && existingDuration > 0)) {
+    item.durationSeconds = Math.round(resolvedDuration * 10000) / 10000;
+  }
   const sourceUrl = vegaMediaSource(resolved, currentAdvancedProvider());
   if (!sourceUrl) return "";
   if (sourceUrl.startsWith("asset://")) {
@@ -966,10 +971,20 @@ function restoreVegaRecordMedia(record = {}, params = {}) {
   const imageAssetIds = firstNonEmptyList(submitted.referenceImageAssetIds, submitted.reference_image_asset_ids, params.referenceImageAssetIds, params.reference_image_asset_ids);
   const videoAssetIds = firstNonEmptyList(submitted.referenceVideoAssetIds, submitted.reference_video_asset_ids, params.referenceVideoAssetIds, params.reference_video_asset_ids);
   const audioAssetIds = firstNonEmptyList(submitted.referenceAudioAssetIds, submitted.reference_audio_asset_ids, params.referenceAudioAssetIds, params.reference_audio_asset_ids);
-  const withAssetIds = (items, ids) => items.map((item, index) => ({
-    ...item,
-    assetId: item.assetId || String(ids[index] || "").trim(),
-  }));
+  const videoDurations = firstNonEmptyList(submitted.referenceVideoDurations, submitted.reference_video_durations, params.referenceVideoDurations, params.reference_video_durations);
+  const audioDurations = firstNonEmptyList(submitted.referenceAudioDurations, submitted.reference_audio_durations, params.referenceAudioDurations, params.reference_audio_durations);
+  const withAssetIds = (items, ids, durations = []) => items.map((item, index) => {
+    const existingDuration = Number(item.durationSeconds ?? item.duration ?? 0);
+    const fallbackDuration = Number(durations[index] ?? 0);
+    const durationSeconds = Number.isFinite(existingDuration) && existingDuration > 0
+      ? existingDuration
+      : (Number.isFinite(fallbackDuration) && fallbackDuration > 0 ? fallbackDuration : 0);
+    return {
+      ...item,
+      assetId: item.assetId || String(ids[index] || "").trim(),
+      ...(durationSeconds > 0 ? { durationSeconds } : {}),
+    };
+  });
   const referenceImages = withAssetIds(mergeVegaMediaItems(
     mergeNonEmptyLists(submitted.referenceImages, submitted.reference_images, params.referenceImages, params.reference_images),
     arrayFrom(record.referenceImages),
@@ -981,13 +996,13 @@ function restoreVegaRecordMedia(record = {}, params = {}) {
     arrayFrom(record.referenceVideos),
     media.videos,
     mergeNonEmptyLists(submitted.referenceVideoUrls, submitted.reference_video_urls, params.referenceVideoUrls, params.reference_video_urls),
-  ), videoAssetIds);
+  ), videoAssetIds, videoDurations);
   const referenceAudios = withAssetIds(mergeVegaMediaItems(
     mergeNonEmptyLists(submitted.referenceAudios, submitted.reference_audios, params.referenceAudios, params.reference_audios),
     arrayFrom(record.referenceAudios),
     media.audios,
     mergeNonEmptyLists(submitted.referenceAudioUrls, submitted.reference_audio_urls, params.referenceAudioUrls, params.reference_audio_urls),
-  ), audioAssetIds);
+  ), audioAssetIds, audioDurations);
   const mediaSourceValue = (item) => {
     const publicCandidates = [item?.sourceUrl, item?.publicUrl, item?.cdnUrl, item?.previewUrl, item?.dataUrl, item?.url].map((value) => String(value || "").trim());
     for (const candidate of publicCandidates) {

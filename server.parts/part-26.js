@@ -95,7 +95,7 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
   } catch (error) {
     return sendAdvancedValidationError(res, error, `${definition.label} request is invalid.`);
   }
-  const referenceVideoDurations = (Array.isArray(body.referenceVideoDurations)
+  const rawReferenceVideoDurations = (Array.isArray(body.referenceVideoDurations)
     ? body.referenceVideoDurations
     : (Array.isArray(bodyParams.referenceVideoDurations)
       ? bodyParams.referenceVideoDurations
@@ -108,7 +108,23 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
         ];
         const source = sourceItems[index];
         return source && typeof source === "object" ? firstPresent(source.durationSeconds, source.duration, 0) : 0;
-      }))).map((value) => durationSecondsFromValue(value)).filter((value) => value > 0);
+      }))).map((value) => durationSecondsFromValue(value));
+  const referenceVideoDurations = rawReferenceVideoDurations.filter((value) => value > 0);
+  const rawReferenceAudioDurations = (Array.isArray(body.referenceAudioDurations)
+    ? body.referenceAudioDurations
+    : (Array.isArray(bodyParams.referenceAudioDurations)
+      ? bodyParams.referenceAudioDurations
+      : media.referenceAudios.map((url, index) => {
+        const sourceItems = [
+          ...arrayFromBody(merged.referenceAudios),
+          ...arrayFromBody(merged.reference_audios),
+          ...arrayFromBody(merged.referenceAudioUrls),
+          ...arrayFromBody(merged.reference_audio_urls),
+        ];
+        const source = sourceItems[index];
+        return source && typeof source === "object" ? firstPresent(source.durationSeconds, source.duration, 0) : 0;
+      }))).map((value) => durationSecondsFromValue(value));
+  const referenceAudioDurations = rawReferenceAudioDurations.filter((value) => value > 0);
   // Pricing is intentionally evaluated before credentials, media transport, charging, or upstream calls.
   let pricing;
   try {
@@ -184,7 +200,7 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
       ratio,
       seed: firstPresent(body.seed, bodyParams.seed, caseParams.seed),
       referenceVideoDurations,
-      referenceAudioDurations: (Array.isArray(body.referenceAudioDurations) ? body.referenceAudioDurations : (Array.isArray(bodyParams.referenceAudioDurations) ? bodyParams.referenceAudioDurations : [])),
+      referenceAudioDurations,
       ...advancedOptions,
     }, { subAppId });
   } catch (error) {
@@ -357,6 +373,7 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
             key: `video_${index + 1}`,
             videoUrl: url,
             userAssetId: requestedMedia.referenceVideoAssetIds[index] || "",
+            ...(rawReferenceVideoDurations[index] > 0 ? { durationSeconds: rawReferenceVideoDurations[index] } : {}),
             ...(referenceVideoAssetUris[index]
               ? { assetUri: referenceVideoAssetUris[index], referenceAssetUri: referenceVideoAssetUris[index] }
               : {}),
@@ -366,6 +383,7 @@ async function handleAdvancedVegaGenerate(req, res, context = {}) {
             key: `audio_${index + 1}`,
             audioUrl: url,
             userAssetId: requestedMedia.referenceAudioAssetIds[index] || "",
+            ...(rawReferenceAudioDurations[index] > 0 ? { durationSeconds: rawReferenceAudioDurations[index] } : {}),
             ...(referenceAudioAssetUris[index]
               ? { assetUri: referenceAudioAssetUris[index], referenceAssetUri: referenceAudioAssetUris[index] }
               : {}),
