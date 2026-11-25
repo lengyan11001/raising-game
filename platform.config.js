@@ -534,7 +534,7 @@ const VEGA_DURATION_BOUNDS = Object.freeze({
 const VEGA_MODEL_CAPABILITIES = Object.freeze({
   "seedance20-vega": Object.freeze({ resolutions: SEEDANCE_VEGA_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]) }),
   "seedance25-vega": Object.freeze({ resolutions: SEEDANCE_VEGA_RESOLUTIONS, ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference", "edit", "extend"]), draft: true, generateMode: false, qualityMode: false, perFileMinSeconds: 2, perFileMaxSeconds: 30, videoSeconds: 0, audioSeconds: 30 }),
-  "vega15-lite": Object.freeze({ resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), generateMode: false, qualityMode: false, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 }),
+  "vega15-lite": Object.freeze({ resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), generateMode: false, qualityMode: false, videoSeconds: 15, audioSeconds: 15 }),
   "vega10-lite": Object.freeze({ resolutions: Object.freeze(["480P", "768P", "1080P", "2K", "4K"]), ratios: VEGA_ALL_RATIOS, taskTypes: Object.freeze(["auto", "reference"]), frameRatioFromInput: true, moderation: false, generateMode: false, returnLastFrame: false, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 }),
 });
 const VEGA_REFERENCE_LIMITS = Object.freeze({

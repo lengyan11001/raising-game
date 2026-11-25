@@ -1390,3 +1390,50 @@ test("Vega Pro regeneration accepts a resolved seedanceAssetUri and keeps invali
   assert.equal(runtime.vegaMediaSource({ url: "data:image/png;base64,AAAA" }), "");
   assert.equal(runtime.vegaMediaSource({ url: "/assets/local-reference.png" }), "");
 });
+
+test("Vega regeneration restores reference audio and video durations and resolved durationSeconds", () => {
+  const { restoreVegaRecordMedia } = frontendRuntime();
+  const record = {
+    taskId: "vega15-audio-regen",
+    provider: "vega15-lite",
+    mediaAssets: [
+      { type: "reference_image", previewUrl: "https://cdn.example.com/img.png" },
+      { type: "reference_audio", audioUrl: "https://cdn.example.com/voice.mp3" },
+    ],
+    params: {
+      provider: "vega15-lite",
+      submissionSnapshot: {
+        mediaMode: "reference_video",
+        referenceImages: ["https://cdn.example.com/img.png"],
+        referenceAudios: ["https://cdn.example.com/voice.mp3"],
+        referenceAudioDurations: [7.5],
+      },
+    },
+  };
+  const media = restoreVegaRecordMedia(record, record.params);
+  assert.equal(media.referenceAudios.length, 1);
+  assert.equal(media.referenceAudios[0].durationSeconds, 7.5);
+
+  const runtime = new Function(
+    "normalizeAdvancedProvider",
+    "currentAdvancedProvider",
+    "isVegaProviderId",
+    [
+      extractFunction(createSource, "vegaProviderUsesMediaLibrary"),
+      extractFunction(createSource, "vegaMediaSource"),
+      extractFunction(createUrlSource, "vegaPublicHttpUrl"),
+      extractFunction(createSource, "applyResolvedVegaMediaSource"),
+      "return { applyResolvedVegaMediaSource };",
+    ].join("\n"),
+  )(
+    (value = "") => String(value || "").trim().toLowerCase(),
+    () => "vega15-lite",
+    () => true,
+  );
+  const audioItem = { assetId: "asset-audio-1", url: "https://cdn.example.com/voice.mp3", durationSeconds: 0 };
+  runtime.applyResolvedVegaMediaSource(audioItem, {
+    publicUrl: "https://cdn.example.com/voice.mp3",
+    durationSeconds: 8.2,
+  });
+  assert.equal(audioItem.durationSeconds, 8.2);
+});

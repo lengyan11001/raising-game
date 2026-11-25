@@ -275,6 +275,33 @@ async function ensureUserAssetVideoPoster(db, asset = {}) {
   return asset;
 }
 
+async function ensureUserAssetMediaDuration(db, asset = {}) {
+  const mime = String(asset?.mime || "").toLowerCase();
+  if (!asset || (!mime.startsWith("audio/") && !mime.startsWith("video/"))) return asset;
+  if (durationSecondsFromValue(firstPresent(asset.durationSeconds, asset.duration)) > 0) return asset;
+  let probedDuration = 0;
+  const localPath = safeAssetPathFromUrl(String(asset.localUrl || "").trim());
+  if (localPath) {
+    const stat = await fs.stat(localPath).catch(() => null);
+    if (stat?.isFile() && stat.size > 0) {
+      probedDuration = await probeLocalMediaDurationSeconds(localPath);
+    }
+  }
+  if (!(probedDuration > 0)) {
+    const remoteUrl = publicHttpUrlForUpstream(asset.publicUrl || asset.cdnUrl || "");
+    if (remoteUrl && isPublicHttpUrl(remoteUrl)) {
+      probedDuration = await probeVideoDurationSeconds(remoteUrl);
+    }
+  }
+  if (!(probedDuration > 0)) return asset;
+  asset.durationSeconds = probedDuration;
+  asset.updatedAt = new Date().toISOString();
+  db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(db);
+  return asset;
+}
+
 async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Upload", fileName = "", maxBytes = 8 * 1024 * 1024, durationSeconds = 0, assetId: requestedAssetId = "" } = {}) {
   if (bytes.byteLength > maxBytes) {
     const label = mime.startsWith("image/") ? "Image" : mime.startsWith("audio/") ? "Audio" : "Media";
@@ -293,6 +320,10 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
 
   const imageDimensions = mime.startsWith("image/") ? imageDimensionsFromBuffer(bytes) : null;
   const videoDimensions = mime.startsWith("video/") ? await probeLocalVideoDimensions(localPath) : null;
+  let probedMediaDuration = videoDimensions?.durationSeconds || 0;
+  if ((mime.startsWith("audio/") || mime.startsWith("video/")) && !(durationSecondsFromValue(durationSeconds) > 0) && !(probedMediaDuration > 0)) {
+    probedMediaDuration = await probeLocalMediaDurationSeconds(localPath);
+  }
   const localUrl = `/assets/user-uploads/${user.id}/${storedFileName}`;
   let objectStorage;
   try {
@@ -325,7 +356,7 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     frameRate: seedanceVideoFrameRate(videoDimensions) || 0,
     imageType: imageDimensions?.type || "",
     durationSeconds: mime.startsWith("video/") || mime.startsWith("audio/")
-      ? durationSecondsFromValue(durationSeconds || videoDimensions?.durationSeconds)
+      ? durationSecondsFromValue(durationSeconds || probedMediaDuration)
       : 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

@@ -1745,3 +1745,101 @@ test("Vega 1.5 Lite sets ExtInfo.AdditionalParameters.prompt_extend to false by 
   assert.match(regenerate, /params\.prompt_extend, params\.promptExtend/);
   assert.match(regenerate, /body\.prompt_extend = boolFromRequest\(regenPromptExtend, false\)/);
 });
+
+test("Vega 1.5 Lite audio duration validation matches backend limits and does not fail on unreadable browser duration", () => {
+  const fnNames = [
+    "isVegaProviderId",
+    "vegaCapabilities",
+    "vegaReferenceLimits",
+    "advancedVegaMediaDurationError",
+  ];
+  const constBlock = sourceBetween(config, "const VEGA_PROVIDER_IDS =", "function isVegaProviderId(");
+  const extract = (name) => {
+    const start = config.indexOf(`function ${name}(`);
+    assert.ok(start >= 0, `missing ${name}`);
+    let depth = 0;
+    const bodyStart = config.indexOf("{", start);
+    for (let i = bodyStart; i < config.length; i += 1) {
+      if (config[i] === "{") depth += 1;
+      else if (config[i] === "}") {
+        depth -= 1;
+        if (depth === 0) return config.slice(start, i + 1);
+      }
+    }
+    throw new Error(`unterminated ${name}`);
+  };
+  const runtime = new Function(
+    `${constBlock}\n${fnNames.map(extract).join("\n")}\nreturn { vegaCapabilities, advancedVegaMediaDurationError };`,
+  )();
+  const liteCaps = runtime.vegaCapabilities("vega15-lite");
+  assert.equal(liteCaps.perFileMinSeconds, undefined);
+  assert.equal(liteCaps.perFileMaxSeconds, undefined);
+  assert.equal(liteCaps.videoSeconds, 15);
+  assert.equal(liteCaps.audioSeconds, 15);
+  assert.equal(runtime.advancedVegaMediaDurationError("vega15-lite", [], [0], 0, 1), "");
+  assert.equal(runtime.advancedVegaMediaDurationError("vega15-lite", [], [], 0, 1), "");
+  assert.equal(runtime.advancedVegaMediaDurationError("vega15-lite", [], [10], 0, 1), "");
+  assert.equal(
+    runtime.advancedVegaMediaDurationError("vega15-lite", [], [8, 8], 0, 2),
+    "Vega reference audio must total 15 seconds or less.",
+  );
+  assert.equal(
+    runtime.advancedVegaMediaDurationError("vega15-lite", [10, 6], [], 2, 0),
+    "Vega reference videos must total 15 seconds or less.",
+  );
+  assert.equal(
+    runtime.advancedVegaMediaDurationError("vega10-lite", [], [0], 0, 1),
+    "Each Vega reference audio must have a readable duration.",
+  );
+
+  // Server-side ffprobe audio duration probing & persistence wiring
+  assert.match(server, /async function probeLocalMediaDurationSeconds\(/);
+  assert.match(server, /async function probeMediaBufferDurationSeconds\(/);
+  assert.match(server, /async function ensureUserAssetMediaDuration\(/);
+  const transientHandler = sourceBetween(server, "async function handleUploadAdvancedTransientMedia(", "async function handleUploadVideoToolAsset(");
+  assert.match(transientHandler, /probeMediaBufferDurationSeconds\(bytes, extension \|\| "\.bin"\)/);
+  const createAssetFn = sourceBetween(server, "async function createUserMediaAssetFromBytes(", "async function createUserAssetFromDataUrl(");
+  assert.match(createAssetFn, /probeLocalMediaDurationSeconds\(localPath\)/);
+  const resolveHandler = sourceBetween(server, "async function handleResolveUserAssets(", "async function handleDeleteUserAsset(");
+  assert.match(resolveHandler, /ensureUserAssetMediaDuration\(auth\.db, withPoster\)/);
+  const uploadAssetsFn = sourceBetween(create, "async function uploadUserAssets(", "function clearDeletedAdvancedAssetReference(");
+  assert.match(uploadAssetsFn, /uploadedFileMime\(file\)/);
+  assert.match(uploadAssetsFn, /readMediaDuration\(file\)/);
+});
+
+test("Server probeLocalMediaDurationSeconds reads format or stream duration via ffprobe", async () => {
+  const probeSource = sourceBetween(server, "async function probeLocalMediaDurationSeconds(", "function videoFrameRateFromProbeStream(");
+  const calls = [];
+  const runtime = new Function(
+    "execFileJson",
+    "durationSecondsFromValue",
+    "VIDEO_DURATION_PROBE_TIMEOUT_MS",
+    "os",
+    "path",
+    "fs",
+    "randomId",
+    `${probeSource}\nreturn { probeLocalMediaDurationSeconds, probeMediaBufferDurationSeconds };`,
+  )(
+    async (cmd, args) => {
+      calls.push({ cmd, args });
+      if (String(args[args.length - 1]).includes("stream-only")) {
+        return { format: {}, streams: [{ duration: "6.25" }] };
+      }
+      return { format: { duration: "4.5" }, streams: [] };
+    },
+    (value) => {
+      const n = Number(value);
+      return Number.isFinite(n) && n > 0 ? Math.round(n * 10000) / 10000 : 0;
+    },
+    10000,
+    require("node:os"),
+    require("node:path"),
+    require("node:fs/promises"),
+    () => "test123",
+  );
+  assert.equal(await runtime.probeLocalMediaDurationSeconds("/tmp/a.mp3"), 4.5);
+  assert.equal(await runtime.probeLocalMediaDurationSeconds("/tmp/stream-only.mp3"), 6.25);
+  assert.equal(await runtime.probeMediaBufferDurationSeconds(Buffer.from("ID3"), ".mp3"), 4.5);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0].cmd, "ffprobe");
+});

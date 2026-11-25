@@ -992,6 +992,47 @@ async function probeLocalVideoDimensions(videoPath = "") {
   }
 }
 
+async function probeLocalMediaDurationSeconds(mediaPath = "") {
+  if (!mediaPath) return 0;
+  try {
+    const result = await execFileJson("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration:stream=duration",
+      "-of",
+      "json",
+      mediaPath,
+    ], { timeout: VIDEO_DURATION_PROBE_TIMEOUT_MS });
+    const formatDuration = durationSecondsFromValue(result?.format?.duration);
+    if (formatDuration > 0) return formatDuration;
+    const streams = Array.isArray(result?.streams) ? result.streams : [];
+    for (const stream of streams) {
+      const streamDuration = durationSecondsFromValue(stream?.duration);
+      if (streamDuration > 0) return streamDuration;
+    }
+    return 0;
+  } catch (error) {
+    console.warn("[media-duration-probe-failed]", mediaPath, error.message || error);
+    return 0;
+  }
+}
+
+async function probeMediaBufferDurationSeconds(bytes, extension = ".bin") {
+  if (!Buffer.isBuffer(bytes) || !bytes.byteLength) return 0;
+  const safeExt = /^[a-z0-9._-]+$/i.test(String(extension || "")) ? String(extension) : ".bin";
+  const tempPath = path.join(os.tmpdir(), `raising-media-probe-${Date.now()}-${randomId("dur")}${safeExt.startsWith(".") ? safeExt : `.${safeExt}`}`);
+  try {
+    await fs.writeFile(tempPath, bytes);
+    return await probeLocalMediaDurationSeconds(tempPath);
+  } catch (error) {
+    console.warn("[media-buffer-duration-probe-failed]", error.message || error);
+    return 0;
+  } finally {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+  }
+}
+
 function videoFrameRateFromProbeStream(stream = {}) {
   for (const value of [stream.avg_frame_rate, stream.r_frame_rate]) {
     const text = String(value || "").trim();

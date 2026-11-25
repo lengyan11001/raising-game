@@ -676,7 +676,8 @@ async function handleResolveUserAssets(req, res) {
   const resolvedAssets = [];
   for (const asset of assets) {
     const resolved = requirePublicUrl ? await ensureVegaPublicUrlForUserAsset(auth.db, asset) : asset;
-    resolvedAssets.push(await ensureUserAssetVideoPoster(auth.db, resolved));
+    const withPoster = await ensureUserAssetVideoPoster(auth.db, resolved);
+    resolvedAssets.push(await ensureUserAssetMediaDuration(auth.db, withPoster));
   }
   const foundIds = new Set(assets.map((asset) => asset.id));
   return sendJson(res, 200, {

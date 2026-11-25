@@ -271,7 +271,10 @@ async function handleUploadAdvancedTransientMedia(req, res) {
     error.code = "OBJECT_STORAGE_PUBLIC_URL_MISSING";
     throw error;
   }
-  const durationSeconds = kind === "image" ? 0 : Math.max(0, Number(body.durationSeconds || body.duration || 0) || 0);
+  let durationSeconds = kind === "image" ? 0 : durationSecondsFromValue(firstPresent(body.durationSeconds, body.duration));
+  if ((kind === "audio" || kind === "video") && !(durationSeconds > 0)) {
+    durationSeconds = await probeMediaBufferDurationSeconds(bytes, extension || ".bin");
+  }
   return sendJson(res, 200, {
     ok: true,
     media: {

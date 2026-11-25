@@ -592,8 +592,9 @@ async function uploadUserAssets(files = []) {
   try {
     for (const file of selected) {
       const dataUrl = await readFileAsDataUrl(file);
-      const durationSeconds = file.type.startsWith("video/") || file.type.startsWith("audio/")
-        ? await readVideoDuration(file).catch(() => 0)
+      const mime = uploadedFileMime(file);
+      const durationSeconds = mime.startsWith("video/") || mime.startsWith("audio/")
+        ? await readMediaDuration(file).catch(() => 0)
         : 0;
       await requestJson("/api/user-assets", {
         method: "POST",
