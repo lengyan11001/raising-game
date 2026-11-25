@@ -488,6 +488,7 @@ function vegaVideoParameterFields(provider = "seedance25-vega") {
     { name: "draft / draftTaskId", type: "boolean / string", required: "No", description: caps?.draft ? "Draft requires 480P. Draft to Final sends the previous draft task ID and no media or prompt." : "Not supported for this model.", default: "-" },
     { name: "assetGroupId", type: "string", required: "No", description: "Optional upstream asset group id.", default: "-" },
     { name: "generateAudio", type: "boolean", required: "No", description: "Maps to OutputConfig.AudioGeneration Enabled/Disabled.", default: "true" },
+    { name: "prompt_extend / promptExtend", type: "boolean", required: "No", description: caps?.promptExtend ? "Maps to ExtInfo.AdditionalParameters.prompt_extend." : "Not supported for this model.", default: caps?.promptExtend ? "false" : "-" },
     { name: "returnLastFrame", type: "boolean", required: "No", description: "Maps to ExtInfo.AdditionalParameters.return_last_frame.", default: "false" },
     { name: "returnVegaUsage", type: "boolean", required: "No", description: "Maps to WandVegaParameters.ReturnVegaUsage.", default: "false" },
     { name: "enhancePromptMode", type: "enum", required: "No", description: "`auto`, `enable`, or `disable`.", default: "auto" },
@@ -774,7 +775,7 @@ function advancedGenerateConstraintsDoc() {
         "vega10-lite": { images: 9, videos: 3, audios: 3, total: 12, perFileMinSeconds: 2, perFileMaxSeconds: 15, videoSeconds: 15, audioSeconds: 15 },
       },
       mediaTransport: "Media: public HTTP(S) URLs only. Vega 1.0 Pro and 1.5 Pro URLs are registered with VOD CreateAigcMaterial first, then submitted as FileInfos Type=Url with Url=asset://asset-.... Vega 1.5 Lite and 1.0 Lite continue to submit public FileInfos Type=Url. Asset IDs and data URLs are rejected at the public API boundary.",
-      extInfo: ["return_last_frame", "draft", "draft_task_id", "omni_reference_task_type", "asset_group_id", "output_format", "EnhancePromptMode", "ModerationMode", "ReturnVegaUsage", "GenerateMode", "VideoQualityMode"],
+      extInfo: ["prompt_extend", "return_last_frame", "draft", "draft_task_id", "omni_reference_task_type", "asset_group_id", "output_format", "EnhancePromptMode", "ModerationMode", "ReturnVegaUsage", "GenerateMode", "VideoQualityMode"],
       pricing: "Vega prices are configured in PostgreSQL through the admin pricing API; requests fail closed with HTTP 422 MODEL_PRICING_UNAVAILABLE before charging or calling upstream when a required rate is missing.",
     },
     wan27: {

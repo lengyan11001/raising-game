@@ -1755,6 +1755,8 @@ function advancedRegenerateBody(record = {}) {
     body.generateAudio = boolFromRequest(firstPresent(params.generateAudio, params.generate_audio), true);
     body.returnLastFrame = boolFromRequest(firstPresent(params.returnLastFrame, params.return_last_frame), false);
     body.returnVegaUsage = boolFromRequest(firstPresent(params.returnVegaUsage, params.return_vega_usage), false);
+    const regenPromptExtend = firstPresent(params.prompt_extend, params.promptExtend);
+    if (regenPromptExtend !== undefined) body.prompt_extend = boolFromRequest(regenPromptExtend, false);
     body.enhancePromptMode = firstPresent(params.enhancePromptMode, params.enhance_prompt_mode);
     body.moderationMode = firstPresent(params.moderationMode, params.moderation_mode);
     body.generateMode = firstPresent(params.generateMode, params.generate_mode);

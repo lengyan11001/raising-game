@@ -73,6 +73,7 @@ function capability(overrides = {}) {
     durationSeconds: Object.freeze({ min: 4, max: 15, fallback: 5, smart: false }),
     outputAudio: true,
     promptEnhancement: true,
+    promptExtend: false,
     moderation: true,
     usage: true,
     generateMode: true,
@@ -107,6 +108,7 @@ const VEGA_CAPABILITIES = Object.freeze({
   "vega15-lite": capability({
     resolutions: Object.freeze(["480P", "720P", "1080P", "2K", "4K"]),
     durationSeconds: Object.freeze({ min: 2, max: 30, fallback: 6, smart: true }),
+    promptExtend: true,
     generateMode: false,
     qualityMode: false,
     limits: VEGA_15_LITE_LIMITS,
@@ -545,9 +547,22 @@ function normalizeVegaAudioGeneration(value, fallback = true) {
   throw vegaValidationError("AudioGeneration must be Enabled or Disabled.", "INVALID_AUDIO_GENERATION");
 }
 
+function normalizeVegaPromptExtend(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return Boolean(fallback);
+  if (value === true || value === 1 || String(value).trim().toLowerCase() === "true") return true;
+  if (value === false || value === 0 || String(value).trim().toLowerCase() === "false") return false;
+  throw vegaValidationError("prompt_extend must be a boolean.", "INVALID_PROMPT_EXTEND");
+}
+
 function buildVegaExtInfo(input = {}, { taskType, draftTaskId } = {}) {
   const additional = {};
   const caps = vegaProviderCapabilities(input.provider);
+  if (caps?.promptExtend) {
+    additional.prompt_extend = normalizeVegaPromptExtend(
+      input.promptExtend !== undefined ? input.promptExtend : input.prompt_extend,
+      false,
+    );
+  }
   if (caps?.returnLastFrame && (input.returnLastFrame === true || input.returnLastFrame === "true")) additional.return_last_frame = true;
   const normalizedDraftTaskId = normalizeVegaDraftTaskId(draftTaskId);
   if (normalizedDraftTaskId) additional.draft_task_id = normalizedDraftTaskId;
@@ -1128,6 +1143,7 @@ module.exports = {
   normalizeVegaModerationMode,
   normalizeVegaOutputFormat,
   normalizeVegaPromptEnhanceMode,
+  normalizeVegaPromptExtend,
   normalizeVegaQualityMode,
   normalizeVegaRatio,
   normalizeVegaResolution,
