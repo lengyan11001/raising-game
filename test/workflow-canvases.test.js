@@ -1136,10 +1136,10 @@ test("canvas assets and project previews are explicitly cache-busted", () => {
   const manager = read("platform.workflow-canvases.js");
   const library = read("workflow-react/src/components/workflow/WorkflowLibrary.js");
 
-  assert.match(loader, /const CANVAS_ASSET_VERSION = "canvas-20261126-5"/);
+  assert.match(loader, /const CANVAS_ASSET_VERSION = "canvas-20261126-6"/);
   assert.match(loader, /file === "workflow-react\/dist\/canvas\.js"/);
   assert.match(loader, /url\.searchParams\.set\("canvas", CANVAS_ASSET_VERSION\)/);
-  assert.match(html, /platform\.js\?v=canvas-20261126-5/);
+  assert.match(html, /platform\.js\?v=canvas-20261126-6/);
   assert.match(html, /platform\.css\?v=/);
   assert.match(manager, /function workflowCanvasProjectPreview/);
   assert.ok(manager.indexOf('class="workflow-canvas-project-preview is-image"') < manager.indexOf('class="workflow-canvas-project-preview is-video"'));
@@ -1368,7 +1368,7 @@ test("canvas sharing APIs, unlock gate, fork gate, and UI follow strict no-peek 
   assert.match(library, /is-templates-grid/);
   assert.match(library, /templatePriceBadge/);
   assert.match(libraryCss, /\.InspirationCanvas-template-filters \{[^}]*flex-wrap: nowrap/s);
-  assert.match(libraryCss, /\.InspirationCanvas-masonry-container\.is-templates-grid[\s\S]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(libraryCss, /\.InspirationCanvas-masonry-container\.is-templates-grid[\s\S]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
 
   // Deep link flow checks login first, then locked gate / invite code unlock
   assert.match(index, /openPlatformLoginModal/);
