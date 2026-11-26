@@ -5,10 +5,10 @@ import { buildWorkflowShareUrl, copyTextToClipboard } from './shareUtils';
 import './WorkflowModals.css';
 
 const ROTATE_OPTIONS = [
-  { value: 3600, label: '每 1 小时自动更换' },
-  { value: 21600, label: '每 6 小时自动更换' },
-  { value: 86400, label: '每 24 小时自动更换' },
-  { value: 604800, label: '每 7 天自动更换' },
+  { value: 3600, label: '每 1 小时' },
+  { value: 21600, label: '每 6 小时' },
+  { value: 86400, label: '每 24 小时' },
+  { value: 604800, label: '每 7 天' },
 ];
 
 function formatCountdown(iso, nowMs) {
@@ -168,9 +168,9 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
             <span className="WorkflowModal-label">可见范围</span>
             <div className="WorkflowModal-visibility-grid">
               {[
-                { id: 'private', title: '私有', desc: '仅自己可见，他人无法打开' },
-                { id: 'public', title: '公开', desc: '进入公开模版，登录后可查看与复制' },
-                { id: 'semi_public', title: '半公开', desc: '需积分解锁或邀请码才能看结构与复制' },
+                { id: 'private', title: '私有', desc: '仅自己可见' },
+                { id: 'public', title: '公开', desc: '登录后可看可复制' },
+                { id: 'semi_public', title: '半公开', desc: '积分或邀请码解锁' },
               ].map((item) => (
                 <button
                   key={item.id}
@@ -190,10 +190,10 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
               <span className="WorkflowModal-label">模版说明（可选）</span>
               <textarea
                 className="WorkflowModal-textarea"
-                rows={2}
+                rows={1}
                 maxLength={240}
                 value={description}
-                placeholder="简要介绍画布用途或生成效果（展示在公开模版卡片与解锁页）"
+                placeholder="简要说明用途或效果（展示在公开模版与解锁弹窗）"
                 onChange={(event) => setDescription(event.target.value)}
               />
             </label>
@@ -201,7 +201,7 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
 
           {visibility === 'semi_public' ? (
             <div className="WorkflowModal-section">
-              <div className="WorkflowModal-row">
+              <div className="WorkflowModal-option-row">
                 <label className="WorkflowModal-toggle">
                   <input
                     type="checkbox"
@@ -211,13 +211,12 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
                   <span>支持积分解锁</span>
                 </label>
                 {allowCreditUnlock ? (
-                  <div className="WorkflowModal-row">
+                  <div className="WorkflowModal-credits-inline">
                     <input
                       type="number"
                       min="0.01"
                       max="100000"
                       step="1"
-                      style={{ width: 108 }}
                       className="WorkflowModal-input"
                       value={unlockCredits}
                       onChange={(event) => setUnlockCredits(event.target.value)}
@@ -225,10 +224,12 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
                     />
                     <span className="WorkflowModal-hint">积分</span>
                   </div>
-                ) : null}
+                ) : (
+                  <span className="WorkflowModal-hint">未开启</span>
+                )}
               </div>
 
-              <div className="WorkflowModal-row">
+              <div className="WorkflowModal-option-row">
                 <label className="WorkflowModal-toggle">
                   <input
                     type="checkbox"
@@ -237,11 +238,12 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
                   />
                   <span>支持邀请码解锁（此画布专属码）</span>
                 </label>
+                <span className="WorkflowModal-hint">{allowCodeUnlock ? '已开启' : '未开启'}</span>
               </div>
 
               {allowCodeUnlock ? (
                 <>
-                  <div className="WorkflowModal-grid-2">
+                  <div className={inviteMode === 'rotating' ? 'WorkflowModal-grid-3' : 'WorkflowModal-grid-2'}>
                     <label className="WorkflowModal-field">
                       <span className="WorkflowModal-label">邀请码类型</span>
                       <select
@@ -249,13 +251,13 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
                         value={inviteMode}
                         onChange={(event) => setInviteMode(event.target.value)}
                       >
-                        <option value="static">固定邀请码（支持手动刷新）</option>
-                        <option value="rotating">动态邀请码（定时自动轮换）</option>
+                        <option value="static">固定码（可手动刷新）</option>
+                        <option value="rotating">动态码（定时轮换）</option>
                       </select>
                     </label>
                     {inviteMode === 'rotating' ? (
                       <label className="WorkflowModal-field">
-                        <span className="WorkflowModal-label">动态轮换周期</span>
+                        <span className="WorkflowModal-label">轮换周期</span>
                         <select
                           className="WorkflowModal-select"
                           value={inviteRotateIntervalSec}
@@ -266,24 +268,9 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
                           ))}
                         </select>
                       </label>
-                    ) : (
-                      <label className="WorkflowModal-field">
-                        <span className="WorkflowModal-label">最大兑换次数（0 为不限）</span>
-                        <input
-                          type="number"
-                          min="0"
-                          max="1000000"
-                          className="WorkflowModal-input"
-                          value={inviteMaxUses}
-                          onChange={(event) => setInviteMaxUses(event.target.value)}
-                        />
-                      </label>
-                    )}
-                  </div>
-
-                  {inviteMode === 'rotating' ? (
+                    ) : null}
                     <label className="WorkflowModal-field">
-                      <span className="WorkflowModal-label">当前版本最大兑换次数（0 为不限）</span>
+                      <span className="WorkflowModal-label">次数上限（0不限）</span>
                       <input
                         type="number"
                         min="0"
@@ -293,43 +280,41 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
                         onChange={(event) => setInviteMaxUses(event.target.value)}
                       />
                     </label>
-                  ) : null}
+                  </div>
 
                   {inviteInfo.code ? (
-                    <div className="WorkflowModal-field">
-                      <div className="WorkflowModal-code-box">
-                        <div>
-                          <div className="WorkflowModal-code-value">{inviteInfo.code}</div>
-                          <div className="WorkflowModal-hint">
-                            {inviteInfo.mode === 'rotating' && countdown
-                              ? `动态码 · ${countdown} 后自动更新`
-                              : '当前有效邀请码'}
-                            {inviteInfo.maxUses > 0
-                              ? ` · 已用 ${inviteInfo.usedCount}/${inviteInfo.maxUses}`
-                              : ` · 已兑换 ${inviteInfo.usedCount} 次`}
-                          </div>
+                    <div className="WorkflowModal-code-box">
+                      <div>
+                        <div className="WorkflowModal-code-value">{inviteInfo.code}</div>
+                        <div className="WorkflowModal-hint">
+                          {inviteInfo.mode === 'rotating' && countdown
+                            ? `动态码 · ${countdown} 后更新`
+                            : '当前有效邀请码'}
+                          {inviteInfo.maxUses > 0
+                            ? ` · 已用 ${inviteInfo.usedCount}/${inviteInfo.maxUses}`
+                            : ` · 已兑换 ${inviteInfo.usedCount} 次`}
                         </div>
-                        <div className="WorkflowModal-code-actions">
-                          <button
-                            type="button"
-                            className="WorkflowModal-btn"
-                            onClick={() => handleCopy(inviteInfo.code, '邀请码')}
-                          >
-                            复制码
-                          </button>
-                          <button
-                            type="button"
-                            className="WorkflowModal-btn"
-                            disabled={rotating}
-                            onClick={handleRotateCode}
-                          >
-                            {rotating ? '刷新中...' : '立即换码'}
-                          </button>
-                        </div>
+                      </div>
+                      <div className="WorkflowModal-code-actions">
+                        <button
+                          type="button"
+                          className="WorkflowModal-btn"
+                          onClick={() => handleCopy(inviteInfo.code, '邀请码')}
+                        >
+                          复制码
+                        </button>
+                        <button
+                          type="button"
+                          className="WorkflowModal-btn"
+                          disabled={rotating}
+                          onClick={handleRotateCode}
+                        >
+                          {rotating ? '刷新中...' : '换码'}
+                        </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="WorkflowModal-hint">保存半公开设置后将自动生成该画布专属邀请码。</div>
+                    <div className="WorkflowModal-hint">保存半公开设置后自动生成专属邀请码。</div>
                   )}
                 </>
               ) : null}
@@ -338,28 +323,27 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
 
           {savedVisibility !== 'private' ? (
             <div className="WorkflowModal-section">
-              <span className="WorkflowModal-label">分享链接</span>
               <div className="WorkflowModal-row">
-                <button
-                  type="button"
-                  className="WorkflowModal-btn"
-                  onClick={() => handleCopy(shareUrl, '分享链接')}
-                >
-                  复制分享链接
-                </button>
-                {savedVisibility === 'semi_public' && allowCodeUnlock && shareWithCodeUrl ? (
+                <span className="WorkflowModal-label">分享链接</span>
+                <div className="WorkflowModal-code-actions">
                   <button
                     type="button"
                     className="WorkflowModal-btn"
-                    onClick={() => handleCopy(shareWithCodeUrl, '带邀请码链接')}
+                    onClick={() => handleCopy(shareUrl, '分享链接')}
                   >
-                    复制带邀请码链接
+                    复制链接
                   </button>
-                ) : null}
+                  {savedVisibility === 'semi_public' && allowCodeUnlock && shareWithCodeUrl ? (
+                    <button
+                      type="button"
+                      className="WorkflowModal-btn"
+                      onClick={() => handleCopy(shareWithCodeUrl, '带邀请码链接')}
+                    >
+                      复制含码链接
+                    </button>
+                  ) : null}
+                </div>
               </div>
-              <span className="WorkflowModal-hint">
-                他人打开链接后将先检查登录状态与权限，半公开画布需解锁后才能查看结构与复制。
-              </span>
             </div>
           ) : null}
 
