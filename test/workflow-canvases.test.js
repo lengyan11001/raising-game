@@ -80,7 +80,7 @@ test("workflow canvas database operations are owner scoped", () => {
   assert.match(db, /\[db-pool-error\]/);
   assert.match(db, /CREATE TABLE IF NOT EXISTS app_workflow_canvases/);
   assert.match(db, /CREATE INDEX IF NOT EXISTS app_workflow_canvases_user_updated_idx ON app_workflow_canvases \(user_id, updated_at DESC/);
-  assert.match(db, /SELECT id, user_id, name, payload, created_at, updated_at FROM app_workflow_canvases/);
+  assert.match(db, /FROM app_workflow_canvases c[\s\S]*?WHERE c\.user_id = \$1/);
   assert.match(db, /function workflowCanvasFromRow/);
   assert.match(db, /WHERE id = \$1 AND user_id = \$2/);
   assert.match(db, /DELETE FROM app_workflow_canvases[\s\S]*?WHERE id = \$1 AND user_id = \$2/);
@@ -300,11 +300,11 @@ test("workflow uploads store asset references instead of embedded media", () => 
   assert.doesNotMatch(ui, /values\.push\(await readFileAsDataUrl\(file\)\)/);
   assert.match(server, /readJson\(req, WORKFLOW_CANVAS_WRITE_PAYLOAD_BYTES\)/);
   assert.match(server, /validateWorkflowCanvasForWrite\(body\.workflow\)/);
-  assert.match(server, /canvas: publicWorkflowCanvasSummary\(canvas\)/);
+  assert.match(server, /canvas: publicAssetUrlsForClient\(publicWorkflowCanvasSummary\(canvas, \{ isOwner: true, includeOwnerControls: true \}\)\)/);
   assert.match(server, /workflowCanvasUpdatesInFlight\.has\(updateKey\)/);
   assert.match(server, /WORKFLOW_CANVAS_UPDATE_IN_PROGRESS/);
-  assert.match(server, /publicAssetUrlsForClient\(publicWorkflowCanvasSummary\(canvas\)\)/);
-  assert.match(server, /publicAssetUrlsForClient\(publicWorkflowCanvasView\(canvas\)\)/);
+  assert.match(server, /publicAssetUrlsForClient\(publicWorkflowCanvasSummary\(canvas, \{ isOwner: true, includeOwnerControls \}\)\)/);
+  assert.match(server, /publicAssetUrlsForClient\(publicWorkflowCanvasView\(hydrated, \{ isOwner: access\.isOwner, unlocked: access\.unlocked \}\)\)/);
 });
 
 test("react canvas activation refreshes uploaded media before opening", async () => {
@@ -351,8 +351,9 @@ this.activateWorkflowCanvasProject = activateWorkflowCanvasProject;`, context);
 
 test("react project bridge waits for canvas activation and media refresh", () => {
   const index = read("workflow-react/src/index.js");
-  assert.match(index, /const activated = await window\.activateWorkflowCanvasProject\(canvas\);/);
-  assert.match(index, /const activated = await window\.activateWorkflowCanvasProject\(\{ \.\.\.canvas, workflow \}\);/);
+  assert.match(index, /const activated = await window\.activateWorkflowCanvasProject\(canvas, \{ readOnly \}\);/);
+  assert.match(index, /await activateLoadedCanvas\(payload\.canvas\);/);
+  assert.match(index, /await activateLoadedCanvas\(\{ \.\.\.canvas, workflow \}/);
 });
 
 test("workflow rerenders preserve the viewport without a side panel", () => {
@@ -1135,11 +1136,11 @@ test("canvas assets and project previews are explicitly cache-busted", () => {
   const manager = read("platform.workflow-canvases.js");
   const library = read("workflow-react/src/components/workflow/WorkflowLibrary.js");
 
-  assert.match(loader, /const CANVAS_ASSET_VERSION = "canvas-20261119-15"/);
+  assert.match(loader, /const CANVAS_ASSET_VERSION = "canvas-20261126-1"/);
   assert.match(loader, /file === "workflow-react\/dist\/canvas\.js"/);
   assert.match(loader, /url\.searchParams\.set\("canvas", CANVAS_ASSET_VERSION\)/);
-  assert.match(html, /platform\.js\?v=canvas-20261119-15/);
-  assert.match(html, /platform\.css\?v=canvas-20261119-15/);
+  assert.match(html, /platform\.js\?v=canvas-20261126-1/);
+  assert.match(html, /platform\.css\?v=/);
   assert.match(manager, /function workflowCanvasProjectPreview/);
   assert.ok(manager.indexOf('class="workflow-canvas-project-preview is-image"') < manager.indexOf('class="workflow-canvas-project-preview is-video"'));
   assert.match(library, /if \(image\) return \{ kind: 'image'/);
@@ -1153,4 +1154,216 @@ test("workflow task polling never references an undefined node", () => {
   assert.match(poll, /workflowThrowIfCancelled\(nodeId\)/);
   assert.doesNotMatch(poll, /workflowThrowIfCancelled\(node\.id\)/);
   assert.doesNotMatch(poll, /\bnode\.id\b/);
+});
+
+test("locked semi-public canvas summaries and locked views never leak node structure or invite secrets", () => {
+  const {
+    generateInviteSecret,
+    publicWorkflowCanvasSummary,
+    publicWorkflowTemplateSummary,
+    publicWorkflowCanvasLockedView,
+    publicWorkflowCanvasView,
+  } = require("../workflow-canvases");
+
+  const secret = generateInviteSecret();
+  const record = {
+    id: "wf-semi-1",
+    userId: "owner-1",
+    ownerName: "alice",
+    name: "Secret Pipeline",
+    description: "Premium workflow",
+    visibility: "semi_public",
+    unlockCredits: 25,
+    allowCreditUnlock: true,
+    allowCodeUnlock: true,
+    inviteMode: "rotating",
+    inviteCode: "K7M9P4QX",
+    inviteSecret: secret,
+    inviteVersion: 2,
+    inviteRotateIntervalSec: 3600,
+    workflow: {
+      nodes: [
+        { id: "n1", type: "unifiedImageGen", x: 100, y: 120, data: { prompt: "top secret prompt", resultImageUrl: "https://cdn.example/cover.png" } },
+        { id: "n2", type: "unifiedVideoGen", x: 520, y: 120, data: { prompt: "secret motion" } },
+      ],
+      edges: [{ from: "n1", to: "n2" }],
+    },
+  };
+
+  const lockedCard = publicWorkflowTemplateSummary(record, { isOwner: false, unlocked: false });
+  assert.equal(lockedCard.locked, true);
+  assert.equal(lockedCard.unlocked, false);
+  assert.deepEqual(lockedCard.previewNodes, []);
+  assert.equal(lockedCard.workflow, undefined);
+  assert.equal(lockedCard.sharing, undefined);
+  assert.equal(lockedCard.inviteCode, undefined);
+  assert.equal(lockedCard.inviteSecret, undefined);
+  assert.equal(lockedCard.thumbnailUrl, "https://cdn.example/cover.png");
+
+  const lockedGate = publicWorkflowCanvasLockedView(record, { userCredits: 12.5 });
+  assert.equal(lockedGate.locked, true);
+  assert.deepEqual(lockedGate.previewNodes, []);
+  assert.equal(lockedGate.workflow, undefined);
+  assert.equal(lockedGate.inviteCode, undefined);
+  assert.equal(lockedGate.inviteSecret, undefined);
+  assert.equal(lockedGate.unlockCredits, 25);
+  assert.equal(lockedGate.userCredits, 12.5);
+
+  const unlockedCard = publicWorkflowTemplateSummary(record, { isOwner: false, unlocked: true });
+  assert.equal(unlockedCard.locked, false);
+  assert.equal(unlockedCard.unlocked, true);
+  assert.equal(unlockedCard.previewNodes.length, 2);
+  assert.equal(unlockedCard.sharing, undefined);
+
+  const readonlyView = publicWorkflowCanvasView(record, { isOwner: false, unlocked: true });
+  assert.equal(readonlyView.accessMode, "template_readonly");
+  assert.equal(readonlyView.canEdit, false);
+  assert.equal(readonlyView.canFork, true);
+  assert.equal(readonlyView.sharing, undefined);
+  assert.equal(readonlyView.workflow.nodes.length, 2);
+
+  const ownerSummary = publicWorkflowCanvasSummary(record, { isOwner: true, includeOwnerControls: true });
+  assert.equal(ownerSummary.isOwner, true);
+  assert.equal(ownerSummary.sharing.inviteMode, "rotating");
+  assert.match(ownerSummary.sharing.inviteCode, /^[2-9A-HJ-NP-Z]{8}$/);
+  assert.ok(ownerSummary.sharing.inviteNextRotateAt);
+  assert.equal(ownerSummary.sharing.inviteSecret, undefined);
+});
+
+test("static and rotating dynamic invite codes enforce normalization, grace window, rotation, expiry, and max uses", () => {
+  const {
+    generateInviteSecret,
+    resolveActiveInviteCode,
+    verifyWorkflowInviteCode,
+    validateWorkflowSharingPatch,
+    sanitizeWorkflowForFork,
+  } = require("../workflow-canvases");
+
+  const secret = generateInviteSecret();
+  const baseSlotStart = Math.floor(1700000000000 / 3600000) * 3600000;
+  const rotatingCanvas = {
+    id: "wf-rot-1",
+    visibility: "semi_public",
+    allowCodeUnlock: true,
+    inviteMode: "rotating",
+    inviteSecret: secret,
+    inviteVersion: 1,
+    inviteRotateIntervalSec: 3600,
+    inviteMaxUses: 0,
+    inviteUsedCount: 0,
+  };
+
+  const slot0 = resolveActiveInviteCode(rotatingCanvas, baseSlotStart + 5000);
+  const slot1 = resolveActiveInviteCode(rotatingCanvas, baseSlotStart + 3600000 + 5000);
+  assert.notEqual(slot0.code, slot1.code);
+
+  // Case/hyphen insensitive verification in active window
+  const formatted = `${slot0.code.slice(0, 4).toLowerCase()}-${slot0.code.slice(4).toLowerCase()}`;
+  assert.equal(verifyWorkflowInviteCode(rotatingCanvas, formatted, baseSlotStart + 10000).ok, true);
+  // Grace window (within 60s after slot rollover) still accepts previous code
+  assert.equal(verifyWorkflowInviteCode(rotatingCanvas, slot0.code, baseSlotStart + 3600000 + 30000).ok, true);
+  // Beyond 60s grace window rejects previous code
+  assert.equal(verifyWorkflowInviteCode(rotatingCanvas, slot0.code, baseSlotStart + 3600000 + 75000).ok, false);
+  // Version bump (manual rotate) invalidates immediately
+  assert.equal(verifyWorkflowInviteCode({ ...rotatingCanvas, inviteVersion: 2 }, slot0.code, baseSlotStart + 10000).ok, false);
+
+  // Expiry and max-use enforcement on static code
+  const staticCanvas = {
+    id: "wf-stat-1",
+    visibility: "semi_public",
+    allowCodeUnlock: true,
+    inviteMode: "static",
+    inviteCode: "ABCD2345",
+    inviteMaxUses: 2,
+    inviteUsedCount: 2,
+  };
+  assert.equal(verifyWorkflowInviteCode(staticCanvas, "ABCD2345").code, "INVITE_CODE_EXHAUSTED");
+  assert.equal(
+    verifyWorkflowInviteCode({ ...staticCanvas, inviteUsedCount: 0, inviteExpiresAt: "2020-01-01T00:00:00.000Z" }, "ABCD2345").code,
+    "INVITE_CODE_EXPIRED",
+  );
+
+  // Sharing patch validation
+  assert.throws(
+    () => validateWorkflowSharingPatch({ visibility: "semi_public", allowCreditUnlock: false, allowCodeUnlock: false }),
+    (err) => err.code === "UNLOCK_METHOD_REQUIRED",
+  );
+  assert.throws(
+    () => validateWorkflowSharingPatch({ visibility: "semi_public", allowCreditUnlock: true, unlockCredits: 0, allowCodeUnlock: false }),
+    (err) => err.code === "INVALID_UNLOCK_CREDITS",
+  );
+  const validPatch = validateWorkflowSharingPatch({ visibility: "semi_public", allowCreditUnlock: true, unlockCredits: 15, allowCodeUnlock: true, inviteMode: "rotating" });
+  assert.equal(validPatch.visibility, "semi_public");
+  assert.equal(validPatch.unlockCredits, 15);
+  assert.ok(validPatch.inviteCode);
+  assert.ok(validPatch.inviteSecret);
+
+  // Fork sanitization removes runtime jobs and owner asset IDs while keeping structure
+  const forked = sanitizeWorkflowForFork({
+    nodes: [{
+      id: "n1",
+      type: "unifiedImageGen",
+      x: 10,
+      y: 20,
+      data: {
+        prompt: "keep this prompt",
+        status: "running",
+        taskId: "task-secret",
+        resultImageAssetId: "owner-asset-1",
+        resultImageUrl: "https://cdn.example/img.png",
+      },
+    }],
+    edges: [],
+  });
+  assert.equal(forked.nodes[0].data.prompt, "keep this prompt");
+  assert.equal(forked.nodes[0].data.resultImageUrl, "https://cdn.example/img.png");
+  assert.equal(forked.nodes[0].data.status, undefined);
+  assert.equal(forked.nodes[0].data.taskId, undefined);
+  assert.equal(forked.nodes[0].data.resultImageAssetId, undefined);
+});
+
+test("canvas sharing APIs, unlock gate, fork gate, and UI follow strict no-peek and top-right controls", () => {
+  const server = read("server.js");
+  const db = read("db.js");
+  const editor = read("workflow-react/src/components/workflow/WorkflowEditor.js");
+  const library = read("workflow-react/src/components/workflow/WorkflowLibrary.js");
+  const index = read("workflow-react/src/index.js");
+
+  // Server routes and unified authorization gate for GET + FORK
+  assert.match(server, /url\.pathname === "\/api\/workflow\/templates"/);
+  assert.match(server, /\/sharing\\\/\?\$/);
+  assert.match(server, /\/invite-code\\\/rotate\\\/\?\$/);
+  assert.match(server, /\/unlock\\\/\?\$/);
+  assert.match(server, /\/fork\\\/\?\$/);
+  assert.match(server, /async function authorizeWorkflowCanvasRead/);
+  assert.match(server, /code: "WORKFLOW_CANVAS_LOCKED"/);
+  assert.match(server, /code: "WORKFLOW_CANVAS_PRIVATE"/);
+  assert.match(server, /code: "INVITE_CODE_RATE_LIMITED"/);
+
+  // PostgreSQL tables and transactional unlock ledger
+  assert.match(db, /CREATE TABLE IF NOT EXISTS app_workflow_canvas_unlocks/);
+  assert.match(db, /UNIQUE \(canvas_id, user_id\)/);
+  assert.match(db, /async function unlockWorkflowCanvasWithCreditsInDb/);
+  assert.match(db, /async function unlockWorkflowCanvasWithCodeInDb/);
+  assert.match(db, /consumeCheckinCreditLots\(client, cleanUserId, -cost\)/);
+
+  // Editor removes inner New button and puts sharing/invite button in top-right toolbar
+  assert.doesNotMatch(editor, /CanvasEditor-new-button/);
+  assert.doesNotMatch(editor, /＋ 新建/);
+  assert.match(editor, /CanvasEditor-share-button/);
+  assert.match(editor, /公开 \/ 邀请/);
+  assert.match(editor, /复制到我的画布/);
+  assert.match(editor, /readOnly=\{readOnly\}/);
+
+  // Library adds Public Templates tab and suppresses miniNodes on locked cards
+  assert.match(library, /我的项目/);
+  assert.match(library, /公开模版/);
+  assert.match(library, /if \(project\?\.locked\) return \[\]/);
+  assert.match(library, /InspirationCanvas-card-locked-placeholder/);
+
+  // Deep link flow checks login first, then locked gate / invite code unlock
+  assert.match(index, /openPlatformLoginModal/);
+  assert.match(index, /WORKFLOW_CANVAS_LOCKED/);
+  assert.match(index, /WorkflowUnlockModal/);
+  assert.match(index, /workflow-auth-changed/);
 });

@@ -1721,7 +1721,25 @@ async function ensureSchemaInner({ client = null } = {}) {
     CREATE TABLE IF NOT EXISTS app_workflow_canvases (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
       name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      visibility TEXT NOT NULL DEFAULT 'private',
+      unlock_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      allow_credit_unlock BOOLEAN NOT NULL DEFAULT FALSE,
+      allow_code_unlock BOOLEAN NOT NULL DEFAULT TRUE,
+      invite_mode TEXT NOT NULL DEFAULT 'static',
+      invite_code TEXT NOT NULL DEFAULT '',
+      invite_secret TEXT NOT NULL DEFAULT '',
+      invite_version INTEGER NOT NULL DEFAULT 1,
+      invite_rotate_interval_sec INTEGER NOT NULL DEFAULT 86400,
+      invite_expires_at TIMESTAMPTZ,
+      invite_max_uses INTEGER NOT NULL DEFAULT 0,
+      invite_used_count INTEGER NOT NULL DEFAULT 0,
+      published_at TIMESTAMPTZ,
+      fork_source_id TEXT NOT NULL DEFAULT '',
+      unlock_count INTEGER NOT NULL DEFAULT 0,
+      fork_count INTEGER NOT NULL DEFAULT 0,
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1730,12 +1748,57 @@ async function ensureSchemaInner({ client = null } = {}) {
   await run(`
     ALTER TABLE app_workflow_canvases
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
       ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private',
+      ADD COLUMN IF NOT EXISTS unlock_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS allow_credit_unlock BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS allow_code_unlock BOOLEAN NOT NULL DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS invite_mode TEXT NOT NULL DEFAULT 'static',
+      ADD COLUMN IF NOT EXISTS invite_code TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS invite_secret TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS invite_version INTEGER NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS invite_rotate_interval_sec INTEGER NOT NULL DEFAULT 86400,
+      ADD COLUMN IF NOT EXISTS invite_expires_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS invite_max_uses INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS invite_used_count INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS fork_source_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS unlock_count INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS fork_count INTEGER NOT NULL DEFAULT 0,
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
   await run(`CREATE INDEX IF NOT EXISTS app_workflow_canvases_user_updated_idx ON app_workflow_canvases (user_id, updated_at DESC, created_at DESC);`);
+  await run(`
+    CREATE INDEX IF NOT EXISTS app_workflow_canvases_public_idx
+      ON app_workflow_canvases (tenant_id, visibility, published_at DESC, updated_at DESC)
+      WHERE visibility IN ('public', 'semi_public');
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS app_workflow_canvas_unlocks (
+      id TEXT PRIMARY KEY,
+      canvas_id TEXT NOT NULL REFERENCES app_workflow_canvases(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      unlock_method TEXT NOT NULL DEFAULT 'credits',
+      credits_spent NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      credit_ledger_id TEXT NOT NULL DEFAULT '',
+      invite_version INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (canvas_id, user_id)
+    );
+  `);
+  await run(`
+    ALTER TABLE app_workflow_canvas_unlocks
+      ADD COLUMN IF NOT EXISTS unlock_method TEXT NOT NULL DEFAULT 'credits',
+      ADD COLUMN IF NOT EXISTS credits_spent NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS credit_ledger_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS invite_version INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS app_workflow_canvas_unlocks_user_idx ON app_workflow_canvas_unlocks (user_id, created_at DESC);`);
   await run(`
     CREATE TABLE IF NOT EXISTS app_story_projects (
       id TEXT PRIMARY KEY,
@@ -7467,7 +7530,27 @@ function workflowCanvasFromRow(row = {}) {
   return {
     id: String(row.id || payload.id || "").trim(),
     userId: String(row.user_id || payload.userId || "").trim(),
+    tenantId: normalizeTenantId(row.tenant_id || payload.tenantId || DEFAULT_TENANT_ID),
     name: String(row.name || payload.name || "").trim(),
+    description: String(row.description || "").trim(),
+    visibility: String(row.visibility || "private").trim().toLowerCase() || "private",
+    unlockCredits: Number(row.unlock_credits || 0) || 0,
+    allowCreditUnlock: Boolean(row.allow_credit_unlock),
+    allowCodeUnlock: row.allow_code_unlock !== false,
+    inviteMode: String(row.invite_mode || "static").trim().toLowerCase() || "static",
+    inviteCode: String(row.invite_code || "").trim(),
+    inviteSecret: String(row.invite_secret || "").trim(),
+    inviteVersion: Math.max(1, Math.trunc(Number(row.invite_version || 1) || 1)),
+    inviteRotateIntervalSec: Math.max(300, Math.trunc(Number(row.invite_rotate_interval_sec || 86400) || 86400)),
+    inviteExpiresAt: toIsoString(row.invite_expires_at),
+    inviteMaxUses: Math.max(0, Math.trunc(Number(row.invite_max_uses || 0) || 0)),
+    inviteUsedCount: Math.max(0, Math.trunc(Number(row.invite_used_count || 0) || 0)),
+    publishedAt: toIsoString(row.published_at),
+    forkSourceId: String(row.fork_source_id || "").trim(),
+    unlockCount: Math.max(0, Math.trunc(Number(row.unlock_count || 0) || 0)),
+    forkCount: Math.max(0, Math.trunc(Number(row.fork_count || 0) || 0)),
+    ownerName: String(row.owner_name || "").trim(),
+    unlocked: row.viewer_unlocked === true,
     workflow: payload.workflow && typeof payload.workflow === "object" ? payload.workflow : {},
     createdAt: toIsoString(row.created_at || payload.createdAt),
     updatedAt: toIsoString(row.updated_at || payload.updatedAt),
@@ -7481,13 +7564,33 @@ async function listWorkflowCanvasesFromDb(userId = "") {
   await ensureSchema();
   const { rows } = await query(
     `
-      SELECT id, user_id, name, payload, created_at, updated_at FROM app_workflow_canvases
-      WHERE user_id = $1
-      ORDER BY updated_at DESC, created_at DESC
+      SELECT c.*, COALESCE(u.username, '') AS owner_name
+      FROM app_workflow_canvases c
+      LEFT JOIN app_users u ON u.id = c.user_id
+      WHERE c.user_id = $1
+      ORDER BY c.updated_at DESC, c.created_at DESC
     `,
     [ownerId],
   );
   return rows.map(workflowCanvasFromRow);
+}
+
+async function getWorkflowCanvasByIdFromDb(id = "") {
+  if (!dbEnabled()) return null;
+  const canvasId = String(id || "").trim();
+  if (!canvasId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT c.*, COALESCE(u.username, '') AS owner_name
+      FROM app_workflow_canvases c
+      LEFT JOIN app_users u ON u.id = c.user_id
+      WHERE c.id = $1
+      LIMIT 1
+    `,
+    [canvasId],
+  );
+  return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
 }
 
 async function getWorkflowCanvasFromDb({ id = "", userId = "" } = {}) {
@@ -7503,21 +7606,30 @@ async function getWorkflowCanvasFromDb({ id = "", userId = "" } = {}) {
   return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
 }
 
-async function createWorkflowCanvasInDb({ id = "", userId = "", name = "", workflow = {} } = {}) {
+async function createWorkflowCanvasInDb({
+  id = "",
+  userId = "",
+  tenantId = DEFAULT_TENANT_ID,
+  name = "",
+  workflow = {},
+  forkSourceId = "",
+} = {}) {
   if (!dbEnabled()) return null;
   const canvasId = String(id || "").trim();
   const ownerId = String(userId || "").trim();
   if (!canvasId || !ownerId) return null;
   await ensureSchema();
   const now = new Date().toISOString();
-  const payload = { id: canvasId, userId: ownerId, name, workflow, createdAt: now, updatedAt: now };
+  const cleanTenant = normalizeTenantId(tenantId);
+  const cleanForkSource = String(forkSourceId || "").trim();
+  const payload = { id: canvasId, userId: ownerId, tenantId: cleanTenant, name, workflow, createdAt: now, updatedAt: now };
   const { rows } = await query(
     `
-      INSERT INTO app_workflow_canvases(id, user_id, name, payload, created_at, updated_at)
-      VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $5::timestamptz)
+      INSERT INTO app_workflow_canvases(id, user_id, tenant_id, name, fork_source_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz, $7::timestamptz)
       RETURNING *
     `,
-    [canvasId, ownerId, name, JSON.stringify(payload), now],
+    [canvasId, ownerId, cleanTenant, name, cleanForkSource, JSON.stringify(payload), now],
   );
   return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
 }
@@ -7558,6 +7670,374 @@ async function deleteWorkflowCanvasInDb({ id = "", userId = "" } = {}) {
     [canvasId, ownerId],
   );
   return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
+}
+
+async function updateWorkflowCanvasSharingInDb({ id = "", userId = "", tenantId = DEFAULT_TENANT_ID, sharing = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const canvasId = String(id || "").trim();
+  const ownerId = String(userId || "").trim();
+  if (!canvasId || !ownerId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const cleanTenant = normalizeTenantId(tenantId);
+  const visibility = String(sharing.visibility || "private").trim().toLowerCase();
+  const isPublished = visibility === "public" || visibility === "semi_public";
+  const { rows } = await query(
+    `
+      UPDATE app_workflow_canvases
+      SET tenant_id = $3,
+          visibility = $4,
+          description = $5,
+          unlock_credits = $6::numeric,
+          allow_credit_unlock = $7,
+          allow_code_unlock = $8,
+          invite_mode = $9,
+          invite_code = $10,
+          invite_secret = $11,
+          invite_rotate_interval_sec = $12,
+          invite_expires_at = $13::timestamptz,
+          invite_max_uses = $14,
+          published_at = CASE WHEN $15 THEN COALESCE(published_at, $16::timestamptz) ELSE published_at END,
+          updated_at = $16::timestamptz
+      WHERE id = $1 AND user_id = $2
+      RETURNING *
+    `,
+    [
+      canvasId,
+      ownerId,
+      cleanTenant,
+      visibility,
+      String(sharing.description || ""),
+      Number(sharing.unlockCredits || 0),
+      Boolean(sharing.allowCreditUnlock),
+      Boolean(sharing.allowCodeUnlock),
+      String(sharing.inviteMode || "static"),
+      String(sharing.inviteCode || ""),
+      String(sharing.inviteSecret || ""),
+      Math.max(300, Math.trunc(Number(sharing.inviteRotateIntervalSec || 86400) || 86400)),
+      sharing.inviteExpiresAt ? String(sharing.inviteExpiresAt) : null,
+      Math.max(0, Math.trunc(Number(sharing.inviteMaxUses || 0) || 0)),
+      isPublished,
+      now,
+    ],
+  );
+  return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
+}
+
+async function rotateWorkflowCanvasInviteCodeInDb({ id = "", userId = "", nextCode = "", nextSecret = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const canvasId = String(id || "").trim();
+  const ownerId = String(userId || "").trim();
+  if (!canvasId || !ownerId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const { rows } = await query(
+    `
+      UPDATE app_workflow_canvases
+      SET invite_code = CASE WHEN $3 <> '' THEN $3 ELSE invite_code END,
+          invite_secret = CASE WHEN COALESCE(invite_secret, '') = '' THEN $4 ELSE invite_secret END,
+          invite_version = COALESCE(invite_version, 1) + 1,
+          invite_used_count = 0,
+          updated_at = $5::timestamptz
+      WHERE id = $1 AND user_id = $2
+      RETURNING *
+    `,
+    [canvasId, ownerId, String(nextCode || ""), String(nextSecret || ""), now],
+  );
+  return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
+}
+
+async function listPublicWorkflowTemplatesFromDb({
+  tenantId = DEFAULT_TENANT_ID,
+  viewerUserId = "",
+  visibility = "all",
+  sort = "latest",
+  search = "",
+  limit = 60,
+  offset = 0,
+} = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const cleanTenant = normalizeTenantId(tenantId);
+  const viewerId = String(viewerUserId || "").trim();
+  const visFilter = ["public", "semi_public"].includes(String(visibility || "").trim().toLowerCase())
+    ? String(visibility).trim().toLowerCase()
+    : "all";
+  const cleanSearch = String(search || "").trim().toLowerCase().slice(0, 80);
+  const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit || 60) || 60)));
+  const safeOffset = Math.max(0, Math.trunc(Number(offset || 0) || 0));
+  const orderSql = String(sort || "").trim().toLowerCase() === "popular"
+    ? "(c.unlock_count + c.fork_count) DESC, COALESCE(c.published_at, c.updated_at) DESC, c.updated_at DESC"
+    : "COALESCE(c.published_at, c.updated_at) DESC, c.updated_at DESC";
+  const { rows } = await query(
+    `
+      SELECT c.*,
+             COALESCE(u.username, '') AS owner_name,
+             (ul.id IS NOT NULL) AS viewer_unlocked
+      FROM app_workflow_canvases c
+      LEFT JOIN app_users u ON u.id = c.user_id
+      LEFT JOIN app_workflow_canvas_unlocks ul
+        ON ul.canvas_id = c.id AND ($2 <> '' AND ul.user_id = $2)
+      WHERE c.tenant_id = $1
+        AND (($3 = 'all' AND c.visibility IN ('public', 'semi_public')) OR ($3 <> 'all' AND c.visibility = $3))
+        AND (u.id IS NULL OR u.deleted_at IS NULL)
+        AND ($4 = '' OR LOWER(c.name) LIKE '%' || $4 || '%' OR LOWER(c.description) LIKE '%' || $4 || '%' OR LOWER(COALESCE(u.username, '')) LIKE '%' || $4 || '%')
+      ORDER BY ${orderSql}
+      LIMIT $5 OFFSET $6
+    `,
+    [cleanTenant, viewerId, visFilter, cleanSearch, safeLimit, safeOffset],
+  );
+  return rows.map(workflowCanvasFromRow);
+}
+
+async function getWorkflowCanvasUnlockFromDb({ canvasId = "", userId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanCanvasId = String(canvasId || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanCanvasId || !cleanUserId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    "SELECT * FROM app_workflow_canvas_unlocks WHERE canvas_id = $1 AND user_id = $2 LIMIT 1",
+    [cleanCanvasId, cleanUserId],
+  );
+  return rows[0] || null;
+}
+
+async function incrementWorkflowCanvasForkCountInDb(canvasId = "") {
+  if (!dbEnabled()) return false;
+  const cleanId = String(canvasId || "").trim();
+  if (!cleanId) return false;
+  await ensureSchema();
+  await query("UPDATE app_workflow_canvases SET fork_count = COALESCE(fork_count, 0) + 1 WHERE id = $1", [cleanId]);
+  return true;
+}
+
+async function unlockWorkflowCanvasWithCreditsInDb({
+  canvasId = "",
+  userId = "",
+  tenantId = DEFAULT_TENANT_ID,
+  unlockId = "",
+  ledgerId = "",
+} = {}) {
+  if (!dbEnabled()) return null;
+  const cleanCanvasId = String(canvasId || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanTenant = normalizeTenantId(tenantId);
+  const cleanUnlockId = String(unlockId || "").trim() || `wfu_${cleanCanvasId}_${cleanUserId}`;
+  const cleanLedgerId = String(ledgerId || "").trim() || `wf_unlock:${cleanCanvasId}:${cleanUserId}`;
+  if (!cleanCanvasId || !cleanUserId) return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const canvasRes = await client.query(
+      `SELECT c.*, COALESCE(u.username, '') AS owner_name
+       FROM app_workflow_canvases c
+       LEFT JOIN app_users u ON u.id = c.user_id
+       WHERE c.id = $1
+       FOR UPDATE OF c`,
+      [cleanCanvasId],
+    );
+    const canvasRow = canvasRes.rows[0];
+    if (!canvasRow || normalizeTenantId(canvasRow.tenant_id || DEFAULT_TENANT_ID) !== cleanTenant) {
+      await client.query("ROLLBACK");
+      return { ok: false, statusCode: 404, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "画布不存在。" };
+    }
+    const canvas = workflowCanvasFromRow(canvasRow);
+    if (canvas.userId === cleanUserId) {
+      await client.query("COMMIT");
+      return { ok: true, alreadyUnlocked: true, charged: false, creditsSpent: 0, canvas };
+    }
+    if (canvas.visibility !== "semi_public") {
+      await client.query("ROLLBACK");
+      return {
+        ok: false,
+        statusCode: canvas.visibility === "public" ? 409 : 403,
+        code: canvas.visibility === "public" ? "WORKFLOW_CANVAS_ALREADY_PUBLIC" : "WORKFLOW_CANVAS_PRIVATE",
+        message: canvas.visibility === "public" ? "该画布为公开模版，无需解锁。" : "该画布未公开，无权限访问。",
+      };
+    }
+    const existingUnlock = await client.query(
+      "SELECT * FROM app_workflow_canvas_unlocks WHERE canvas_id = $1 AND user_id = $2 LIMIT 1",
+      [cleanCanvasId, cleanUserId],
+    );
+    const userRes = await client.query("SELECT * FROM app_users WHERE id = $1 FOR UPDATE", [cleanUserId]);
+    const userRow = userRes.rows[0];
+    if (!userRow) {
+      await client.query("ROLLBACK");
+      return { ok: false, statusCode: 404, code: "USER_NOT_FOUND", message: "用户不存在。" };
+    }
+    if (existingUnlock.rows.length) {
+      await client.query("COMMIT");
+      return { ok: true, alreadyUnlocked: true, charged: false, creditsSpent: 0, canvas, user: userFromRow(userRow), unlock: existingUnlock.rows[0] };
+    }
+    const cost = creditNumber(canvas.unlockCredits || 0);
+    if (!canvas.allowCreditUnlock || cost <= 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, statusCode: 400, code: "CREDIT_UNLOCK_DISABLED", message: "该画布未开启积分解锁，请使用邀请码解锁。" };
+    }
+    const currentCredits = creditNumber(userRow.credits || 0);
+    const nextCredits = creditNumber(currentCredits - cost);
+    if (nextCredits < 0) {
+      await client.query("ROLLBACK");
+      return {
+        ok: false,
+        statusCode: 402,
+        code: "INSUFFICIENT_CREDITS",
+        message: `积分不足，解锁需要 ${cost} 积分，当前余额 ${currentCredits} 积分。`,
+        credits: currentCredits,
+        requiredCredits: cost,
+      };
+    }
+    const now = new Date().toISOString();
+    const existingLedger = await client.query("SELECT * FROM app_credit_ledger WHERE id = $1 LIMIT 1", [cleanLedgerId]);
+    let updatedUser = userFromRow(userRow);
+    if (!existingLedger.rows.length) {
+      await consumeCheckinCreditLots(client, cleanUserId, -cost);
+      const nextUserRes = await client.query(
+        `UPDATE app_users
+         SET credits = $2::numeric,
+             payload = COALESCE(payload, '{}'::jsonb) || jsonb_build_object('credits', $2::numeric, 'updatedAt', $3::text),
+             updated_at = $3::timestamptz
+         WHERE id = $1
+         RETURNING *`,
+        [cleanUserId, nextCredits, now],
+      );
+      updatedUser = nextUserRes.rows[0] ? userFromRow(nextUserRes.rows[0]) : { ...updatedUser, credits: nextCredits };
+      const meta = {
+        canvasId: cleanCanvasId,
+        canvasName: canvas.name,
+        ownerUserId: canvas.userId,
+        unlockMethod: "credits",
+      };
+      await client.query(
+        `INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
+         VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          cleanLedgerId,
+          cleanUserId,
+          -cost,
+          nextCredits,
+          "workflow_canvas_unlock",
+          JSON.stringify(meta),
+          JSON.stringify({ ...meta, id: cleanLedgerId, userId: cleanUserId, delta: -cost, balanceAfter: nextCredits, createdAt: now }),
+          now,
+        ],
+      );
+    }
+    const unlockRes = await client.query(
+      `INSERT INTO app_workflow_canvas_unlocks(id, canvas_id, user_id, unlock_method, credits_spent, credit_ledger_id, invite_version, created_at)
+       VALUES ($1, $2, $3, 'credits', $4::numeric, $5, 0, $6::timestamptz)
+       ON CONFLICT (canvas_id, user_id) DO NOTHING
+       RETURNING *`,
+      [cleanUnlockId, cleanCanvasId, cleanUserId, cost, cleanLedgerId, now],
+    );
+    if (unlockRes.rows.length) {
+      await client.query("UPDATE app_workflow_canvases SET unlock_count = COALESCE(unlock_count, 0) + 1 WHERE id = $1", [cleanCanvasId]);
+      canvas.unlockCount = (canvas.unlockCount || 0) + 1;
+    }
+    await client.query("COMMIT");
+    return { ok: true, alreadyUnlocked: false, charged: true, creditsSpent: cost, canvas, user: updatedUser, unlock: unlockRes.rows[0] || null };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function unlockWorkflowCanvasWithCodeInDb({
+  canvasId = "",
+  userId = "",
+  tenantId = DEFAULT_TENANT_ID,
+  unlockId = "",
+  verifyFn = null,
+} = {}) {
+  if (!dbEnabled()) return null;
+  const cleanCanvasId = String(canvasId || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanTenant = normalizeTenantId(tenantId);
+  const cleanUnlockId = String(unlockId || "").trim() || `wfu_${cleanCanvasId}_${cleanUserId}`;
+  if (!cleanCanvasId || !cleanUserId || typeof verifyFn !== "function") return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const canvasRes = await client.query(
+      `SELECT c.*, COALESCE(u.username, '') AS owner_name
+       FROM app_workflow_canvases c
+       LEFT JOIN app_users u ON u.id = c.user_id
+       WHERE c.id = $1
+       FOR UPDATE OF c`,
+      [cleanCanvasId],
+    );
+    const canvasRow = canvasRes.rows[0];
+    if (!canvasRow || normalizeTenantId(canvasRow.tenant_id || DEFAULT_TENANT_ID) !== cleanTenant) {
+      await client.query("ROLLBACK");
+      return { ok: false, statusCode: 404, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "画布不存在。" };
+    }
+    const canvas = workflowCanvasFromRow(canvasRow);
+    if (canvas.userId === cleanUserId) {
+      await client.query("COMMIT");
+      return { ok: true, alreadyUnlocked: true, canvas };
+    }
+    if (canvas.visibility !== "semi_public") {
+      await client.query("ROLLBACK");
+      return {
+        ok: false,
+        statusCode: canvas.visibility === "public" ? 409 : 403,
+        code: canvas.visibility === "public" ? "WORKFLOW_CANVAS_ALREADY_PUBLIC" : "WORKFLOW_CANVAS_PRIVATE",
+        message: canvas.visibility === "public" ? "该画布为公开模版，无需邀请码。" : "该画布未公开，无权限访问。",
+      };
+    }
+    const existingUnlock = await client.query(
+      "SELECT * FROM app_workflow_canvas_unlocks WHERE canvas_id = $1 AND user_id = $2 LIMIT 1",
+      [cleanCanvasId, cleanUserId],
+    );
+    if (existingUnlock.rows.length) {
+      await client.query("COMMIT");
+      return { ok: true, alreadyUnlocked: true, canvas, unlock: existingUnlock.rows[0] };
+    }
+    const check = verifyFn(canvas);
+    if (!check || !check.ok) {
+      await client.query("ROLLBACK");
+      return {
+        ok: false,
+        statusCode: Number(check?.statusCode || 400),
+        code: String(check?.code || "INVALID_INVITE_CODE"),
+        message: String(check?.message || "邀请码无效。"),
+      };
+    }
+    const now = new Date().toISOString();
+    const unlockRes = await client.query(
+      `INSERT INTO app_workflow_canvas_unlocks(id, canvas_id, user_id, unlock_method, credits_spent, credit_ledger_id, invite_version, created_at)
+       VALUES ($1, $2, $3, 'invite_code', 0, '', $4, $5::timestamptz)
+       ON CONFLICT (canvas_id, user_id) DO NOTHING
+       RETURNING *`,
+      [cleanUnlockId, cleanCanvasId, cleanUserId, Math.max(1, Math.trunc(Number(check.version || canvas.inviteVersion || 1) || 1)), now],
+    );
+    if (unlockRes.rows.length) {
+      await client.query(
+        `UPDATE app_workflow_canvases
+         SET invite_used_count = COALESCE(invite_used_count, 0) + 1,
+             unlock_count = COALESCE(unlock_count, 0) + 1
+         WHERE id = $1`,
+        [cleanCanvasId],
+      );
+      canvas.inviteUsedCount = (canvas.inviteUsedCount || 0) + 1;
+      canvas.unlockCount = (canvas.unlockCount || 0) + 1;
+    }
+    await client.query("COMMIT");
+    return { ok: true, alreadyUnlocked: false, canvas, unlock: unlockRes.rows[0] || null };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 function storyProjectFromRow(row = {}) {
@@ -13626,6 +14106,14 @@ module.exports = {
   createWorkflowCanvasInDb,
   updateWorkflowCanvasInDb,
   deleteWorkflowCanvasInDb,
+  getWorkflowCanvasByIdFromDb,
+  updateWorkflowCanvasSharingInDb,
+  rotateWorkflowCanvasInviteCodeInDb,
+  listPublicWorkflowTemplatesFromDb,
+  getWorkflowCanvasUnlockFromDb,
+  incrementWorkflowCanvasForkCountInDb,
+  unlockWorkflowCanvasWithCreditsInDb,
+  unlockWorkflowCanvasWithCodeInDb,
   listStoryProjectsFromDb,
   getStoryProjectFromDb,
   createStoryProjectInDb,

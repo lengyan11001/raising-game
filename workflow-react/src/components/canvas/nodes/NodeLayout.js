@@ -4,6 +4,7 @@
 import React, { memo } from 'react';
 import { Handle, Position, useReactFlow } from '@xyflow/react';
 import { selectSiteNode } from '../../../site/SiteBridge';
+import { useCanvasReadOnly } from '../providers/CanvasReadOnlyProvider';
 
 export const NodeLayout = memo(({
   id,
@@ -20,6 +21,7 @@ export const NodeLayout = memo(({
   className = '',
 }) => {
   const { deleteElements } = useReactFlow();
+  const readOnly = useCanvasReadOnly();
   const [downloading, setDownloading] = React.useState(false);
   const [addingToAssets, setAddingToAssets] = React.useState(false);
   const [assetAdded, setAssetAdded] = React.useState(false);
@@ -55,6 +57,7 @@ export const NodeLayout = memo(({
     }
   };
   const removeNode = (event) => {
+    if (readOnly) return;
     event.preventDefault();
     event.stopPropagation();
     // React Flow is a controlled view over the site's business workflow.
@@ -137,6 +140,7 @@ export const NodeLayout = memo(({
           >
             <i className={`bi ${downloading ? 'bi-arrow-repeat' : 'bi-download'}`} aria-hidden="true" />
           </button>
+{!readOnly && (
           <button
             type="button"
             className="nodrag nopan site-generation-delete"
@@ -153,6 +157,7 @@ export const NodeLayout = memo(({
           >
             <i className="bi bi-trash3" aria-hidden="true" />
           </button>
+          )}
         </span>
       </div>
 

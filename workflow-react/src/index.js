@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { Canvas } from './components/canvas/Canvas';
 import { WorkflowEditor } from './components/workflow/WorkflowEditor';
 import { WorkflowLibrary } from './components/workflow/WorkflowLibrary';
+import { WorkflowUnlockModal } from './components/workflow/WorkflowUnlockModal';
 import { requestCanvasJson } from './components/workflow/canvasApi';
 import {
   toReactFlowGraph,
@@ -30,21 +31,59 @@ function emptyWorkflow() {
   };
 }
 
+function parseWorkflowRouteFromWindow() {
+  if (typeof window === 'undefined') return { canvasId: '', inviteCode: '', subTab: '' };
+  if (typeof window.getWorkflowRouteParams === 'function') {
+    const route = window.getWorkflowRouteParams();
+    if (route && (route.canvasId || route.inviteCode || route.subTab)) return route;
+  }
+  const rawHash = String(window.location.hash || '').replace(/^#\/?/, '');
+  const [tab = '', query = ''] = rawHash.split('?');
+  const hashParams = tab === 'workflow' ? new URLSearchParams(query || '') : new URLSearchParams();
+  const searchParams = new URLSearchParams(window.location.search || '');
+  const subTab = String(hashParams.get('tab') || '').trim().toLowerCase();
+  return {
+    canvasId: String(hashParams.get('canvas') || searchParams.get('canvas') || '').trim(),
+    inviteCode: String(hashParams.get('code') || searchParams.get('code') || '').trim(),
+    subTab: ['mine', 'templates'].includes(subTab) ? subTab : '',
+  };
+}
+
+function readAuthSnapshot() {
+  if (typeof window !== 'undefined' && typeof window.getPlatformAuthState === 'function') {
+    return window.getPlatformAuthState();
+  }
+  const hasToken = (() => {
+    try { return Boolean(window.localStorage.getItem('raisingGameToken')); } catch { return false; }
+  })();
+  return { loggedIn: hasToken, authResolved: true, user: null };
+}
+
 function WorkflowWorkspace() {
+  const initialRoute = React.useMemo(() => parseWorkflowRouteFromWindow(), []);
   const [view, setView] = React.useState('library');
+  const [libraryTab, setLibraryTab] = React.useState(initialRoute.subTab || 'mine');
   const [project, setProject] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
+  const [pendingAccess, setPendingAccess] = React.useState(null);
+  const [unlockPrompt, setUnlockPrompt] = React.useState(null);
+  const [authVersion, setAuthVersion] = React.useState(0);
   const [libraryVersion, setLibraryVersion] = React.useState(0);
   const [editorVersion, setEditorVersion] = React.useState(0);
   const projectRef = React.useRef(null);
   const editorOpenRef = React.useRef(false);
   const historyTokenRef = React.useRef('');
   const lastCanvasBackAtRef = React.useRef(0);
+  const pendingAccessRef = React.useRef(null);
 
   React.useEffect(() => {
     projectRef.current = project;
   }, [project]);
+
+  React.useEffect(() => {
+    pendingAccessRef.current = pendingAccess;
+  }, [pendingAccess]);
 
   const rememberEditorHistory = React.useCallback((canvasId, replace = false) => {
     const state = window.history.state && typeof window.history.state === 'object'
@@ -63,6 +102,9 @@ function WorkflowWorkspace() {
     if (typeof window.deactivateWorkflowCanvasProject === 'function') {
       window.deactivateWorkflowCanvasProject();
     }
+    if (typeof window.setWorkflowRouteParams === 'function') {
+      window.setWorkflowRouteParams({ canvasId: '', inviteCode: '', subTab: libraryTab === 'templates' ? 'templates' : '' });
+    }
     if (syncHistory) {
       const state = window.history.state && typeof window.history.state === 'object'
         ? { ...window.history.state }
@@ -71,9 +113,12 @@ function WorkflowWorkspace() {
       window.history.replaceState(state, '', window.location.href);
     }
     setProject(null);
+    setUnlockPrompt(null);
+    setPendingAccess(null);
+    setError('');
     setView('library');
     setLibraryVersion((value) => value + 1);
-  }, []);
+  }, [libraryTab]);
 
   const keepEditorOnHistoryBack = React.useCallback(() => {
     if (!editorOpenRef.current) return false;
@@ -98,7 +143,7 @@ function WorkflowWorkspace() {
     // Consume the pair as one deletion, never two.
     if (now - lastCanvasBackAtRef.current > 180) {
       lastCanvasBackAtRef.current = now;
-      if (typeof window.deleteSelectedWorkflowNodeFromCanvas === 'function') {
+      if (projectRef.current?.canEdit !== false && typeof window.deleteSelectedWorkflowNodeFromCanvas === 'function') {
         window.deleteSelectedWorkflowNodeFromCanvas();
       }
     }
@@ -125,31 +170,99 @@ function WorkflowWorkspace() {
     };
   }, [handleCanvasHistoryBack]);
 
-  const openProject = React.useCallback(async (summary) => {
+  const activateLoadedCanvas = React.useCallback(async (canvas, { replaceHistory = false } = {}) => {
+    if (!canvas?.id || !canvas?.workflow) throw new Error('画布数据为空');
+    if (typeof window.activateWorkflowCanvasProject !== 'function') {
+      throw new Error('画布站点桥接未加载');
+    }
+    const readOnly = Boolean(canvas.canEdit === false || canvas.accessMode === 'template_readonly');
+    const activated = await window.activateWorkflowCanvasProject(canvas, { readOnly });
+    if (!activated) throw new Error('画布激活失败');
+    if (typeof window.setWorkflowRouteParams === 'function') {
+      window.setWorkflowRouteParams({ canvasId: canvas.id, inviteCode: '', subTab: '' });
+    }
+    editorOpenRef.current = true;
+    if (replaceHistory) rememberEditorHistory(canvas.id, true);
+    else rememberEditorHistory(canvas.id);
+    setPendingAccess(null);
+    setUnlockPrompt(null);
+    setError('');
+    setProject(canvas);
+    setEditorVersion((value) => value + 1);
+    setView('editor');
+  }, [rememberEditorHistory]);
+
+  const openCanvasById = React.useCallback(async (canvasId, { inviteCode = '', promptLogin = true } = {}) => {
+    const cleanId = String(canvasId || '').trim();
+    const cleanCode = String(inviteCode || '').trim();
+    if (!cleanId) return;
+    const auth = readAuthSnapshot();
+    if (!auth.loggedIn) {
+      setPendingAccess({ canvasId: cleanId, inviteCode: cleanCode });
+      setUnlockPrompt(null);
+      setError('');
+      if (auth.authResolved && promptLogin && typeof window.openPlatformLoginModal === 'function') {
+        window.openPlatformLoginModal();
+      }
+      return;
+    }
+
     setLoading(true);
     setError('');
+    setPendingAccess(null);
     try {
-      const payload = await requestCanvasJson(`/api/workflow/canvases/${encodeURIComponent(summary.id)}`);
-      const canvas = payload.canvas || {};
-      if (!canvas.id || !canvas.workflow) throw new Error('画布数据为空');
-      if (typeof window.activateWorkflowCanvasProject !== 'function') {
-        throw new Error('画布站点桥接未加载');
-      }
-      const activated = await window.activateWorkflowCanvasProject(canvas);
-      if (!activated) throw new Error('画布激活失败');
-      editorOpenRef.current = true;
-      rememberEditorHistory(canvas.id);
-      setProject(canvas);
-      setEditorVersion((value) => value + 1);
-      setView('editor');
+      const payload = await requestCanvasJson(`/api/workflow/canvases/${encodeURIComponent(cleanId)}`);
+      await activateLoadedCanvas(payload.canvas);
     } catch (openError) {
+      if (openError.status === 401 || openError.code === 'LOGIN_REQUIRED') {
+        setPendingAccess({ canvasId: cleanId, inviteCode: cleanCode });
+        if (promptLogin && typeof window.openPlatformLoginModal === 'function') {
+          window.openPlatformLoginModal();
+        }
+        return;
+      }
+      if (openError.status === 403 && openError.code === 'WORKFLOW_CANVAS_LOCKED') {
+        const lockedTemplate = openError.payload?.template || { id: cleanId };
+        if (cleanCode) {
+          try {
+            const unlockPayload = await requestCanvasJson(`/api/workflow/canvases/${encodeURIComponent(cleanId)}/unlock`, {
+              method: 'POST',
+              body: { method: 'invite_code', inviteCode: cleanCode },
+            });
+            if (unlockPayload.user && typeof window.syncPlatformUser === 'function') {
+              window.syncPlatformUser(unlockPayload.user);
+            }
+            await activateLoadedCanvas(unlockPayload.canvas);
+            return;
+          } catch (codeError) {
+            setUnlockPrompt({
+              template: lockedTemplate,
+              initialCode: cleanCode,
+              initialError: codeError.message || String(codeError),
+            });
+            return;
+          }
+        }
+        setUnlockPrompt({ template: lockedTemplate, initialCode: '', initialError: '' });
+        return;
+      }
       setError(openError.message || String(openError));
     } finally {
       setLoading(false);
     }
-  }, [rememberEditorHistory]);
+  }, [activateLoadedCanvas]);
+
+  const openProject = React.useCallback((summary) => {
+    if (!summary?.id) return;
+    openCanvasById(summary.id, { inviteCode: '', promptLogin: true });
+  }, [openCanvasById]);
 
   const createProject = React.useCallback(async () => {
+    const auth = readAuthSnapshot();
+    if (!auth.loggedIn) {
+      if (typeof window.openPlatformLoginModal === 'function') window.openPlatformLoginModal();
+      return;
+    }
     const adjectives = ['创意', '智能', '未来', '梦想', '灵感', '神奇', '精彩', '炫酷', '极致', '超凡'];
     const nouns = ['画布', '项目', '创作', '空间', '作品', '设计', '方案'];
     const name = `${adjectives[Math.floor(Math.random() * adjectives.length)]}${nouns[Math.floor(Math.random() * nouns.length)]}_${Date.now().toString().slice(-4)}`;
@@ -163,26 +276,81 @@ function WorkflowWorkspace() {
       });
       const canvas = payload.canvas || {};
       if (!canvas.id) throw new Error('画布创建失败');
-      if (typeof window.activateWorkflowCanvasProject !== 'function') {
-        throw new Error('画布站点桥接未加载');
-      }
-      const activated = await window.activateWorkflowCanvasProject({ ...canvas, workflow });
-      if (!activated) throw new Error('画布激活失败');
-      editorOpenRef.current = true;
-      rememberEditorHistory(canvas.id, Boolean(projectRef.current));
-      setProject({ ...canvas, workflow });
-      setEditorVersion((value) => value + 1);
-      setView('editor');
+      await activateLoadedCanvas({ ...canvas, workflow }, { replaceHistory: Boolean(projectRef.current) });
     } catch (createError) {
       setError(createError.message || String(createError));
     } finally {
       setLoading(false);
     }
-  }, [rememberEditorHistory]);
+  }, [activateLoadedCanvas]);
+
+  const forkProject = React.useCallback(async (sourceProject) => {
+    if (!sourceProject?.id) return;
+    setLoading(true);
+    setError('');
+    try {
+      const payload = await requestCanvasJson(`/api/workflow/canvases/${encodeURIComponent(sourceProject.id)}/fork`, {
+        method: 'POST',
+        body: {},
+      });
+      if (!payload.canvas?.id) throw new Error('复制画布失败');
+      setLibraryTab('mine');
+      await activateLoadedCanvas(payload.canvas, { replaceHistory: true });
+    } catch (forkError) {
+      setError(forkError.message || String(forkError));
+    } finally {
+      setLoading(false);
+    }
+  }, [activateLoadedCanvas]);
 
   const handleProjectChange = React.useCallback((nextProject) => {
     setProject((current) => ({ ...(current || {}), ...(nextProject || {}) }));
   }, []);
+
+  const handleTabChange = React.useCallback((nextTab) => {
+    const cleanTab = nextTab === 'templates' ? 'templates' : 'mine';
+    setLibraryTab(cleanTab);
+    if (typeof window.setWorkflowRouteParams === 'function') {
+      window.setWorkflowRouteParams({ canvasId: '', inviteCode: '', subTab: cleanTab === 'templates' ? 'templates' : '' });
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const route = parseWorkflowRouteFromWindow();
+    if (route.subTab) setLibraryTab(route.subTab);
+    if (route.canvasId) {
+      openCanvasById(route.canvasId, { inviteCode: route.inviteCode, promptLogin: true });
+    }
+  }, [openCanvasById]);
+
+  React.useEffect(() => {
+    const onRouteChanged = (event) => {
+      const detail = event?.detail || {};
+      if (detail.subTab) setLibraryTab(detail.subTab === 'templates' ? 'templates' : 'mine');
+      const targetId = String(detail.canvasId || '').trim();
+      if (targetId && targetId !== String(projectRef.current?.id || '')) {
+        openCanvasById(targetId, { inviteCode: detail.inviteCode || '', promptLogin: true });
+      }
+    };
+    const onAuthChanged = (event) => {
+      setAuthVersion((value) => value + 1);
+      const detail = event?.detail || readAuthSnapshot();
+      const pending = pendingAccessRef.current;
+      if (pending?.canvasId) {
+        if (detail.loggedIn) {
+          openCanvasById(pending.canvasId, { inviteCode: pending.inviteCode, promptLogin: false });
+        } else if (detail.authResolved && typeof window.openPlatformLoginModal === 'function') {
+          window.openPlatformLoginModal();
+        }
+      }
+    };
+    window.addEventListener('workflow-route-changed', onRouteChanged);
+    window.addEventListener('workflow-auth-changed', onAuthChanged);
+    return () => {
+      window.removeEventListener('workflow-route-changed', onRouteChanged);
+      window.removeEventListener('workflow-auth-changed', onAuthChanged);
+    };
+  }, [openCanvasById]);
 
   if (loading) {
     return (
@@ -193,12 +361,51 @@ function WorkflowWorkspace() {
     );
   }
 
+  if (pendingAccess && !editorOpenRef.current) {
+    return (
+      <div className="WorkflowWorkspace-state" role="status">
+        <strong>请先登录后查看此画布</strong>
+        <span>登录完成后将自动校验画布权限并继续打开</span>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+          <button
+            type="button"
+            onClick={() => window.openPlatformLoginModal?.()}
+          >
+            立即登录
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setPendingAccess(null);
+              if (typeof window.setWorkflowRouteParams === 'function') {
+                window.setWorkflowRouteParams({ canvasId: '', inviteCode: '', subTab: 'templates' });
+              }
+              setLibraryTab('templates');
+              setView('library');
+            }}
+          >
+            浏览公开模版
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="WorkflowWorkspace-state is-error" role="alert">
-        <strong>画布操作失败</strong>
+        <strong>无法打开画布</strong>
         <span>{error}</span>
-        <button type="button" onClick={() => { setError(''); setView('library'); }}>
+        <button
+          type="button"
+          onClick={() => {
+            setError('');
+            if (typeof window.setWorkflowRouteParams === 'function') {
+              window.setWorkflowRouteParams({ canvasId: '', inviteCode: '', subTab: libraryTab === 'templates' ? 'templates' : '' });
+            }
+            setView('library');
+          }}
+        >
           返回项目列表
         </button>
       </div>
@@ -206,23 +413,53 @@ function WorkflowWorkspace() {
   }
 
   if (view === 'editor' && project) {
+    const readOnly = Boolean(project.canEdit === false || project.accessMode === 'template_readonly');
     return (
       <WorkflowEditor
         key={`${project.id}:${editorVersion}`}
         project={project}
+        readOnly={readOnly}
         onBack={returnToLibrary}
-        onCreate={createProject}
+        onFork={forkProject}
         onProjectChange={handleProjectChange}
       />
     );
   }
 
   return (
-    <WorkflowLibrary
-      key={`library:${libraryVersion}`}
-      onOpen={openProject}
-      onCreate={createProject}
-    />
+    <>
+      <WorkflowLibrary
+        key={`library:${libraryVersion}`}
+        activeTab={libraryTab}
+        onTabChange={handleTabChange}
+        onOpen={openProject}
+        onCreate={createProject}
+        authVersion={authVersion}
+      />
+      {unlockPrompt ? (
+        <WorkflowUnlockModal
+          template={unlockPrompt.template}
+          initialCode={unlockPrompt.initialCode}
+          initialError={unlockPrompt.initialError}
+          onClose={() => {
+            setUnlockPrompt(null);
+            if (typeof window.setWorkflowRouteParams === 'function') {
+              window.setWorkflowRouteParams({ canvasId: '', inviteCode: '', subTab: libraryTab === 'templates' ? 'templates' : '' });
+            }
+          }}
+          onUnlocked={async (payload) => {
+            setUnlockPrompt(null);
+            if (payload?.canvas) {
+              try {
+                await activateLoadedCanvas(payload.canvas);
+              } catch (activateErr) {
+                setError(activateErr.message || String(activateErr));
+              }
+            }
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

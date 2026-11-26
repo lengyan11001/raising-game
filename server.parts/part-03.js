@@ -544,30 +544,31 @@ async function handleWorkflowPresets(req, res) {
   return sendJson(res, 200, { ok: true, presets: list });
 }
 
-async function createDefaultWorkflowCanvasForUser(userId = "") {
+async function createDefaultWorkflowCanvasForUser(userId = "", tenantId = DEFAULT_TENANT_ID) {
   return createWorkflowCanvasInDb({
     id: randomId("workflow"),
     userId,
+    tenantId,
     name: "Untitled workflow",
     workflow: defaultWorkflowCanvasState(),
   });
 }
 
-async function ensureUserWorkflowCanvases(userId = "") {
+async function ensureUserWorkflowCanvases(userId = "", tenantId = DEFAULT_TENANT_ID) {
   let canvases = await listWorkflowCanvasesFromDb(userId);
   if (canvases === null) return null;
   if (!canvases.length) {
-    const created = await createDefaultWorkflowCanvasForUser(userId);
+    const created = await createDefaultWorkflowCanvasForUser(userId, tenantId);
     canvases = created ? [created] : [];
   }
   return canvases;
 }
 
-function workflowCanvasListView(canvases = []) {
+function workflowCanvasListView(canvases = [], { includeOwnerControls = true } = {}) {
   // Canvas summaries are persisted snapshots. Their thumbnail fields can hold
   // OSS/CDN signatures that expire, so mint delivery URLs again at list time.
   return (Array.isArray(canvases) ? canvases : [])
-    .map((canvas) => publicAssetUrlsForClient(publicWorkflowCanvasSummary(canvas)));
+    .map((canvas) => publicAssetUrlsForClient(publicWorkflowCanvasSummary(canvas, { isOwner: true, includeOwnerControls })));
 }
 
 function sendWorkflowCanvasValidationError(res, error) {
@@ -582,9 +583,9 @@ async function handleListWorkflowCanvases(req, res) {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
   const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
-  const canvases = await ensureUserWorkflowCanvases(auth.user.id);
+  const canvases = await ensureUserWorkflowCanvases(auth.user.id, requestTenantId(req));
   if (canvases === null) return sendJson(res, 503, { ok: false, message: "Workflow storage is unavailable." });
-  return sendJson(res, 200, { ok: true, canvases: workflowCanvasListView(canvases) });
+  return sendJson(res, 200, { ok: true, canvases: workflowCanvasListView(canvases, { includeOwnerControls: true }) });
 }
 
 async function handleCreateWorkflowCanvas(req, res) {
@@ -602,10 +603,11 @@ async function handleCreateWorkflowCanvas(req, res) {
     const canvas = await createWorkflowCanvasInDb({
       id: randomId("workflow"),
       userId: auth.user.id,
+      tenantId: requestTenantId(req),
       name: normalizeWorkflowCanvasName(body.name),
       workflow: normalizeWorkflowCanvasState(body.workflow || defaultWorkflowCanvasState()),
     });
-    return sendJson(res, 201, { ok: true, canvas: publicWorkflowCanvasView(canvas) });
+    return sendJson(res, 201, { ok: true, canvas: publicWorkflowCanvasView(canvas, { isOwner: true }) });
   } catch (error) {
     return sendWorkflowCanvasValidationError(res, error);
   }
@@ -615,9 +617,13 @@ async function handleGetWorkflowCanvas(req, res, canvasId = "") {
   if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
   const auth = await requireUser(req, res, { loadDb: false });
   if (!auth) return;
-  const canvas = await getWorkflowCanvasFromDb({ id: canvasId, userId: auth.user.id });
-  if (!canvas) return sendJson(res, 404, { ok: false, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "Workflow not found." });
-  return sendJson(res, 200, { ok: true, canvas: publicAssetUrlsForClient(publicWorkflowCanvasView(canvas)) });
+  const access = await authorizeWorkflowCanvasRead({ req, auth, canvasId });
+  if (!access.ok) return sendJson(res, access.statusCode, access.body);
+  const hydrated = await hydrateSharedWorkflowUploadedMedia(access.canvas, { stripOwnerAssetIds: !access.isOwner });
+  return sendJson(res, 200, {
+    ok: true,
+    canvas: publicAssetUrlsForClient(publicWorkflowCanvasView(hydrated, { isOwner: access.isOwner, unlocked: access.unlocked })),
+  });
 }
 
 async function handleUpdateWorkflowCanvas(req, res, canvasId = "") {
@@ -644,7 +650,7 @@ async function handleUpdateWorkflowCanvas(req, res, canvasId = "") {
       workflow: normalizeWorkflowCanvasState(body.workflow),
     });
     if (!canvas) return sendJson(res, 404, { ok: false, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "Workflow not found." });
-    return sendJson(res, 200, { ok: true, canvas: publicWorkflowCanvasSummary(canvas) });
+    return sendJson(res, 200, { ok: true, canvas: publicAssetUrlsForClient(publicWorkflowCanvasSummary(canvas, { isOwner: true, includeOwnerControls: true })) });
   } catch (error) {
     return sendWorkflowCanvasValidationError(res, error);
   } finally {
@@ -659,7 +665,7 @@ async function handleDeleteWorkflowCanvas(req, res, canvasId = "") {
   const deleted = await deleteWorkflowCanvasInDb({ id: canvasId, userId: auth.user.id });
   if (deleted === null && !dbEnabled()) return sendJson(res, 503, { ok: false, message: "Workflow storage is unavailable." });
   if (!deleted) return sendJson(res, 404, { ok: false, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "Workflow not found." });
-  const canvases = await ensureUserWorkflowCanvases(auth.user.id);
+  const canvases = await ensureUserWorkflowCanvases(auth.user.id, requestTenantId(req));
   return sendJson(res, 200, { ok: true, canvases: workflowCanvasListView(canvases), deletedId: canvasId });
 }
 

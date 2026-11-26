@@ -67,6 +67,11 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-26-workflow-canvas-sharing-v1",
+    description: "Add workflow canvas visibility, dynamic invite codes, and unlock records",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",

@@ -207,7 +207,7 @@ function mergeWorkflowCanvasWithLocalEdits(serverWorkflow = {}, localWorkflow = 
   };
 }
 
-function setActiveWorkflowCanvas(canvas = {}, { preserveLocalEdits = false, baselineWorkflow = null, requestSeq = 0 } = {}) {
+function setActiveWorkflowCanvas(canvas = {}, { preserveLocalEdits = false, baselineWorkflow = null, requestSeq = 0, skipProjectList = false } = {}) {
   if (requestSeq && !workflowCanvasLoadIsCurrent(requestSeq)) return false;
   window.clearTimeout(state.workflowCanvasSaveTimer);
   state.workflowCanvasSaveTimer = 0;
@@ -215,10 +215,12 @@ function setActiveWorkflowCanvas(canvas = {}, { preserveLocalEdits = false, base
   window.clearTimeout(state.workflowViewportSaveTimer);
   state.workflowViewportSaveTimer = 0;
   const summary = workflowCanvasSummary(canvas);
-  state.workflowCanvases = [
-    summary,
-    ...(state.workflowCanvases || []).filter((item) => item.id !== summary.id),
-  ].sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
+  if (!skipProjectList) {
+    state.workflowCanvases = [
+      summary,
+      ...(state.workflowCanvases || []).filter((item) => item.id !== summary.id),
+    ].sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
+  }
   const previousWorkflow = state.workflow;
   state.workflowActiveCanvasId = summary.id;
   state.workflow = canvas.workflow && Array.isArray(canvas.workflow.nodes)
@@ -233,7 +235,7 @@ function setActiveWorkflowCanvas(canvas = {}, { preserveLocalEdits = false, base
   state.workflowPickerSearch = "";
   state.workflowMessage = "";
   state.workflowLogs = [];
-  localStorage.setItem(workflowCanvasScopedKey(WORKFLOW_CANVAS_ACTIVE_KEY), summary.id);
+  if (!skipProjectList) localStorage.setItem(workflowCanvasScopedKey(WORKFLOW_CANVAS_ACTIVE_KEY), summary.id);
   persistWorkflowState({ skipServer: true });
   return true;
 }
@@ -241,13 +243,16 @@ function setActiveWorkflowCanvas(canvas = {}, { preserveLocalEdits = false, base
 // React owns the project list/editor shell. This bridge only swaps the active
 // PostgreSQL-backed canvas into the existing site workflow state before the
 // canvas mounts, so autosave and uploads always target the opened project.
-async function activateWorkflowCanvasProject(canvas = {}) {
+async function activateWorkflowCanvasProject(canvas = {}, options = {}) {
   if (!canvas || !canvas.id) return false;
+  const readOnly = Boolean(options.readOnly || canvas.canEdit === false || canvas.accessMode === "template_readonly");
+  state.workflowCanvasReadOnly = readOnly;
   const requestSeq = beginWorkflowCanvasLoad();
-  if (!setActiveWorkflowCanvas(canvas, { requestSeq })) return false;
+  if (!setActiveWorkflowCanvas(canvas, { requestSeq, skipProjectList: readOnly })) return false;
   state.workflowCanvasView = "detail";
-  state.workflowCanvasMessage = "已保存";
+  state.workflowCanvasMessage = readOnly ? "只读模版" : "已保存";
   savedWorkflowViewport = null;
+  if (readOnly) return true;
   const migrated = typeof migrateWorkflowEmbeddedMedia === "function"
     ? await migrateWorkflowEmbeddedMedia()
     : false;
@@ -263,6 +268,7 @@ async function activateWorkflowCanvasProject(canvas = {}) {
 function deactivateWorkflowCanvasProject() {
   window.clearTimeout(state.workflowCanvasSaveTimer);
   state.workflowCanvasSaveTimer = 0;
+  state.workflowCanvasReadOnly = false;
   state.workflowCanvasView = "list";
   state.workflowCanvasMessage = "";
 }
@@ -303,6 +309,7 @@ async function loadWorkflowCanvases({ force = false } = {}) {
 }
 
 function scheduleWorkflowCanvasSave() {
+  if (state.workflowCanvasReadOnly) return;
   if (!state.user || !state.workflowActiveCanvasId || state.workflowCanvasView !== "detail") return;
   state.workflowCanvasMessage = "未保存";
   updateWorkflowCanvasSaveStatus();
@@ -314,6 +321,7 @@ function scheduleWorkflowCanvasSave() {
 }
 
 async function saveWorkflowCanvas({ quiet = false, name = "" } = {}) {
+  if (state.workflowCanvasReadOnly) return null;
   if (!state.user) {
     openLogin();
     return null;
@@ -615,3 +623,5 @@ window.saveWorkflowCanvasNow = (options = {}) => {
   return saveWorkflowCanvas(options);
 };
 window.deactivateWorkflowCanvasProject = deactivateWorkflowCanvasProject;
+
+window.isWorkflowCanvasReadOnly = () => Boolean(state.workflowCanvasReadOnly);

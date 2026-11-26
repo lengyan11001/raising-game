@@ -28,6 +28,7 @@ import {
   selectSiteNode,
 } from '../../site/SiteBridge';
 import { NodeOperationsProvider } from './providers/NodeOperationsProvider';
+import { CanvasReadOnlyProvider } from './providers/CanvasReadOnlyProvider';
 import { NodeDropzoneProvider } from './providers/NodeDropzoneProvider';
 import { Toolbar } from './Toolbar';
 import { ConnectionGuideEdge } from './edges/ConnectionGuideEdge';
@@ -714,9 +715,11 @@ const CanvasInner = ({
 export const Canvas = (props) => {
   return (
     <ReactFlowProvider>
+      <CanvasReadOnlyProvider readOnly={readOnly}>
       <NodeOperationsProvider>
         <CanvasInner {...props} />
       </NodeOperationsProvider>
+      </CanvasReadOnlyProvider>
     </ReactFlowProvider>
   );
 };

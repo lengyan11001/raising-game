@@ -193,3 +193,65 @@
   }
   .CanvasEditor-saving { display: none; }
 }
+
+.CanvasEditor-share-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 13px;
+  color: #efe9f2;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.CanvasEditor-share-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(245, 106, 168, 0.5);
+}
+
+.CanvasEditor-share-button.is-public {
+  border-color: rgba(82, 209, 152, 0.45);
+}
+
+.CanvasEditor-share-button.is-semi_public {
+  border-color: rgba(245, 166, 91, 0.55);
+}
+
+.CanvasEditor-visibility-pill {
+  padding: 1px 7px;
+  font-style: normal;
+  font-size: 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e9e2ea;
+}
+
+.CanvasEditor-share-button.is-public .CanvasEditor-visibility-pill {
+  background: rgba(54, 179, 126, 0.22);
+  color: #9bf2c6;
+}
+
+.CanvasEditor-share-button.is-semi_public .CanvasEditor-visibility-pill {
+  background: rgba(245, 166, 91, 0.22);
+  color: #ffd09b;
+}
+
+.CanvasEditor-readonly-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: #ffd0e5;
+  background: rgba(245, 106, 168, 0.14);
+  border: 1px solid rgba(245, 106, 168, 0.34);
+  border-radius: 999px;
+  white-space: nowrap;
+}

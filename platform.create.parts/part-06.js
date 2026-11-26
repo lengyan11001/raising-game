@@ -705,6 +705,17 @@ function toggleLoginPasswordVisibility() {
   setLoginPasswordVisibility(els.loginPassword?.type === "password");
 }
 
+function emitWorkflowAuthChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("workflow-auth-changed", {
+    detail: {
+      loggedIn: Boolean(state.user),
+      authResolved: Boolean(state.authResolved),
+      user: state.user || null,
+    },
+  }));
+}
+
 function openLogin() {
   if (state.user) return openAccount();
   prepareModalOpen();
@@ -776,6 +787,8 @@ async function logout() {
   if (state.tab === "access") renderApiSubtokens();
   if (state.tab === "referral") renderReferral();
   syncTopupAutoRefresh();
+  state.authResolved = true;
+  if (typeof emitWorkflowAuthChanged === "function") emitWorkflowAuthChanged();
 }
 
 function renderLoginForm() {
@@ -832,7 +845,10 @@ async function refreshAfterLogin() {
   if (state.tab === "assets") refreshes.push(loadUserAssets());
   if (state.tab === "referral") refreshes.push(loadReferralSummary());
   if (tenantFeature("subscriptions", false) || membershipProgramEnabled()) refreshes.push(loadBillingSummary());
+  if (state.tab === "workflow" && typeof loadWorkflowCanvases === "function") refreshes.push(loadWorkflowCanvases({ force: true }));
   await Promise.allSettled(refreshes);
+  state.authResolved = true;
+  if (typeof emitWorkflowAuthChanged === "function") emitWorkflowAuthChanged();
 }
 
 async function completeLogin(payload = {}) {
@@ -1106,6 +1122,9 @@ async function loadMe() {
     if (restoreToken === String(state.token || "")) {
       console.warn("session restore temporarily unavailable", error?.message || error);
     }
+  } finally {
+    state.authResolved = true;
+    if (typeof emitWorkflowAuthChanged === "function") emitWorkflowAuthChanged();
   }
 }
 
@@ -1373,4 +1392,39 @@ function scheduleAdvancedPresetsLoad() {
     return;
   }
   window.setTimeout(load, 800);
+}
+
+if (typeof window !== "undefined") {
+  window.openPlatformLoginModal = () => openLogin();
+  window.openPlatformTopupTab = () => { if (typeof setTab === "function") setTab("topups"); };
+  window.syncPlatformUser = (nextUser) => {
+    if (nextUser && typeof setUser === "function") setUser(nextUser);
+  };
+  window.getPlatformAuthState = () => ({
+    loggedIn: Boolean(state.user),
+    authResolved: Boolean(state.authResolved),
+    user: state.user || null,
+  });
+  window.setWorkflowRouteParams = ({ canvasId = "", inviteCode = "", subTab = "" } = {}) => {
+    state.routeWorkflowCanvasId = String(canvasId || "").trim();
+    state.routeWorkflowInviteCode = String(inviteCode || "").trim();
+    state.routeWorkflowTab = ["mine", "templates"].includes(String(subTab || "").trim().toLowerCase())
+      ? String(subTab).trim().toLowerCase()
+      : "";
+    if (state.tab === "workflow" && typeof window !== "undefined") {
+      const params = new URLSearchParams();
+      if (state.routeWorkflowCanvasId) params.set("canvas", state.routeWorkflowCanvasId);
+      if (state.routeWorkflowInviteCode) params.set("code", state.routeWorkflowInviteCode);
+      if (!state.routeWorkflowCanvasId && state.routeWorkflowTab) params.set("tab", state.routeWorkflowTab);
+      const qs = params.toString();
+      const nextHash = qs ? `#workflow?${qs}` : "#workflow";
+      const nextUrl = `${window.location.pathname}${window.location.search}${nextHash}`;
+      if (window.location.hash !== nextHash) window.history.replaceState(window.history.state, "", nextUrl);
+    }
+  };
+  window.getWorkflowRouteParams = () => ({
+    canvasId: String(state.routeWorkflowCanvasId || ""),
+    inviteCode: String(state.routeWorkflowInviteCode || ""),
+    subTab: String(state.routeWorkflowTab || ""),
+  });
 }

@@ -4,7 +4,7 @@ import { useSiteNode, optionsFrom, selectedOption } from './useSiteNode';
 import { SiteNodeUpload } from './SiteNodeUpload';
 
 export function SiteImageGenerationNode({ id, selected = false }) {
-  const { node, update, run } = useSiteNode(id);
+  const { node, update, run, readOnly } = useSiteNode(id);
   const data = node?.data || {};
   const [prompt, setPrompt] = useState(data.prompt || '');
   const model = typeof window.workflowImageModelById === 'function' ? window.workflowImageModelById(data.modelId) : { id: data.modelId, label: data.modelId };
@@ -58,7 +58,8 @@ export function SiteImageGenerationNode({ id, selected = false }) {
               rows={3}
               value={prompt}
               placeholder="描述你想要的画面..."
-              onChange={(event) => setPrompt(event.target.value)}
+              readOnly={readOnly}
+              onChange={(event) => { if (!readOnly) setPrompt(event.target.value); }}
               onBlur={savePrompt}
               onPointerDown={(event) => event.stopPropagation()}
             />
@@ -73,14 +74,14 @@ export function SiteImageGenerationNode({ id, selected = false }) {
           <div className="site-field-grid">
             <label className="site-field">
               <span>模型</span>
-              <select value={selectedOption(library.map((item) => ({ value: item.id })), data.modelId)} onChange={(event) => changeModel(event.target.value)}>
+              <select disabled={readOnly} value={selectedOption(library.map((item) => ({ value: item.id })), data.modelId)} onChange={(event) => changeModel(event.target.value)}>
                 {library.map((item) => <option key={item.id} value={item.id}>{item.label || item.id}</option>)}
               </select>
             </label>
             {supportsSizeSelection && (
               <label className="site-field">
                 <span>比例</span>
-                <select value={selectedOption(ratios, data.ratio || model.ratio)} onChange={(event) => update({ ratio: event.target.value })}>
+                <select disabled={readOnly} value={selectedOption(ratios, data.ratio || model.ratio)} onChange={(event) => update({ ratio: event.target.value })}>
                   {ratios.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
@@ -88,7 +89,7 @@ export function SiteImageGenerationNode({ id, selected = false }) {
             {supportsSizeSelection ? (
               <label className="site-field">
                 <span>分辨率</span>
-                <select value={selectedOption(resolutions, data.resolution || model.resolution)} onChange={(event) => update({ resolution: event.target.value })}>
+                <select disabled={readOnly} value={selectedOption(resolutions, data.resolution || model.resolution)} onChange={(event) => update({ resolution: event.target.value })}>
                   {resolutions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
@@ -98,7 +99,7 @@ export function SiteImageGenerationNode({ id, selected = false }) {
             {tiers.length > 1 && (
               <label className="site-field">
                 <span>档位</span>
-                <select value={selectedOption(tiers, data.qwenTier || data.seedreamTier || model.defaultTier)} onChange={(event) => update(model.id === 'seedream5-image' ? { seedreamTier: event.target.value } : { qwenTier: event.target.value })}>
+                <select disabled={readOnly} value={selectedOption(tiers, data.qwenTier || data.seedreamTier || model.defaultTier)} onChange={(event) => update(model.id === 'seedream5-image' ? { seedreamTier: event.target.value } : { qwenTier: event.target.value })}>
                   {tiers.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
@@ -106,7 +107,7 @@ export function SiteImageGenerationNode({ id, selected = false }) {
             {outputCounts.length > 1 && (
               <label className="site-field">
                 <span>数量</span>
-                <select value={String(data.outputImageCount || 1)} onChange={(event) => update({ outputImageCount: Number(event.target.value) })}>
+                <select disabled={readOnly} value={String(data.outputImageCount || 1)} onChange={(event) => update({ outputImageCount: Number(event.target.value) })}>
                   {outputCounts.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
@@ -114,7 +115,7 @@ export function SiteImageGenerationNode({ id, selected = false }) {
           </div>
           <div className="site-generation-actions">
             <span>{(typeof window.workflowCostLabel === 'function' ? window.workflowCostLabel(node) : '')} 积分</span>
-            <button type="button" disabled={runState.disabled} onClick={() => { savePrompt(); run(); }}>
+            <button type="button" disabled={readOnly || runState.disabled} onClick={() => { if (readOnly) return; savePrompt(); run(); }}>
               <i className={`bi ${busy ? 'bi-arrow-repeat' : 'bi-magic'}`} /> {runState.label === 'Run' ? '生成' : runState.label}
             </button>
           </div>

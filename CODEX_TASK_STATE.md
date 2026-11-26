@@ -1,3 +1,24 @@
+## 2026-11-26 Step GD: Workflow canvas public/semi-public templates, dynamic invite codes, and strict no-peek unlock gate
+
+### Goal
+- Allow canvas owners to set visibility to `private`, `public`, or `semi_public` from a top-right sharing/invite button inside the canvas editor (removing the redundant in-editor `+ 新建` button) and from the project card menu.
+- Add a 「公开模版」 tab on the workflow canvas library page listing all public and semi-public templates.
+- Enforce strict zero-structure-leakage for locked `semi_public` canvases: un-unlocked users cannot view node structure, previewNodes, prompts, or fork/copy until unlocked by credits or the canvas's static/dynamic invite code.
+- Support share links (`/#workflow?canvas=<id>(&code=<xxx>)` and `/canvas/<id>`) that check login first, then permission, then unlock/invite-code status.
+
+### Decisions & Implementation
+- **PostgreSQL schema**: Extended `app_workflow_canvases` with `tenant_id`, `visibility`, `description`, `unlock_credits`, `allow_credit_unlock`, `allow_code_unlock`, `invite_mode`, `invite_code`, `invite_secret`, `invite_version`, `invite_rotate_interval_sec`, `invite_expires_at`, `invite_max_uses`, `invite_used_count`, `published_at`, `fork_source_id`, `unlock_count`, `fork_count`; added `app_workflow_canvas_unlocks` with `UNIQUE (canvas_id, user_id)`; added migration `2026-11-26-workflow-canvas-sharing-v1` in `ops/run-db-migrations.js`.
+- **Dynamic invite codes (`workflow-canvases.js`)**: Supports both static codes (manual instant rotate) and rotating HMAC-SHA256 time-slot codes (1h/6h/24h/7d) with 60s rollover grace window, constant-time comparison, expiry/max-uses checks, and zero-leakage summary/locked views (`previewNodes: []` when locked).
+- **Backend API (`server.parts/part-54.js`, `part-01.js`, `part-03.js`, `part-42.js`)**: Added `GET /api/workflow/templates`, `PATCH /api/workflow/canvases/:id/sharing`, `POST /api/workflow/canvases/:id/invite-code/rotate`, `POST /api/workflow/canvases/:id/unlock` (atomic PostgreSQL credit debit via `consumeCheckinCreditLots` + `app_credit_ledger` or rate-limited invite-code verification), `POST /api/workflow/canvases/:id/fork`, and `GET /canvas/:id` redirect. Unified `authorizeWorkflowCanvasRead` guards both `GET` and `fork`, and backend refreshes owner upload asset URLs while stripping private asset IDs for viewers.
+- **Frontend & React Canvas (`workflow-react/src/*`, `platform.explore.js`, `platform.create.parts/part-06.js`, `platform.workflow-canvases.js`)**: Removed in-editor `+ 新建` button; added top-right `公开 / 邀请` modal trigger (owner) and `复制到我的画布` fork button (readonly viewer); added `我的项目 | 公开模版` tabs with locked placeholder cards; added deep-link login-first + auto-resume + `WorkflowUnlockModal` gate; threaded `CanvasReadOnlyProvider` across `Canvas`, `NodeLayout`, `SiteNodeUpload`, and generation nodes. Rebuilt production `workflow-react/dist/canvas.js` (cache version `canvas-20261126-1`).
+
+### Verification
+- `npm run check:undef`, `node --check` on all touched server/client/dist JS files, and scoped `git diff --check` all pass.
+- Webpack production build succeeded (existing bundle-size warnings only).
+- Targeted tests pass: `test/workflow-canvases.test.js` + `test/workflow-access.test.js` + `test/migration-runner.test.js` + `test/session-login-race.test.js` + `test/mobile-tool-ux.test.js` + `test/eleven-eleven-promo.test.js` (80/80 pass).
+- No deployment or production DB writes performed.
+
+
 ## 2026-11-22 Step GB: Mention insertion stays on the current line
 
 ### Goal
