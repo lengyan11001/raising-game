@@ -586,12 +586,12 @@
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-main {
-  width: min(100%, 1120px);
-  padding: 24px 32px 56px;
+  width: min(100%, 1580px);
+  padding: 28px 32px 64px;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-section-header {
-  align-items: center;
+  align-items: flex-end;
   margin-bottom: 18px;
 }
 
@@ -698,9 +698,10 @@
 .InspirationCanvas-body.is-templates .InspirationCanvas-masonry-container.is-templates-grid,
 .InspirationCanvas-body.is-templates .InspirationCanvas-skeleton-grid.is-templates-grid {
   display: grid;
+  width: 100%;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-masonry-container.is-templates-grid .InspirationCanvas-masonry-column {
@@ -718,6 +719,9 @@
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-card-content.is-template {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
   overflow: hidden;
   color: #f7f3f8;
   background: #1b181e;
@@ -748,6 +752,10 @@
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-card-info {
+  display: flex;
+  min-height: 88px;
+  flex: 1;
+  flex-direction: column;
   padding: 12px 13px 14px;
 }
 
@@ -772,7 +780,8 @@
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-template-submeta {
-  margin-top: 14px;
+  margin-top: auto;
+  padding-top: 14px;
   color: #938b98;
   font-size: 12px;
 }
