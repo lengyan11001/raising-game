@@ -1039,8 +1039,10 @@ async function requestJson(url, options = {}) {
       ? plainText.slice(0, 500)
       : "";
     const statusLabel = `Request failed: ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
-    const localizedMessage = (payload.errorInfo && globalThis.PlatformErrorCatalog?.formatErrorInfo)
-      ? globalThis.PlatformErrorCatalog.formatErrorInfo(payload.errorInfo, state.lang || "en")
+    const currentLang = state.lang || "en";
+    const keepSameLangSpecific = Boolean(payload.errorInfo?.generic && payload.errorInfo?.sourceLang === currentLang && payload.message);
+    const localizedMessage = (!keepSameLangSpecific && payload.errorInfo && globalThis.PlatformErrorCatalog?.formatErrorInfo)
+      ? globalThis.PlatformErrorCatalog.formatErrorInfo(payload.errorInfo, currentLang)
       : "";
     const error = new Error(localizedMessage || payload.message || payload.detail || visibleResponseText || statusLabel);
     error.statusCode = response.status;

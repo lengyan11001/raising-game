@@ -400,6 +400,42 @@ const CODE_ALIASES = Object.freeze({
   INVALID_MEDIA_COMBINATION: "MEDIA_COMBINATION_INVALID",
   DATABASE_REQUIRED: "DATABASE_UNAVAILABLE",
   RATE_LIMITED: "UPSTREAM_RATE_LIMITED",
+  INVALID_TARGET: "MEDIA_TARGET_INVALID",
+  WRONG_TYPE: "MEDIA_WRONG_TYPE",
+  MISSING_ARK_API_KEY: "MODEL_NOT_CONFIGURED",
+  MISSING_ALIYUN_DASHSCOPE_API_KEY: "MODEL_NOT_CONFIGURED",
+  MISSING_MULEROUTER_API_KEY: "MODEL_NOT_CONFIGURED",
+  TENCENT_VOD_NOT_CONFIGURED: "MODEL_NOT_CONFIGURED",
+  VIDU_NOT_CONFIGURED: "MODEL_NOT_CONFIGURED",
+  STRIPE_NOT_CONFIGURED: "PAYMENT_NOT_CONFIGURED",
+  PAYPAL_NOT_CONFIGURED: "PAYMENT_NOT_CONFIGURED",
+  AIRWALLEX_NOT_CONFIGURED: "PAYMENT_NOT_CONFIGURED",
+  STRIPE_CHECKOUT_NOT_FOUND: "CHECKOUT_NOT_FOUND",
+  PAYPAL_CHECKOUT_NOT_FOUND: "CHECKOUT_NOT_FOUND",
+  AIRWALLEX_CHECKOUT_NOT_FOUND: "CHECKOUT_NOT_FOUND",
+  CHAT_LIVE_CHARACTER_NOT_FOUND: "CHARACTER_NOT_FOUND",
+  VIDU_LIVE_CHARACTER_NOT_FOUND: "CHARACTER_NOT_FOUND",
+  CHAT_LIVE_ENDED: "CHAT_SESSION_ENDED",
+  CHAT_LIVE_MEMBERSHIP_REQUIRED: "MEMBERSHIP_REQUIRED",
+  STORY_ASSET_VARIANT_NOT_FOUND: "STORY_ASSET_NOT_FOUND",
+  INVALID_PROMPT_EXTEND: "INVALID_PARAMETERS",
+  INVALID_TASK_TYPE: "INVALID_PARAMETERS",
+  INVALID_DRAFT_RESOLUTION: "DRAFT_RESOLUTION_480P_REQUIRED",
+  TELEGRAM_LOGIN_NOT_CONFIGURED: "MODEL_NOT_CONFIGURED",
+  MODEL_TEMPORARILY_UNAVAILABLE: "MODEL_NOT_CONFIGURED",
+  SUBSCRIPTIONS_DISABLED: "MEMBERSHIP_DISABLED",
+  INVALID_AIRWALLEX_AMOUNT: "PAYMENT_AMOUNT_INVALID",
+  OBJECT_STORAGE_REQUIRED: "SERVICE_UNAVAILABLE",
+  MULEROUTER_TASK_NOT_READY: "SERVICE_UNAVAILABLE",
+  WORKFLOW_CANVAS_UPDATE_IN_PROGRESS: "WORKFLOW_CANVAS_BUSY",
+  CHAT_LIVE_COMPONENT_VOICE_REQUIRED: "VOICE_REQUIRED",
+  CHAT_LIVE_COMPONENT_VOICE_INVALID: "VOICE_UNAVAILABLE",
+  STORY_SCRIPT_REQUIRED: "STORY_CONTENT_REQUIRED",
+  STORY_SOURCE_SCRIPT_NOT_FOUND: "STORY_PROJECT_NOT_FOUND",
+  STORY_SCRIPT_NOT_FOUND: "STORY_PROJECT_NOT_FOUND",
+  STORY_TARGET_EPISODE_NOT_FOUND: "STORY_EPISODE_NOT_FOUND",
+  STORY_TARGET_SHOT_NOT_FOUND: "STORY_SHOT_NOT_FOUND",
+  LIVE_DAILY_TASK_NOT_FOUND: "RESOURCE_NOT_FOUND",
 });
 
 function classifyCodeFromSignals({ prepCode = "", rawCode = "", rawText = "", target = null } = {}) {
@@ -607,6 +643,98 @@ function publicGenerationErrorText(value = "", options = {}) {
   }
 }
 
+function classifyHttpDomainCode(rawCode = "", rawMessage = "", statusCode = 0) {
+  const code = String(rawCode || "").trim();
+  const msg = String(rawMessage || "").trim();
+  if (code) {
+    if (hasCatalogCode(code)) return code;
+    if (CODE_ALIASES[code]) return CODE_ALIASES[code];
+  }
+  if (!msg) {
+    if (statusCode === 401) return "LOGIN_REQUIRED";
+    if (statusCode === 403) return "FORBIDDEN";
+    if (statusCode === 404) return "API_NOT_FOUND";
+    if (statusCode >= 500) return "SERVER_ERROR";
+    return "";
+  }
+  // Exact / high-confidence domain matches across the whole platform API
+  if (/^api not found\.?$/i.test(msg)) return "API_NOT_FOUND";
+  if (/^forbidden\.?$/i.test(msg)) return "FORBIDDEN";
+  if (/^prompt is required\.?$/i.test(msg)) return "PROMPT_REQUIRED";
+  if (/first[- ]frame image is required|first frame is required|requires first frame/i.test(msg)) return "FIRST_FRAME_REQUIRED";
+  if (/last[- ]frame image is required|last frame is required|requires last frame/i.test(msg)) return "LAST_FRAME_REQUIRED";
+  if (/^audio is required\.?$|reference audio is required/i.test(msg)) return "AUDIO_REQUIRED";
+  if (/source video is required/i.test(msg)) return "SOURCE_VIDEO_REQUIRED";
+  if (/^image is required\.?$/i.test(msg)) return "IMAGE_REQUIRED";
+  if (/^generation record not found\.?$/i.test(msg)) return "GENERATION_RECORD_NOT_FOUND";
+  if (/cannot be regenerated yet/i.test(msg)) return "RECORD_CANNOT_REGENERATE";
+  if (/record has no video result/i.test(msg)) return "RECORD_NO_VIDEO_RESULT";
+  if (/^(?:asset|video|generated media) (?:not found|is unavailable)\.?$|^素材不存在。?$/i.test(msg)) return "ASSET_NOT_FOUND";
+  if (/^(?:character not found\.?|角色不存在。?|没有找到这个角色。?|角色不存在、未公开或未启用。?)$/i.test(msg)) return "CHARACTER_NOT_FOUND";
+  if (/^(?:chat not found\.?|message not found\.?|会话不存在。?|房间不存在或已关闭。?)$/i.test(msg)) return "CHAT_NOT_FOUND";
+  if (/^会话已经结束。?$|session has (?:already )?ended/i.test(msg)) return "CHAT_SESSION_ENDED";
+  if (/^在线聊天暂未开放。?$/i.test(msg)) return "CHAT_LIVE_DISABLED";
+  if (/^消息不能为空。?$/i.test(msg)) return "CHAT_MESSAGE_REQUIRED";
+  if (/^(?:礼物不存在。?|这个礼物暂时不可用。?)$/i.test(msg)) return "GIFT_UNAVAILABLE";
+  if (/^礼物暂时没有送出，积分已退回。?$/i.test(msg)) return "GIFT_SEND_FAILED_REFUNDED";
+  if (/^(?:工单不存在。?|support ticket not found\.?)$/i.test(msg)) return "SUPPORT_TICKET_NOT_FOUND";
+  if (/^workflow (?:canvas )?not found\.?$/i.test(msg)) return "WORKFLOW_CANVAS_NOT_FOUND";
+  if (/^workflow storage is unavailable\.?$|^this tool requires database storage\.?$/i.test(msg)) return "DATABASE_UNAVAILABLE";
+  if (/^剧集项目不存在。?$/i.test(msg)) return "STORY_PROJECT_NOT_FOUND";
+  if (/^剧集不存在。?$/i.test(msg)) return "STORY_EPISODE_NOT_FOUND";
+  if (/^资产不存在。?$|^资产设计图不存在。?$/i.test(msg)) return "STORY_ASSET_NOT_FOUND";
+  if (/^镜头不存在。?$/i.test(msg)) return "STORY_SHOT_NOT_FOUND";
+  if (/^sub token not found\.?$/i.test(msg)) return "SUBTOKEN_NOT_FOUND";
+  if (/^(?:通知不存在。?|notification not found\.?)$/i.test(msg)) return "NOTIFICATION_NOT_FOUND";
+  if (/^(?:场景不存在。?|scene not found\.?)$/i.test(msg)) return "SCENE_NOT_FOUND";
+  if (/^(?:用户不存在。?|user not found\.?)$/i.test(msg)) return "USER_NOT_FOUND";
+  if (/^至少要保留一名管理员。?$/i.test(msg)) return "ADMIN_MINIMUM_REQUIRED";
+  if (/enter a valid email address/i.test(msg)) return "INVALID_EMAIL";
+  if (/invalid or expired verification code/i.test(msg)) return "INVALID_VERIFICATION_CODE";
+  if (/invalid username or password|invalid email or password/i.test(msg)) return "INVALID_CREDENTIALS";
+  if (/paypal amount must be between|stripe amount|invalid amount/i.test(msg)) return "PAYMENT_AMOUNT_INVALID";
+  if (/checkout session not found/i.test(msg)) return "CHECKOUT_NOT_FOUND";
+  if (/payment order not found/i.test(msg)) return "ORDER_NOT_FOUND";
+  if (/unlock video is still generating/i.test(msg)) return "UNLOCK_GENERATING";
+  if (/unlock this result first/i.test(msg)) return "RESULT_LOCKED";
+  if (/must be \d+mb or smaller/i.test(msg)) return "MEDIA_TOO_LARGE";
+  if (/source video duration could not be read|read the source video duration/i.test(msg)) return "MEDIA_DURATION_REQUIRED";
+  if (/^please sign in to continue\.?$/i.test(msg)) return "LOGIN_REQUIRED";
+  if (/^unlock required\.?$/i.test(msg)) return "RESULT_LOCKED";
+  if (/link expired\.?$/i.test(msg)) return "MEDIA_LINK_EXPIRED";
+  if (/document assets are currently supported only for wan 3\.0/i.test(msg)) return "DOCUMENT_WAN30_ONLY";
+  if (/^(?:请填写有效邮箱。?)$/.test(msg)) return "INVALID_EMAIL";
+  if (/^(?:请填写问题描述。?|标题和内容不能为空。?)$/.test(msg)) return "SUPPORT_MESSAGE_REQUIRED";
+  if (/^(?:消息不存在。?)$/.test(msg)) return "CHAT_NOT_FOUND";
+  if (/^method not allowed\.?$/i.test(msg)) return "METHOD_NOT_ALLOWED";
+  if (/^server error\.?$/i.test(msg)) return "SERVER_ERROR";
+  return "";
+}
+
+function genericStatusCodeFallback(statusCode = 0) {
+  if (statusCode === 401) return "LOGIN_REQUIRED";
+  if (statusCode === 402) return "INSUFFICIENT_CREDITS";
+  if (statusCode === 403) return "FORBIDDEN";
+  if (statusCode === 404 || statusCode === 410) return "RESOURCE_NOT_FOUND";
+  if (statusCode === 405) return "METHOD_NOT_ALLOWED";
+  if (statusCode === 409) return "CONFLICT";
+  if (statusCode === 413) return "MEDIA_TOO_LARGE";
+  if (statusCode === 429) return "UPSTREAM_RATE_LIMITED";
+  if (statusCode === 502 || statusCode === 504) return "UPSTREAM_NETWORK_ERROR";
+  if (statusCode === 503) return "SERVICE_UNAVAILABLE";
+  if (statusCode >= 500) return "SERVER_ERROR";
+  if (statusCode >= 400) return "REQUEST_INVALID";
+  return "";
+}
+
+function messageLanguageHint(text = "") {
+  const s = String(text || "").trim();
+  if (!s) return "";
+  if (/[\u3400-\u9fff]/.test(s)) return "zh";
+  if (/[A-Za-z]{3,}/.test(s)) return "en";
+  return "";
+}
+
 function resolveHttpErrorInfo(payload = {}, options = {}) {
   try {
     if (!payload || typeof payload !== "object") return null;
@@ -615,12 +743,20 @@ function resolveHttpErrorInfo(payload = {}, options = {}) {
     }
     const rawCode = String(payload.code || "").trim();
     const rawMessage = String(payload.message || payload.error || "").trim();
-    if (!rawCode && !rawMessage) return null;
+    const statusCode = Number(options.statusCode || 0);
+    if (!rawCode && !rawMessage && !statusCode) return null;
     const target = pinpointMediaTarget(rawMessage, "", options.mediaSlotMap || [], payload.target || options.target || null);
-    const code = classifyCodeFromSignals({ prepCode: rawCode, rawCode, rawText: rawMessage, target });
-    if (!code || code === "INVALID_PARAMETERS" && !rawCode) {
-      // Only localize HTTP errors when we have a confident semantic match or explicit code
-      if (!rawCode || (!hasCatalogCode(rawCode) && !CODE_ALIASES[rawCode])) return null;
+    let generic = false;
+    let code = classifyHttpDomainCode(rawCode, rawMessage, statusCode);
+    if (!code) {
+      const signaled = classifyCodeFromSignals({ prepCode: rawCode, rawCode, rawText: rawMessage, target });
+      if (signaled && !(signaled === "INVALID_PARAMETERS" && !rawCode)) {
+        code = signaled;
+      }
+    }
+    if (!code) {
+      code = genericStatusCodeFallback(statusCode);
+      generic = Boolean(code);
     }
     if (!code) return null;
     const params = {
@@ -631,11 +767,14 @@ function resolveHttpErrorInfo(payload = {}, options = {}) {
       } : {}),
       ...(payload.errorParams && typeof payload.errorParams === "object" ? payload.errorParams : {}),
     };
+    const sourceLang = generic ? messageLanguageHint(rawMessage) : "";
     return {
       code,
       category: catalogCategory(code),
       stage: "validation",
       retryable: catalogRetryable(code),
+      ...(generic ? { generic: true } : {}),
+      ...(sourceLang ? { sourceLang } : {}),
       ...(target ? { target } : {}),
       ...(Object.keys(params).length ? { params } : {}),
     };

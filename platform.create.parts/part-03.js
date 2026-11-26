@@ -376,7 +376,7 @@ async function submitAdvancedGenerateInternal() {
     const vegaDraftTaskId = vegaDraftFollowup ? normalizeAdvancedVegaDraftTaskId(vegaOptions.draftTaskId || "") : "";
     if (vegaDraftFollowup && !vegaDraftTaskId) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Draft to Final requires the upstream draft task ID.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("DRAFT_TASK_ID_REQUIRED", { fallback: "Draft to Final requires the upstream draft task ID." });
       return;
     }
     if (!vegaDraftFollowup && !prompt) {
@@ -413,7 +413,7 @@ async function submitAdvancedGenerateInternal() {
         }
       } catch (error) {
         els.advancedSubmitBtn.disabled = false;
-        if (els.advancedNote) els.advancedNote.textContent = error.message || "Vega asset public URL unavailable.";
+        if (els.advancedNote) els.advancedNote.textContent = error.message || localizedUiError("MEDIA_URL_REQUIRED", { fallback: "Vega asset public URL unavailable." });
         return;
       }
     }
@@ -446,36 +446,38 @@ async function submitAdvancedGenerateInternal() {
       || vegaReferenceAudios.some((url) => !url);
     if (invalidVegaMedia) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = vegaProviderUsesMediaLibrary(provider)
-        ? "Vega Pro requires a public HTTP(S) URL or an existing asset:// URI."
-        : "Vega Lite requires a public HTTP(S) URL from object storage.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("MEDIA_URL_REQUIRED", {
+        fallback: vegaProviderUsesMediaLibrary(provider)
+          ? "Vega Pro requires a public HTTP(S) URL or an existing asset:// URI."
+          : "Vega Lite requires a public HTTP(S) URL from object storage.",
+      });
       return;
     }
     if (vegaUsesFirstFrame && !vegaFirstFrameUrl) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "First Frame requires a first-frame image.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("FIRST_FRAME_REQUIRED", { fallback: "First Frame requires a first-frame image." });
       return;
     }
     if (vegaUsesLastFrame && !vegaLastFrameUrl) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Last Frame requires a last-frame image.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("LAST_FRAME_REQUIRED", { fallback: "Last Frame requires a last-frame image." });
       return;
     }
     if (vegaUsesReferences && !vegaReferenceImages.length && !vegaReferenceVideos.length && !vegaReferenceAudios.length) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Multimodal References requires at least one reference image, video, or audio.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("REFERENCE_MEDIA_REQUIRED", { fallback: "Multimodal References requires at least one reference image, video, or audio." });
       return;
     }
     if (vegaReferenceAudios.length && !vegaReferenceImages.length && !vegaReferenceVideos.length) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Vega audio references require at least one image or video reference.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("AUDIO_REQUIRES_VISUAL_MEDIA", { fallback: "Vega audio references require at least one image or video reference." });
       return;
     }
     const vegaReferenceLimitConfig = vegaReferenceLimits(provider);
     const vegaReferenceTotal = vegaReferenceImages.length + vegaReferenceVideos.length + vegaReferenceAudios.length;
     if (vegaReferenceImages.length > vegaReferenceLimitConfig.images || vegaReferenceVideos.length > vegaReferenceLimitConfig.videos || vegaReferenceAudios.length > vegaReferenceLimitConfig.audios || vegaReferenceTotal > vegaReferenceLimitConfig.total) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = `Vega references exceed the ${advancedProviderLabel(provider)} limit (images ${vegaReferenceLimitConfig.images}, videos ${vegaReferenceLimitConfig.videos}, audio ${vegaReferenceLimitConfig.audios}, total ${vegaReferenceLimitConfig.total}).`;
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("MEDIA_COUNT_EXCEEDED", { fallback: `Vega references exceed the ${advancedProviderLabel(provider)} limit (images ${vegaReferenceLimitConfig.images}, videos ${vegaReferenceLimitConfig.videos}, audio ${vegaReferenceLimitConfig.audios}, total ${vegaReferenceLimitConfig.total}).` });
       return;
     }
     const vegaReferenceVideoDurations = vegaVideoItems.map((item) => positiveDurationSeconds(item.durationSeconds || item.duration, 0));
@@ -489,18 +491,18 @@ async function submitAdvancedGenerateInternal() {
     if (["edit", "extend"].includes(vegaOptions.taskType)) {
       if (!vegaUsesReferences || !vegaReferenceVideos.length) {
         els.advancedSubmitBtn.disabled = false;
-        if (els.advancedNote) els.advancedNote.textContent = `Vega ${vegaOptions.taskType} requires Multimodal References with a source video.`;
+        if (els.advancedNote) els.advancedNote.textContent = localizedUiError("SOURCE_VIDEO_REQUIRED", { fallback: `Vega ${vegaOptions.taskType} requires Multimodal References with a source video.` });
         return;
       }
       if (String(els.advancedRatio?.value || "").trim().toLowerCase() !== "adaptive") {
         els.advancedSubmitBtn.disabled = false;
-        if (els.advancedNote) els.advancedNote.textContent = `Vega ${vegaOptions.taskType} requires adaptive aspect ratio.`;
+        if (els.advancedNote) els.advancedNote.textContent = localizedUiError("ADAPTIVE_RATIO_REQUIRED", { fallback: `Vega ${vegaOptions.taskType} requires adaptive aspect ratio.` });
         return;
       }
     }
     if (vegaOptions.draft && currentAdvancedResolution() !== "480P") {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Vega draft generation requires 480P resolution.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("DRAFT_RESOLUTION_480P_REQUIRED", { fallback: "Vega draft generation requires 480P resolution." });
       return;
     }
     const vegaPayloadBase = {
@@ -732,45 +734,45 @@ async function submitAdvancedGenerateInternal() {
   }
   if (["seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider) && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameData && !seedanceFirstFrameAssetId) {
     els.advancedSubmitBtn.disabled = false;
-    if (els.advancedNote) els.advancedNote.textContent = "First frame image is required.";
+    if (els.advancedNote) els.advancedNote.textContent = localizedUiError("FIRST_FRAME_REQUIRED", { fallback: "First frame image is required." });
     return;
   }
   if (["seedance25", "seedance25-flash", "seedance-nsfw"].includes(provider) && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameDataUrl && !state.advancedSeedanceLastFrameAssetId) {
     els.advancedSubmitBtn.disabled = false;
-    if (els.advancedNote) els.advancedNote.textContent = "Last frame image is required.";
+    if (els.advancedNote) els.advancedNote.textContent = localizedUiError("LAST_FRAME_REQUIRED", { fallback: "Last frame image is required." });
     return;
   }
   if (provider === "wan30" && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameData && !seedanceFirstFrameAssetId) {
     els.advancedSubmitBtn.disabled = false;
-    if (els.advancedNote) els.advancedNote.textContent = "First frame image is required.";
+    if (els.advancedNote) els.advancedNote.textContent = localizedUiError("FIRST_FRAME_REQUIRED", { fallback: "First frame image is required." });
     return;
   }
   if (provider === "wan30" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameDataUrl && !state.advancedSeedanceLastFrameAssetId) {
     els.advancedSubmitBtn.disabled = false;
-    if (els.advancedNote) els.advancedNote.textContent = "Last frame image is required.";
+    if (els.advancedNote) els.advancedNote.textContent = localizedUiError("LAST_FRAME_REQUIRED", { fallback: "Last frame image is required." });
     return;
   }
   if (provider === "wan30" && !prompt && !referenceImages.length && !seedanceVideoRefs.length && !seedanceAudioRefs.length && !documentReference && !seedanceFrameMode) {
     els.advancedSubmitBtn.disabled = false;
-    if (els.advancedNote) els.advancedNote.textContent = "Prompt or reference media is required.";
+    if (els.advancedNote) els.advancedNote.textContent = localizedUiError("PROMPT_OR_MEDIA_REQUIRED", { fallback: "Prompt or reference media is required." });
     return;
   }
   if (provider === "wan30") {
     if (documentReference && (referenceImages.length || seedanceVideoRefs.length || seedanceAudioRefs.length || seedanceFrameMode)) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Wan 3.0 documents cannot be combined with other media inputs.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("DOCUMENT_ALONE_ONLY", { fallback: "Wan 3.0 documents cannot be combined with other media inputs." });
       return;
     }
     const videoSeconds = seedanceVideoRefs.reduce((sum, item) => sum + positiveDurationSeconds(item.durationSeconds || item.duration), 0);
     const audioSeconds = seedanceAudioRefs.reduce((sum, item) => sum + positiveDurationSeconds(item.durationSeconds || item.duration), 0);
     if (videoSeconds > 15 || audioSeconds > 15) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = `Wan 3.0 reference ${videoSeconds > 15 ? "videos" : "audios"} must total 15 seconds or less.`;
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("MEDIA_DURATION_INVALID", { target: { slot: videoSeconds > 15 ? "reference_video" : "reference_audio" }, params: { maxSec: 15 }, fallback: `Wan 3.0 reference ${videoSeconds > 15 ? "videos" : "audios"} must total 15 seconds or less.` });
       return;
     }
     if (duration !== -1 && videoSeconds > 0 && videoSeconds + duration > 30) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Input video duration plus output duration must not exceed 30 seconds.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("VIDEO_PLUS_OUTPUT_DURATION_EXCEEDED", { params: { maxSec: 30 }, fallback: "Input video duration plus output duration must not exceed 30 seconds." });
       return;
     }
   }
@@ -778,17 +780,17 @@ async function submitAdvancedGenerateInternal() {
     const totalReferences = referenceImages.length + seedanceVideoRefs.length + seedanceAudioRefs.length;
     if (provider === "seedance25" && resolution === "720p" && duration > 29) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Seedance 2.5 720p supports 4-29 seconds.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("INVALID_DURATION", { params: { minSec: 4, maxSec: 29 }, fallback: "Seedance 2.5 720p supports 4-29 seconds." });
       return;
     }
     if (provider === "seedance25" && seedanceMode === "omini" && totalReferences === 0) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Add at least one image, video, or audio reference.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("REFERENCE_MEDIA_REQUIRED", { fallback: "Add at least one image, video, or audio reference." });
       return;
     }
     if (provider === "seedance25" && seedanceMode === "omini" && seedanceAudioRefs.length > 0 && !referenceImages.length && !seedanceVideoRefs.length) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Audio must be combined with an image or video reference.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("AUDIO_REQUIRES_VISUAL_MEDIA", { fallback: "Audio must be combined with an image or video reference." });
       return;
     }
     const totalReferenceLimit = provider === "seedance25-flash"
@@ -796,7 +798,7 @@ async function submitAdvancedGenerateInternal() {
       : ADVANCED_SEEDANCE25_TOTAL_REFERENCE_LIMIT;
     if (seedanceMode === "omini" && totalReferences > totalReferenceLimit) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = `${advancedProviderLabel(provider)} supports at most ${totalReferenceLimit} references.`;
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("MEDIA_COUNT_EXCEEDED", { fallback: `${advancedProviderLabel(provider)} supports at most ${totalReferenceLimit} references.` });
       return;
     }
     if (provider === "seedance25-flash" && seedanceMode === "omini") {
@@ -808,13 +810,13 @@ async function submitAdvancedGenerateInternal() {
       const exceeded = flashLimits.find(([count, limit]) => count > limit);
       if (exceeded) {
         els.advancedSubmitBtn.disabled = false;
-        if (els.advancedNote) els.advancedNote.textContent = `${advancedProviderLabel(provider)} supports at most ${exceeded[1]} ${exceeded[2]}.`;
+        if (els.advancedNote) els.advancedNote.textContent = localizedUiError("MEDIA_COUNT_EXCEEDED", { fallback: `${advancedProviderLabel(provider)} supports at most ${exceeded[1]} ${exceeded[2]}.` });
         return;
       }
     }
     if (provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode) && seedanceVideoRefs.length !== 1) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = `${seedanceMode === "edit" ? "Video Edit" : "Video Extend"} requires exactly one source video.`;
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("VIDEO_EDIT_SINGLE_SOURCE_REQUIRED", { fallback: `${seedanceMode === "edit" ? "Video Edit" : "Video Extend"} requires exactly one source video.` });
       return;
     }
   }
@@ -825,7 +827,7 @@ async function submitAdvancedGenerateInternal() {
   }
   if (provider === "seedance" && seedanceTier === "fast" && ["1080p", "4k"].includes(resolution)) {
     els.advancedSubmitBtn.disabled = false;
-    if (els.advancedNote) els.advancedNote.textContent = `${advancedProviderLabel(provider)} Fast does not support ${resolution === "4k" ? "4K" : "1080p"}.`;
+    if (els.advancedNote) els.advancedNote.textContent = localizedUiError("INVALID_RESOLUTION", { fallback: `${advancedProviderLabel(provider)} Fast does not support ${resolution === "4k" ? "4K" : "1080p"}.` });
     return;
   }
   if (provider === "wan27" || provider === "happyhorse") {
@@ -843,32 +845,32 @@ async function submitAdvancedGenerateInternal() {
     }
     if (["happyhorse-i2v", "wan-animate-move", "wan-animate-mix"].includes(videoCapability) && !hasPrimaryImage) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Image is required.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("IMAGE_REQUIRED", { fallback: "Image is required." });
       return;
     }
     if (["wan27-r2v", "happyhorse-r2v"].includes(videoCapability) && !hasReferenceImages && !hasVideo) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Reference media is required.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("REFERENCE_MEDIA_REQUIRED", { fallback: "Reference media is required." });
       return;
     }
     if (["wan27-video-edit", "happyhorse-video-edit", "wan-animate-move", "wan-animate-mix"].includes(videoCapability) && !hasVideo) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Source video is required.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("SOURCE_VIDEO_REQUIRED", { fallback: "Source video is required." });
       return;
     }
     if (usesWanFrameModes && wanModeNeedsFirstFrame(mediaMode) && !wanFirstFrameSource && !wanFirstFrameAssetId) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "First frame image is required.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("FIRST_FRAME_REQUIRED", { fallback: "First frame image is required." });
       return;
     }
     if (usesWanFrameModes && wanModeNeedsLastFrame(mediaMode) && !wanLastFrameSource && !wanLastFrameAssetId) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Last frame image is required.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("LAST_FRAME_REQUIRED", { fallback: "Last frame image is required." });
       return;
     }
     if (usesWanFrameModes && wanModeNeedsAudio(mediaMode) && !state.advancedAudioAssetId) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Audio is required.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("AUDIO_REQUIRED", { fallback: "Audio is required." });
       return;
     }
     if (usesWanFrameModes && wanModeNeedsClip(mediaMode) && !state.advancedWanClipDataUrl && !state.advancedWanClipAssetId) {

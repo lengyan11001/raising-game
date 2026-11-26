@@ -121,7 +121,7 @@ async function uploadAdvancedMediaReference(file, kind = "video", options = {}) 
       ? new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav"])
       : new Set(["video/mp4", "video/quicktime"]);
     if (!supported.has(mime)) {
-      if (els.advancedNote) els.advancedNote.textContent = kind === "audio" ? "Wan 3.0 audio must be WAV or MP3." : "Wan 3.0 video must be MP4 or MOV.";
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("MEDIA_FORMAT_INVALID", { target: { slot: kind === "audio" ? "reference_audio" : "reference_video" }, fallback: kind === "audio" ? "Wan 3.0 audio must be WAV or MP3." : "Wan 3.0 video must be MP4 or MOV." });
       return null;
     }
   }
@@ -129,14 +129,14 @@ async function uploadAdvancedMediaReference(file, kind = "video", options = {}) 
   const vegaCaps = isVegaAdvancedProvider(provider) ? vegaCapabilities(provider) : null;
   if (vegaCaps?.perFileMinSeconds > 0) {
     if (!(durationSeconds >= vegaCaps.perFileMinSeconds && durationSeconds <= vegaCaps.perFileMaxSeconds)) {
-      if (els.advancedNote) els.advancedNote.textContent = `Vega reference ${kind} duration must be between ${vegaCaps.perFileMinSeconds} and ${vegaCaps.perFileMaxSeconds} seconds.`;
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("MEDIA_DURATION_INVALID", { target: { slot: kind === "audio" ? "reference_audio" : "reference_video" }, params: { minSec: vegaCaps.perFileMinSeconds, maxSec: vegaCaps.perFileMaxSeconds }, fallback: `Vega reference ${kind} duration must be between ${vegaCaps.perFileMinSeconds} and ${vegaCaps.perFileMaxSeconds} seconds.` });
       return null;
     }
     const existing = kind === "audio" ? advancedSeedanceAudioReferences() : advancedSeedanceVideoReferences();
     const totalSeconds = existing.reduce((sum, item) => sum + positiveDurationSeconds(item.durationSeconds || item.duration), 0) + durationSeconds;
     const totalLimit = kind === "audio" ? vegaCaps.audioSeconds : vegaCaps.videoSeconds;
     if (totalLimit > 0 && totalSeconds > totalLimit) {
-      if (els.advancedNote) els.advancedNote.textContent = `Vega reference ${kind}s must total ${totalLimit} seconds or less.`;
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("MEDIA_DURATION_INVALID", { target: { slot: kind === "audio" ? "reference_audio" : "reference_video" }, params: { maxSec: totalLimit }, fallback: `Vega reference ${kind}s must total ${totalLimit} seconds or less.` });
       return null;
     }
   }
@@ -149,13 +149,13 @@ async function uploadAdvancedMediaReference(file, kind = "video", options = {}) 
   }
   if (wan30) {
     if (durationSeconds < 1 || durationSeconds > 15) {
-      if (els.advancedNote) els.advancedNote.textContent = `Wan 3.0 ${kind} duration must be between 1 and 15 seconds.`;
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("MEDIA_DURATION_INVALID", { target: { slot: kind === "audio" ? "reference_audio" : "reference_video" }, params: { minSec: 1, maxSec: 15 }, fallback: `Wan 3.0 ${kind} duration must be between 1 and 15 seconds.` });
       return null;
     }
     const existing = kind === "audio" ? advancedSeedanceAudioReferences() : advancedSeedanceVideoReferences();
     const totalSeconds = existing.reduce((sum, item) => sum + positiveDurationSeconds(item.durationSeconds || item.duration), 0) + durationSeconds;
     if (totalSeconds > 15) {
-      if (els.advancedNote) els.advancedNote.textContent = `Wan 3.0 reference ${kind}s must total 15 seconds or less.`;
+      if (els.advancedNote) els.advancedNote.textContent = localizedUiError("MEDIA_DURATION_INVALID", { target: { slot: kind === "audio" ? "reference_audio" : "reference_video" }, params: { maxSec: 15 }, fallback: `Wan 3.0 reference ${kind}s must total 15 seconds or less.` });
       return null;
     }
   }
@@ -531,7 +531,7 @@ async function addAssetToAdvancedTarget(assetId = "") {
         ? 0
         : isAdvancedImageEditProvider(provider) && advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
       if (imageLimit <= 0) {
-        if (els.advancedNote) els.advancedNote.textContent = "Z-Image Spicy Pro only supports text-to-image. Choose Qwen Image Edit Spicy for image editing.";
+        if (els.advancedNote) els.advancedNote.textContent = localizedUiError("Z_IMAGE_REFERENCE_UNSUPPORTED", { fallback: "Z-Image Spicy Pro only supports text-to-image. Choose Qwen Image Edit Spicy for image editing." });
         return;
       }
       state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(imageLimit === 1 ? [] : (state.advancedReferenceImages || [])), ref]).slice(0, imageLimit);
@@ -656,7 +656,7 @@ async function uploadAdvancedDocumentReference(file) {
   }
   if (!file || currentAdvancedProvider() !== "wan30" || !isWan30DocumentFile(file)) return null;
   if (file.size > ADVANCED_WAN30_DOCUMENT_MAX_BYTES) {
-    if (els.advancedNote) els.advancedNote.textContent = "Wan 3.0 documents must be 100MB or smaller.";
+    if (els.advancedNote) els.advancedNote.textContent = localizedUiError("MEDIA_TOO_LARGE", { target: { slot: "reference_file" }, fallback: "Wan 3.0 documents must be 100MB or smaller." });
     return null;
   }
   const pending = addAdvancedPendingReference("document", file);
