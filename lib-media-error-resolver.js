@@ -512,11 +512,12 @@ function classifyCodeFromSignals({ prepCode = "", rawCode = "", rawText = "", ta
   // 6. Task parameter errors
   if (/prompt must (?:be \d+ characters or fewer|not exceed \d+)/i.test(text)) return "PROMPT_TOO_LONG";
   if (/model has been retired/i.test(text)) return "MODEL_RETIRED";
+  if (/provider must be an available generation model id|unknown (?:vega )?provider/i.test(text)) return "INVALID_PROVIDER";
   if (/duration must be an integer from \d+ to \d+/i.test(text)) return "INVALID_DURATION";
 
   // 7. Network / rate limit / billing / auth
   if (/generation submission timed out/i.test(text)) return "GENERATION_SUBMIT_TIMEOUT";
-  if (/rate.?limit|too many requests|429\b|限流|请求过于频繁/i.test(text)) return "UPSTREAM_RATE_LIMITED";
+  if (/rate.?limit|requestlimitexceeded|maximum concurrency|concurrency limit|too many requests|429\b|限流|并发(?:已满|超限)|请求过于频繁/i.test(text)) return "UPSTREAM_RATE_LIMITED";
   if (/insufficient (?:balance|credits?|quota)|balance (?:is )?(?:insufficient|low|zero)|not enough (?:balance|credits?|quota)|out of credits|quota exceeded|payment required|billing|402\b|余额|额度|欠费|积分不足/i.test(text)) {
     return "INSUFFICIENT_CREDITS";
   }

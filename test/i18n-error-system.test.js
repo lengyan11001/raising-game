@@ -363,3 +363,60 @@ test("Phase 2: platform.vega-media.js and localizedUiError render 6 languages in
     assert.match(badTarget.message, expectedRe);
   }
 });
+
+test("Today's production failure regressions: gpt-image-2 provider allowlist, Vega concurrency limit, INVALID_PROVIDER, and seedance-nsfw target tagging", () => {
+  // 1. gpt-image-2 must pass isExplicitAdvancedProvider / assertExplicitAdvancedProvider
+  const server = readServerSource();
+  assert.match(server, /function isExplicitAdvancedProvider\([\s\S]{0,900}if \(isGptImage2Provider\(value\)\) return true;/);
+
+  // 2. Tencent VOD RequestLimitExceeded / maximum concurrency maps to UPSTREAM_RATE_LIMITED
+  const vegaConcurrency = {
+    provider: "vega15-lite",
+    billingStatus: "refunded",
+    error: "RequestLimitExceeded: task failed with status: FAIL, message: GenerateVideo task reached the maximum concurrency.",
+    queryResponse: {
+      Response: {
+        AigcVideoTask: {
+          ErrCodeExt: "RequestLimitExceeded",
+          Message: "task failed with status: FAIL, message: GenerateVideo task reached the maximum concurrency.",
+        },
+      },
+    },
+  };
+  const vegaInfo = publicGenerationErrorInfo(vegaConcurrency);
+  assert.equal(vegaInfo.code, "UPSTREAM_RATE_LIMITED");
+  assert.equal(vegaInfo.retryable, true);
+  assert.match(publicGenerationErrorMessage(vegaConcurrency.error, { lang: "zh", record: vegaConcurrency }), /当前生成请求较多/);
+  assert.match(publicGenerationErrorMessage(vegaConcurrency.error, { lang: "en", record: vegaConcurrency }), /currently busy/i);
+
+  // 3. INVALID_PROVIDER resolves cleanly in all 6 languages
+  const invalidProv = {
+    provider: "seedance",
+    failureStage: "preparation",
+    preparationErrorCode: "INVALID_PROVIDER",
+    error: "provider must be an available generation model id.",
+  };
+  const provInfo = publicGenerationErrorInfo(invalidProv);
+  assert.equal(provInfo.code, "INVALID_PROVIDER");
+  assert.match(publicGenerationErrorMessage(invalidProv.error, { lang: "zh", record: invalidProv }), /所选模型不可用/);
+  assert.match(publicGenerationErrorMessage(invalidProv.error, { lang: "en", record: invalidProv }), /selected model is invalid/i);
+
+  // 4. seedance-nsfw CreateAsset WidthTooSmall with tagged @Image 5 + actual WxH
+  const dim5 = {
+    provider: "seedance-nsfw",
+    billingStatus: "refunded",
+    error: "CreateAsset failed: InvalidParameter.WidthTooSmall Width must be between 300px and 6000px.",
+    errorInfo: {
+      code: "MEDIA_DIMENSIONS_INVALID",
+      target: { slot: "reference_image", index: 5, mention: "@Image 5", fileName: "small.jpg" },
+      params: { actual: "256x384", minPx: 300, maxPx: 6000 },
+    },
+  };
+  const zhDim = publicGenerationErrorMessage(dim5.error, { lang: "zh", record: dim5 });
+  const enDim = publicGenerationErrorMessage(dim5.error, { lang: "en", record: dim5 });
+  assert.match(zhDim, /@Image 5（small\.jpg）.*256x384.*300–6000px/);
+  assert.match(enDim, /@Image 5 \(small\.jpg\).*256x384.*300-6000px/);
+
+  // 5. server.parts/part-48.js tags target on direct seedance-nsfw & flash asset loops
+  assert.match(server, /seedance-nsfw-image-\$\{index \+ 1\}[\s\S]{0,250}mention: `@Image \$\{index \+ 1\}`/);
+});

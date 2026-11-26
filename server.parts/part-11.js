@@ -244,6 +244,7 @@ function isExplicitAdvancedProvider(value = "") {
   if (isQwen37FlashProvider(value)) return true;
   if (isQwenImage3Provider(value)) return true;
   if (isSeedream5ImageProvider(value)) return true;
+  if (isGptImage2Provider(value)) return true;
   if (["zimagespicypro", "zimagespicy", "zimagepro", "zimage", "zimagespicpro"].includes(normalized) || normalized.includes("zimagespicy") || normalized.includes("zimage")) return true;
   if (["qwenimageeditspicy", "qwenimageeditspic", "qwenimageedit", "qwenimageeditspicpro"].includes(normalized) || normalized.includes("qwenimageedit")) return true;
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return true;

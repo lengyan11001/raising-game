@@ -602,6 +602,17 @@
         id: "Prompt melebihi panjang maksimum{maxCharsSuffix}. Silakan perpendek dan coba lagi.",
       },
     },
+    INVALID_PROVIDER: {
+      category: "parameter",
+      general: {
+        en: "The selected model is invalid or unavailable. Please choose an available model and try again.",
+        zh: "所选模型不可用或模型 ID 无效，请切换可用模型后重试。",
+        vi: "Mô hình đã chọn không hợp lệ hoặc không khả dụng. Vui lòng chọn mô hình khả dụng và thử lại.",
+        ja: "選択したモデルは無効または利用できません。利用可能なモデルを選択して再試行してください。",
+        ko: "선택한 모델이 올바르지 않거나 사용할 수 없습니다. 사용 가능한 모델을 선택해 다시 시도해 주세요.",
+        id: "Model yang dipilih tidak valid atau tidak tersedia. Silakan pilih model yang tersedia dan coba lagi.",
+      },
+    },
     MODEL_RETIRED: {
       category: "parameter",
       general: {
