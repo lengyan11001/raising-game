@@ -1,3 +1,12 @@
+## 2026-11-26 Step GE: Stable workflow-library tabs/cards and cache rollout
+
+- Public-template and my-project tabs now share the same `min(100%, 1580px)` content width and title alignment, preventing horizontal/vertical jumps when switching. Desktop filters stay on one row and cards use a three-column grid.
+- Cards stretch to equal height; card bodies are flex columns with a minimum info height and metadata pinned to the bottom. The dark canvas palette and existing “复制” statistic remain unchanged.
+- Bumped `CANVAS_ASSET_VERSION` and HTML asset query strings from `canvas-20261126-4` to `canvas-20261126-5` so browsers do not reuse the previous layout.
+- Source commits: `6fa32067` (layout stability), `90a13306` (cache bust). Platform release `4860c4378f99f2ee24b7ea52f97d1757cb1ed19d` was pushed to `platform-release` and deployed with `scripts/deploy_local.sh --site old`.
+- Verification: workflow canvas tests `44/44`, `npm run check:undef`, and `git diff --check` passed. Production `/api/health` and `/api/readyz` are healthy; ready release is `4860c437`; production `platform.js` serves `canvas-20261126-5` and the deployed canvas bundle contains the stable template/filter styles.
+- Rolling deployment completed: `OLD_ROLLING_DEPLOY_OK active_port=4175 release=4860c4378f99f2ee24b7ea52f97d1757cb1ed19d` and `ROLLING_DEPLOY_ENTRYPOINT_OK commit=4860c4378f99f2ee24b7ea52f97d1757cb1ed19d`.
+
 ## 2026-11-26 Step GD: Workflow canvas public/semi-public templates, dynamic invite codes, and strict no-peek unlock gate
 
 ### Goal
