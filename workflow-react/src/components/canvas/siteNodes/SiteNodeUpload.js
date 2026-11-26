@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { MediaPreviewTrigger, useMediaPreview } from './MediaPreview';
+import { useCanvasReadOnly } from '../providers/CanvasReadOnlyProvider';
 
 export function SiteNodeUpload({
   id,
@@ -10,6 +11,7 @@ export function SiteNodeUpload({
   emptyLabel = '支持拖入或选择文件',
 }) {
   const inputRef = useRef(null);
+  const readOnly = useCanvasReadOnly();
   const { openPreview, previewOverlay } = useMediaPreview();
   const values = Array.from(new Set((references || []).filter(Boolean)));
   const labels = values.map((_, index) => referenceLabels[index] || '');
@@ -59,10 +61,14 @@ export function SiteNodeUpload({
       )}
       {previewOverlay}
       {values.length > 0 && <p className="site-node-upload-hint">在提示词中输入 <b>@</b> 选择并引用素材，例如 @image1</p>}
-      <button type="button" className="site-node-upload-button" disabled={uploading} onClick={() => inputRef.current?.click()}>
-        <i className="bi bi-upload" /> 上传素材
-      </button>
-      <input ref={inputRef} type="file" accept={accept} multiple hidden onChange={handleFiles} />
+      {!readOnly && (
+        <>
+          <button type="button" className="site-node-upload-button" disabled={uploading} onClick={() => inputRef.current?.click()}>
+            <i className="bi bi-upload" /> 上传素材
+          </button>
+          <input ref={inputRef} type="file" accept={accept} multiple hidden onChange={handleFiles} />
+        </>
+      )}
     </div>
   );
 }

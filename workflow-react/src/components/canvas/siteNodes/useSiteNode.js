@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { siteNode, updateSiteNode } from '../../../site/SiteBridge';
+import { useCanvasReadOnly } from '../providers/CanvasReadOnlyProvider';
 
 export function useSiteNode(nodeId = '') {
+  const readOnly = useCanvasReadOnly();
   const read = useCallback(() => {
     if (typeof nodeId !== 'string' || !nodeId) return null;
     const current = siteNode(nodeId);
@@ -27,17 +29,19 @@ export function useSiteNode(nodeId = '') {
   }, [nodeId, read]);
 
   const update = useCallback((patch = {}) => {
+    if (readOnly) return null;
     const next = updateSiteNode(nodeId, patch);
     if (next) setNode(read());
     return next;
-  }, [nodeId, read]);
+  }, [nodeId, read, readOnly]);
 
   const run = useCallback(() => {
+    if (readOnly) return null;
     if (typeof window.runWorkflowSingleNode === 'function') return window.runWorkflowSingleNode(nodeId);
     return null;
-  }, [nodeId]);
+  }, [nodeId, readOnly]);
 
-  return { node, update, run, nodeRef };
+  return { node, update, run, nodeRef, readOnly };
 }
 
 export function optionsFrom(values = [], labels = {}) {

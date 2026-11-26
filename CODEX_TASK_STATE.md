@@ -1,3 +1,24 @@
+## 2026-11-26 Step GD: Workflow canvas public/semi-public templates, dynamic invite codes, and strict no-peek unlock gate
+
+### Goal
+- Allow canvas owners to set visibility to `private`, `public`, or `semi_public` from a top-right sharing/invite button inside the canvas editor (removing the redundant in-editor `+ 新建` button) and from the project card menu.
+- Add a 「公开模版」 tab on the workflow canvas library page listing all public and semi-public templates.
+- Enforce strict zero-structure-leakage for locked `semi_public` canvases: un-unlocked users cannot view node structure, previewNodes, prompts, or fork/copy until unlocked by credits or the canvas's static/dynamic invite code.
+- Support share links (`/#workflow?canvas=<id>(&code=<xxx>)` and `/canvas/<id>`) that check login first, then permission, then unlock/invite-code status.
+
+### Decisions & Implementation
+- **PostgreSQL schema**: Extended `app_workflow_canvases` with `tenant_id`, `visibility`, `description`, `unlock_credits`, `allow_credit_unlock`, `allow_code_unlock`, `invite_mode`, `invite_code`, `invite_secret`, `invite_version`, `invite_rotate_interval_sec`, `invite_expires_at`, `invite_max_uses`, `invite_used_count`, `published_at`, `fork_source_id`, `unlock_count`, `fork_count`; added `app_workflow_canvas_unlocks` with `UNIQUE (canvas_id, user_id)`; added migration `2026-11-26-workflow-canvas-sharing-v1` in `ops/run-db-migrations.js`.
+- **Dynamic invite codes (`workflow-canvases.js`)**: Supports both static codes (manual instant rotate) and rotating HMAC-SHA256 time-slot codes (1h/6h/24h/7d) with 60s rollover grace window, constant-time comparison, expiry/max-uses checks, and zero-leakage summary/locked views (`previewNodes: []` when locked).
+- **Backend API (`server.parts/part-54.js`, `part-01.js`, `part-03.js`, `part-42.js`)**: Added `GET /api/workflow/templates`, `PATCH /api/workflow/canvases/:id/sharing`, `POST /api/workflow/canvases/:id/invite-code/rotate`, `POST /api/workflow/canvases/:id/unlock` (atomic PostgreSQL credit debit via `consumeCheckinCreditLots` + `app_credit_ledger` or rate-limited invite-code verification), `POST /api/workflow/canvases/:id/fork`, and `GET /canvas/:id` redirect. Unified `authorizeWorkflowCanvasRead` guards both `GET` and `fork`, and backend refreshes owner upload asset URLs while stripping private asset IDs for viewers.
+- **Frontend & React Canvas (`workflow-react/src/*`, `platform.explore.js`, `platform.create.parts/part-06.js`, `platform.workflow-canvases.js`)**: Removed in-editor `+ 新建` button; added top-right `公开 / 邀请` modal trigger (owner) and `复制到我的画布` fork button (readonly viewer); added `我的项目 | 公开模版` tabs with locked placeholder cards; added deep-link login-first + auto-resume + `WorkflowUnlockModal` gate; threaded `CanvasReadOnlyProvider` across `Canvas`, `NodeLayout`, `SiteNodeUpload`, and generation nodes. Rebuilt production `workflow-react/dist/canvas.js` (cache version `canvas-20261126-1`).
+
+### Verification
+- `npm run check:undef`, `node --check` on all touched server/client/dist JS files, and scoped `git diff --check` all pass.
+- Webpack production build succeeded (existing bundle-size warnings only).
+- Targeted tests pass: `test/workflow-canvases.test.js` + `test/workflow-access.test.js` + `test/migration-runner.test.js` + `test/session-login-race.test.js` + `test/mobile-tool-ux.test.js` + `test/eleven-eleven-promo.test.js` (80/80 pass).
+- No deployment or production DB writes performed.
+
+
 ## 2026-11-22 Step GB: Mention insertion stays on the current line
 
 ### Goal
@@ -5694,3 +5715,13 @@ CODEX_TASK_STATE.md
 - Verification: `node --check`, `npm run check:undef`, `git diff --check` pass; focused 395-test generation/error/auth/coupon/provider/release suite passed **395/395**.
 - Deployment (`b4299446` on `old-site` -> `platform-release` `d42403021d21b02e3ac2adac448b11363f498796`, pushed only `platform-release`; Live untouched): `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4175`, `release_boundary=ok`.
 - Production verification on `https://123vips.com`: `/api/health`, `/api/livez`, `/api/readyz` return HTTP `200` with clean release `d42403021d21b02e3ac2adac448b11363f498796`; live versioned assets (`?v=3ec7ca5d57ba`) serve updated `platform.errors.js`, `platform.config.js`, and `platform.create.parts/part-03.js` (32 `localizedUiError` calls); previously code-less 404 (`GET /api/nonexistent-phase3-check`) returns `code: "API_NOT_FOUND"` + localized `message` across all 6 languages (`en/zh/vi/ja/ko/id`).
+## 2026-11-26 Step FN: Fix gpt-image-2 provider allowlist, Vega concurrency mapping, and Seedance 2.5 target tagging
+
+- Audited all 2026-11-26 production failures (`718` tasks / `53` failed; excluding `1` output-audio copyright, `52` other failures) including `cgt-20261126165300-b11277`, `cgt-20261126163057-7bb086`, and `cgt-20261126153126-e5f592`.
+- Found and fixed 3 issues (`6c22d6e0` on `old-site`):
+  1. **Critical `gpt-image-2` bug**: `isExplicitAdvancedProvider()` in `server.parts/part-11.js` was missing `if (isGptImage2Provider(value)) return true;`, causing all 12/12 `gpt-image-2` requests to fail with `INVALID_PROVIDER`. Added `if (isGptImage2Provider(value)) return true;`.
+  2. **Error catalog & classifier gaps**: added 6-language `INVALID_PROVIDER` template in `platform.errors.js`; mapped `RequestLimitExceeded` / `maximum concurrency` / `concurrency limit` (Tencent VOD `cgt-20261126165300-b11277`) to `UPSTREAM_RATE_LIMITED` and `provider must be an available generation model id` to `INVALID_PROVIDER` in `lib-media-error-resolver.js`.
+  3. **Seedance 2.5 / `seedance-nsfw` / `seedance25-flash` asset pinpointing**: tagged `error.target` (`@Image N` / `@Video N` / `@Audio N` / First frame / Last frame + filename) and `error.errorParams.actual` (`WxH`) on asset preparation / `CreateAsset` loops in `server.parts/part-48.js` (`runSeedance25GenerationJob` direct path, `seedance25PublicAssetUrls`, and Flash reference loop), closing the gap exposed by `cgt-20261126141017-d87120` (`@Image 5` `256x384` `WidthTooSmall`).
+- Verification: `node --check`, `npm run check:undef`, `git diff --check` pass; focused 297-test generation/provider/error/release suite passed **297/297** (`test/i18n-error-system.test.js`, `test/gpt-image2.test.js`, `test/low-fps-seedance-video.test.js`, and all Seedance/Wan/Qwen/Seedream/Vega suites).
+- Deployment: `platform-release` `f5a66b15142525191bff246936023fb6cf8cd20d` built from `6c22d6e094afafbbd89e9d21eae7f299866a432e`, pushed only `platform-release` (Live untouched); `scripts/deploy_local.sh --site old` completed with `OLD_ROLLING_DEPLOY_OK active_port=4174`, `release_boundary=ok`.
+- Production verification on `https://123vips.com`: `/api/health`, `/api/livez`, `/api/readyz` return HTTP `200` with clean release `f5a66b15142525191bff246936023fb6cf8cd20d`; deployed `server.parts/part-11.js` contains `if (isGptImage2Provider(value)) return true;`; replay confirmed `cgt-20261126165300-b11277` resolves to `UPSTREAM_RATE_LIMITED` and `cgt-20261126153126-e5f592` resolves to `INVALID_PROVIDER`; zero runtime errors in systemd journal.

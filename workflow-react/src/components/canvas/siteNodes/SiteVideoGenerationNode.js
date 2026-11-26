@@ -17,7 +17,7 @@ function canvasReferences(node = {}, nodeId = '') {
 }
 
 export function SiteVideoGenerationNode({ id, selected = false }) {
-  const { node, update, run } = useSiteNode(id);
+  const { node, update, run, readOnly } = useSiteNode(id);
   const data = node?.data || {};
   const [prompt, setPrompt] = useState(data.prompt || '');
   const model = typeof window.workflowVideoModelById === 'function'
@@ -100,7 +100,8 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
               value={prompt}
               items={mentionItems}
               placeholder={mentionItems.length ? '描述视频画面，输入 @ 引用已连接素材...' : '描述视频的画面、动作、镜头和氛围...'}
-              onChange={setPrompt}
+              readOnly={readOnly}
+                onChange={(value) => { if (!readOnly) setPrompt(value); }}
               onBlur={savePrompt}
             />
             {typeof window.isPromptOptimizerProvider === 'function' && window.isPromptOptimizerProvider(model.id) && (
@@ -135,44 +136,44 @@ export function SiteVideoGenerationNode({ id, selected = false }) {
           <div className="site-field-grid">
             <label className="site-field">
               <span>模型</span>
-              <select value={selectedOption(library.map((item) => ({ value: item.id })), data.modelId)} onChange={(event) => changeModel(event.target.value)}>
+              <select disabled={readOnly} value={selectedOption(library.map((item) => ({ value: item.id })), data.modelId)} onChange={(event) => changeModel(event.target.value)}>
                 {library.map((item) => <option key={item.id} value={item.id}>{item.label || item.id}</option>)}
               </select>
             </label>
             <label className="site-field">
               <span>比例</span>
-              <select value={selectedOption(ratios, data.ratio || model.ratio)} onChange={(event) => update({ ratio: event.target.value })}>
+              <select disabled={readOnly} value={selectedOption(ratios, data.ratio || model.ratio)} onChange={(event) => update({ ratio: event.target.value })}>
                 {ratios.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <label className="site-field">
               <span>分辨率</span>
-              <select value={selectedOption(resolutions, data.resolution || model.resolution)} onChange={(event) => changeResolution(event.target.value)}>
+              <select disabled={readOnly} value={selectedOption(resolutions, data.resolution || model.resolution)} onChange={(event) => changeResolution(event.target.value)}>
                 {resolutions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <label className="site-field">
               <span>时长</span>
-              <select value={selectedOption(durations, data.duration ?? model.duration ?? 5)} onChange={(event) => update({ duration: Number(event.target.value) })}>
+              <select disabled={readOnly} value={selectedOption(durations, data.duration ?? model.duration ?? 5)} onChange={(event) => update({ duration: Number(event.target.value) })}>
                 {durations.map((option) => <option key={option.value} value={option.value}>{typeof option.label === 'number' ? `${option.label} 秒` : option.label || `${option.value} 秒`}</option>)}
               </select>
             </label>
             {modes.length > 0 && (
               <label className="site-field">
                 <span>模式</span>
-                <select value={selectedOption(modes, data.mode || model.mode)} onChange={(event) => update({ mode: event.target.value })}>
+                <select disabled={readOnly} value={selectedOption(modes, data.mode || model.mode)} onChange={(event) => update({ mode: event.target.value })}>
                   {modes.map((option) => <option key={option.value} value={option.value}>{option.label || option.value}</option>)}
                 </select>
               </label>
             )}
           </div>
           <label className="site-checkbox">
-            <input type="checkbox" checked={data.addSound !== false} onChange={(event) => update({ addSound: event.target.checked })} />
+            <input type="checkbox" disabled={readOnly} checked={data.addSound !== false} onChange={(event) => update({ addSound: event.target.checked })} />
             <span>生成音频</span>
           </label>
           <div className="site-generation-actions">
             <span>{(typeof window.workflowCostLabel === 'function' ? window.workflowCostLabel(node) : '')} 积分</span>
-            <button type="button" disabled={runState.disabled} onClick={() => { savePrompt(); run(); }}>
+            <button type="button" disabled={readOnly || runState.disabled} onClick={() => { if (readOnly) return; savePrompt(); run(); }}>
               <i className={`bi ${busy ? 'bi-arrow-repeat' : 'bi-magic'}`} /> {runState.label === 'Run' ? '生成' : runState.label}
             </button>
           </div>

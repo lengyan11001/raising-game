@@ -871,6 +871,8 @@ async function handleRequest(req, res) {
       return await handleWorkflowPresets(req, res);
     }
 
+    if (await dispatchWorkflowSharingRoute(req, res, url)) return;
+
     if (req.method === "GET" && url.pathname === "/api/workflow/canvases") {
       return await handleListWorkflowCanvases(req, res);
     }

@@ -28,6 +28,7 @@ export function PromptMentionTextarea({
   placeholder = '',
   rows = 3,
   items = [],
+  readOnly = false,
 }) {
   const textareaRef = useRef(null);
   const [mention, setMention] = useState(null);
@@ -44,13 +45,13 @@ export function PromptMentionTextarea({
   const open = Boolean(mention && matches.length);
 
   const refreshMention = (target = textareaRef.current) => {
-    if (!target) return;
+    if (readOnly || !target) return;
     setMention(mentionAtCaret(value, target.selectionStart));
     setActiveIndex(0);
   };
 
   const insertMention = (item) => {
-    if (!item || !mention) return;
+    if (readOnly || !item || !mention) return;
     const alias = normalizedAlias(item);
     const prefix = value.slice(0, mention.start);
     const suffix = value.slice(mention.end).replace(/^\s*/, '');
@@ -96,6 +97,7 @@ export function PromptMentionTextarea({
   return (
     <div className="site-prompt-input-shell" onPointerDown={(event) => event.stopPropagation()}>
       <textarea
+        readOnly={readOnly}
         ref={textareaRef}
         rows={rows}
         value={value}

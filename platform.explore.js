@@ -46,6 +46,21 @@ function setTab(tab) {
   const hashRoute = platformHashParts(tab);
   let routeGalleryMode = galleryModeFromPlatformRoute(tab);
   if (routeGalleryMode && !isGalleryModeAllowed(routeGalleryMode)) routeGalleryMode = "";
+  const rawTabInput = String(tab || "").trim();
+  const isWorkflowHash = hashRoute.tab === "workflow" || (!rawTabInput.startsWith("#") && normalizePlatformTab(tab) === "workflow");
+  const workflowUrlSearch = typeof window !== "undefined" ? new URLSearchParams(window.location.search || "") : new URLSearchParams();
+  if (isWorkflowHash && rawTabInput.startsWith("#")) {
+    const routeCanvasId = String(hashRoute.params.get("canvas") || workflowUrlSearch.get("canvas") || "").trim();
+    const routeInviteCode = String(hashRoute.params.get("code") || workflowUrlSearch.get("code") || "").trim();
+    const routeWfTab = String(hashRoute.params.get("tab") || "").trim().toLowerCase();
+    state.routeWorkflowCanvasId = routeCanvasId;
+    state.routeWorkflowInviteCode = routeInviteCode;
+    state.routeWorkflowTab = ["mine", "templates"].includes(routeWfTab) ? routeWfTab : "";
+  } else if (rawTabInput.startsWith("#") && hashRoute.tab !== "workflow") {
+    state.routeWorkflowCanvasId = "";
+    state.routeWorkflowInviteCode = "";
+    state.routeWorkflowTab = "";
+  }
   const routeCharacterId = characterRouteParamFrom(hashRoute.params);
   if (routeCharacterId) {
     state.routeCharacterId = routeCharacterId;
@@ -84,13 +99,23 @@ function setTab(tab) {
     state.galleryMode = tenantDefaultGalleryMode();
   }
   localStorage.setItem(TAB_KEY, nextTab);
+  const workflowRouteHash = (() => {
+    const params = new URLSearchParams();
+    if (state.routeWorkflowCanvasId) params.set("canvas", state.routeWorkflowCanvasId);
+    if (state.routeWorkflowInviteCode) params.set("code", state.routeWorkflowInviteCode);
+    if (!state.routeWorkflowCanvasId && state.routeWorkflowTab) params.set("tab", state.routeWorkflowTab);
+    const qs = params.toString();
+    return qs ? `#workflow?${qs}` : "#workflow";
+  })();
   const nextHash = state.routeCharacterId && (nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters")
     ? characterDetailHash(nextTab, state.routeCharacterId, state.routeCharacterSource)
-    : nextTab === DEFAULT_PLATFORM_TAB
-      ? galleryModeHash(state.galleryMode)
-      : nextTab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id
-        ? "#custom"
-        : `#${nextTab}`;
+    : nextTab === "workflow"
+      ? workflowRouteHash
+      : nextTab === DEFAULT_PLATFORM_TAB
+        ? galleryModeHash(state.galleryMode)
+        : nextTab === "advanced" && state.advancedCreateKind === ADVANCED_CUSTOM_KIND.id
+          ? "#custom"
+          : `#${nextTab}`;
   if (window.location.hash !== nextHash) {
     const nextUrl = `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`;
     window.history.replaceState(null, "", nextUrl);
@@ -182,6 +207,13 @@ function setTab(tab) {
     const deferred = window.PlatformDeferredModules?.load?.();
     if (deferred?.then) deferred.then(loadCanvases).catch(() => {});
     else loadCanvases();
+    window.dispatchEvent(new CustomEvent("workflow-route-changed", {
+      detail: {
+        canvasId: String(state.routeWorkflowCanvasId || ""),
+        inviteCode: String(state.routeWorkflowInviteCode || ""),
+        subTab: String(state.routeWorkflowTab || ""),
+      },
+    }));
   }
   if (nextTab === "episodes") {
     window.PlatformStory?.open?.();

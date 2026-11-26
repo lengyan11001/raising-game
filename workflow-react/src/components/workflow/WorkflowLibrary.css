@@ -388,3 +388,192 @@
   .InspirationCanvas-masonry-container.is-mine-projects,
   .InspirationCanvas-skeleton-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 16px; }
 }
+
+.InspirationCanvas-header-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--canvas-list-line);
+  border-radius: 11px;
+}
+
+.InspirationCanvas-tab-button {
+  min-height: 34px;
+  padding: 0 16px;
+  color: #b4aab9;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.InspirationCanvas-tab-button:hover {
+  color: #f7f3f8;
+}
+
+.InspirationCanvas-tab-button.is-active {
+  color: #21141a;
+  background: var(--canvas-list-pink);
+  font-weight: 700;
+}
+
+.InspirationCanvas-template-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.InspirationCanvas-filter-group {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--canvas-list-line);
+  border-radius: 9px;
+}
+
+.InspirationCanvas-filter-pill {
+  min-height: 28px;
+  padding: 0 11px;
+  color: #b4aab9;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.InspirationCanvas-filter-pill.is-active {
+  color: #f7f3f8;
+  background: rgba(245, 106, 168, 0.24);
+}
+
+.InspirationCanvas-filter-select,
+.InspirationCanvas-filter-search {
+  min-height: 34px;
+  padding: 0 11px;
+  color: #f7f3f8;
+  background: #1b1820;
+  border: 1px solid var(--canvas-list-line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.InspirationCanvas-filter-search {
+  width: 190px;
+}
+
+.InspirationCanvas-filter-search:focus,
+.InspirationCanvas-filter-select:focus {
+  border-color: var(--canvas-list-pink);
+}
+
+.InspirationCanvas-visibility-badge {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #f7f3f8;
+  background: rgba(17, 15, 22, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.InspirationCanvas-visibility-badge.is-public,
+.InspirationCanvas-visibility-badge.is-unlocked {
+  color: #a6f5cd;
+  border-color: rgba(54, 179, 126, 0.45);
+}
+
+.InspirationCanvas-visibility-badge.is-semi,
+.InspirationCanvas-visibility-badge.is-locked {
+  color: #ffd3a3;
+  border-color: rgba(245, 166, 91, 0.55);
+}
+
+.InspirationCanvas-card-locked-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(245, 166, 91, 0.16), transparent 60%),
+    #191620;
+}
+
+.InspirationCanvas-card-locked-placeholder i {
+  font-size: 24px;
+  color: #f5b66a;
+}
+
+.InspirationCanvas-card-locked-placeholder strong {
+  font-size: 13px;
+  color: #f7f3f8;
+}
+
+.InspirationCanvas-card-locked-placeholder small {
+  font-size: 11px;
+  color: #9e95a5;
+}
+
+.InspirationCanvas-template-desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #a89fae;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.InspirationCanvas-template-submeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--canvas-list-muted);
+}
+
+.InspirationCanvas-toast {
+  margin-bottom: 14px;
+  padding: 9px 13px;
+  font-size: 12px;
+  color: #c9f7df;
+  background: rgba(54, 179, 126, 0.16);
+  border: 1px solid rgba(54, 179, 126, 0.36);
+  border-radius: 9px;
+}
+
+.InspirationCanvas-empty-project.is-auth-prompt {
+  cursor: default;
+}
+
+.InspirationCanvas-empty-project.is-auth-prompt .InspirationCanvas-create-project-button {
+  margin-top: 10px;
+}
