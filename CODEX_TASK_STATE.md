@@ -16,7 +16,10 @@
 - `npm run check:undef`, `node --check` on all touched server/client/dist JS files, and scoped `git diff --check` all pass.
 - Webpack production build succeeded (existing bundle-size warnings only).
 - Targeted tests pass: `test/workflow-canvases.test.js` + `test/workflow-access.test.js` + `test/migration-runner.test.js` + `test/session-login-race.test.js` + `test/mobile-tool-ux.test.js` + `test/eleven-eleven-promo.test.js` (80/80 pass).
-- No deployment or production DB writes performed.
+- Deployed to `123vips.com` via `scripts/deploy_local.sh --site old` (Live untouched).
+- Source `old-site` commits: `2441c72c` (feature) + `80989034` (migration runner DDL handler); `platform-release`: `6a7f747945153e68c514870b382eba5eabd4666c`.
+- Rolling cutover `4174 -> 4175` passed preflight DB migration `2026-11-26-workflow-canvas-sharing-v1`, 1% and 5% canaries, and release-boundary audit.
+- Production checks verified: `/api/health`, `/api/livez`, `/api/readyz` all `200`; `/api/workflow/templates` `200`; unauthenticated `/api/workflow/canvases/:id` `401 LOGIN_REQUIRED`; `/canvas/:id?code=...` `302` to `/#workflow?canvas=...&code=...`; production `workflow-react/dist/canvas.js` SHA-256 matches local (`7824ba2271f6a4cd6cf63db2e3d5ab56067bb15d1cd888628565ac810a1dab1b`).
 
 
 ## 2026-11-22 Step GB: Mention insertion stays on the current line
