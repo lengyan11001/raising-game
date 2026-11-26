@@ -523,6 +523,13 @@ test("registration flows issue coupons and public APIs keep pending coupons non-
   assert.match(serverCoupon, /coupon = await markUserCouponRiskInDb\(auth\.user\.id, couponId, 1\) \|\| coupon/);
 });
 
+test("coupon claiming is not blocked for new accounts without generation history", () => {
+  const risk = sourceBetween(serverCoupon, "async function couponClaimRisk", "function couponIdFromRequest");
+  assert.doesNotMatch(risk, /new_account_claim_without_generation/);
+  assert.doesNotMatch(risk, /app_generation_records/);
+  assert.match(risk, /device_shared_by_more_than_three_accounts/);
+});
+
 test("coupon email reminders follow pending, claimed, expiry, and seven-day cap rules", () => {
   const { couponEmailReminderCandidate } = loadServerCouponHelpers();
   const now = Date.parse("2026-11-19T12:00:00.000Z");
