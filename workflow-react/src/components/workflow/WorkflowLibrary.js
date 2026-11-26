@@ -30,15 +30,19 @@ function previewNodes(project) {
   return Array.isArray(project.previewNodes) ? project.previewNodes.filter((node) => node && node.id) : [];
 }
 
-function templateBadgeText(project) {
-  if (project.isOwner) return project.visibility === 'semi_public' ? '我的 · 半公开' : '我的 · 公开';
-  if (project.visibility === 'public') return '公开模版';
-  if (project.unlocked) return '已解锁';
-  const hasCredits = Boolean(project.allowCreditUnlock && Number(project.unlockCredits || 0) > 0);
-  const hasCode = Boolean(project.allowCodeUnlock !== false);
-  if (hasCredits && hasCode) return `半公开 · ${project.unlockCredits}积分 / 邀请码`;
-  if (hasCredits) return `半公开 · ${project.unlockCredits}积分`;
-  return '半公开 · 邀请码解锁';
+function templateVisibilityBadge(project) {
+  if (project.visibility === 'public') return { text: '公开', cls: 'is-public' };
+  if (project.visibility === 'semi_public') return { text: '半公开', cls: 'is-semi' };
+  return null;
+}
+
+function templatePriceBadge(project) {
+  if (project.visibility !== 'semi_public') return null;
+  if (project.unlocked) return { text: '已解锁', cls: 'is-unlocked' };
+  const credits = Number(project.unlockCredits || 0);
+  if (project.allowCreditUnlock && credits > 0) return { text: `${credits}积分/分`, cls: 'is-price' };
+  if (project.allowCodeUnlock !== false) return { text: '邀请码', cls: 'is-price' };
+  return null;
 }
 
 function ownerVisibilityBadge(project) {
@@ -161,7 +165,7 @@ export function WorkflowLibrary({
   }, [sortedProjects]);
 
   const templateColumns = useMemo(() => {
-    const columns = [[], [], [], []];
+    const columns = [[], [], []];
     templates.forEach((item, index) => columns[index % columns.length].push(item));
     return columns;
   }, [templates]);
@@ -265,12 +269,20 @@ export function WorkflowLibrary({
           </div>
         )}
 
-        {isTemplate ? (
-          <span className={`InspirationCanvas-visibility-badge ${project.locked ? 'is-locked' : project.visibility === 'public' ? 'is-public' : 'is-unlocked'}`}>
-            {project.locked ? <i className="bi bi-lock-fill" aria-hidden="true" /> : null}
-            {templateBadgeText(project)}
-          </span>
-        ) : (() => {
+        {isTemplate ? (() => {
+          const visibilityBadge = templateVisibilityBadge(project);
+          const priceBadge = templatePriceBadge(project);
+          return (
+            <div className="InspirationCanvas-template-badges">
+              {visibilityBadge ? (
+                <span className={`InspirationCanvas-visibility-badge ${visibilityBadge.cls}`}>{visibilityBadge.text}</span>
+              ) : null}
+              {priceBadge ? (
+                <span className={`InspirationCanvas-template-price ${priceBadge.cls}`}>{priceBadge.text}</span>
+              ) : null}
+            </div>
+          );
+        })() : (() => {
           const badge = ownerVisibilityBadge(project);
           return badge ? <span className={`InspirationCanvas-visibility-badge ${badge.cls}`}>{badge.text}</span> : null;
         })()}
@@ -279,7 +291,7 @@ export function WorkflowLibrary({
   };
 
   return (
-    <section ref={rootRef} className={`InspirationCanvas-body is-mine WorkflowLibrary ${className}`} aria-label="画布项目列表">
+    <section ref={rootRef} className={`InspirationCanvas-body is-${activeTab} WorkflowLibrary ${className}`} aria-label="画布项目列表">
       <main className="InspirationCanvas-main">
         <div className="InspirationCanvas-section-header">
           <div className="InspirationCanvas-header-tabs" role="tablist" aria-label="画布列表视图">
@@ -309,24 +321,28 @@ export function WorkflowLibrary({
               </svg>
               新建项目
             </button>
-          ) : (
-            <div className="InspirationCanvas-template-filters">
-              <div className="InspirationCanvas-filter-group" role="group" aria-label="可见性筛选">
-                {[
-                  { id: 'all', label: '全部' },
-                  { id: 'public', label: '公开' },
-                  { id: 'semi_public', label: '半公开' },
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    className={`InspirationCanvas-filter-pill${templateFilter === opt.id ? ' is-active' : ''}`}
-                    onClick={() => setTemplateFilter(opt.id)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+          ) : null}
+        </div>
+
+        {activeTab === 'templates' ? (
+          <div className="InspirationCanvas-template-filters" role="search" aria-label="公开模版筛选">
+            <div className="InspirationCanvas-filter-group" role="group" aria-label="可见性筛选">
+              {[
+                { id: 'all', label: '全部' },
+                { id: 'public', label: '公开' },
+                { id: 'semi_public', label: '半公开' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`InspirationCanvas-filter-pill${templateFilter === opt.id ? ' is-active' : ''}`}
+                  onClick={() => setTemplateFilter(opt.id)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <div className="InspirationCanvas-template-query">
               <select
                 className="InspirationCanvas-filter-select"
                 aria-label="排序方式"
@@ -336,16 +352,19 @@ export function WorkflowLibrary({
                 <option value="latest">最新发布</option>
                 <option value="popular">最多使用</option>
               </select>
-              <input
-                type="search"
-                className="InspirationCanvas-filter-search"
-                value={templateSearch}
-                placeholder="搜索模版或作者..."
-                onChange={(event) => setTemplateSearch(event.target.value)}
-              />
+              <label className="InspirationCanvas-filter-search">
+                <i className="bi bi-search" aria-hidden="true" />
+                <input
+                  type="search"
+                  value={templateSearch}
+                  placeholder="搜索模版或作者..."
+                  aria-label="搜索模版或作者"
+                  onChange={(event) => setTemplateSearch(event.target.value)}
+                />
+              </label>
             </div>
-          )}
-        </div>
+          </div>
+        ) : null}
 
         {toastText ? <div className="InspirationCanvas-toast" role="status">{toastText}</div> : null}
 
@@ -497,11 +516,11 @@ export function WorkflowLibrary({
             ) : null}
 
             {templatesLoading ? (
-              <div className="InspirationCanvas-skeleton-grid is-mine-projects" aria-label="正在加载公开模版">
-                {[0, 1, 2, 3].map((item) => <span key={item} className="InspirationCanvas-project-skeleton" />)}
+              <div className="InspirationCanvas-skeleton-grid is-templates-grid" aria-label="正在加载公开模版">
+                {[0, 1, 2].map((item) => <span key={item} className="InspirationCanvas-project-skeleton" />)}
               </div>
             ) : templates.length ? (
-              <div className="InspirationCanvas-masonry-container is-mine-projects">
+              <div className="InspirationCanvas-masonry-container is-templates-grid">
                 {templateColumns.map((column, columnIndex) => (
                   <div className="InspirationCanvas-masonry-column" key={`template-column-${columnIndex}`}>
                     {column.map((template) => (
@@ -520,7 +539,7 @@ export function WorkflowLibrary({
                           }
                         }}
                       >
-                        <div className="InspirationCanvas-card-content is-mine-project">
+                        <div className="InspirationCanvas-card-content is-template">
                           {renderCardThumbnail(template, { isTemplate: true })}
                           <div className="InspirationCanvas-card-info">
                             <div className="InspirationCanvas-card-meta-row">
@@ -531,9 +550,9 @@ export function WorkflowLibrary({
                             ) : null}
                             <div className="InspirationCanvas-template-submeta">
                               <span>{template.ownerName ? `作者 ${template.ownerName}` : '社区模版'}</span>
-                              <span>
-                                {template.visibility === 'semi_public' ? `${template.unlockCount || 0} 解锁 · ` : ''}
-                                {template.forkCount || 0} 复制
+                              <span className="InspirationCanvas-template-stats">
+                                {template.visibility === 'semi_public' ? <span>{template.unlockCount || 0} 解锁</span> : null}
+                                <span>{template.forkCount || 0} 复制</span>
                               </span>
                             </div>
                           </div>
