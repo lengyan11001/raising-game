@@ -353,30 +353,54 @@ function seedance25OwnedAssets(db, userId, assetIds = [], kind = "image") {
   return assets;
 }
 
-async function seedance25PublicAssetUrls(db, assets = [], { preprocessReference = false } = {}) {
+async function seedance25PublicAssetUrls(db, assets = [], { preprocessReference = false, slot = "" } = {}) {
   const urls = [];
-  for (const asset of assets) {
-    const preparedReference = preprocessReference
-      ? await prepareSeedanceReferenceAsset(db, asset, true)
-      : null;
+  for (let index = 0; index < assets.length; index += 1) {
+    const asset = assets[index];
     const isVideo = String(asset?.mime || "").toLowerCase().startsWith("video/");
-    const prepared = preparedReference?.asset
-      || (isVideo ? await prepareSeedanceVideoAsset(db, asset) : null)?.asset
-      || await ensurePublicUrlForUserAsset(db, asset);
-    const url = preprocessReference
-      ? publicHttpUrlForUpstream(firstPresent(
-          preparedReference?.publicImageUrl,
-          prepared.syntheticReferencePublicUrl,
-          prepared.syntheticReferenceUrl,
-        ))
-      : publicHttpUrlForUserAsset(prepared);
-    if (!url) {
-      const error = new Error("Reference asset could not be published for generation.");
-      error.statusCode = 502;
-      error.code = "SEEDANCE25_ASSET_PUBLISH_FAILED";
-      throw error;
+    const isAudio = String(asset?.mime || "").toLowerCase().startsWith("audio/");
+    const inferredSlot = slot || (isVideo ? "reference_video" : isAudio ? "reference_audio" : "reference_image");
+    try {
+      const preparedReference = preprocessReference
+        ? await prepareSeedanceReferenceAsset(db, asset, true)
+        : null;
+      const prepared = preparedReference?.asset
+        || (isVideo ? await prepareSeedanceVideoAsset(db, asset) : null)?.asset
+        || await ensurePublicUrlForUserAsset(db, asset);
+      const url = preprocessReference
+        ? publicHttpUrlForUpstream(firstPresent(
+            preparedReference?.publicImageUrl,
+            prepared.syntheticReferencePublicUrl,
+            prepared.syntheticReferenceUrl,
+          ))
+        : publicHttpUrlForUserAsset(prepared);
+      if (!url) {
+        const error = new Error("Reference asset could not be published for generation.");
+        error.statusCode = 502;
+        error.code = "SEEDANCE25_ASSET_PUBLISH_FAILED";
+        throw error;
+      }
+      urls.push(url);
+    } catch (prepError) {
+      if (prepError && typeof prepError === "object") {
+        if (!prepError.target) {
+          const isFrame = inferredSlot === "first_frame" || inferredSlot === "last_frame";
+          const mentionPrefix = inferredSlot === "reference_video" ? "@Video" : inferredSlot === "reference_audio" ? "@Audio" : "@Image";
+          prepError.target = {
+            slot: inferredSlot,
+            ...(isFrame ? {} : { index: index + 1, mention: `${mentionPrefix} ${index + 1}` }),
+            assetId: asset?.id || "",
+            fileName: asset?.name || "",
+          };
+        }
+        const w = Number(asset?.width || asset?.videoWidth || 0);
+        const h = Number(asset?.height || asset?.videoHeight || 0);
+        if (w > 0 && h > 0 && !prepError.errorParams?.actual) {
+          prepError.errorParams = { ...(prepError.errorParams || {}), actual: `${w}x${h}` };
+        }
+      }
+      throw prepError;
     }
-    urls.push(url);
   }
   return urls;
 }
@@ -543,35 +567,95 @@ async function runSeedance25GenerationJob(job = {}, submission = null, options =
       providerDispatchStarted = true;
       submitted = await submitArkTaskAfterAssetsReady(upstreamPayload);
     } else if (direct) {
-      const imageAssets = [];
-      for (let index = 0; index < upstreamInput.imageFiles.length; index += 1) {
-        imageAssets.push(await ensureSeedanceAssetUriForPublicUrl(upstreamInput.imageFiles[index], "Image", `seedance-nsfw-image-${index + 1}`));
-      }
       const db = await readDb();
       const record = await getGenerationRecord(taskId);
       const userId = String(record?.userId || "");
+      const lookupOwned = (aid) => (aid ? (db.userAssets || []).find((a) => a.id === aid && a.userId === userId && !isSoftDeleted(a)) || null : null);
+      const attachTarget = (err, target, asset) => {
+        if (!err || typeof err !== "object") return err;
+        if (!err.target) err.target = target;
+        const w = Number(asset?.width || asset?.videoWidth || 0);
+        const h = Number(asset?.height || asset?.videoHeight || 0);
+        if (w > 0 && h > 0 && !err.errorParams?.actual) {
+          err.errorParams = { ...(err.errorParams || {}), actual: `${w}x${h}` };
+        }
+        return err;
+      };
+      const imageAssets = [];
+      for (let index = 0; index < upstreamInput.imageFiles.length; index += 1) {
+        const asset = lookupOwned(imageAssetIds[index]);
+        try {
+          imageAssets.push(await ensureSeedanceAssetUriForPublicUrl(upstreamInput.imageFiles[index], "Image", `seedance-nsfw-image-${index + 1}`));
+        } catch (prepError) {
+          throw attachTarget(prepError, {
+            slot: "reference_image",
+            index: index + 1,
+            mention: `@Image ${index + 1}`,
+            assetId: asset?.id || imageAssetIds[index] || "",
+            fileName: asset?.name || "",
+          }, asset);
+        }
+      }
       const videoAssets = [];
       for (let index = 0; index < upstreamInput.videoFiles.length; index += 1) {
         const asset = videoAssetIds[index]
           ? seedance25OwnedAssets(db, userId, [videoAssetIds[index]], "video")[0]
           : null;
-        videoAssets.push(await seedance25DirectVideoAssetUri(db, record?.userId ? { id: userId } : null, {
-          asset,
-          url: upstreamInput.videoFiles[index],
-          index,
-          name: `seedance-nsfw-video-${index + 1}`,
-        }));
+        try {
+          videoAssets.push(await seedance25DirectVideoAssetUri(db, record?.userId ? { id: userId } : null, {
+            asset,
+            url: upstreamInput.videoFiles[index],
+            index,
+            name: `seedance-nsfw-video-${index + 1}`,
+          }));
+        } catch (prepError) {
+          throw attachTarget(prepError, {
+            slot: "reference_video",
+            index: index + 1,
+            mention: `@Video ${index + 1}`,
+            assetId: asset?.id || videoAssetIds[index] || "",
+            fileName: asset?.name || "",
+          }, asset);
+        }
       }
       const audioAssets = [];
       for (let index = 0; index < upstreamInput.audioFiles.length; index += 1) {
-        audioAssets.push(await ensureSeedanceAssetUriForPublicUrl(upstreamInput.audioFiles[index], "Audio", `seedance-nsfw-audio-${index + 1}`));
+        try {
+          audioAssets.push(await ensureSeedanceAssetUriForPublicUrl(upstreamInput.audioFiles[index], "Audio", `seedance-nsfw-audio-${index + 1}`));
+        } catch (prepError) {
+          throw attachTarget(prepError, {
+            slot: "reference_audio",
+            index: index + 1,
+            mention: `@Audio ${index + 1}`,
+          }, null);
+        }
       }
-      const firstFrameAsset = upstreamInput.firstFrameUrl
-        ? await ensureSeedanceAssetUriForPublicUrl(upstreamInput.firstFrameUrl, "Image", "seedance-nsfw-first-frame")
-        : "";
-      const lastFrameAsset = upstreamInput.lastFrameUrl
-        ? await ensureSeedanceAssetUriForPublicUrl(upstreamInput.lastFrameUrl, "Image", "seedance-nsfw-last-frame")
-        : "";
+      let firstFrameAsset = "";
+      if (upstreamInput.firstFrameUrl) {
+        const asset = lookupOwned(firstFrameAssetId);
+        try {
+          firstFrameAsset = await ensureSeedanceAssetUriForPublicUrl(upstreamInput.firstFrameUrl, "Image", "seedance-nsfw-first-frame");
+        } catch (prepError) {
+          throw attachTarget(prepError, {
+            slot: "first_frame",
+            assetId: asset?.id || firstFrameAssetId || "",
+            fileName: asset?.name || "",
+          }, asset);
+        }
+      }
+      let lastFrameAsset = "";
+      if (upstreamInput.lastFrameUrl) {
+        const asset = lookupOwned(lastFrameAssetId);
+        try {
+          lastFrameAsset = await ensureSeedanceAssetUriForPublicUrl(upstreamInput.lastFrameUrl, "Image", "seedance-nsfw-last-frame");
+        } catch (prepError) {
+          throw attachTarget(prepError, {
+            slot: "last_frame",
+            assetId: asset?.id || lastFrameAssetId || "",
+            fileName: asset?.name || "",
+          }, asset);
+        }
+      }
       upstreamPayload = buildSeedance25DirectTaskPayload({
         ...upstreamInput,
         imageAssets,
@@ -777,14 +861,29 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
     if (flash) {
       imageFiles = [];
       for (let index = 0; index < imageUrls.length; index += 1) {
-        const prepared = await seedance25FlashReferenceAsset(auth.db, auth.user, {
-          asset: imageAssets[index],
-          url: imageUrls[index],
-          kind: "image",
-          name: `Seedance 2.5 Flash image ${index + 1}`,
-        });
-        imageAssets[index] = prepared.asset;
-        imageFiles.push(prepared.assetUri);
+        const asset = imageAssets[index];
+        try {
+          const prepared = await seedance25FlashReferenceAsset(auth.db, auth.user, {
+            asset,
+            url: imageUrls[index],
+            kind: "image",
+            name: `Seedance 2.5 Flash image ${index + 1}`,
+          });
+          imageAssets[index] = prepared.asset;
+          imageFiles.push(prepared.assetUri);
+        } catch (prepError) {
+          if (prepError && typeof prepError === "object") {
+            if (!prepError.target) {
+              prepError.target = { slot: "reference_image", index: index + 1, mention: `@Image ${index + 1}`, assetId: asset?.id || "", fileName: asset?.name || "" };
+            }
+            const w = Number(asset?.width || 0);
+            const h = Number(asset?.height || 0);
+            if (w > 0 && h > 0 && !prepError.errorParams?.actual) {
+              prepError.errorParams = { ...(prepError.errorParams || {}), actual: `${w}x${h}` };
+            }
+          }
+          throw prepError;
+        }
       }
 
       const videoEntries = [];
