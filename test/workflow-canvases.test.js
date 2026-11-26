@@ -1136,10 +1136,10 @@ test("canvas assets and project previews are explicitly cache-busted", () => {
   const manager = read("platform.workflow-canvases.js");
   const library = read("workflow-react/src/components/workflow/WorkflowLibrary.js");
 
-  assert.match(loader, /const CANVAS_ASSET_VERSION = "canvas-20261126-1"/);
+  assert.match(loader, /const CANVAS_ASSET_VERSION = "canvas-20261126-2"/);
   assert.match(loader, /file === "workflow-react\/dist\/canvas\.js"/);
   assert.match(loader, /url\.searchParams\.set\("canvas", CANVAS_ASSET_VERSION\)/);
-  assert.match(html, /platform\.js\?v=canvas-20261126-1/);
+  assert.match(html, /platform\.js\?v=canvas-20261126-2/);
   assert.match(html, /platform\.css\?v=/);
   assert.match(manager, /function workflowCanvasProjectPreview/);
   assert.ok(manager.indexOf('class="workflow-canvas-project-preview is-image"') < manager.indexOf('class="workflow-canvas-project-preview is-video"'));
@@ -1354,6 +1354,8 @@ test("canvas sharing APIs, unlock gate, fork gate, and UI follow strict no-peek 
   assert.match(editor, /公开 \/ 邀请/);
   assert.match(editor, /复制到我的画布/);
   assert.match(editor, /readOnly=\{readOnly\}/);
+  const canvasSrc = read("workflow-react/src/components/canvas/Canvas.js");
+  assert.match(canvasSrc, /<CanvasReadOnlyProvider readOnly=\{Boolean\(props\.readOnly\)\}>/);
 
   // Library adds Public Templates tab and suppresses miniNodes on locked cards
   assert.match(library, /我的项目/);

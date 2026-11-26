@@ -715,7 +715,7 @@ const CanvasInner = ({
 export const Canvas = (props) => {
   return (
     <ReactFlowProvider>
-      <CanvasReadOnlyProvider readOnly={readOnly}>
+      <CanvasReadOnlyProvider readOnly={Boolean(props.readOnly)}>
       <NodeOperationsProvider>
         <CanvasInner {...props} />
       </NodeOperationsProvider>

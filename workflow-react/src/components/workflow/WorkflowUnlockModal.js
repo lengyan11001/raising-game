@@ -35,7 +35,7 @@ export function WorkflowUnlockModal({
   if (!template?.id) return null;
 
   const canCreditUnlock = Boolean(template.allowCreditUnlock && Number(template.unlockCredits || 0) > 0);
-  const canCodeUnlock = Boolean(template.allowCodeUnlock !== false);
+  const canCodeUnlock = Boolean(template.allowCodeUnlock !== false || !canCreditUnlock);
   const userCredits = Number(template.userCredits ?? window.getPlatformAuthState?.()?.user?.credits ?? 0);
   const unlockCost = Number(template.unlockCredits || 0);
   const coverImage = template.thumbnailUrl || '';
