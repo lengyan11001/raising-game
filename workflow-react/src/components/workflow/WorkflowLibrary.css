@@ -578,12 +578,11 @@
   margin-top: 10px;
 }
 
-/* Public templates: light reference layout. Project management keeps its existing dark UI. */
+/* Public templates: reference layout with the existing dark canvas palette. */
 .InspirationCanvas-body.is-templates {
-  --canvas-list-line: #e9e7eb;
-  --canvas-list-muted: #85818a;
-  color: #242127;
-  background: #f6f5f7;
+  --canvas-list-line: rgba(255, 255, 255, 0.09);
+  --canvas-list-muted: #938b98;
+  color: #f7f3f8;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-main {
@@ -596,37 +595,6 @@
   margin-bottom: 18px;
 }
 
-.InspirationCanvas-body.is-templates .InspirationCanvas-header-tabs {
-  gap: 10px;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-}
-
-.InspirationCanvas-body.is-templates .InspirationCanvas-tab-button {
-  min-height: 34px;
-  padding: 0 16px;
-  color: #4f4b52;
-  background: #fff;
-  border: 1px solid #e7e4e9;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.InspirationCanvas-body.is-templates .InspirationCanvas-tab-button:hover {
-  color: #e84b91;
-  border-color: #f3a8ca;
-}
-
-.InspirationCanvas-body.is-templates .InspirationCanvas-tab-button.is-active {
-  color: #ed4b91;
-  background: #fff;
-  border-color: #f4a8cb;
-  box-shadow: 0 0 0 1px rgba(244, 168, 203, 0.25) inset;
-}
-
 .InspirationCanvas-body.is-templates .InspirationCanvas-template-filters {
   display: flex;
   flex-wrap: nowrap;
@@ -634,39 +602,39 @@
   gap: 16px;
   width: 100%;
   margin: 0 0 20px;
-  padding: 14px;
-  background: #fff;
-  border: 1px solid #ebe8ed;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--canvas-list-line);
   border-radius: 12px;
-  box-shadow: 0 2px 9px rgba(37, 30, 45, 0.035);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-filter-group {
   flex: 0 0 auto;
   gap: 3px;
   padding: 3px;
-  background: #f8f7f9;
-  border: 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--canvas-list-line);
   border-radius: 9px;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-filter-pill {
   min-height: 30px;
   padding: 0 14px;
-  color: #6f6a73;
+  color: #b4aab9;
   border-radius: 7px;
   font-size: 13px;
   font-weight: 500;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-filter-pill:hover {
-  color: #29252c;
+  color: #f7f3f8;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-filter-pill.is-active {
-  color: #ef4d93;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(34, 24, 43, 0.09);
+  color: #f7f3f8;
+  background: rgba(245, 106, 168, 0.24);
+  box-shadow: none;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-template-query {
@@ -681,9 +649,9 @@
   width: 136px;
   min-height: 38px;
   padding: 0 12px;
-  color: #514c55;
-  background-color: #fff;
-  border-color: #e6e2e8;
+  color: #f7f3f8;
+  background-color: #1b1820;
+  border-color: var(--canvas-list-line);
   border-radius: 8px;
 }
 
@@ -694,9 +662,9 @@
   align-items: center;
   gap: 7px;
   padding: 0 11px;
-  color: #8d8791;
-  background: #fff;
-  border: 1px solid #e6e2e8;
+  color: #938b98;
+  background: #1b1820;
+  border: 1px solid var(--canvas-list-line);
   border-radius: 8px;
 }
 
@@ -709,7 +677,7 @@
   min-width: 0;
   width: 100%;
   padding: 0;
-  color: #312d33;
+  color: #f7f3f8;
   background: transparent;
   border: 0;
   font: inherit;
@@ -718,20 +686,20 @@
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-filter-search input::placeholder {
-  color: #aaa5ad;
+  color: #817888;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-filter-search:focus-within,
 .InspirationCanvas-body.is-templates .InspirationCanvas-filter-select:focus {
-  border-color: #f2a5c7;
-  box-shadow: 0 0 0 3px rgba(242, 165, 199, 0.14);
+  border-color: rgba(245, 106, 168, 0.72);
+  box-shadow: 0 0 0 3px rgba(245, 106, 168, 0.12);
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-masonry-container.is-templates-grid,
 .InspirationCanvas-body.is-templates .InspirationCanvas-skeleton-grid.is-templates-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  gap: 18px;
   align-items: start;
 }
 
@@ -745,21 +713,23 @@
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-masonry-item {
-  color: #242127;
-  border-radius: 12px;
+  color: #f7f3f8;
+  border-radius: 10px;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-card-content.is-template {
   overflow: hidden;
-  color: #242127;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(39, 31, 46, 0.045);
-  transition: box-shadow 180ms ease, transform 180ms ease;
+  color: #f7f3f8;
+  background: #1b181e;
+  border: 1px solid var(--canvas-list-line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-masonry-item:hover .InspirationCanvas-card-content.is-template {
-  box-shadow: 0 10px 24px rgba(39, 31, 46, 0.11);
+  border-color: rgba(245, 106, 168, 0.42);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
   transform: translateY(-2px);
 }
 
@@ -767,7 +737,9 @@
   aspect-ratio: 1.405 / 1;
   border: 0;
   border-radius: 0;
-  background: #ddd9df;
+  background:
+    radial-gradient(circle at 70% 20%, rgba(245, 106, 168, 0.1), transparent 46%),
+    #211d24;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-masonry-item:hover .InspirationCanvas-card-thumbnail {
@@ -782,9 +754,9 @@
 .InspirationCanvas-body.is-templates .InspirationCanvas-card-content.is-template .InspirationCanvas-card-title {
   margin: 0;
   overflow: hidden;
-  color: #262229;
+  color: #f4eff5;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 680;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -793,7 +765,7 @@
 .InspirationCanvas-body.is-templates .InspirationCanvas-template-desc {
   min-height: 17px;
   margin: 4px 0 0;
-  color: #817c84;
+  color: #a89fae;
   font-size: 12px;
   line-height: 1.4;
   -webkit-line-clamp: 1;
@@ -801,7 +773,7 @@
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-template-submeta {
   margin-top: 14px;
-  color: #625d65;
+  color: #938b98;
   font-size: 12px;
 }
 
@@ -831,45 +803,59 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  color: #3e3523;
-  background: #f4dc58;
-  border: 0;
+  background: rgba(17, 15, 22, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 5px;
   box-shadow: none;
   font-size: 12px;
   font-weight: 650;
   line-height: 1.2;
-  backdrop-filter: none;
+  backdrop-filter: blur(6px);
+}
+
+.InspirationCanvas-body.is-templates .InspirationCanvas-template-badges .InspirationCanvas-visibility-badge.is-public {
+  color: #a6f5cd;
+  border-color: rgba(54, 179, 126, 0.45);
+}
+
+.InspirationCanvas-body.is-templates .InspirationCanvas-template-badges .InspirationCanvas-visibility-badge.is-semi {
+  color: #ffd3a3;
+  border-color: rgba(245, 166, 91, 0.55);
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-template-price {
-  color: #fff;
-  background: #f55394;
+  color: #ffb4d2;
+  background: rgba(245, 106, 168, 0.18);
+  border-color: rgba(245, 106, 168, 0.42);
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-template-price.is-unlocked {
-  background: #63bd8b;
+  color: #a6f5cd;
+  background: rgba(54, 179, 126, 0.14);
+  border-color: rgba(54, 179, 126, 0.42);
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-card-locked-placeholder {
-  color: #5c5660;
-  background: linear-gradient(145deg, #ebe8ec, #d8d3da);
+  color: #b8aebd;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(245, 166, 91, 0.16), transparent 60%),
+    #191620;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-card-locked-placeholder strong {
-  color: #4b454f;
+  color: #f7f3f8;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-card-locked-placeholder small {
-  color: #817a84;
+  color: #9e95a5;
 }
 
 .InspirationCanvas-body.is-templates .InspirationCanvas-project-skeleton {
   aspect-ratio: auto;
   height: 288px;
-  border-color: #ebe8ed;
-  border-radius: 12px;
-  background: linear-gradient(100deg, #f0eef2 20%, #f9f8fa 40%, #f0eef2 60%);
+  border-color: var(--canvas-list-line);
+  border-radius: 10px;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.035) 20%, rgba(255, 255, 255, 0.075) 40%, rgba(255, 255, 255, 0.035) 60%);
   background-size: 200% 100%;
 }
 
