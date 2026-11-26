@@ -225,21 +225,6 @@ async function couponClaimRisk(req, body = {}, userId = "") {
     });
     if (Number(deviceAccounts.rows?.[0]?.count || 0) >= 3) reasons.push("device_shared_by_more_than_three_accounts");
   }
-  const account = await query(`
-    SELECT u.created_at,
-           (SELECT COUNT(*)::int FROM app_generation_records g WHERE g.payload->>'userId' = u.id) AS generation_count
-    FROM app_users u
-    WHERE u.id = $1
-    LIMIT 1
-  `, [userId]).catch((error) => {
-    console.warn("[coupon-claim-account-check-failed]", userId, error.message || error);
-    return { rows: [] };
-  });
-  const row = account.rows?.[0] || {};
-  const createdAt = Date.parse(row.created_at || "");
-  if (Number.isFinite(createdAt) && Date.now() - createdAt < 10 * 60_000 && Number(row.generation_count || 0) === 0) {
-    reasons.push("new_account_claim_without_generation");
-  }
   return { block: reasons.includes("device_shared_by_more_than_three_accounts"), riskFlag: reasons.length ? 1 : 0, reasons };
 }
 
