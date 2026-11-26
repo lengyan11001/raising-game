@@ -523,6 +523,15 @@ test("registration flows issue coupons and public APIs keep pending coupons non-
   assert.match(serverCoupon, /coupon = await markUserCouponRiskInDb\(auth\.user\.id, couponId, 1\) \|\| coupon/);
 });
 
+test("new-user coupons are issued to every registration without signup risk holdouts", () => {
+  const issuance = sourceBetween(serverCoupon, "async function couponIssuanceRisk", "async function issueRegistrationCouponIfEligible");
+  assert.doesNotMatch(issuance, /ip_registration_hour_limit/);
+  assert.doesNotMatch(issuance, /email_domain_device_reuse/);
+  assert.doesNotMatch(issuance, /rollout_holdout/);
+  assert.doesNotMatch(issuance, /app_risk_events/);
+  assert.match(issuance, /eligible: Boolean\(dbEnabled\(\)\)/);
+});
+
 test("coupon claiming is not blocked for new accounts without generation history", () => {
   const risk = sourceBetween(serverCoupon, "async function couponClaimRisk", "function couponIdFromRequest");
   assert.doesNotMatch(risk, /new_account_claim_without_generation/);

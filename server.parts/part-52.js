@@ -119,48 +119,16 @@ function couponEmailReminderContent(type = "", coupon = {}) {
 
 async function couponIssuanceRisk(req, { user = {}, body = {}, email = "" } = {}) {
   const userId = String(user.id || "").trim();
-  const reasons = [];
-  const rolloutEligible = couponRolloutEligible(userId);
-  if (!rolloutEligible) reasons.push("rollout_holdout");
-  if (!dbEnabled()) return { eligible: false, riskFlag: 0, reasons, rolloutEligible, emailDomain: couponEmailDomain(email) };
-  const ipHash = authAuditMetadata(req, body).ipHash || "";
   const deviceId = authDeviceId(req, body);
-  const deviceHash = deviceId ? authRiskKey(deviceId) : "";
-  const emailDomain = couponEmailDomain(email);
-  try {
-    const ipLookup = ipHash
-      ? query(`
-          SELECT COUNT(*)::int AS count
-          FROM app_risk_events
-          WHERE event_type = 'auth_registration_created'
-            AND ip_hash = $1
-            AND created_at >= NOW() - INTERVAL '1 hour'
-        `, [ipHash])
-      : Promise.resolve({ rows: [{ count: 0 }] });
-    const emailDeviceLookup = emailDomain && deviceHash
-      ? query(`
-          SELECT COUNT(*)::int AS count
-          FROM app_risk_events
-          WHERE event_type = 'auth_registration_created'
-            AND metadata->>'deviceHash' = $1
-            AND metadata->>'emailDomain' = $2
-        `, [deviceHash, emailDomain])
-      : Promise.resolve({ rows: [{ count: 0 }] });
-    const [ipResult, emailDeviceResult] = await Promise.all([ipLookup, emailDeviceLookup]);
-    if (Number(ipResult.rows?.[0]?.count || 0) >= 3) reasons.push("ip_registration_hour_limit");
-    if (Number(emailDeviceResult.rows?.[0]?.count || 0) >= 1) reasons.push("email_domain_device_reuse");
-  } catch (error) {
-    console.warn("[coupon-risk-check-failed]", userId, error.message || error);
-    reasons.push("risk_check_unavailable");
-  }
   return {
-    eligible: rolloutEligible && !reasons.length,
-    riskFlag: reasons.length ? 1 : 0,
-    reasons,
-    rolloutEligible,
-    ipHash,
-    deviceHash,
-    emailDomain,
+    eligible: Boolean(dbEnabled()),
+    riskFlag: 0,
+    reasons: [],
+    rolloutEligible: true,
+    ipHash: authAuditMetadata(req, body).ipHash || "",
+    deviceHash: deviceId ? authRiskKey(deviceId) : "",
+    emailDomain: couponEmailDomain(email),
+    userId,
   };
 }
 
