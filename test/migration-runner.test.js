@@ -116,6 +116,8 @@ test("migration runner is self-bootstrapping and serializes schema/data work", (
   assert.match(source, /CREATE TABLE IF NOT EXISTS coupon_template/);
   assert.match(source, /CREATE TABLE IF NOT EXISTS user_coupon/);
   assert.match(source, /CREATE TABLE IF NOT EXISTS coupon_email_reminder/);
+  assert.match(source, /CREATE TABLE IF NOT EXISTS app_workflow_canvas_unlocks/);
+  assert.match(source, /migration\.version === "2026-11-26-workflow-canvas-sharing-v1"/);
   assert.match(source, /submit_state/);
   assert.match(source, /submit_attempt_id/);
   assert.match(source, /raising_game_schema_migrations_v1/);

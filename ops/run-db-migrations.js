@@ -446,6 +446,70 @@ const CHECKIN_ACTIVITY_DDL = Object.freeze([
    );`,
 ]);
 
+const WORKFLOW_CANVAS_SHARING_DDL = Object.freeze([
+  `CREATE TABLE IF NOT EXISTS app_workflow_canvases (
+     id TEXT PRIMARY KEY,
+     user_id TEXT NOT NULL,
+     tenant_id TEXT NOT NULL DEFAULT 'main',
+     name TEXT NOT NULL DEFAULT '',
+     description TEXT NOT NULL DEFAULT '',
+     visibility TEXT NOT NULL DEFAULT 'private',
+     unlock_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+     allow_credit_unlock BOOLEAN NOT NULL DEFAULT FALSE,
+     allow_code_unlock BOOLEAN NOT NULL DEFAULT TRUE,
+     invite_mode TEXT NOT NULL DEFAULT 'static',
+     invite_code TEXT NOT NULL DEFAULT '',
+     invite_secret TEXT NOT NULL DEFAULT '',
+     invite_version INTEGER NOT NULL DEFAULT 1,
+     invite_rotate_interval_sec INTEGER NOT NULL DEFAULT 86400,
+     invite_expires_at TIMESTAMPTZ,
+     invite_max_uses INTEGER NOT NULL DEFAULT 0,
+     invite_used_count INTEGER NOT NULL DEFAULT 0,
+     published_at TIMESTAMPTZ,
+     fork_source_id TEXT NOT NULL DEFAULT '',
+     unlock_count INTEGER NOT NULL DEFAULT 0,
+     fork_count INTEGER NOT NULL DEFAULT 0,
+     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+  `ALTER TABLE app_workflow_canvases
+     ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
+     ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private',
+     ADD COLUMN IF NOT EXISTS unlock_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+     ADD COLUMN IF NOT EXISTS allow_credit_unlock BOOLEAN NOT NULL DEFAULT FALSE,
+     ADD COLUMN IF NOT EXISTS allow_code_unlock BOOLEAN NOT NULL DEFAULT TRUE,
+     ADD COLUMN IF NOT EXISTS invite_mode TEXT NOT NULL DEFAULT 'static',
+     ADD COLUMN IF NOT EXISTS invite_code TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS invite_secret TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS invite_version INTEGER NOT NULL DEFAULT 1,
+     ADD COLUMN IF NOT EXISTS invite_rotate_interval_sec INTEGER NOT NULL DEFAULT 86400,
+     ADD COLUMN IF NOT EXISTS invite_expires_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS invite_max_uses INTEGER NOT NULL DEFAULT 0,
+     ADD COLUMN IF NOT EXISTS invite_used_count INTEGER NOT NULL DEFAULT 0,
+     ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS fork_source_id TEXT NOT NULL DEFAULT '',
+     ADD COLUMN IF NOT EXISTS unlock_count INTEGER NOT NULL DEFAULT 0,
+     ADD COLUMN IF NOT EXISTS fork_count INTEGER NOT NULL DEFAULT 0;`,
+  `CREATE INDEX IF NOT EXISTS app_workflow_canvases_public_idx
+     ON app_workflow_canvases (tenant_id, visibility, published_at DESC, updated_at DESC)
+     WHERE visibility IN ('public', 'semi_public');`,
+  `CREATE TABLE IF NOT EXISTS app_workflow_canvas_unlocks (
+     id TEXT PRIMARY KEY,
+     canvas_id TEXT NOT NULL REFERENCES app_workflow_canvases(id) ON DELETE CASCADE,
+     user_id TEXT NOT NULL,
+     unlock_method TEXT NOT NULL DEFAULT 'credits',
+     credits_spent NUMERIC(24, 6) NOT NULL DEFAULT 0,
+     credit_ledger_id TEXT NOT NULL DEFAULT '',
+     invite_version INTEGER NOT NULL DEFAULT 0,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     UNIQUE (canvas_id, user_id)
+   );`,
+  `CREATE INDEX IF NOT EXISTS app_workflow_canvas_unlocks_user_idx
+     ON app_workflow_canvas_unlocks (user_id, created_at DESC);`,
+]);
+
 const CASH_COUPON_ACTIVITY_DDL = Object.freeze([
   `CREATE TABLE IF NOT EXISTS coupon_template (
      id BIGSERIAL PRIMARY KEY,
@@ -692,6 +756,8 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
         await runStatements(schemaLockClient, CHECKIN_ACTIVITY_DDL);
       } else if (migration.version === "2026-11-19-cash-coupon-v1") {
         await runStatements(schemaLockClient, CASH_COUPON_ACTIVITY_DDL);
+      } else if (migration.version === "2026-11-26-workflow-canvas-sharing-v1") {
+        await runStatements(schemaLockClient, WORKFLOW_CANVAS_SHARING_DDL);
       } else {
         throw new Error(`Unknown schema migration: ${migration.version}`);
       }
