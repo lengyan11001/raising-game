@@ -66,15 +66,25 @@
     return TARGET_CONFIG[targetId] || TARGET_CONFIG.primary;
   }
 
+  function localizedVegaMessage(code, fallback) {
+    const catalog = typeof globalThis !== "undefined" ? globalThis.PlatformErrorCatalog : null;
+    const lang = (typeof document !== "undefined" && document.documentElement?.lang) ? document.documentElement.lang : "";
+    if (catalog?.formatErrorInfo && lang) {
+      const text = catalog.formatErrorInfo({ code }, lang);
+      if (text) return text;
+    }
+    return fallback;
+  }
+
   function selectionForAsset({ asset = {}, targetId = "primary" } = {}) {
     const target = TARGET_CONFIG[targetId];
-    if (!target) return { ok: false, code: "INVALID_TARGET", message: "Choose a Vega media target." };
+    if (!target) return { ok: false, code: "INVALID_TARGET", message: localizedVegaMessage("MEDIA_TARGET_INVALID", "Choose a Vega media target.") };
     const mediaKind = assetMediaKind(asset);
     if (target.type !== mediaKind) {
-      return { ok: false, code: "WRONG_TYPE", mediaKind, targetType: target.type, message: `Choose ${target.type} media for this target.` };
+      return { ok: false, code: "WRONG_TYPE", mediaKind, targetType: target.type, message: localizedVegaMessage("MEDIA_WRONG_TYPE", `Choose ${target.type} media for this target.`) };
     }
     const sourceUrl = assetMediaUrl(asset);
-    if (!sourceUrl) return { ok: false, code: "PUBLIC_URL_REQUIRED", message: VEGA_PUBLIC_URL_REQUIRED };
+    if (!sourceUrl) return { ok: false, code: "PUBLIC_URL_REQUIRED", message: localizedVegaMessage("MEDIA_URL_REQUIRED", VEGA_PUBLIC_URL_REQUIRED) };
     const ref = {
       assetId: asset.id || asset.assetId || "",
       dataUrl: sourceUrl,

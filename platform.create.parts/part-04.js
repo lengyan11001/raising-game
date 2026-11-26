@@ -134,7 +134,7 @@ async function handleAdvancedVegaLocalFiles(files = [], { preserveTarget = false
         : advancedVegaSelection(asset, targetId);
       if (!selection.ok) {
         rejected = true;
-        if (els.advancedAssetNote) els.advancedAssetNote.textContent = selection.message || "This media cannot be used for the selected Vega input.";
+        if (els.advancedAssetNote) els.advancedAssetNote.textContent = selection.message || localizedUiError("MEDIA_WRONG_TYPE", { fallback: "This media cannot be used for the selected Vega input." });
         continue;
       }
       applyAdvancedVegaSelection(selection, target);

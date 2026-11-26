@@ -577,6 +577,16 @@ function vegaReferenceLimits(provider = "") {
   return VEGA_REFERENCE_LIMITS[String(provider || "").trim().toLowerCase()] || VEGA_REFERENCE_LIMITS["seedance25-vega"];
 }
 
+function localizedUiError(code = "", { target = null, params = null, fallback = "" } = {}) {
+  const catalog = typeof globalThis !== "undefined" ? globalThis.PlatformErrorCatalog : null;
+  const currentLang = (typeof state !== "undefined" && state?.lang) ? state.lang : "";
+  if (catalog?.formatErrorInfo && currentLang) {
+    const text = catalog.formatErrorInfo({ code, ...(target ? { target } : {}), ...(params ? { params } : {}) }, currentLang);
+    if (text) return text;
+  }
+  return fallback || code;
+}
+
 function advancedVegaMediaDurationError(provider = "", videoDurations = [], audioDurations = [], videoCount = 0, audioCount = 0) {
   const normalizedProvider = String(provider || "").trim().toLowerCase();
   if (!isVegaProviderId(normalizedProvider)) return "";

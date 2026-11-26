@@ -2070,12 +2070,14 @@ function currentRequestLang() {
 function sendJson(res, statusCode, payload, options = {}) {
   try {
     if (statusCode >= 400 && payload && typeof payload === "object" && !Array.isArray(payload) && payload.ok === false) {
-      const errorInfo = resolveHttpErrorInfo(payload);
+      const errorInfo = resolveHttpErrorInfo(payload, { statusCode });
       if (errorInfo) {
         const lang = currentRequestLang();
-        const localizedMessage = lang ? formatErrorInfo(errorInfo, lang) : "";
+        const keepSpecificSameLang = Boolean(errorInfo.generic && errorInfo.sourceLang && lang && errorInfo.sourceLang === lang && payload.message);
+        const localizedMessage = (lang && !keepSpecificSameLang) ? formatErrorInfo(errorInfo, lang) : "";
         return rawSendJson(res, statusCode, {
           ...payload,
+          ...(payload.code ? {} : { code: errorInfo.code }),
           ...(localizedMessage ? { message: localizedMessage } : {}),
           errorInfo,
         }, options);

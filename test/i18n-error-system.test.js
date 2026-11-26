@@ -195,7 +195,7 @@ test("Error resolver is fail-safe and server/frontend wiring is intact", () => {
   assert.match(server, /"platform\.errors\.js"/);
   assert.match(server, /lang: detectRequestLang\(req, ""\)/);
   assert.match(server, /publicGenerationErrorInfo\(record,/);
-  assert.match(server, /const localizedMessage = lang \? formatErrorInfo\(errorInfo, lang\) : ""/);
+  assert.match(server, /const localizedMessage = \(lang && !keepSpecificSameLang\) \? formatErrorInfo\(errorInfo, lang\) : ""/);
 
   const boot = fs.readFileSync(path.join(__dirname, "..", "platform.js"), "utf8");
   assert.match(boot, /"platform\.errors\.js"/);
@@ -257,4 +257,109 @@ test("platform.errors.js is publicly servable on all platform surfaces while lib
   assert.equal(publicStaticPath("/platform.errors.js"), true);
   assert.equal(publicStaticPath("/lib-media-error-resolver.js"), false);
   assert.match("/platform.errors.js", /^\/platform(?:\.[a-z0-9-]+)?\.js$/i);
+});
+
+test("Phase 3: all 759 server ok:false HTTP error exits resolve to a valid 6-language catalog code", () => {
+  const serverPartsDir = path.join(__dirname, "..", "server.parts");
+  const files = fs.readdirSync(serverPartsDir).filter((f) => f.endsWith(".js")).sort();
+  let total = 0;
+  for (const file of files) {
+    const txt = fs.readFileSync(path.join(serverPartsDir, file), "utf8");
+    const re = /sendJson\s*\(\s*res\s*,\s*([45]\d\d)\s*,\s*\{([\s\S]{0,420}?)\}\s*\)/g;
+    let m;
+    while ((m = re.exec(txt)) !== null) {
+      const status = Number(m[1]);
+      const body = m[2];
+      if (!/\bok\s*:\s*false\b/.test(body)) continue;
+      total += 1;
+      const cm = body.match(/\bcode\s*:\s*["']([A-Z0-9_]+)["']/);
+      const mm = body.match(/\bmessage\s*:\s*["'`]([^"'`\n]{2,140})["'`]/);
+      const payload = { ok: false, ...(cm ? { code: cm[1] } : {}), ...(mm ? { message: mm[1] } : {}) };
+      const info = resolver.resolveHttpErrorInfo(payload, { statusCode: status });
+      assert.ok(info && info.code, `Unresolved error in ${file}: status=${status} payload=${JSON.stringify(payload)}`);
+      for (const lang of catalog.SUPPORTED_LANGS) {
+        const rendered = catalog.formatErrorInfo(info, lang);
+        assert.ok(rendered.length > 0, `Empty ${lang} template for ${info.code} in ${file}`);
+      }
+    }
+  }
+  assert.ok(total >= 700, `Expected >= 700 error exits audited, got ${total}`);
+});
+
+test("Phase 3: exact domain HTTP errors localize cleanly and generic fallbacks preserve same-language specifics", () => {
+  const cases = [
+    [{ ok: false, message: "API not found." }, 404, "API_NOT_FOUND"],
+    [{ ok: false, message: "Forbidden." }, 403, "FORBIDDEN"],
+    [{ ok: false, message: "Generation record not found." }, 404, "GENERATION_RECORD_NOT_FOUND"],
+    [{ ok: false, message: "Enter a valid email address." }, 400, "INVALID_EMAIL"],
+    [{ ok: false, code: "AUTH_LOCKED", message: "Too many failed sign-in attempts." }, 429, "AUTH_LOCKED"],
+    [{ ok: false, code: "STRIPE_NOT_CONFIGURED", message: "Stripe is not configured yet." }, 503, "PAYMENT_NOT_CONFIGURED"],
+    [{ ok: false, code: "PROMO_CHECKOUT_BUSY", message: "正在处理上一笔支付，请稍后再试。" }, 409, "PROMO_CHECKOUT_BUSY"],
+    [{ ok: false, code: "RESULT_LOCKED", message: "Unlock this result first." }, 403, "RESULT_LOCKED"],
+    [{ ok: false, message: "工单不存在。" }, 404, "SUPPORT_TICKET_NOT_FOUND"],
+    [{ ok: false, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "Workflow not found." }, 404, "WORKFLOW_CANVAS_NOT_FOUND"],
+    [{ ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" }, 404, "STORY_PROJECT_NOT_FOUND"],
+    [{ ok: false, message: "礼物暂时没有送出，积分已退回。" }, 502, "GIFT_SEND_FAILED_REFUNDED"],
+  ];
+  for (const [payload, statusCode, expectedCode] of cases) {
+    const info = resolver.resolveHttpErrorInfo(payload, { statusCode });
+    assert.equal(info.code, expectedCode);
+    assert.equal(Boolean(info.generic), false, `${expectedCode} should be exact, not generic`);
+    assert.ok(catalog.formatErrorInfo(info, "en").length > 0);
+    assert.ok(catalog.formatErrorInfo(info, "zh").length > 0);
+    assert.ok(catalog.formatErrorInfo(info, "vi").length > 0);
+  }
+
+  // Generic status fallback preserves sourceLang so same-language custom messages are not downgraded
+  const customZh = resolver.resolveHttpErrorInfo({ ok: false, message: "自定义中文校验提示" }, { statusCode: 400 });
+  assert.equal(customZh.code, "REQUEST_INVALID");
+  assert.equal(customZh.generic, true);
+  assert.equal(customZh.sourceLang, "zh");
+  assert.ok(catalog.formatErrorInfo(customZh, "en").includes("invalid"));
+});
+
+test("Phase 2: creation note assignments have zero raw English validation literals", () => {
+  const dir = path.join(__dirname, "..", "platform.create.parts");
+  const offenders = [];
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".js")).sort()) {
+    const lines = fs.readFileSync(path.join(dir, file), "utf8").split("\n");
+    lines.forEach((line, idx) => {
+      if (!/(?:advancedNote|advancedAssetNote|assetNote)\.textContent\s*=/.test(line)) return;
+      const rhs = line.split("=").slice(1).join("=").trim();
+      if (/^(?:""|''|``);?$/.test(rhs)) return;
+      if (/localizedUiError\(|t\(|error\.message|vegaMediaDurationError|selection\.message|durationMessage|advancedMediaReferenceAddError/.test(rhs)) return;
+      // Ignore multiline ternary heads whose branches use t(...)
+      if (/^(?:normalizedKind|action)\s*===/.test(rhs)) return;
+      if (/["'`][A-Za-z]/.test(rhs)) offenders.push(`${file}:${idx + 1}: ${rhs}`);
+    });
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test("Phase 2: platform.vega-media.js and localizedUiError render 6 languages in browser VM", () => {
+  const vm = require("node:vm");
+  const errorsSrc = fs.readFileSync(path.join(__dirname, "..", "platform.errors.js"), "utf8");
+  const vegaMediaSrc = fs.readFileSync(path.join(__dirname, "..", "platform.vega-media.js"), "utf8");
+  for (const [lang, expectedRe] of [
+    ["en", /valid media target/i],
+    ["zh", /有效的素材槽位/],
+    ["vi", /mục tài nguyên hợp lệ/],
+    ["ja", /有効な素材スロット/],
+    ["ko", /유효한 소재 슬롯/],
+    ["id", /target media yang valid/i],
+  ]) {
+    const ctx = {
+      globalThis: null,
+      document: { documentElement: { lang } },
+      console,
+      URL,
+    };
+    ctx.globalThis = ctx;
+    vm.runInNewContext(errorsSrc, ctx);
+    vm.runInNewContext(vegaMediaSrc, ctx);
+    const badTarget = ctx.AdvancedVegaMedia.selectionForAsset({ asset: {}, targetId: "nonexistent" });
+    assert.equal(badTarget.ok, false);
+    assert.equal(badTarget.code, "INVALID_TARGET");
+    assert.match(badTarget.message, expectedRe);
+  }
 });
