@@ -288,6 +288,7 @@ async function loadWorkflowCanvases({ force = false } = {}) {
     if (state.tab === "workflow") renderWorkflowPanel();
     return;
   }
+  if (state.workflowCanvasView === "detail" || state.routeWorkflowCanvasId) return;
   if (state.workflowCanvasesLoading || (state.workflowCanvasesLoaded && !force)) return;
   const loadSeq = beginWorkflowCanvasLoad();
   state.workflowCanvasesLoading = true;
@@ -298,8 +299,10 @@ async function loadWorkflowCanvases({ force = false } = {}) {
     if (!workflowCanvasLoadIsCurrent(loadSeq)) return;
     state.workflowCanvases = (payload.canvases || []).map(workflowCanvasSummary).filter((canvas) => canvas.id);
     state.workflowCanvasesLoaded = true;
-    state.workflowCanvasView = "list";
-    state.workflowCanvasMessage = "";
+    if (state.workflowCanvasView !== "detail") {
+      state.workflowCanvasView = "list";
+      state.workflowCanvasMessage = "";
+    }
   } catch (error) {
     if (workflowCanvasLoadIsCurrent(loadSeq)) state.workflowCanvasMessage = error.message || String(error);
   } finally {

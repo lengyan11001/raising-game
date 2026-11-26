@@ -214,6 +214,12 @@ function WorkflowWorkspace() {
       const payload = await requestCanvasJson(`/api/workflow/canvases/${encodeURIComponent(cleanId)}`);
       await activateLoadedCanvas(payload.canvas);
     } catch (openError) {
+      editorOpenRef.current = false;
+      if (typeof window.deactivateWorkflowCanvasProject === 'function') {
+        window.deactivateWorkflowCanvasProject();
+      }
+      setProject(null);
+      setView('library');
       if (openError.status === 401 || openError.code === 'LOGIN_REQUIRED') {
         setPendingAccess({ canvasId: cleanId, inviteCode: cleanCode });
         if (promptLogin && typeof window.openPlatformLoginModal === 'function') {
@@ -412,7 +418,7 @@ function WorkflowWorkspace() {
     );
   }
 
-  if (view === 'editor' && project) {
+  if (view === 'editor' && project && !project.locked && project.workflow && !unlockPrompt) {
     const readOnly = Boolean(project.canEdit === false || project.accessMode === 'template_readonly');
     return (
       <WorkflowEditor
@@ -463,6 +469,44 @@ function WorkflowWorkspace() {
   );
 }
 
+class WorkflowErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error: error || new Error('画布渲染异常') };
+  }
+  componentDidCatch(error) {
+    console.error('Workflow canvas render error:', error);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="WorkflowWorkspace-state is-error" role="alert">
+          <strong>画布加载异常</strong>
+          <span>{this.state.error?.message || String(this.state.error)}</span>
+          <button
+            type="button"
+            onClick={() => {
+              if (typeof window.deactivateWorkflowCanvasProject === 'function') {
+                window.deactivateWorkflowCanvasProject();
+              }
+              if (typeof window.setWorkflowRouteParams === 'function') {
+                window.setWorkflowRouteParams({ canvasId: '', inviteCode: '', subTab: '' });
+              }
+              this.setState({ error: null });
+            }}
+          >
+            返回项目列表
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function mount(host) {
   if (!host) return null;
   if (mountedHost === host) {
@@ -473,7 +517,9 @@ function mount(host) {
   mountedHost = host;
   const graph = toReactFlowGraph();
   ReactDOM.render(
-    <WorkflowWorkspace />,
+    <WorkflowErrorBoundary>
+      <WorkflowWorkspace />
+    </WorkflowErrorBoundary>,
     host,
   );
   return host;
