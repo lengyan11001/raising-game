@@ -877,6 +877,7 @@ function externalAdvancedApiDoc(origin) {
       { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: SEEDANCE25_DIRECT_LABEL, provider: SEEDANCE25_DIRECT_PROVIDER, capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Vega 1.0 Lite", provider: "vega10-lite", model: "wand-vega-video / 1.0-lite", capability: "text / first frame / last frame / first_last_frame / multimodal references", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: GPT_IMAGE2_LABEL, provider: GPT_IMAGE2_PROVIDER, capability: "text-to-image / reference image editing", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedream 5.0 Pro", model: "seedream-5.0-pro", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Qwen Image 3.0", model: "qwen-image-3.0-pro / qwen-image-3.0", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Z-Image Spicy Pro", model: "z-image-spicy-pro", capability: "text-to-image", create: "/api/wan27/image-edit", result: "/api/generation-records/<taskId>" },
@@ -940,6 +941,19 @@ function externalAdvancedApiDoc(origin) {
         watermark: false,
         output_format: "png",
         optimize_prompt_options: { mode: "standard" },
+      },
+    },
+    gptImage2Example: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: { Authorization: "Bearer <user-token>", "Content-Type": "application/json" },
+      body: {
+        provider: GPT_IMAGE2_PROVIDER,
+        prompt: "Create a studio product photograph of a ceramic mug.",
+        resolution: GPT_IMAGE2_DEFAULT_RESOLUTION,
+        quality: GPT_IMAGE2_DEFAULT_QUALITY,
+        ratio: GPT_IMAGE2_DEFAULT_RATIO,
+        output_format: GPT_IMAGE2_DEFAULT_OUTPUT_FORMAT,
       },
     },
     qwenImage3ResponseShape: {
