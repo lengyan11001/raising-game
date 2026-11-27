@@ -925,7 +925,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
     nextRecord = await settleApizGenerationRecord(nextRecord, { status: record.status || "failed", error: record.error || "" }, "detail");
   } else if (needsSeedanceFailureRefund(nextRecord)) {
     nextRecord = await settleSeedanceGenerationRecord(nextRecord, "detail");
-  } else if (nextRecord.provider === "apiz" && (APIZ_API_KEY || nextRecord.upstreamSource === "gateway") && shouldRefreshGenerationRecord(nextRecord)) {
+  } else if (["apiz", GPT_IMAGE2_PROVIDER].includes(nextRecord.provider) && (APIZ_API_KEY || nextRecord.upstreamSource === "gateway") && shouldRefreshGenerationRecord(nextRecord)) {
     // Status/media refresh runs in the bounded background queue. Never make a
     // browser detail request wait for an upstream download or R2 upload.
     queueGenerationRecordStatusRefresh(nextRecord, { priority: true, reason: "detail" });

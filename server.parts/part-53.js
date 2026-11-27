@@ -270,14 +270,19 @@ async function refreshGptImage2GenerationRecord(record = {}, reason = "query") {
     }, `gpt-image2-${reason}`);
   }
   if (isFailedStatus(rawStatus)) {
-    const message = String(task?.error?.message || task?.error || task?.message || task?.detail || "GPT Image 2 generation failed.").trim();
+    const message = [
+      task?.error?.message, task?.error,
+      task?.result?.error?.message, task?.result?.error,
+      task?.output?.error?.message, task?.output?.error,
+      task?.message, task?.detail,
+    ].find((value) => typeof value === "string" && value.trim()) || "GPT Image 2 generation failed.";
     return upsertAndSettleGenerationRecord({
       taskId: record.taskId,
       upstreamTaskId: apizTaskId(task) || queryTaskId,
       status: "failed",
       awaitingUpstreamTask: false,
       queryResponse: task,
-      error: message,
+      error: message.trim(),
       failedAt: record.failedAt || new Date().toISOString(),
     }, `gpt-image2-${reason}`);
   }

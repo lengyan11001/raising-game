@@ -261,6 +261,43 @@ function publicModelDocsView(docs = {}) {
   return view;
 }
 
+function gptImage2ApiMarkdown(example) {
+  if (!example) return "";
+  const edit = {
+    ...example.body,
+    prompt: "Place the product on a light gray studio background.",
+    ratio: "auto",
+    referenceImages: [{ assetId: "asset-id-from-upload" }],
+  };
+  const fields = [
+    { name: "provider", type: "string", required: "Yes", description: `\`${GPT_IMAGE2_PROVIDER}\``, default: "-" },
+    { name: "prompt", type: "string", required: "Yes", description: "Image description or editing instructions.", default: "-" },
+    { name: "resolution", type: "enum", required: "No", description: GPT_IMAGE2_RESOLUTIONS.join(", "), default: GPT_IMAGE2_DEFAULT_RESOLUTION },
+    { name: "quality", type: "enum", required: "No", description: GPT_IMAGE2_QUALITIES.join(", "), default: GPT_IMAGE2_DEFAULT_QUALITY },
+    { name: "ratio", type: "enum", required: "No", description: `${GPT_IMAGE2_RATIOS.join(", ")}. With references, \`auto\` lets the model choose the aspect ratio.`, default: `${GPT_IMAGE2_DEFAULT_RATIO} for text-to-image, auto for edits` },
+    { name: "output_format", type: "enum", required: "No", description: GPT_IMAGE2_OUTPUT_FORMATS.join(", "), default: GPT_IMAGE2_DEFAULT_OUTPUT_FORMAT },
+    { name: "referenceImages", type: "array", required: "No", description: `Up to ${GPT_IMAGE2_REFERENCE_LIMIT} references. Use public image URLs or objects with the uploaded \`assetId\`. Supplying a reference selects edit mode.`, default: "[]" },
+  ];
+  return [
+    "## GPT Image 2",
+    "",
+    "Submit with `POST /api/advanced/generate` using `Authorization: Bearer <user-token>` and `Content-Type: application/json`. Each request generates one image.",
+    "",
+    "**Text-to-image request**",
+    "",
+    markdownCodeBlock("json", example.body),
+    "",
+    "**Reference image edit request**",
+    "",
+    markdownCodeBlock("json", edit),
+    "",
+    docsParameterMarkdown(fields),
+    "",
+    "The create response includes `taskId`. Poll `GET /api/generation-records/<taskId>` with the same bearer token. When `record.status` is `succeeded`, read `record.imageResultUrl`. When it is `failed`, read `record.error`.",
+    "",
+  ].join("\n");
+}
+
 function buildRestrictedModelDocsMarkdown(docs = {}) {
   const external = docs.advancedExternalApi || {};
   const route = (url, fallback = "") => String(url || fallback || "").replace(String(external.baseUrl || docs.baseUrl || ""), "");
@@ -423,6 +460,8 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
       "",
     );
   }
+
+  if (external.gptImage2Example) lines.push(gptImage2ApiMarkdown(external.gptImage2Example));
 
   const imageSections = [
     { title: "Z-Image Spicy Pro", example: external.zImageSpicyProExample, fields: zImageSpicyProParameterFields },
@@ -901,6 +940,7 @@ function buildModelDocsMarkdown(docs) {
     "",
     mulerouterRoutingMarkdown(),
     externalAdvancedApiMarkdown(docs.advancedExternalApi),
+    gptImage2ApiMarkdown(docs.advancedExternalApi?.gptImage2Example),
     "",
     "## Quick Start",
     "",
