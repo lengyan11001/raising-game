@@ -861,7 +861,7 @@ function ticketMessageView(record = {}) {
   };
 }
 
-const SUPPORT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+const SUPPORT_IMAGE_MAX_BYTES = 32 * 1024 * 1024;
 const SUPPORT_BODY_MAX_BYTES = Math.ceil(SUPPORT_IMAGE_MAX_BYTES / 3) * 4 + 64 * 1024;
 
 function parseSupportTicketImage(value) {
@@ -894,7 +894,7 @@ async function handleCreateSupportTicket(req, res) {
   const subject = String(body.subject || "").trim().slice(0, 120);
   const message = String(body.message || "").trim().slice(0, 5000);
   const image = parseSupportTicketImage(body.image);
-  if (image === false) return sendJson(res, 400, { ok: false, code: "SUPPORT_IMAGE_INVALID", message: "请选择 2 MB 以内的 JPG、PNG 或 WebP 图片。" });
+  if (image === false) return sendJson(res, 400, { ok: false, code: "SUPPORT_IMAGE_INVALID", message: "请选择 32 MB 以内的 JPG、PNG 或 WebP 图片。" });
   if (!message && !image) return sendJson(res, 400, { ok: false, code: "SUPPORT_MESSAGE_REQUIRED", message: "请输入问题描述或上传图片。" });
   const now = new Date().toISOString();
   const ticketId = randomId("ticket");
@@ -949,7 +949,7 @@ async function handleReplySupportTicket(req, res, ticketId) {
   const body = await readJson(req, SUPPORT_BODY_MAX_BYTES);
   const bodyText = String(body.message || "").trim().slice(0, 5000);
   const image = parseSupportTicketImage(body.image);
-  if (image === false) return sendJson(res, 400, { ok: false, code: "SUPPORT_IMAGE_INVALID", message: "请选择 2 MB 以内的 JPG、PNG 或 WebP 图片。" });
+  if (image === false) return sendJson(res, 400, { ok: false, code: "SUPPORT_IMAGE_INVALID", message: "请选择 32 MB 以内的 JPG、PNG 或 WebP 图片。" });
   if (!bodyText && !image) return sendJson(res, 400, { ok: false, code: "SUPPORT_MESSAGE_REQUIRED", message: "请输入消息内容或上传图片。" });
   const message = await appendSupportTicketMessageInDb({
     id: randomId("ticket-message"),
