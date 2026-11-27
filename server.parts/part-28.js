@@ -620,7 +620,7 @@ async function handleAdvancedQwenImage3Generate(req, res, context = {}) {
   const promptExtend = boolFromRequest(firstPresent(body.prompt_extend, body.promptExtend, bodyParams.prompt_extend, merged.prompt_extend), true);
   const promptExtendMode = String(firstPresent(body.prompt_extend_mode, body.promptExtendMode, bodyParams.prompt_extend_mode, merged.prompt_extend_mode, "direct")).trim().toLowerCase() === "agent" ? "agent" : "direct";
   const watermark = boolFromRequest(firstPresent(body.watermark, bodyParams.watermark, merged.watermark), false);
-  const requestFingerprint = qwenImage3RequestFingerprint({ userId: auth.user.id, model, prompt, size, outputImageCount, negativePrompt, promptExtend, promptExtendMode, watermark, seed, referenceInputs });
+  const requestFingerprint = qwenImage3RequestFingerprint({ userId: bodyParams.storyJobId ? `${auth.user.id}:story:${bodyParams.storyJobId}` : auth.user.id, model, prompt, size, outputImageCount, negativePrompt, promptExtend, promptExtendMode, watermark, seed, referenceInputs });
   const requestTrace = requestTraceForGeneration(req);
   return await withQwenImage3InFlight(requestFingerprint, async () => {
     const duplicateRecord = await findActiveQwenImage3Duplicate({ userId: auth.user.id, fingerprint: requestFingerprint });

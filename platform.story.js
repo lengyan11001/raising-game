@@ -57,6 +57,7 @@
     generatingAssetId: "",
     analysis: null,
     analysisScriptId: "",
+    analysisJobId: "",
     action: "",
     actionMessage: "",
     syncingGenerationRefs: false,
@@ -739,6 +740,8 @@
   }
 
   function storyShotUsesAsset(asset = {}, shot = {}) {
+    const scopedShotIds = asset.metadata?.shotIdsByEpisode?.[shot.episodeId];
+    if (Array.isArray(scopedShotIds)) return scopedShotIds.includes(shot.id);
     const shotNos = storyTextList(asset.metadata?.shotNos || []).map(Number).filter(Number.isFinite);
     if (shotNos.length) return shotNos.includes(Number(shot.shotNo || 0));
     const name = String(asset.name || "").trim();
@@ -748,10 +751,22 @@
     if (asset.kind === "character" && storyTextList(metadata.characters).some((item) => item.includes(name) || name.includes(item))) return true;
     const location = String(metadata.location || "").trim();
     if (asset.kind === "scene" && location && (location.includes(name) || name.includes(location))) return true;
-    return [shot.title, shot.description, metadata.location, metadata.dialogue, metadata.storyBeat]
+    const dialogueText = Array.isArray(metadata.dialogueLines)
+      ? metadata.dialogueLines.map((line) => `${line.speaker || ""}${line.text || ""}`).join("\n")
+      : "";
+    return [shot.title, shot.description, metadata.location, metadata.dialogue, dialogueText, metadata.storyBeat]
       .filter(Boolean)
       .join("\n")
       .includes(name);
+  }
+
+  function storyShotDialogueDisplay(metadata = {}) {
+    const lines = Array.isArray(metadata.dialogueLines) ? metadata.dialogueLines : [];
+    if (!lines.length) return metadata.dialogue || "";
+    return lines.map((line) => {
+      const label = line.kind === "inner" ? "内心" : line.kind === "voiceover" ? "画外" : line.kind === "ambient" ? "环境" : "对白";
+      return `${label}｜${line.speaker ? `${line.speaker}：` : ""}${line.text || ""}`;
+    }).join("\n");
   }
 
   function storyShotAssets(episode = {}, shot = {}) {
@@ -906,7 +921,7 @@
     const workflowStatus = assetsReady
       ? "全部资产已定稿。下一步进入“模型与提示词”，按所选视频模型逐镜优化。"
       : !assets.length
-        ? "下一步：先点“AI 提取本集资产”。AI 只抽取本集分镜会用到的人物、场景和关键道具。"
+        ? "AI 会在分镜完成后生成资产清单。清单生成失败时，可以重试。"
         : missingImageAssets.length
           ? `下一步：点“补齐 ${missingImageAssets.length} 个资产图”，生成后逐项审核并设为定稿。`
           : "下一步：逐张审核设计图，满意后点“设为定稿”；全部定稿才解锁视频提示词。";
@@ -916,7 +931,7 @@
           <div><p class="eyebrow">ASSET DESIGN</p><h3>本集资产设计与定稿</h3><p>AI 只提取本集镜头会用到的人物、场景和关键道具；资产定稿后才会解锁视频提示词。</p></div>
           <div class="story-production-controls">
             <label>出图模型<select data-story-image-model>${models.map((model) => `<option value="${storyEscape(model.id)}" ${model.id === imageModel ? "selected" : ""}>${storyEscape(model.label)}</option>`).join("")}</select></label>
-            <button class="story-secondary-button" type="button" data-story-plan-assets ${storyState.action ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${assets.length ? "重新提取资产" : "AI 提取本集资产"}</span></button>
+            <button class="story-secondary-button" type="button" data-story-plan-assets ${storyState.action ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${assets.length ? "让 AI 重新生成资产清单" : "重试 AI 资产清单"}</span></button>
             ${assetsReady
               ? `<button class="story-create-button" type="button" data-story-episode-view="prompts"><i data-lucide="arrow-right"></i><span>下一步：选模型并生成提示词</span></button>`
               : `<button class="story-create-button" type="button" data-story-generate-assets ${!missingImageAssets.length || storyState.action ? "disabled" : ""}><i data-lucide="images"></i><span>${missingImageAssets.length ? `补齐 ${missingImageAssets.length} 个资产图` : assets.length ? "设计图已齐，待审核" : "先提取资产"}</span></button>`}
@@ -997,7 +1012,7 @@
           <div><p class="eyebrow">SHOT ASSETS & PROMPTS</p><h3>逐镜确认资产与提示词</h3><p>AI 先按 S01、S02 列出每镜所需资产和图片提示词。你确认清单后才允许出图；资产定稿后再冻结对应视频提示词。</p></div>
           <div class="story-production-controls">
             <label>出图模型<select data-story-image-model>${imageModels.map((model) => `<option value="${storyEscape(model.id)}" ${model.id === imageModel ? "selected" : ""}>${storyEscape(model.label)}</option>`).join("")}</select></label>
-            <button class="story-secondary-button" type="button" data-story-plan-assets ${storyState.action ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${assets.length ? "重新提取资产" : "AI 提取本集资产"}</span></button>
+            <button class="story-secondary-button" type="button" data-story-plan-assets ${storyState.action ? "disabled" : ""}><i data-lucide="sparkles"></i><span>${assets.length ? "让 AI 重新生成资产清单" : "重试 AI 资产清单"}</span></button>
           </div>
         </div>
         <div class="story-workflow-guide ${promptsReady ? "is-ready" : confirmedCount === storyState.shots.length && storyState.shots.length ? "is-warning" : ""}">
@@ -1112,7 +1127,7 @@
           ${storyMetric("运镜", metadata.camera || "未设置")}
           ${storyMetric("地点", metadata.location || "未设置")}
         </div>
-        ${metadata.dialogue || metadata.storyBeat ? `<div class="story-shot-copy-blocks">${metadata.dialogue ? `<div><span>对白</span><p>${storyEscape(metadata.dialogue)}</p></div>` : ""}${metadata.storyBeat ? `<div><span>剧情节拍</span><p>${storyEscape(metadata.storyBeat)}</p></div>` : ""}</div>` : ""}
+        ${storyShotDialogueDisplay(metadata) || metadata.storyBeat ? `<div class="story-shot-copy-blocks">${storyShotDialogueDisplay(metadata) ? `<div><span>台词与声音</span><p class="story-shot-dialogue-lines">${storyEscape(storyShotDialogueDisplay(metadata))}</p></div>` : ""}${metadata.storyBeat ? `<div><span>剧情节拍</span><p>${storyEscape(metadata.storyBeat)}</p></div>` : ""}</div>` : ""}
         <div class="story-shot-workspace-grid">
           <section class="story-shot-workspace-card">
             <div class="story-shot-workspace-card-head">
@@ -1626,20 +1641,16 @@
         && !storyState.expandedManuscriptIds.includes(storyState.selectedManuscriptId)) {
         storyState.expandedManuscriptIds.push(storyState.selectedManuscriptId);
       }
-      if (storyState.analysisScriptId && storyState.analysisScriptId !== storyState.selectedScriptId) {
-        storyState.analysis = null;
-        storyState.analysisScriptId = "";
-      }
+      const analysisJob = restoreStoryAnalysis();
       syncStoryScriptTargetFromSelection();
       storyState.action = "";
-      storyState.actionMessage = "";
+      storyState.actionMessage = analysisJob?.errorMessage || "";
+      if (["queued", "retry", "processing"].includes(analysisJob?.status)) {
+        storyState.actionMessage = "AI 正在后台拆解剧本，稍后可重新打开项目查看。";
+      }
       storyState.loading = false;
       renderStoryDetail();
-      if (!document.hidden) {
-        void syncStoryVideoGenerationRefs(id).finally(() => {
-          if (storyState.selectedId === id) scheduleStoryVideoGenerationSync(15000);
-        });
-      }
+      scheduleStoryVideoGenerationSync();
     } catch (error) {
       storyState.loading = false;
       storyState.detail = null;
@@ -1735,6 +1746,7 @@
       storyState.selectedScriptId = "";
       storyState.analysis = null;
       storyState.analysisScriptId = "";
+      storyState.analysisJobId = "";
       await loadStoryDetail(projectId);
       storyState.actionMessage = "录入段及其分集已删除。";
       renderStoryDetail();
@@ -1910,7 +1922,10 @@
     storyState.episodeTab = storyEpisodeTabId(view);
     storyState.shots = storyEpisodeShotsFromCache(id);
     storyState.action = "";
-    storyState.actionMessage = "";
+    const jobs = (storyState.detail?.backgroundJobs || []).filter((job) => job.episodeId === id);
+    const pending = jobs.some((job) => ["queued", "retry", "processing"].includes(job.status));
+    storyState.actionMessage = pending ? "本集还有 AI 任务在后台运行。"
+      : jobs.find((job) => job.errorMessage)?.errorMessage || "";
     renderStoryDetail();
     if (storyEpisodeShotsLoaded(id)) return;
     try {
@@ -1962,15 +1977,34 @@
     renderStoryDetail();
   }
 
-  async function waitForStoryShotPlanJob(projectId = "", episodeId = "") {
-    const created = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/shots/plan`, { method: "POST" });
+  async function waitForStoryBackgroundJob(projectId, jobId) {
+    const deadline = Date.now() + 28 * 60 * 1000;
+    while (storyState.selectedId === projectId && Date.now() < deadline) {
+      const { job } = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}`);
+      if (job.status === "completed") return job.result;
+      if (job.status === "failed") throw new Error(job.errorMessage || "后台任务失败，请重试。");
+      await new Promise((resolve) => window.setTimeout(resolve, 2500));
+    }
+    throw new Error("后台任务已登记，稍后可重新打开项目查看。");
+  }
+
+  function restoreStoryAnalysis() {
+    const job = storyState.detail?.analysisJobs?.find((item) => item.scriptVersionId === storyState.selectedScriptId);
+    storyState.analysis = job?.result?.analysis || null;
+    storyState.analysisJobId = storyState.analysis ? job.id : "";
+    storyState.analysisScriptId = storyState.analysis ? job.scriptVersionId : "";
+    return job;
+  }
+
+  async function waitForStoryShotPlanJob(projectId = "", episodeId = "", submittedJob = null) {
+    const created = submittedJob ? { job: submittedJob } : await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/shots/plan`, { method: "POST" });
     const jobId = created.job?.id || "";
     if (!jobId) throw new Error("AI 分镜任务没有返回任务编号，请重试。");
     const startedAt = Date.now();
     let lastStatus = created.job?.status || "queued";
-    while (Date.now() - startedAt < 10 * 60 * 1000) {
+    while (Date.now() - startedAt < 28 * 60 * 1000) {
       storyState.actionMessage = lastStatus === "processing"
-        ? "AI 正在拆解分镜：覆盖剧情节点、生成镜头、复核连续性。页面可以保持打开，无需重试。"
+        ? "后台正在生成分镜并提取资产，可离开页面，稍后回到本集查看。"
         : "AI 分镜已排队，正在等待后台开始处理…";
       renderStoryDetail();
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
@@ -2009,14 +2043,8 @@
       storyState.detail.episodes = (storyState.detail.episodes || []).map((item) => item.id === episode.id
         ? { ...item, ...payload.episode, shotCount: payload.shots?.length || 0 }
         : item);
-      let assetCount = 0;
-      let assetWarning = "";
-      try {
-        const assetPayload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/assets/plan`, { method: "POST" });
-        assetCount = Array.isArray(assetPayload.assets) ? assetPayload.assets.length : 0;
-      } catch (error) {
-        assetWarning = error.message || String(error);
-      }
+      const assetCount = payload.assetPlan?.count || 0;
+      const assetWarning = payload.assetPlan?.errorMessage || (payload.assetPlan ? "" : "本次任务未返回资产清单，可重试 AI 生成。");
       await loadStoryDetail(projectId);
       await loadStoryEpisodeShots(episode.id);
       storyState.actionMessage = assetWarning
@@ -2057,6 +2085,7 @@
           synopsis,
           durationSeconds,
           status: status || episode.status || "draft",
+          planShots: status === "outline_locked",
           metadata,
         },
       });
@@ -2068,12 +2097,17 @@
         storyState.actionMessage = "大纲已定稿，AI 正在拆分镜，通常需要几十秒…";
         storyState.episodeTab = "shots";
         renderStoryDetail();
-        const planPayload = await waitForStoryShotPlanJob(projectId, episode.id);
+        if (!payload.job?.id) throw new Error("大纲已保存，服务器未返回后台任务。");
+        const planPayload = await waitForStoryShotPlanJob(projectId, episode.id, payload.job);
         storyState.shots = Array.isArray(planPayload.shots) ? planPayload.shots : [];
         storyState.detail.episodes = (storyState.detail.episodes || []).map((item) => item.id === episode.id
           ? { ...item, ...planPayload.episode, shotCount: planPayload.shots?.length || 0 }
           : item);
-        storyState.actionMessage = `大纲已定稿，AI 已拆分 ${planPayload.shots?.length || 0} 个镜头 · ${planPayload.model || "分析模型"}`;
+        await loadStoryDetail(projectId);
+        await loadStoryEpisodeShots(episode.id);
+        storyState.actionMessage = planPayload.assetPlan?.errorMessage
+          ? `分镜已保存，AI 资产清单生成失败：${planPayload.assetPlan.errorMessage}`
+          : `AI 已拆分 ${planPayload.shots?.length || 0} 个镜头 · 已生成 ${planPayload.assetPlan?.count || 0} 个资产需求`;
       } else {
         storyState.actionMessage = "本集修改已保存。";
       }
@@ -2143,51 +2177,6 @@
     }
   }
 
-  function storyGenerationImageUrl(record = {}) {
-    const status = String(record.status || "").toLowerCase();
-    if (status && !["succeeded", "success", "completed", "complete"].includes(status)) return "";
-    return [
-      record.imageResultUrl,
-      record.imageUrl,
-      record.resultImageUrl,
-      record.cdnImageUrl,
-      record.publicImageUrl,
-      record.remoteImageUrl,
-      record.localImageUrl,
-      record.posterUrl,
-      record.resultUrl,
-      record.outputUrl,
-    ].map((value) => String(value || "").trim()).find(Boolean) || "";
-  }
-
-  function storyGenerationMediaAssetIds(record = {}) {
-    const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
-    return mediaAssets.flatMap((asset) => {
-      if (!asset || typeof asset !== "object") return [];
-      return [
-        asset.userAssetId,
-        asset.assetId,
-        asset.mediaAssetId,
-        asset.id,
-        ...(Array.isArray(asset.userAssetIds) ? asset.userAssetIds : []),
-      ].map((value) => String(value || "").trim()).filter(Boolean);
-    });
-  }
-
-  function storyGenerationResultAssetIds(record = {}) {
-    return [...new Set([
-      record.resultAssetId,
-      ...(Array.isArray(record.resultAssetIds) ? record.resultAssetIds : []),
-      record.userAssetId,
-      ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
-      ...storyGenerationMediaAssetIds(record),
-    ].map((value) => String(value || "").trim()).filter(Boolean))];
-  }
-
-  function storyGenerationResultAssetId(record = {}) {
-    return storyGenerationResultAssetIds(record)[0] || "";
-  }
-
   function storyGenerationVideoUrl(record = {}) {
     const arrays = [record.resultVideoUrls, record.videoUrls, record.outputUrls]
       .filter(Array.isArray)
@@ -2213,33 +2202,6 @@
 
   function storyGenerationStatusSucceeded(status = "") {
     return ["succeeded", "success", "completed", "complete"].includes(String(status || "").toLowerCase());
-  }
-
-  async function pollStoryGenerationRecord(taskId = "") {
-    for (let attempt = 0; attempt < 120; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, attempt ? 3000 : 1000));
-      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
-      const record = payload.record || payload.generation || {};
-      const status = String(record.status || "").toLowerCase();
-      if (["failed", "error", "canceled", "cancelled"].includes(status)) throw new Error(record.error || "资产设计图生成失败。");
-      if (storyGenerationImageUrl(record)) return record;
-      if (["succeeded", "success", "completed", "complete"].includes(status)) break;
-    }
-    throw new Error("资产设计图生成超时，请稍后刷新项目查看结果。");
-  }
-
-  async function pollStoryVideoGenerationRecord(taskId = "") {
-    for (let attempt = 0; attempt < 180; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, attempt ? 3000 : 1000));
-      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
-      const record = payload.record || payload.generation || {};
-      const status = String(record.status || "").toLowerCase();
-      if (["failed", "error", "canceled", "cancelled"].includes(status)) throw new Error(record.error || record.message || "视频生成失败。");
-      const videoUrl = storyGenerationVideoUrl(record);
-      if (videoUrl) return { ...record, resolvedVideoUrl: videoUrl };
-      if (["succeeded", "success", "completed", "complete"].includes(status)) break;
-    }
-    throw new Error("视频生成超时，请稍后在当前分镜刷新查看结果。");
   }
 
   function storyVideoRefPending(ref = {}) {
@@ -2400,103 +2362,50 @@
     };
   }
 
-  async function updateStoryVideoGenerationRef(projectId = "", ref = {}, patch = {}) {
-    if (!projectId || !ref?.id) return ref;
-    const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/generation-refs/${encodeURIComponent(ref.id)}`, {
-      method: "PUT",
-      body: {
-        generationRecordId: ref.generationRecordId || "",
-        ...patch,
-      },
-    });
-    const updated = payload.generationRef || ref;
-    if (storyState.selectedId === projectId && Array.isArray(storyState.detail?.generationRefs)) {
-      storyState.detail.generationRefs = storyState.detail.generationRefs.map((item) => item.id === updated.id ? updated : item);
-    }
-    return updated;
-  }
-
-  async function syncStoryVideoGenerationRefs(projectId = "") {
-    const id = String(projectId || storyState.selectedId || "").trim();
-    if (!id || storyState.syncingGenerationRefs || storyState.selectedId !== id) return false;
-    const refs = (Array.isArray(storyState.detail?.generationRefs) ? storyState.detail.generationRefs : [])
-      .filter(storyVideoRefPending);
-    if (!refs.length) return false;
+  async function refreshStoryMedia(projectId) {
+    if (storyState.syncingGenerationRefs || storyState.selectedId !== projectId || document.hidden) return;
     storyState.syncingGenerationRefs = true;
-    let changed = false;
     try {
-      await Promise.all(refs.map(async (ref) => {
-        try {
-          const payload = await requestJson(`/api/generation-records/${encodeURIComponent(ref.generationRecordId)}`);
-          const record = payload.record || payload.generation || {};
-          const status = String(record.status || "").toLowerCase();
-          const videoUrl = storyGenerationVideoUrl(record);
-          if (videoUrl) {
-            await updateStoryVideoGenerationRef(id, ref, {
-              status: "succeeded",
-              metadata: {
-                videoUrl,
-                posterUrl: record.posterUrl || record.coverUrl || "",
-                generationStatus: record.status || "succeeded",
-                billingStatus: generationRecordBillingStatus(record),
-                billing: record.billing?.status ? { status: record.billing.status } : undefined,
-                syncedAt: new Date().toISOString(),
-              },
-            });
-            changed = true;
-            return;
-          }
-          if (storyGenerationStatusSucceeded(status)) {
-            await updateStoryVideoGenerationRef(id, ref, {
-              status: "succeeded",
-              metadata: {
-                generationStatus: record.status || status,
-                mediaSyncPending: true,
-                billingStatus: generationRecordBillingStatus(record),
-                billing: record.billing?.status ? { status: record.billing.status } : undefined,
-                syncedAt: new Date().toISOString(),
-              },
-            });
-            changed = true;
-            return;
-          }
-          if (["failed", "error", "canceled", "cancelled"].includes(status)) {
-            await updateStoryVideoGenerationRef(id, ref, {
-              status: "failed",
-              metadata: {
-                error: record.error || record.message || "视频生成失败。",
-                generationStatus: record.status || status,
-                billingStatus: generationRecordBillingStatus(record),
-                billing: record.billing?.status ? { status: record.billing.status } : undefined,
-                syncedAt: new Date().toISOString(),
-              },
-            });
-            changed = true;
-          }
-        } catch (error) {
-          // Transient record lookups must not turn a running task into a failed task,
-          // but keep the failure visible so sync bugs are not silently swallowed.
-          console.warn("[story-video-sync]", ref.id || "", ref.generationRecordId || "", status || "", error?.message || error);
-        }
-      }));
+      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}`);
+      if (storyState.selectedId !== projectId || !storyState.detail) return;
+      const previousJobs = storyState.detail.backgroundJobs || [];
+      storyState.detail.backgroundJobs = payload.backgroundJobs || [];
+      storyState.detail.analysisJobs = payload.analysisJobs || [];
+      storyState.detail.episodes = payload.episodes || [];
+      storyState.assets = payload.assets || [];
+      const analysisJob = restoreStoryAnalysis();
+      const failed = storyState.detail.backgroundJobs.find((job) => job.episodeId === storyState.selectedEpisodeId
+        && job.errorMessage && (!job.shotId || job.shotId === storyState.selectedShotId));
+      if (!storyState.action && (failed || analysisJob?.errorMessage)) {
+        storyState.actionMessage = failed?.errorMessage || analysisJob.errorMessage;
+      }
+      const changedEpisode = (payload.backgroundJobs || []).some((job) => job.episodeId === storyState.selectedEpisodeId
+        && (job.status === "completed" || job.status === "failed")
+        && previousJobs.find((previous) => previous.id === job.id)?.status !== job.status);
+      if (changedEpisode) await loadStoryEpisodeShots();
+      storyState.detail.generationRefs = payload.generationRefs || [];
+      storyState.assetVariants = payload.assetVariants || [];
+      renderStoryDetail();
+    } catch (error) {
+      console.warn("Story media refresh failed", error);
     } finally {
       storyState.syncingGenerationRefs = false;
     }
-    if (changed && storyState.selectedId === id) renderStoryDetail();
-    return changed;
   }
 
   function scheduleStoryVideoGenerationSync(delay = 15000) {
     clearTimeout(storyState.videoSyncTimer);
     storyState.videoSyncTimer = null;
-    if (document.hidden || !storyState.selectedId) return;
-    const refs = (Array.isArray(storyState.detail?.generationRefs) ? storyState.detail.generationRefs : []).filter(storyVideoRefPending);
-    if (!refs.length) return;
     const projectId = storyState.selectedId;
+    const pending = storyState.detail?.generationRefs?.some(storyVideoRefPending)
+      || storyState.assetVariants.some((variant) => variant.status === "generating")
+      || [...(storyState.detail?.backgroundJobs || []), ...(storyState.detail?.analysisJobs || [])]
+        .some((job) => ["queued", "retry", "processing"].includes(job.status));
+    if (!projectId || document.hidden || !pending) return;
     storyState.videoSyncTimer = setTimeout(async () => {
-      await syncStoryVideoGenerationRefs(projectId);
-      if (storyState.selectedId === projectId) scheduleStoryVideoGenerationSync(15000);
-    }, Math.max(0, Number(delay) || 0));
+      await refreshStoryMedia(projectId);
+      if (storyState.selectedId === projectId) scheduleStoryVideoGenerationSync();
+    }, delay);
   }
 
   function openStoryRevisionRequest(request = {}) {
@@ -2662,79 +2571,15 @@
     }
   }
 
-  async function createStoryAssetImageVariant(asset = {}, revisionFeedback = "") {
+  async function queueStoryAssetImages(assets, revisionFeedback = "") {
     const projectId = storyState.selectedId;
     const episodeId = storyState.selectedEpisodeId;
-    if (!projectId || !episodeId || !asset.id) return;
-    const models = Array.isArray(storyState.productionModels?.image) ? storyState.productionModels.image : [];
-    const modelId = storyState.imageModel || models[0]?.id || "qwen-image3";
-    const model = models.find((item) => item.id === modelId) || models[0] || { id: modelId, label: modelId };
-    const basePrompt = String(asset.metadata?.imagePrompt || asset.description || "").trim();
-    if (!basePrompt) throw new Error(`${asset.name} 缺少设计图提示词，请先重新提取资产。`);
-    const prompt = [
-      basePrompt,
-      revisionFeedback ? `本次重新生成的修改要求：${revisionFeedback}` : "",
-    ].filter(Boolean).join("\n\n");
-    const payload = await requestJson("/api/advanced/generate", {
+    const models = storyState.productionModels?.image || [];
+    const model = storyState.imageModel || models[0]?.id || "qwen-image3";
+    return requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/assets/images`, {
       method: "POST",
-      body: {
-        provider: model.id,
-        prompt,
-        resolution: model.resolution || "2K",
-        ratio: model.ratio || storyState.detail?.project?.aspectRatio || "3:4",
-        duration: 1,
-        params: { createKind: "story-asset", projectId, episodeId, storyAssetId: asset.id, storyImageModel: model.id, revisionFeedback },
-      },
+      body: { assetIds: assets.map((asset) => asset.id), model, revisionFeedback },
     });
-    const taskId = payload.taskId || payload.task?.taskId || payload.record?.taskId || "";
-    if (!taskId) throw new Error("出图任务没有返回 taskId。");
-    const created = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(asset.id)}/variants`, {
-      method: "POST",
-      body: {
-        name: `${asset.name} · ${model.label}`,
-        description: prompt,
-        prompt,
-        provider: model.id,
-        generationRecordId: taskId,
-        status: "generating",
-        metadata: { model: model.id, modelLabel: model.label, episodeId, revisionFeedback },
-      },
-    });
-    const variant = created.variant;
-    try {
-      let generationRecord = payload.record || {};
-      let imageUrl = storyGenerationImageUrl(generationRecord) || storyAssetVariantImageUrl(variant);
-      let generationStatus = "ready";
-      if (!imageUrl) {
-        generationRecord = await pollStoryGenerationRecord(taskId);
-        imageUrl = storyGenerationImageUrl(generationRecord);
-        generationStatus = String(generationRecord.status || "ready");
-      }
-      if (imageUrl && variant?.id) {
-        const updated = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(asset.id)}/variants/${encodeURIComponent(variant.id)}`, {
-          method: "PUT",
-          body: {
-            status: "ready",
-            metadata: {
-              imageUrl,
-              generationStatus,
-              resultAssetId: storyGenerationResultAssetId(generationRecord),
-              resultAssetIds: storyGenerationResultAssetIds(generationRecord),
-            },
-          },
-        });
-        storyState.assetVariants = [updated.variant, ...storyState.assetVariants.filter((item) => item.id !== updated.variant.id)];
-      }
-    } catch (error) {
-      if (variant?.id) {
-        await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(asset.id)}/variants/${encodeURIComponent(variant.id)}`, {
-          method: "PUT",
-          body: { status: "failed", metadata: { generationError: error.message || String(error) } },
-        }).catch(() => {});
-      }
-      throw error;
-    }
-    return variant;
   }
 
   async function planStoryEpisodeAssets() {
@@ -2749,14 +2594,15 @@
     }
     storyState.action = "plan-assets";
     storyState.episodeTab = "production";
-    storyState.actionMessage = "AI 正在根据本集分镜提取角色、场景和关键道具…";
+    storyState.actionMessage = "AI 正在根据本集分镜生成资产清单…";
     renderStoryDetail();
     try {
-      const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/assets/plan`, { method: "POST" });
-      await clearStoryShotAssetConfirmations();
+      const submitted = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/assets/plan`, { method: "POST" });
+      const payload = await waitForStoryBackgroundJob(projectId, submitted.job.id);
       await loadStoryDetail(projectId);
+      await loadStoryEpisodeShots(episode.id);
       storyState.episodeTab = "production";
-      storyState.actionMessage = `已提取 ${payload.assets?.length || 0} 个本集资产 · ${payload.model || "分析模型"}`;
+      storyState.actionMessage = `AI 已生成 ${payload.assets?.length || 0} 个资产需求，请核对 · ${payload.model || "分析模型"}`;
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -2784,13 +2630,6 @@
     const saved = payload.shot || null;
     if (saved) storyState.shots = storyState.shots.map((item) => item.id === saved.id ? { ...item, ...saved } : item);
     return saved;
-  }
-
-  async function clearStoryShotAssetConfirmations() {
-    for (const shot of storyState.shots) {
-      if (!shot.metadata?.assetsConfirmedAt) continue;
-      await saveStoryShotState(shot, { assetsConfirmedAt: null, assetsConfirmedCount: 0 }).catch(() => null);
-    }
   }
 
   async function clearStoryShotAssetConfirmation(shotId = "") {
@@ -2847,22 +2686,11 @@
     storyState.action = "generate-shot-assets";
     storyState.selectedShotId = shot.id;
     renderStoryDetail();
-    const failures = [];
     try {
-      for (const [index, asset] of assets.entries()) {
-        storyState.generatingAssetId = asset.id;
-        storyState.actionMessage = `S${String(shot.shotNo).padStart(2, "0")} 正在生成「${asset.name}」…（${index + 1}/${assets.length}）`;
-        renderStoryDetail();
-        try {
-          await createStoryAssetImageVariant(asset);
-        } catch (error) {
-          failures.push(`${asset.name}：${error.message || String(error)}`);
-        }
-      }
+      const queued = await queueStoryAssetImages(assets);
       await loadStoryDetail(storyState.selectedId);
-      await loadStoryEpisodeShots();
       storyState.episodeTab = "production";
-      storyState.actionMessage = failures.length ? `部分资产生成失败：${failures.slice(0, 3).join("；")}` : `S${String(shot.shotNo).padStart(2, "0")} 的资产设计图已生成，可直接在分镜卡片内定稿。`;
+      storyState.actionMessage = `已提交 ${queued.jobs.length} 个设计图任务，后台生成完成后可定稿。`;
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -2896,10 +2724,10 @@
     storyState.actionMessage = `AI 正在生成「${asset.name}」的资产设计图…`;
     renderStoryDetail();
     try {
-      await createStoryAssetImageVariant(asset, revisionFeedback);
+      await queueStoryAssetImages([asset], revisionFeedback);
       await loadStoryDetail(storyState.selectedId);
       storyState.episodeTab = "production";
-      storyState.actionMessage = `「${asset.name}」设计图已生成，可在当前分镜直接设为定稿。`;
+      storyState.actionMessage = `「${asset.name}」设计图任务已提交后台，完成后可定稿。`;
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -2934,7 +2762,6 @@
     storyState.selectedShotId = shot.id;
     storyState.actionMessage = `正在绑定 S${String(shot.shotNo).padStart(2, "0")} 的定稿素材并提交视频任务…`;
     renderStoryDetail();
-    let generationRef = null;
     try {
       const mediaReferences = await storyApprovedAssetReferences(episode, shot);
       const mediaParams = storyVideoMediaParams(model, mediaReferences);
@@ -2961,42 +2788,10 @@
       });
       const taskId = payload.taskId || payload.task?.taskId || payload.task?.id || payload.record?.taskId || payload.record?.id || "";
       if (!taskId) throw new Error("视频任务没有返回 taskId。");
-      const referenceAssetIds = [
-        mediaParams.firstFrameAssetId,
-        ...(Array.isArray(mediaParams.referenceImageAssetIds) ? mediaParams.referenceImageAssetIds : []),
-        ...(Array.isArray(mediaParams.referenceImages) ? mediaParams.referenceImages.map((item) => item?.assetId || "") : []),
-      ].map((value) => String(value || "").trim()).filter((value, index, list) => value && list.indexOf(value) === index);
-      const created = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shot.id)}/generation-refs`, {
-        method: "POST",
-        body: {
-          generationRecordId: taskId,
-          kind: "video",
-          status: "queued",
-          metadata: {
-            model: model.id,
-            modelLabel: model.label,
-            resolution: storyState.promptResolution,
-            duration,
-            prompt,
-            episodeId: episode.id,
-            shotNo: shot.shotNo,
-            referenceAssetIds,
-            referenceImageCount: mediaReferences.length,
-            mediaMode: mediaParams.mediaMode || mediaParams.seedanceMode || (mediaParams.firstFrameAssetId ? "first_frame_with_references" : "reference_images"),
-          },
-        },
-      });
-      generationRef = created.generationRef || null;
-      storyState.detail.generationRefs = [generationRef, ...(storyState.detail.generationRefs || []).filter((item) => item?.id !== generationRef?.id)].filter(Boolean);
+      await refreshStoryMedia(projectId);
       storyState.actionMessage = `S${String(shot.shotNo).padStart(2, "0")} 视频任务已提交后台，已绑定 ${mediaReferences.length} 张定稿素材，可继续操作；完成后会自动回填。`;
       scheduleStoryVideoGenerationSync(1200);
     } catch (error) {
-      if (generationRef?.id) {
-        await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/generation-refs/${encodeURIComponent(generationRef.id)}`, {
-          method: "PUT",
-          body: { status: "failed", metadata: { error: error.message || String(error) } },
-        }).catch(() => {});
-      }
       storyState.actionMessage = error.message || String(error);
     } finally {
       storyState.action = "";
@@ -3011,21 +2806,11 @@
     storyState.episodeTab = "production";
     storyState.actionMessage = `AI 正在依次生成 ${assets.length} 个资产设计图…`;
     renderStoryDetail();
-    const failures = [];
     try {
-      for (const [index, asset] of assets.entries()) {
-        storyState.generatingAssetId = asset.id;
-        storyState.actionMessage = `正在生成「${asset.name}」…（已完成 ${index} / ${assets.length}，剩余 ${assets.length - index - 1}）`;
-        renderStoryDetail();
-        try {
-          await createStoryAssetImageVariant(asset);
-        } catch (error) {
-          failures.push(`${asset.name}：${error.message || String(error)}`);
-        }
-      }
+      const queued = await queueStoryAssetImages(assets);
       await loadStoryDetail(storyState.selectedId);
       storyState.episodeTab = "production";
-      storyState.actionMessage = failures.length ? `部分资产生成失败：${failures.slice(0, 3).join("；")}` : "本集未定稿资产已全部生成，请逐个审核定稿。";
+      storyState.actionMessage = `已提交 ${queued.jobs.length} 个设计图任务，后台生成完成后可定稿。`;
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -3087,7 +2872,7 @@
     }
   }
 
-  async function planStoryEpisodePrompts(targetShotId = "", revisionFeedback = "") {
+  async function planStoryEpisodePrompts(targetShotId = "", revisionFeedback = "", approvals = []) {
     const projectId = storyState.selectedId;
     const episode = selectedStoryEpisode();
     if (!projectId || !episode || storyState.action) return;
@@ -3120,42 +2905,15 @@
     storyState.selectedShotId = requestedShotId || storyState.selectedShotId;
     storyState.actionMessage = `AI 正在逐镜优化 0/${shots.length}…`;
     renderStoryDetail();
-    const updatedShots = [];
-    const failures = [];
-    let modelLabel = videoModel;
     try {
-      for (let index = 0; index < shots.length; index += 1) {
-        const shot = shots[index];
-        storyState.actionMessage = `AI 正在优化 ${index + 1}/${shots.length} · S${String(shot.shotNo).padStart(2, "0")} ${shot.title || ""}…`;
-        renderStoryDetail();
-        try {
-          const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/prompts/plan`, {
-            method: "POST",
-            body: { provider: videoModel, optimizerModel, resolution, shotId: shot.id, revisionFeedback },
-          });
-          modelLabel = payload.model?.label || modelLabel;
-          const savedShot = payload.shots?.[0];
-          if (savedShot) {
-            updatedShots.push(savedShot);
-            storyState.shots = storyState.shots.map((item) => item.id === savedShot.id ? { ...item, ...savedShot } : item);
-          }
-          if (Array.isArray(payload.failures)) failures.push(...payload.failures);
-        } catch (error) {
-          failures.push({ shotId: shot.id, shotNo: shot.shotNo, message: error.message || String(error) });
-        }
-        storyState.actionMessage = `AI 已优化 ${index + 1}/${shots.length} 个镜头，正在同步结果…`;
-        renderStoryDetail();
-      }
-      await loadStoryEpisodeShots();
-      await loadStoryDetail(projectId);
+      const queued = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/prompts/plan`, {
+        method: "POST",
+        body: { provider: videoModel, optimizerModel, resolution, shotId: requestedShotId, revisionFeedback, approvals },
+      });
+      await refreshStoryMedia(projectId);
       storyState.episodeTab = "production";
-      const successCount = updatedShots.length;
-      const failureText = failures.length
-        ? `，失败 ${failures.length} 个：${failures.slice(0, 3).map((item) => `S${item.shotNo} ${item.message}`).join("；")}`
-        : "";
-      storyState.actionMessage = successCount
-        ? `已按 ${modelLabel} 生成并冻结 ${successCount} 个镜头的最终提示词${failureText}。`
-        : (failures[0]?.message || "全部镜头提示词优化失败，请重试。");
+      storyState.actionMessage = `已提交 ${queued.jobs.length} 个镜头的提示词任务，后台完成后会自动更新。`;
+      scheduleStoryVideoGenerationSync(1200);
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -3176,45 +2934,10 @@
       renderStoryDetail();
       return;
     }
-    if (!pendingAssets.length) {
-      await planStoryEpisodePrompts(shot.id, "请结合已定稿资产，按当前视频模型和分辨率生成可直接执行的最终提示词。");
-      return;
-    }
-
-    storyState.action = "finalize-assets-and-plan";
-    storyState.episodeTab = "production";
-    storyState.selectedShotId = shot.id;
-    storyState.actionMessage = `正在定稿 S${String(shot.shotNo).padStart(2, "0")} 的 ${pendingAssets.length} 张设计图…`;
-    renderStoryDetail();
-    try {
-      for (const [index, asset] of pendingAssets.entries()) {
-        const variant = storyDisplayAssetVariant(asset);
-        if (!variant || !storyAssetVariantImageUrl(variant)) {
-          throw new Error(`「${asset.name}」没有可定稿的设计图，请重新生成。`);
-        }
-        storyState.actionMessage = `正在定稿「${asset.name}」 ${index + 1}/${pendingAssets.length}…`;
-        renderStoryDetail();
-        if (variant.status !== "approved") {
-          await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(asset.id)}/variants/${encodeURIComponent(variant.id)}/approve`, { method: "POST" });
-        }
-      }
-      await loadStoryDetail(projectId);
-      await loadStoryEpisodeShots();
-      storyState.episodeTab = "production";
-      storyState.selectedShotId = shot.id;
-      storyState.actionMessage = "资产已全部定稿，正在按当前视频模型生成最终提示词…";
-      storyState.action = "";
-      renderStoryDetail();
-      const refreshedShot = storyState.shots.find((item) => item.id === shot.id);
-      const revisionFeedback = String(refreshedShot?.videoPrompt || "").trim()
-        ? "请结合已定稿资产，按当前视频模型和分辨率重新生成可直接执行的最终提示词。"
-        : "";
-      await planStoryEpisodePrompts(shot.id, revisionFeedback);
-    } catch (error) {
-      storyState.actionMessage = error.message || String(error);
-      storyState.action = "";
-      renderStoryDetail();
-    }
+    const approvals = pendingAssets.map((asset) => ({
+      assetId: asset.id, variantId: storyDisplayAssetVariant(asset)?.id,
+    }));
+    await planStoryEpisodePrompts(shot.id, "请结合已定稿资产，按当前视频模型和分辨率生成可直接执行的最终提示词。", approvals);
   }
 
   async function saveStoryScriptDraft() {
@@ -3289,17 +3012,20 @@
     storyState.analysisDurationMinutes = durationMinutes;
     storyState.analysisDurationDirty = true;
     storyState.action = "analyze";
-    storyState.actionMessage = "AI 正在拆解剧本，通常需要几十秒…";
+    storyState.actionMessage = "AI 正在后台拆解剧本，可以关闭页面。";
     renderStoryDetail();
     try {
       const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/analyze`, {
         method: "POST",
         body: { scriptVersionId: script.id, targetEpisodes, targetDurationSeconds },
       });
-      storyState.analysis = payload.analysis || null;
-      storyState.analysisScriptId = payload.scriptVersionId || script.id;
+      const result = await waitForStoryBackgroundJob(projectId, payload.job.id);
+      if (storyState.selectedId !== projectId || storyState.selectedScriptId !== script.id) return;
+      storyState.analysis = result.analysis || null;
+      storyState.analysisJobId = payload.job.id;
+      storyState.analysisScriptId = result.scriptVersionId || script.id;
       storyState.action = "";
-      storyState.actionMessage = `拆解完成 · ${payload.model || "分析模型"} · ${payload.attempts || 1} 次尝试`;
+      storyState.actionMessage = `拆解完成 · ${result.model || "分析模型"} · ${result.attempts || 1} 次尝试`;
       renderStoryDetail();
     } catch (error) {
       storyState.action = "";
@@ -3324,7 +3050,7 @@
     try {
       await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/import`, {
         method: "POST",
-        body: { analysis, scriptVersionId },
+        body: storyState.analysisJobId ? { analysisJobId: storyState.analysisJobId, scriptVersionId } : { analysis, scriptVersionId },
       });
       storyState.analysis = null;
       storyState.analysisScriptId = "";
@@ -3370,7 +3096,7 @@
         return;
       }
       if (storyState.selectedId && storyState.detail) {
-        void syncStoryVideoGenerationRefs(storyState.selectedId).finally(() => scheduleStoryVideoGenerationSync(15000));
+        void refreshStoryMedia(storyState.selectedId).finally(() => scheduleStoryVideoGenerationSync());
       }
     });
     storyEl("storyProjectForm")?.addEventListener("submit", createStoryProject);
@@ -3439,7 +3165,10 @@
         }
       }
       else if (event.target.closest("[data-story-script-id]")) {
-        if (selectStoryScriptVersion(event.target.closest("[data-story-script-id]")?.dataset.storyScriptId || "")) renderStoryDetail();
+        if (selectStoryScriptVersion(event.target.closest("[data-story-script-id]")?.dataset.storyScriptId || "")) {
+          restoreStoryAnalysis();
+          renderStoryDetail();
+        }
       }
       else if (event.target.closest("[data-story-select-manuscript]")) {
         const manuscriptId = event.target.closest("[data-story-select-manuscript]")?.dataset.storySelectManuscript || "";

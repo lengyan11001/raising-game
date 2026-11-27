@@ -832,7 +832,7 @@ async function handleGetStoryProject(req, res, projectId = "") {
   const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
   if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
   if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
-  const [episodes, canvasLinks, scripts, assets, assetVariants, promptVersions, generationRefs] = await Promise.all([
+  const [episodes, canvasLinks, scripts, assets, assetVariants, promptVersions, generationRefs, backgroundJobs] = await Promise.all([
     listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id }),
     listStoryCanvasLinksFromDb({ projectId, ownerUserId: auth.user.id }),
     listStoryScriptVersionsFromDb({ projectId, ownerUserId: auth.user.id }),
@@ -840,6 +840,7 @@ async function handleGetStoryProject(req, res, projectId = "") {
     listStoryAssetVariantsFromDb({ projectId, ownerUserId: auth.user.id }),
     listStoryPromptVersionsFromDb({ projectId, ownerUserId: auth.user.id }),
     listStoryGenerationRefsFromDb({ projectId, ownerUserId: auth.user.id }),
+    listLatestStoryBackgroundJobsInDb({ projectId, ownerUserId: auth.user.id }),
   ]);
   return sendJson(res, 200, {
     ok: true,
@@ -851,6 +852,13 @@ async function handleGetStoryProject(req, res, projectId = "") {
     assetVariants: (assetVariants || []).map(storyAssetVariantClientView),
     promptVersions: promptVersions || [],
     generationRefs: (generationRefs || []).map(storyGenerationRefClientView),
+    backgroundJobs: backgroundJobs.filter((job) => job.kind !== "analysis").map((job) => ({
+      id: job.id, kind: job.kind, episodeId: job.episodeId, status: job.status,
+      shotId: job.input.shotId, assetId: job.input.assetId, errorMessage: job.errorMessage || job.result?.assetPlan?.errorMessage,
+    })),
+    analysisJobs: backgroundJobs.filter((job) => job.kind === "analysis").filter((job) => (scripts || []).some((script) => script.id === job.input.scriptVersionId))
+      .filter((job) => !job.result?.importedAt)
+      .map((job) => ({ id: job.id, status: job.status, scriptVersionId: job.input.scriptVersionId, errorMessage: job.errorMessage, result: job.result })),
     productionModels: storyProductionModels(),
     canvasLinks: canvasLinks || [],
     contracts: storyContracts(),
@@ -1224,35 +1232,18 @@ async function handleAnalyzeStoryProject(req, res, projectId = "") {
   const scriptId = String(body.scriptVersionId || "").trim();
   const script = scriptId ? (scripts || []).find((item) => item.id === scriptId) : scripts?.[0];
   if (!script) return sendJson(res, 400, { ok: false, code: "STORY_SCRIPT_REQUIRED", message: "请先保存一版剧本或小说文本。" });
-  const existingEpisodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
-  const targetEpisode = script.targetEpisodeId
-    ? (existingEpisodes || []).find((episode) => episode.id === script.targetEpisodeId) || null
-    : null;
-  const startEpisodeNo = storyStartEpisodeNoForScript(script, existingEpisodes || []);
-  try {
-    const result = await analyzeStoryScript({
-      project,
-      script,
-      targetEpisodes: body.targetEpisodes !== undefined ? body.targetEpisodes : (script.targetEpisodeCount || 0),
-      targetDurationSeconds: body.targetDurationSeconds !== undefined ? body.targetDurationSeconds : (script.estimatedDurationSeconds || 0),
-      targetEpisode,
-      startEpisodeNo,
-    });
-    return sendJson(res, 200, { ok: true, scriptVersionId: script.id, ...result });
-  } catch (error) {
-    console.warn("[story-analyze-failed]", JSON.stringify({
-      projectId,
+  const jobs = await enqueueStoryBackgroundJobInDb({
+    projectId, ownerUserId: auth.user.id, kind: "analysis",
+    inputs: [{
       scriptVersionId: script.id,
-      code: error.code || "",
-      statusCode: error.statusCode || 0,
-      message: String(error.message || error).slice(0, 240),
-    }));
-    return sendJson(res, error.statusCode || 502, {
-      ok: false,
-      code: error.code || "STORY_ANALYSIS_FAILED",
-      message: error.message || "剧本拆解失败，请重试。",
-    });
-  }
+      targetEpisodes: body.targetEpisodes ?? script.targetEpisodeCount ?? 0,
+      targetDurationSeconds: body.targetDurationSeconds ?? script.estimatedDurationSeconds ?? 0,
+    }],
+  });
+  const job = jobs?.[0];
+  if (!job) return sendJson(res, 503, { ok: false, message: "剧本拆解任务未保存，请重试。" });
+  return sendJson(res, 202, { ok: true, job: { id: job.id, status: job.status } });
+
 }
 
 async function handleImportStoryAnalysis(req, res, projectId = "") {
@@ -1278,12 +1269,22 @@ async function handleImportStoryAnalysis(req, res, projectId = "") {
   }
   const existingEpisodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
   const startEpisodeNo = storyStartEpisodeNoForScript(sourceScript, existingEpisodes || []);
+  const analysisJobId = storyInputText(body.analysisJobId, 120);
+  if (analysisJobId) {
+    const draft = await getStoryShotPlanJobInDb({ id: analysisJobId, projectId, ownerUserId: auth.user.id });
+    if (draft?.kind !== "analysis" || draft.status !== "completed"
+        || draft.input.scriptVersionId !== sourceScript.id || !draft.result?.analysis) {
+      return sendJson(res, 409, { ok: false, code: "STORY_ANALYSIS_DRAFT_UNAVAILABLE", message: "拆集草稿已变化，请刷新项目。" });
+    }
+    body = { analysis: draft.result.analysis };
+  }
   const payload = storyAnalysisPayload(body, startEpisodeNo);
   if (!payload.episodes.length) return sendJson(res, 400, { ok: false, code: "STORY_ANALYSIS_EMPTY", message: "没有可写入的剧集。" });
   const imported = await importStoryAnalysisInDb({
     projectId,
     ownerUserId: auth.user.id,
     sourceScriptVersionId: sourceScript.id,
+    analysisJobId,
     sourceManuscriptId: sourceScript.manuscriptId || sourceScript.id,
     startEpisodeNo,
     ...payload,
@@ -1379,16 +1380,26 @@ async function handleUpdateStoryEpisode(req, res, projectId = "", episodeId = ""
   const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 512 * 1024);
-  const episode = await updateStoryEpisodeInDb({
-    projectId,
-    ownerUserId: auth.user.id,
-    episodeId,
+  const outline = {
     title: storyInputText(body.title, 160),
     synopsis: storyInputText(body.synopsis, 8000),
     status: storyInputText(body.status, 40) || "draft",
     durationSeconds: Math.max(0, Math.min(24 * 60 * 60, Math.round(Number(body.durationSeconds || 0) || 0))),
     metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {},
-  });
+  };
+  if (body.planShots === true && outline.status === "outline_locked") {
+    try {
+      const queued = await enqueueStoryShotPlanJobInDb({ projectId, episodeId, ownerUserId: auth.user.id, outline });
+      if (queued?.job) {
+        return sendJson(res, 202, { ok: true, episode: queued.episode, job: { id: queued.job.id, status: queued.job.status } });
+      }
+      return sendJson(res, 503, { ok: false, code: "STORY_SHOT_PLAN_QUEUE_FAILED", message: "大纲和分镜任务未保存，请重试。" });
+    } catch (error) {
+      if (error.code !== "STORY_SHOT_PLAN_ACTIVE") throw error;
+      return sendJson(res, 409, { ok: false, code: error.code, message: error.message });
+    }
+  }
+  const episode = await updateStoryEpisodeInDb({ projectId, ownerUserId: auth.user.id, episodeId, ...outline });
   if (!episode) {
     if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
     return sendJson(res, 404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
@@ -1493,48 +1504,11 @@ async function handlePlanStoryEpisodeAssets(req, res, projectId = "", episodeId 
   if (!Array.isArray(shots) || !shots.length) {
     return sendJson(res, 409, { ok: false, code: "STORY_ASSETS_REQUIRE_SHOTS", message: "请先生成并审核本集分镜。" });
   }
-  try {
-    const result = await planStoryEpisodeAssets({ project, episode, shots });
-    const assets = await upsertStoryAssetPlanInDb({
-      projectId,
-      ownerUserId: auth.user.id,
-      episodeId,
-      assets: result.assets,
-    });
-    if (!assets) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "资产需求保存失败。" });
-    const metadata = { ...(episode.metadata || {}), assetsPlannedAt: new Date().toISOString() };
-    const savedEpisode = await updateStoryEpisodeInDb({
-      projectId,
-      ownerUserId: auth.user.id,
-      episodeId,
-      title: episode.title,
-      synopsis: episode.synopsis,
-      status: "assets_planned",
-      durationSeconds: episode.durationSeconds,
-      metadata,
-    });
-    return sendJson(res, 200, {
-      ok: true,
-      model: result.model,
-      attempts: result.attempts,
-      episode: savedEpisode || { ...episode, status: "assets_planned", metadata },
-      assets,
-      models: storyProductionModels(),
-    });
-  } catch (error) {
-    console.warn("[story-asset-plan-failed]", JSON.stringify({
-      projectId,
-      episodeId,
-      code: error.code || "",
-      statusCode: error.statusCode || 0,
-      message: String(error.message || error).slice(0, 240),
-    }));
-    return sendJson(res, error.statusCode || 502, {
-      ok: false,
-      code: error.code || "STORY_ASSET_PLAN_FAILED",
-      message: error.message || "AI 资产规划失败，请重试。",
-    });
-  }
+  const jobs = await enqueueStoryBackgroundJobInDb({ projectId, episodeId, ownerUserId: auth.user.id, kind: "assets", inputs: [{}] });
+  const job = jobs?.[0];
+  if (!job) return sendJson(res, 503, { ok: false, message: "资产清单任务未保存，请重试。" });
+  return sendJson(res, 202, { ok: true, job: { id: job.id, status: job.status } });
+
 }
 
 async function handleCreateStoryAssetVariant(req, res, projectId = "", assetId = "") {
@@ -1681,13 +1655,36 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
   const auth = await requireAdmin(req, res, { loadDb: false });
   if (!auth) return;
   const body = await readJson(req, 128 * 1024);
+  const shots = await listStoryShotsFromDb({ projectId, episodeId, ownerUserId: auth.user.id });
+  const shotId = storyInputText(body.shotId, 120);
+  const selected = (shots || []).filter((shot) => !shotId || shot.id === shotId);
+  if (!selected.length) return sendJson(res, 409, { ok: false, code: "STORY_PROMPTS_REQUIRE_SHOTS", message: "没有可优化的镜头。" });
+  const approvals = Array.isArray(body.approvals) && shotId ? body.approvals.slice(0, 80).map((item) => ({
+    assetId: storyInputText(item?.assetId, 120), variantId: storyInputText(item?.variantId, 160),
+  })) : [];
+  const inputs = selected.map((shot) => ({
+    shotId: shot.id, provider: storyInputText(body.provider, 80), approvals,
+    optimizerModel: storyInputText(body.optimizerModel || body.optimizerModelId, 120),
+    resolution: storyInputText(body.resolution, 24), revisionFeedback: storyInputText(body.revisionFeedback, 4000),
+  }));
+  const jobs = await enqueueStoryBackgroundJobInDb({ projectId, episodeId, ownerUserId: auth.user.id, kind: "prompt", inputs });
+  if (!jobs?.length) return sendJson(res, 503, { ok: false, message: "提示词任务未保存，请重试。" });
+  return sendJson(res, 202, { ok: true, jobs: jobs.map((job) => ({ id: job.id, status: job.status })) });
+}
+
+function finishStoryPromptJob(statusCode, body) {
+  if (statusCode < 400) return body;
+  throw Object.assign(new Error(body.message), { statusCode, code: body.code });
+}
+
+async function executeStoryPromptJob({ id, projectId, episodeId, ownerUserId, input: body }) {
   const providerId = storyInputText(body.provider, 80);
   const provider = STORY_VIDEO_MODELS.find((model) => model.id === providerId);
   if (!provider) {
-    return sendJson(res, 400, { ok: false, code: "STORY_VIDEO_MODEL_UNSUPPORTED", message: "请选择支持的视频模型。" });
+    return finishStoryPromptJob(400, { ok: false, code: "STORY_VIDEO_MODEL_UNSUPPORTED", message: "请选择支持的视频模型。" });
   }
   if (!provider.promptOptimizer) {
-    return sendJson(res, 409, {
+    return finishStoryPromptJob(409, {
       ok: false,
       code: "STORY_VIDEO_MODEL_OPTIMIZER_UNAVAILABLE",
       message: `${provider.label} 暂没有独立的提示词优化规则，请先选择 Seedance、Wan/W3 或已接入规则的同族模型。`,
@@ -1697,35 +1694,55 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
   const resolution = storyInputText(body.resolution, 24) || "720p";
   const targetShotId = storyInputText(body.shotId, 120);
   const revisionFeedback = storyInputText(body.revisionFeedback, 4000);
-  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: auth.user.id });
-  if (project === null && !dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
-  if (!project) return sendJson(res, 404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
+  const project = await getStoryProjectFromDb({ id: projectId, ownerUserId: ownerUserId });
+  if (project === null && !dbEnabled()) return finishStoryPromptJob(503, { ok: false, code: "DATABASE_UNAVAILABLE", message: "剧集存储不可用。" });
+  if (!project) return finishStoryPromptJob(404, { ok: false, code: "STORY_PROJECT_NOT_FOUND", message: "剧集项目不存在。" });
   const [episodes, shots, allAssets, variants] = await Promise.all([
-    listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id }),
-    listStoryShotsFromDb({ projectId, ownerUserId: auth.user.id, episodeId }),
-    listStoryAssetsFromDb({ projectId, ownerUserId: auth.user.id }),
-    listStoryAssetVariantsFromDb({ projectId, ownerUserId: auth.user.id }),
+    listStoryEpisodesFromDb({ projectId, ownerUserId: ownerUserId }),
+    listStoryShotsFromDb({ projectId, ownerUserId: ownerUserId, episodeId }),
+    listStoryAssetsFromDb({ projectId, ownerUserId: ownerUserId }),
+    listStoryAssetVariantsFromDb({ projectId, ownerUserId: ownerUserId }),
   ]);
   const episode = (episodes || []).find((item) => item.id === episodeId);
-  if (!episode) return sendJson(res, 404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
+  if (!episode) return finishStoryPromptJob(404, { ok: false, code: "STORY_EPISODE_NOT_FOUND", message: "剧集不存在。" });
   if (!Array.isArray(shots) || !shots.length) {
-    return sendJson(res, 409, { ok: false, code: "STORY_PROMPTS_REQUIRE_SHOTS", message: "请先生成本集分镜。" });
+    return finishStoryPromptJob(409, { ok: false, code: "STORY_PROMPTS_REQUIRE_SHOTS", message: "请先生成本集分镜。" });
   }
   const episodeAssets = (allAssets || []).filter((asset) => storyAssetBelongsToEpisode(asset, episode));
   if (!episodeAssets.length) {
-    return sendJson(res, 409, { ok: false, code: "STORY_PROMPTS_REQUIRE_ASSETS", message: "请先让 AI 提取本集资产并生成设计稿。" });
+    return finishStoryPromptJob(409, { ok: false, code: "STORY_PROMPTS_REQUIRE_ASSETS", message: "请先让 AI 提取本集资产并生成设计稿。" });
   }
   if (targetShotId && !shots.some((shot) => shot.id === targetShotId)) {
-    return sendJson(res, 404, { ok: false, code: "STORY_SHOT_NOT_FOUND", message: "要优化的镜头不存在。" });
+    return finishStoryPromptJob(404, { ok: false, code: "STORY_SHOT_NOT_FOUND", message: "要优化的镜头不存在。" });
   }
   const targetShot = targetShotId ? shots.find((shot) => shot.id === targetShotId) : null;
+  if (targetShot?.metadata?.videoPromptMeta?.storyJobId === id && targetShot.videoPrompt) {
+    return { ok: true, model: provider, episode, shots: [targetShot], failures: [] };
+  }
   const assets = targetShot ? episodeAssets.filter((asset) => storyShotUsesAsset(asset, targetShot)) : episodeAssets;
   if (!assets.length) {
-    return sendJson(res, 409, { ok: false, code: "STORY_PROMPTS_REQUIRE_SHOT_ASSETS", message: "此镜还没有绑定资产，请先让 AI 提取本镜资产。" });
+    return finishStoryPromptJob(409, { ok: false, code: "STORY_PROMPTS_REQUIRE_SHOT_ASSETS", message: "此镜还没有绑定资产，请先让 AI 提取本镜资产。" });
+  }
+  for (const approval of body.approvals || []) {
+    const asset = assets.find((item) => item.id === approval.assetId);
+    const variant = variants?.find((item) => item.id === approval.variantId && item.assetId === asset?.id);
+    if (!asset || !variant || !storyApprovedVariantHasImage({ ...variant, status: "approved" }) || !["ready", "approved"].includes(variant.status)) {
+      return finishStoryPromptJob(409, { code: "STORY_ASSET_APPROVAL_STALE", message: "选定的设计图已变化，请重新确认。" });
+    }
+  }
+  for (const approval of body.approvals || []) {
+    const asset = assets.find((item) => item.id === approval.assetId);
+    if (asset.metadata?.approvedVariantId === approval.variantId && storyAssetDesignReady(asset, variants || [])) continue;
+    const saved = await approveStoryAssetVariantInDb({ projectId, ownerUserId, ...approval });
+    if (!saved?.asset || !saved.variant) {
+      return finishStoryPromptJob(409, { code: "STORY_ASSET_APPROVAL_STALE", message: "设计图定稿失败，请重新确认。" });
+    }
+    Object.assign(asset, saved.asset);
+    Object.assign(variants.find((item) => item.id === saved.variant.id), saved.variant);
   }
   const unapproved = assets.filter((asset) => !storyAssetDesignReady(asset, variants || []));
   if (unapproved.length) {
-    return sendJson(res, 409, {
+    return finishStoryPromptJob(409, {
       ok: false,
       code: "STORY_ASSETS_NOT_APPROVED",
       message: `还有 ${unapproved.length} 个资产未定稿或缺少已定稿设计图：${unapproved.map((asset) => asset.name).slice(0, 8).join("、")}`,
@@ -1757,7 +1774,7 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
         id: randomId("prompt"),
         projectId,
         episodeId,
-        ownerUserId: auth.user.id,
+        ownerUserId: ownerUserId,
         shotId: shot.id,
         prompt: optimized.optimizedPrompt,
         status: "approved",
@@ -1770,6 +1787,7 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
           resolution,
           assetIds: assets.filter((asset) => storyShotUsesAsset(asset, shot)).map((asset) => asset.id),
           revisionFeedback,
+          storyJobId: id,
           optimizedAt: new Date().toISOString(),
         },
       });
@@ -1787,15 +1805,15 @@ async function handlePlanStoryEpisodePrompts(req, res, projectId = "", episodeId
     }
   }
   if (!updatedShots.length) {
-    return sendJson(res, 502, {
+    return finishStoryPromptJob(502, {
       ok: false,
       code: "STORY_PROMPTS_ALL_FAILED",
       message: failures[0]?.message || "全部镜头提示词优化失败，请重试。",
       failures,
     });
   }
-  const savedEpisodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: auth.user.id });
-  return sendJson(res, 200, {
+  const savedEpisodes = await listStoryEpisodesFromDb({ projectId, ownerUserId: ownerUserId });
+  return finishStoryPromptJob(200, {
     ok: true,
     model: provider,
     optimizerModel: optimizerModelId,

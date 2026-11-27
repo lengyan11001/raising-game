@@ -767,6 +767,11 @@ async function handleRequest(req, res) {
       return await handleAnalyzeStoryProject(req, res, decodeURIComponent(storyProjectAnalyzeMatch[1]));
     }
 
+    const storyProjectJobMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/jobs\/([^/]+)\/?$/);
+    if (req.method === "GET" && storyProjectJobMatch) {
+      return await handleGetStoryShotPlanJob(req, res, decodeURIComponent(storyProjectJobMatch[1]), "", decodeURIComponent(storyProjectJobMatch[2]));
+    }
+
     const storyProjectImportMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/import\/?$/);
     if (req.method === "POST" && storyProjectImportMatch) {
       return await handleImportStoryAnalysis(req, res, decodeURIComponent(storyProjectImportMatch[1]));
@@ -791,6 +796,11 @@ async function handleRequest(req, res) {
     const storyEpisodeAssetsPlanMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/assets\/plan\/?$/);
     if (req.method === "POST" && storyEpisodeAssetsPlanMatch) {
       return await handlePlanStoryEpisodeAssets(req, res, decodeURIComponent(storyEpisodeAssetsPlanMatch[1]), decodeURIComponent(storyEpisodeAssetsPlanMatch[2]));
+    }
+
+    const storyEpisodeAssetImagesMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/assets\/images\/?$/);
+    if (req.method === "POST" && storyEpisodeAssetImagesMatch) {
+      return await handleQueueStoryAssetImages(req, res, decodeURIComponent(storyEpisodeAssetImagesMatch[1]), decodeURIComponent(storyEpisodeAssetImagesMatch[2]));
     }
 
     const storyEpisodeAssetsMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/assets\/?$/);
