@@ -277,7 +277,17 @@ async function handlePosterImage(req, res, url) {
 }
 
 const { PREFIX: PAPAYA_GATEWAY_PREFIX, createPapayaGateway } = require("./lib-papaya-gateway");
-const handlePapayaGateway = createPapayaGateway({ db: require("./db") });
+const handlePapayaGateway = createPapayaGateway({
+  db: require("./db"),
+  async loadPricing(user) {
+    const config = await readAppConfig({ includeHomeItems: false });
+    return (inputTokens, outputTokens) => applyUserPricingToEstimate(
+      papayaPricingEstimate(config.platform?.advancedPricing, { inputTokens, outputTokens }),
+      user,
+      { channel: "api" },
+    ).credits;
+  },
+});
 
 async function handleRequest(req, res) {
   let url = null;
