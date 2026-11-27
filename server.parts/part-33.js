@@ -1033,8 +1033,11 @@ async function handleAdminReplySupportTicket(req, res, ticketId) {
   if (!auth) return;
   const ticket = await getSupportTicketForAdminFromDb(ticketId);
   if (!ticket) return sendJson(res, 404, { ok: false, message: "工单不存在。" });
-  const bodyText = String((await readJson(req)).message || "").trim().slice(0, 5000);
-  if (!bodyText) return sendJson(res, 400, { ok: false, code: "SUPPORT_MESSAGE_REQUIRED", message: "请输入回复内容。" });
+  const body = await readJson(req, SUPPORT_BODY_MAX_BYTES);
+  const bodyText = String(body.message || "").trim().slice(0, 5000);
+  const image = parseSupportTicketImage(body.image);
+  if (image === false) return sendJson(res, 400, { ok: false, code: "SUPPORT_IMAGE_INVALID", message: "请选择 32 MB 以内的 JPG、PNG 或 WebP 图片。" });
+  if (!bodyText && !image) return sendJson(res, 400, { ok: false, code: "SUPPORT_MESSAGE_REQUIRED", message: "请输入回复内容或上传图片。" });
   const message = await appendSupportTicketMessageInDb({
     id: randomId("ticket-message"),
     ticketId,
@@ -1042,6 +1045,7 @@ async function handleAdminReplySupportTicket(req, res, ticketId) {
     senderUserId: auth.user.id,
     senderName: auth.user.username || "客服",
     body: bodyText,
+    meta: image ? { image } : {},
   });
   return sendJson(res, 200, { ok: true, message: ticketMessageView(message), ticket: ticketView(await getSupportTicketForAdminFromDb(ticketId)) });
 }

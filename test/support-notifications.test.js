@@ -194,7 +194,7 @@ test("admin UI provides ticket workstation and notification configuration", () =
 test("ticket images can be sent alone and fetched only through authorized ticket details", async () => {
   const source = read("server.parts/part-33.js");
   const start = source.indexOf("function ticketMessageView(");
-  const end = source.indexOf("async function handleAdminReplySupportTicket(", start);
+  const end = source.indexOf("async function handleAdminUpdateSupportTicket(", start);
   assert.ok(start >= 0 && end > start);
   const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jv1sAAAAASUVORK5CYII=";
   let body = { image: png };
@@ -204,7 +204,7 @@ test("ticket images can be sent alone and fetched only through authorized ticket
   const sandbox = {
     Buffer,
     requireUser: async () => ({ user: { id: "owner" } }),
-    requireAdmin: async () => adminSession ? {} : null,
+    requireAdmin: async () => adminSession ? { user: { id: "staff" } } : null,
     dbEnabled: () => true,
     enforceBusinessRateLimit: async () => true,
     readJson: async () => body,
@@ -255,5 +255,13 @@ test("ticket images can be sent alone and fetched only through authorized ticket
   assert.equal(imageReads, 1);
   adminSession = true;
   assert.equal((await adminImage()).payload.image, png);
-  assert.equal(imageReads, 2);
+  body = { image: png };
+  const adminReply = await sandbox.handleAdminReplySupportTicket({}, {}, "ticket");
+  assert.equal(adminReply.status, 200);
+  assert.equal(adminReply.payload.message.senderType, "admin");
+  assert.equal(adminReply.payload.message.hasImage, true);
+  assert.equal(adminReply.payload.message.body, "");
+  ownedTicket = true;
+  assert.equal((await userImage()).payload.image, png);
+  assert.equal(imageReads, 3);
 });
