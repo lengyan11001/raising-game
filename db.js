@@ -9875,7 +9875,7 @@ async function createSupportTicketInDb({ id = "", userId = "", tenantId = "main"
       INSERT INTO app_support_tickets(id, user_id, tenant_id, email, subject, source, context_payload, last_message_at, user_last_read_at, admin_last_read_at, created_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, NULL, NULL, $8::timestamptz, $8::timestamptz)
     `, [cleanId, cleanUserId, String(tenantId || "main"), String(email || ""), String(subject || ""), String(source || ""), JSON.stringify(context || {}), now]);
-    if (message?.body) {
+    if (message && (message.body || message.meta?.image)) {
       await client.query(`
         INSERT INTO app_support_ticket_messages(id, ticket_id, sender_type, sender_user_id, sender_name, body, meta, created_at)
         VALUES ($1, $2, 'user', $3, $4, $5, $6::jsonb, $7::timestamptz)
@@ -9938,17 +9938,27 @@ async function listSupportTicketMessagesFromDb(ticketId = "", limit = 200) {
   await ensureSchema();
   const safeLimit = Math.max(1, Math.min(500, Number(limit) || 200));
   const { rows } = await query(`
-    SELECT * FROM app_support_ticket_messages WHERE ticket_id = $1
+    SELECT id, ticket_id, sender_type, sender_user_id, sender_name, body, created_at,
+      (meta - 'image') || jsonb_build_object('hasImage', meta ? 'image') AS meta
+    FROM app_support_ticket_messages WHERE ticket_id = $1
     ORDER BY created_at ASC, id ASC LIMIT $2
   `, [String(ticketId || ""), safeLimit]);
   return rows.map(supportTicketMessageFromRow);
+}
+
+async function getSupportTicketImageFromDb(ticketId, messageId) {
+  const { rows } = await query(`
+    SELECT meta->'image' AS image FROM app_support_ticket_messages
+    WHERE ticket_id = $1 AND id = $2
+  `, [ticketId, messageId]);
+  return rows[0]?.image || null;
 }
 
 async function appendSupportTicketMessageInDb({ id = "", ticketId = "", senderType = "user", senderUserId = "", senderName = "", body = "", meta = {}, createdAt = "" } = {}) {
   if (!dbEnabled()) return null;
   const cleanTicketId = String(ticketId || "").trim();
   const cleanBody = String(body || "").trim();
-  if (!cleanTicketId || !cleanBody) return null;
+  if (!cleanTicketId || (!cleanBody && !meta.image)) return null;
   await ensureSchema();
   const now = createdAt || new Date().toISOString();
   const cleanSender = senderType === "admin" ? "admin" : "user";
@@ -13988,6 +13998,7 @@ module.exports = {
   getSupportTicketForUserFromDb,
   getSupportTicketForAdminFromDb,
   listSupportTicketMessagesFromDb,
+  getSupportTicketImageFromDb,
   appendSupportTicketMessageInDb,
   markSupportTicketReadInDb,
   updateSupportTicketInDb,

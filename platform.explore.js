@@ -3965,6 +3965,7 @@ function openSupportNewTicket({ subject = "", message = "" } = {}) {
   showSupportView("new");
   if (els.supportTicketSubject) els.supportTicketSubject.value = subject || "";
   if (els.supportTicketBody) els.supportTicketBody.value = message || "";
+  if (els.supportTicketImage) els.supportTicketImage.value = "";
   if (els.supportCreateStatus) els.supportCreateStatus.textContent = "";
   window.requestAnimationFrame(() => (subject ? els.supportTicketBody : els.supportTicketSubject)?.focus());
 }
@@ -4002,16 +4003,34 @@ function renderSupportMessages(messages = []) {
       <div class="support-message-avatar">${admin ? '<i data-lucide="headphones"></i>' : escapeHtml(String(state.user?.username || "我").slice(0, 1).toUpperCase())}</div>
       <div class="support-message-main">
         <span class="support-message-name">${admin ? "VIPEAK 客服" : "我"}<time>${escapeHtml(notificationTimeLabel(message.createdAt))}</time></span>
-        <div class="support-message-bubble">${escapeHtml(message.body || "")}</div>
+        <div class="support-message-bubble">${escapeHtml(message.body || "")}${message.hasImage ? `<button type="button" data-support-image="${escapeHtml(message.id)}">查看图片</button>` : ""}</div>
       </div>
     </div>`;
   }).join("");
+  const ticketId = state.activeSupportTicketId;
+  for (const button of els.supportMessages.querySelectorAll("[data-support-image]")) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const payload = await requestJson(`/api/support/tickets/${encodeURIComponent(ticketId)}?image=${encodeURIComponent(button.dataset.supportImage)}`);
+        const image = document.createElement("img");
+        image.className = "support-message-image";
+        image.alt = "工单图片";
+        image.src = payload.image;
+        button.replaceWith(image);
+      } catch {
+        button.textContent = "图片加载失败，点击重试";
+        button.disabled = false;
+      }
+    });
+  }
   refreshIcons();
   window.requestAnimationFrame(() => { if (els.supportMessages) els.supportMessages.scrollTop = els.supportMessages.scrollHeight; });
 }
 
 async function openSupportTicket(ticketId = "") {
   if (!ticketId || !state.user) return;
+  if (ticketId !== state.activeSupportTicketId && els.supportReplyImage) els.supportReplyImage.value = "";
   state.activeSupportTicketId = ticketId;
   showSupportView("thread");
   if (els.supportMessages) els.supportMessages.innerHTML = '<div class="support-message-loading"><span></span><span></span><span></span></div>';
@@ -4034,12 +4053,27 @@ async function openSupportTicket(ticketId = "") {
   }
 }
 
+async function readSupportImage(file) {
+  if (!file) return undefined;
+  if (file.size > 2 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    throw new Error("请选择 2 MB 以内的 JPG、PNG 或 WebP 图片。");
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("无法读取图片，请重新选择。"));
+    reader.readAsDataURL(file);
+  });
+}
+
 async function createSupportTicketFromCenter() {
   if (!state.user) return openLogin();
+  if (els.supportCreateBtn?.disabled) return;
   const subject = String(els.supportTicketSubject?.value || "").trim();
   const message = String(els.supportTicketBody?.value || "").trim();
-  if (!message) {
-    if (els.supportCreateStatus) els.supportCreateStatus.textContent = "请填写详细描述。";
+  const file = els.supportTicketImage?.files[0];
+  if (!message && !file) {
+    if (els.supportCreateStatus) els.supportCreateStatus.textContent = "请填写详细描述或上传图片。";
     els.supportTicketBody?.focus();
     return;
   }
@@ -4050,14 +4084,16 @@ async function createSupportTicketFromCenter() {
   }
   if (els.supportCreateStatus) els.supportCreateStatus.textContent = "";
   try {
+    const image = await readSupportImage(file);
     const payload = await requestJson("/api/support/tickets", {
       method: "POST",
-      body: { subject, message, source: els.supportDialog?.dataset.source || "site" },
+      body: { subject, message, image, source: els.supportDialog?.dataset.source || "site" },
     });
     state.supportTickets = [payload.ticket, ...(state.supportTickets || [])];
     state.activeSupportTicketId = payload.ticket?.id || "";
     if (els.supportTicketSubject) els.supportTicketSubject.value = "";
     if (els.supportTicketBody) els.supportTicketBody.value = "";
+    if (els.supportTicketImage) els.supportTicketImage.value = "";
     renderSupportTicketList();
     if (payload.ticket?.id) await openSupportTicket(payload.ticket.id);
     loadNotificationCenter({ silent: true });
@@ -4075,7 +4111,8 @@ async function createSupportTicketFromCenter() {
 async function sendSupportReply() {
   const ticketId = state.activeSupportTicketId;
   const message = String(els.supportReplyInput?.value || "").trim();
-  if (!ticketId || !message) return;
+  const file = els.supportReplyImage?.files[0];
+  if (!ticketId || (!message && !file) || els.supportReplyBtn?.disabled) return;
   if (els.supportReplyBtn) {
     els.supportReplyBtn.disabled = true;
     els.supportReplyBtn.innerHTML = '<i data-lucide="loader-circle"></i>';
@@ -4083,11 +4120,14 @@ async function sendSupportReply() {
   }
   if (els.supportReplyStatus) els.supportReplyStatus.textContent = "";
   try {
+    const image = await readSupportImage(file);
     const payload = await requestJson(`/api/support/tickets/${encodeURIComponent(ticketId)}/messages`, {
       method: "POST",
-      body: { message },
+      body: { message, image },
     });
+    if (state.activeSupportTicketId !== ticketId) return;
     if (els.supportReplyInput) els.supportReplyInput.value = "";
+    if (els.supportReplyImage) els.supportReplyImage.value = "";
     const current = Array.isArray(state.supportMessages) ? state.supportMessages : [];
     state.supportMessages = [...current, payload.message].filter(Boolean);
     renderSupportMessages(state.supportMessages);

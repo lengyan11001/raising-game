@@ -856,8 +856,33 @@ function ticketMessageView(record = {}) {
     senderType: String(record.senderType || "user"),
     senderName: String(record.senderName || ""),
     body: String(record.body || ""),
+    hasImage: Boolean(record.meta?.hasImage || record.meta?.image),
     createdAt: String(record.createdAt || ""),
   };
+}
+
+const SUPPORT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+const SUPPORT_BODY_MAX_BYTES = Math.ceil(SUPPORT_IMAGE_MAX_BYTES / 3) * 4 + 64 * 1024;
+
+function parseSupportTicketImage(value) {
+  if (value === undefined) return null;
+  const match = typeof value === "string" && /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
+  if (!match) return false;
+  const [, mime, base64] = match;
+  const bytes = Buffer.from(base64, "base64");
+  if (bytes.length > SUPPORT_IMAGE_MAX_BYTES || bytes.toString("base64") !== base64) return false;
+  const signatureMatches = {
+    "image/png": bytes.subarray(0, 8).toString("hex") === "89504e470d0a1a0a",
+    "image/jpeg": bytes.subarray(0, 3).toString("hex") === "ffd8ff",
+    "image/webp": bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP",
+  };
+  return signatureMatches[mime] ? { mime, base64 } : false;
+}
+
+async function sendSupportTicketImage(res, ticketId, messageId) {
+  const image = await getSupportTicketImageFromDb(ticketId, messageId);
+  if (!image) return sendJson(res, 404, { ok: false, message: "图片不存在。" });
+  return sendJson(res, 200, { ok: true, image: `data:${image.mime};base64,${image.base64}` }, { cacheControl: "private, no-store" });
 }
 
 async function handleCreateSupportTicket(req, res) {
@@ -865,10 +890,12 @@ async function handleCreateSupportTicket(req, res) {
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
   if (!await enforceBusinessRateLimit(req, res, auth, { action: "support_ticket_create", limit: 5, windowMs: 60 * 60_000 })) return;
-  const body = await readJson(req);
+  const body = await readJson(req, SUPPORT_BODY_MAX_BYTES);
   const subject = String(body.subject || "").trim().slice(0, 120);
   const message = String(body.message || "").trim().slice(0, 5000);
-  if (!message) return sendJson(res, 400, { ok: false, code: "SUPPORT_MESSAGE_REQUIRED", message: "请输入问题描述。" });
+  const image = parseSupportTicketImage(body.image);
+  if (image === false) return sendJson(res, 400, { ok: false, code: "SUPPORT_IMAGE_INVALID", message: "请选择 2 MB 以内的 JPG、PNG 或 WebP 图片。" });
+  if (!message && !image) return sendJson(res, 400, { ok: false, code: "SUPPORT_MESSAGE_REQUIRED", message: "请输入问题描述或上传图片。" });
   const now = new Date().toISOString();
   const ticketId = randomId("ticket");
   const ticket = await createSupportTicketInDb({
@@ -880,9 +907,10 @@ async function handleCreateSupportTicket(req, res) {
     source: String(body.source || "site").slice(0, 80),
     context: body.context && typeof body.context === "object" ? body.context : {},
     createdAt: now,
-    message: { id: randomId("ticket-message"), senderName: auth.user.username || "", body: message },
+    message: { id: randomId("ticket-message"), senderName: auth.user.username || "", body: message, meta: image ? { image } : {} },
   });
-  return sendJson(res, 200, { ok: true, ticket: ticketView(ticket), messages: await listSupportTicketMessagesFromDb(ticketId) });
+  const messages = await listSupportTicketMessagesFromDb(ticketId);
+  return sendJson(res, 200, { ok: true, ticket: ticketView(ticket), messages: messages.map(ticketMessageView) });
 }
 
 async function handleListSupportTickets(req, res, url) {
@@ -900,6 +928,8 @@ async function handleGetSupportTicket(req, res, ticketId, url) {
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "客服工单需要数据库服务。" });
   const ticket = await getSupportTicketForUserFromDb(auth.user.id, ticketId);
   if (!ticket) return sendJson(res, 404, { ok: false, code: "SUPPORT_TICKET_NOT_FOUND", message: "工单不存在。" });
+  const imageMessageId = url.searchParams.get("image");
+  if (imageMessageId) return sendSupportTicketImage(res, ticketId, imageMessageId);
   const shouldRead = url.searchParams.get("read") === "1";
   const [, messages] = await Promise.all([
     shouldRead ? markSupportTicketReadInDb({ ticketId, userId: auth.user.id, readerType: "user" }) : null,
@@ -916,8 +946,11 @@ async function handleReplySupportTicket(req, res, ticketId) {
   if (!await enforceBusinessRateLimit(req, res, auth, { action: "support_ticket_reply", limit: 30, windowMs: 60 * 60_000 })) return;
   const ticket = await getSupportTicketForUserFromDb(auth.user.id, ticketId);
   if (!ticket) return sendJson(res, 404, { ok: false, code: "SUPPORT_TICKET_NOT_FOUND", message: "工单不存在。" });
-  const bodyText = String((await readJson(req)).message || "").trim().slice(0, 5000);
-  if (!bodyText) return sendJson(res, 400, { ok: false, code: "SUPPORT_MESSAGE_REQUIRED", message: "请输入消息内容。" });
+  const body = await readJson(req, SUPPORT_BODY_MAX_BYTES);
+  const bodyText = String(body.message || "").trim().slice(0, 5000);
+  const image = parseSupportTicketImage(body.image);
+  if (image === false) return sendJson(res, 400, { ok: false, code: "SUPPORT_IMAGE_INVALID", message: "请选择 2 MB 以内的 JPG、PNG 或 WebP 图片。" });
+  if (!bodyText && !image) return sendJson(res, 400, { ok: false, code: "SUPPORT_MESSAGE_REQUIRED", message: "请输入消息内容或上传图片。" });
   const message = await appendSupportTicketMessageInDb({
     id: randomId("ticket-message"),
     ticketId,
@@ -925,6 +958,7 @@ async function handleReplySupportTicket(req, res, ticketId) {
     senderUserId: auth.user.id,
     senderName: auth.user.username || "",
     body: bodyText,
+    meta: image ? { image } : {},
   });
   return sendJson(res, 200, { ok: true, message: ticketMessageView(message), ticket: ticketView(await getSupportTicketForUserFromDb(auth.user.id, ticketId)) });
 }
@@ -983,6 +1017,8 @@ async function handleAdminGetSupportTicket(req, res, ticketId, url) {
   if (!auth) return;
   const ticket = await getSupportTicketForAdminFromDb(ticketId);
   if (!ticket) return sendJson(res, 404, { ok: false, message: "工单不存在。" });
+  const imageMessageId = url.searchParams.get("image");
+  if (imageMessageId) return sendSupportTicketImage(res, ticketId, imageMessageId);
   const shouldRead = url.searchParams.get("read") === "1";
   const [, messages] = await Promise.all([
     shouldRead ? markSupportTicketReadInDb({ ticketId, readerType: "admin" }) : null,
