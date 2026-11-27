@@ -12,7 +12,7 @@ function projectName(project = {}) {
 
 function visibilityLabel(visibility = 'private') {
   if (visibility === 'public') return '公开';
-  if (visibility === 'semi_public') return '半公开';
+  if (visibility === 'semi_public') return '教程';
   return '私有';
 }
 

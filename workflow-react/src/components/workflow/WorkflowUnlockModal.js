@@ -100,12 +100,12 @@ export function WorkflowUnlockModal({
         className="WorkflowModal-card"
         role="dialog"
         aria-modal="true"
-        aria-label="解锁半公开画布模版"
+        aria-label="解锁教程画布模版"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="WorkflowModal-head">
           <div>
-            <h3>解锁半公开画布</h3>
+            <h3>解锁教程画布</h3>
             <p>未解锁前无法查看节点结构与提示词，解锁后可完整查看并复制到我的画布</p>
           </div>
           <button type="button" className="WorkflowModal-close" aria-label="关闭" disabled={Boolean(busyMethod)} onClick={onClose}>✕</button>
@@ -123,9 +123,9 @@ export function WorkflowUnlockModal({
               )}
             </div>
             <div className="WorkflowUnlock-meta">
-              <strong>{template.name || '半公开画布'}</strong>
+              <strong>{template.name || '教程画布'}</strong>
               <small>
-                {template.ownerName ? `作者：${template.ownerName}` : '半公开模版'}
+                {template.ownerName ? `作者：${template.ownerName}` : '教程模版'}
                 {template.description ? ` · ${template.description}` : ''}
               </small>
             </div>
