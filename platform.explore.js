@@ -4055,8 +4055,8 @@ async function openSupportTicket(ticketId = "") {
 
 async function readSupportImage(file) {
   if (!file) return undefined;
-  if (file.size > 2 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-    throw new Error("请选择 2 MB 以内的 JPG、PNG 或 WebP 图片。");
+  if (file.size > 32 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    throw new Error("请选择 32 MB 以内的 JPG、PNG 或 WebP 图片。");
   }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

@@ -242,6 +242,10 @@ test("ticket images can be sent alone and fetched only through authorized ticket
   assert.equal(sent.payload.message.hasImage, true);
   assert.equal(sent.payload.message.body, "");
   assert.equal(sent.payload.message.meta, undefined);
+  const largeImage = Buffer.alloc(3 * 1024 * 1024);
+  Buffer.from(png.split(",")[1], "base64").copy(largeImage);
+  body = { image: `data:image/png;base64,${largeImage.toString("base64")}` };
+  assert.equal((await reply()).status, 200);
   body = { image: "data:image/png;base64,PHN2Zz4=" };
   assert.equal((await reply()).status, 400);
   assert.equal((await userImage()).payload.image, png);
