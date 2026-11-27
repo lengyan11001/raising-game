@@ -4248,6 +4248,7 @@ async function renderSupportTickets(pageArg = null, limitArg = null) {
               <div class="adm-ticket-bubble">
                 <header><strong>${escapeHtml(isAdmin ? (message.senderName || "客服") : (message.senderName || who))}</strong><time>${escapeHtml(fmtDate(message.createdAt))}</time></header>
                 <p>${escapeHtml(message.body || "")}</p>
+                ${message.hasImage ? `<button class="adm-btn" type="button" data-ticket-image="${escapeHtml(message.id)}">查看图片</button>` : ""}
               </div>
               <span class="adm-ticket-bubble-avatar">${isAdmin ? "客" : escapeHtml(String(who).slice(0, 1).toUpperCase())}</span>
             </article>
@@ -4265,6 +4266,22 @@ async function renderSupportTickets(pageArg = null, limitArg = null) {
     refreshIcons();
     const thread = panel.querySelector("#ticketThread");
     if (thread) thread.scrollTop = thread.scrollHeight;
+    for (const button of panel.querySelectorAll("[data-ticket-image]")) {
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          const payload = await api(`/api/admin/support-tickets/${encodeURIComponent(ticket.id)}?image=${encodeURIComponent(button.dataset.ticketImage)}`);
+          const image = document.createElement("img");
+          image.className = "adm-ticket-image";
+          image.alt = "用户上传的工单图片";
+          image.src = payload.image;
+          button.replaceWith(image);
+        } catch (error) {
+          toast(error.message || "图片加载失败", "error");
+          button.disabled = false;
+        }
+      });
+    }
     panel.querySelector("#ticketStatusSelect")?.addEventListener("change", async (event) => {
       event.target.disabled = true;
       try {

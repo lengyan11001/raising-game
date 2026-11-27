@@ -190,3 +190,66 @@ test("admin UI provides ticket workstation and notification configuration", () =
   assert.match(css, /\.adm-ticket-bubble/);
   assert.match(css, /\.adm-notice-preview-panel/);
 });
+
+test("ticket images can be sent alone and fetched only through authorized ticket details", async () => {
+  const source = read("server.parts/part-33.js");
+  const start = source.indexOf("function ticketMessageView(");
+  const end = source.indexOf("async function handleAdminReplySupportTicket(", start);
+  assert.ok(start >= 0 && end > start);
+  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jv1sAAAAASUVORK5CYII=";
+  let body = { image: png };
+  let ownedTicket = true;
+  let adminSession = false;
+  let imageReads = 0;
+  const sandbox = {
+    Buffer,
+    requireUser: async () => ({ user: { id: "owner" } }),
+    requireAdmin: async () => adminSession ? {} : null,
+    dbEnabled: () => true,
+    enforceBusinessRateLimit: async () => true,
+    readJson: async () => body,
+    getSupportTicketForUserFromDb: async () => ownedTicket ? {} : null,
+    getSupportTicketForAdminFromDb: async () => ({}),
+    createSupportTicketInDb: async ({ message }) => {
+      assert.equal(message.body, "");
+      assert.equal(message.meta.image.mime, "image/png");
+      return {};
+    },
+    listSupportTicketMessagesFromDb: async () => [{ id: "message", meta: { hasImage: true } }],
+    appendSupportTicketMessageInDb: async (message) => message,
+    getSupportTicketImageFromDb: async (ticketId, messageId) => {
+      imageReads++;
+      assert.equal(ticketId, "ticket");
+      assert.equal(messageId, "message");
+      return { mime: "image/png", base64: png.split(",")[1] };
+    },
+    randomId: () => "message",
+    DEFAULT_TENANT_ID: "main",
+    ticketView: () => ({}),
+    sendJson: (_res, status, payload) => ({ status, payload }),
+  };
+  vm.runInNewContext(source.slice(start, end), sandbox);
+  const reply = () => sandbox.handleReplySupportTicket({}, {}, "ticket");
+  const url = new URL("http://localhost/?image=message");
+  const userImage = () => sandbox.handleGetSupportTicket({}, {}, "ticket", url);
+  const adminImage = () => sandbox.handleAdminGetSupportTicket({}, {}, "ticket", url);
+  const created = await sandbox.handleCreateSupportTicket({}, {});
+  assert.equal(created.status, 200);
+  assert.equal(created.payload.messages[0].hasImage, true);
+  assert.equal(created.payload.messages[0].meta, undefined);
+  const sent = await reply();
+  assert.equal(sent.status, 200);
+  assert.equal(sent.payload.message.hasImage, true);
+  assert.equal(sent.payload.message.body, "");
+  assert.equal(sent.payload.message.meta, undefined);
+  body = { image: "data:image/png;base64,PHN2Zz4=" };
+  assert.equal((await reply()).status, 400);
+  assert.equal((await userImage()).payload.image, png);
+  ownedTicket = false;
+  assert.equal((await userImage()).status, 404);
+  assert.equal(await adminImage(), undefined);
+  assert.equal(imageReads, 1);
+  adminSession = true;
+  assert.equal((await adminImage()).payload.image, png);
+  assert.equal(imageReads, 2);
+});

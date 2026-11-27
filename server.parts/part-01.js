@@ -312,6 +312,7 @@ const {
   getSupportTicketForUserFromDb,
   getSupportTicketForAdminFromDb,
   listSupportTicketMessagesFromDb,
+  getSupportTicketImageFromDb,
   appendSupportTicketMessageInDb,
   markSupportTicketReadInDb,
   updateSupportTicketInDb,
