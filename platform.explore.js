@@ -3986,7 +3986,10 @@ async function loadSupportTickets({ selectId = "" } = {}) {
   }
 }
 
+let supportImageObserver;
+
 function renderSupportMessages(messages = []) {
+  supportImageObserver?.disconnect();
   if (!els.supportMessages) return;
   if (!messages.length) {
     els.supportMessages.innerHTML = '<div class="support-thread-empty">还没有消息，发送第一条回复吧</div>';
@@ -4003,26 +4006,44 @@ function renderSupportMessages(messages = []) {
       <div class="support-message-avatar">${admin ? '<i data-lucide="headphones"></i>' : escapeHtml(String(state.user?.username || "我").slice(0, 1).toUpperCase())}</div>
       <div class="support-message-main">
         <span class="support-message-name">${admin ? "VIPEAK 客服" : "我"}<time>${escapeHtml(notificationTimeLabel(message.createdAt))}</time></span>
-        <div class="support-message-bubble">${escapeHtml(message.body || "")}${message.hasImage ? `<button type="button" data-support-image="${escapeHtml(message.id)}">查看图片</button>` : ""}</div>
+        <div class="support-message-bubble">${escapeHtml(message.body || "")}${message.hasImage ? `<button type="button" data-support-image="${escapeHtml(message.id)}">加载图片…</button>` : ""}</div>
       </div>
     </div>`;
   }).join("");
   const ticketId = state.activeSupportTicketId;
+  const loadImage = async (button) => {
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = "加载图片…";
+    try {
+      const { image: source } = await requestJson(`/api/support/tickets/${encodeURIComponent(ticketId)}?image=${encodeURIComponent(button.dataset.supportImage)}`);
+      const image = new Image();
+      image.className = "support-message-image";
+      image.alt = "";
+      image.src = source;
+      await image.decode();
+      button.replaceChildren(image);
+      button.setAttribute("aria-label", "放大查看工单图片");
+      button.onclick = () => previewImage({ title: "工单图片", imageUrl: source });
+    } catch {
+      button.textContent = "图片加载失败，点击重试";
+    } finally {
+      button.disabled = false;
+    }
+  };
+  supportImageObserver = new IntersectionObserver((entries, observer) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      observer.unobserve(entry.target);
+      loadImage(entry.target);
+    }
+  }, { root: els.supportMessages });
   for (const button of els.supportMessages.querySelectorAll("[data-support-image]")) {
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      try {
-        const payload = await requestJson(`/api/support/tickets/${encodeURIComponent(ticketId)}?image=${encodeURIComponent(button.dataset.supportImage)}`);
-        const image = document.createElement("img");
-        image.className = "support-message-image";
-        image.alt = "工单图片";
-        image.src = payload.image;
-        button.replaceWith(image);
-      } catch {
-        button.textContent = "图片加载失败，点击重试";
-        button.disabled = false;
-      }
-    });
+    button.onclick = () => {
+      supportImageObserver.unobserve(button);
+      loadImage(button);
+    };
+    supportImageObserver.observe(button);
   }
   refreshIcons();
   window.requestAnimationFrame(() => { if (els.supportMessages) els.supportMessages.scrollTop = els.supportMessages.scrollHeight; });
@@ -4033,9 +4054,11 @@ async function openSupportTicket(ticketId = "") {
   if (ticketId !== state.activeSupportTicketId && els.supportReplyImage) els.supportReplyImage.value = "";
   state.activeSupportTicketId = ticketId;
   showSupportView("thread");
+  supportImageObserver?.disconnect();
   if (els.supportMessages) els.supportMessages.innerHTML = '<div class="support-message-loading"><span></span><span></span><span></span></div>';
   try {
     const payload = await requestJson(`/api/support/tickets/${encodeURIComponent(ticketId)}?read=1`, { timeoutMs: 12_000 });
+    if (state.activeSupportTicketId !== ticketId) return;
     const ticket = payload.ticket || {};
     if (els.supportThreadSubject) els.supportThreadSubject.textContent = ticket.subject || "客服咨询";
     if (els.supportThreadMeta) els.supportThreadMeta.textContent = `${ticket.id || ""} · ${SUPPORT_TICKET_PRIORITY_LABELS[ticket.priority] || "普通"}优先级`;

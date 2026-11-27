@@ -4216,7 +4216,9 @@ async function renderSupportTickets(pageArg = null, limitArg = null) {
     renderList();
   };
 
+  let ticketImageObserver;
   const renderMessages = (ticket, messages = []) => {
+    ticketImageObserver?.disconnect();
     const panel = detail();
     if (!panel) return;
     const who = ticket.username || ticket.userEmail || ticket.email || ticket.userId || "用户";
@@ -4248,7 +4250,7 @@ async function renderSupportTickets(pageArg = null, limitArg = null) {
               <div class="adm-ticket-bubble">
                 <header><strong>${escapeHtml(isAdmin ? (message.senderName || "客服") : (message.senderName || who))}</strong><time>${escapeHtml(fmtDate(message.createdAt))}</time></header>
                 <p>${escapeHtml(message.body || "")}</p>
-                ${message.hasImage ? `<button class="adm-btn" type="button" data-ticket-image="${escapeHtml(message.id)}">查看图片</button>` : ""}
+                ${message.hasImage ? `<button class="adm-btn" type="button" data-ticket-image="${escapeHtml(message.id)}">加载图片…</button>` : ""}
               </div>
               <span class="adm-ticket-bubble-avatar">${isAdmin ? "客" : escapeHtml(String(who).slice(0, 1).toUpperCase())}</span>
             </article>
@@ -4258,7 +4260,9 @@ async function renderSupportTickets(pageArg = null, limitArg = null) {
       <form class="adm-ticket-composer" id="ticketReplyForm">
         <textarea id="ticketReplyText" rows="3" maxlength="5000" placeholder="回复用户，支持多行内容…"></textarea>
         <div class="adm-ticket-composer-foot">
-          <span><i data-lucide="shield-check"></i>回复后会实时同步到用户端</span>
+          <label class="adm-ticket-image-input">图片（最大 32 MB）
+            <input type="file" id="ticketReplyImage" accept="image/jpeg,image/png,image/webp" />
+          </label>
           <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="send"></i>发送回复</button>
         </div>
       </form>
@@ -4266,21 +4270,39 @@ async function renderSupportTickets(pageArg = null, limitArg = null) {
     refreshIcons();
     const thread = panel.querySelector("#ticketThread");
     if (thread) thread.scrollTop = thread.scrollHeight;
+    const loadImage = async (button) => {
+      if (button.disabled) return;
+      button.disabled = true;
+      button.textContent = "加载图片…";
+      try {
+        const { image: source } = await api(`/api/admin/support-tickets/${encodeURIComponent(ticket.id)}?image=${encodeURIComponent(button.dataset.ticketImage)}`);
+        const image = new Image();
+        image.className = "adm-ticket-image";
+        image.alt = "";
+        image.src = source;
+        await image.decode();
+        button.replaceChildren(image);
+        button.setAttribute("aria-label", "放大查看工单图片");
+        button.onclick = () => openAdminMediaPreview({ url: source, label: "工单图片" });
+      } catch {
+        button.textContent = "图片加载失败，点击重试";
+      } finally {
+        button.disabled = false;
+      }
+    };
+    ticketImageObserver = new IntersectionObserver((entries, observer) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        observer.unobserve(entry.target);
+        loadImage(entry.target);
+      }
+    }, { root: thread });
     for (const button of panel.querySelectorAll("[data-ticket-image]")) {
-      button.addEventListener("click", async () => {
-        button.disabled = true;
-        try {
-          const payload = await api(`/api/admin/support-tickets/${encodeURIComponent(ticket.id)}?image=${encodeURIComponent(button.dataset.ticketImage)}`);
-          const image = document.createElement("img");
-          image.className = "adm-ticket-image";
-          image.alt = "用户上传的工单图片";
-          image.src = payload.image;
-          button.replaceWith(image);
-        } catch (error) {
-          toast(error.message || "图片加载失败", "error");
-          button.disabled = false;
-        }
-      });
+      button.onclick = () => {
+        ticketImageObserver.unobserve(button);
+        loadImage(button);
+      };
+      ticketImageObserver.observe(button);
     }
     panel.querySelector("#ticketStatusSelect")?.addEventListener("change", async (event) => {
       event.target.disabled = true;
@@ -4308,13 +4330,25 @@ async function renderSupportTickets(pageArg = null, limitArg = null) {
       event.preventDefault();
       const textarea = panel.querySelector("#ticketReplyText");
       const text = String(textarea?.value || "").trim();
-      if (!text) { toast("请输入回复内容", "error"); textarea?.focus(); return; }
+      const file = panel.querySelector("#ticketReplyImage")?.files[0];
+      if (!text && !file) { toast("请输入回复内容或上传图片", "error"); textarea?.focus(); return; }
+      if (file && (file.size > 32 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type))) {
+        toast("请选择 32 MB 以内的 JPG、PNG 或 WebP 图片。", "error");
+        return;
+      }
       const submit = panel.querySelector('#ticketReplyForm button[type="submit"]');
+      if (submit.disabled) return;
       submit.disabled = true;
       try {
-        const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticket.id)}/messages`, { method: "POST", body: { message: text } });
+        const image = file ? await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error("无法读取图片，请重新选择。"));
+          reader.readAsDataURL(file);
+        }) : undefined;
+        const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticket.id)}/messages`, { method: "POST", body: { message: text, image } });
         upsertTicket({ ...result.ticket, adminUnreadCount: 0 });
-        await loadTicket(ticket.id, { read: false });
+        if (submit.isConnected) await loadTicket(ticket.id, { read: false });
         toast("回复已发送", "success");
       } catch (err) {
         toast(err.message || "发送失败", "error");
@@ -4331,7 +4365,7 @@ async function renderSupportTickets(pageArg = null, limitArg = null) {
     if (!previous && panel) panel.innerHTML = '<div class="adm-ticket-welcome"><div class="adm-spinner"></div><strong>正在加载对话</strong><p>请稍候…</p></div>';
     const read = options.read !== false;
     const result = await api(`/api/admin/support-tickets/${encodeURIComponent(ticketId)}${read ? "?read=1" : ""}`);
-    if (!isActiveRoute(routeId)) return;
+    if (!isActiveRoute(routeId) || sessionStorage.getItem("admTicketsSelected") !== ticketId) return;
     const ticket = result.ticket || {};
     upsertTicket({ ...ticket, adminUnreadCount: 0 });
     renderMessages(ticket, Array.isArray(result.messages) ? result.messages : []);
