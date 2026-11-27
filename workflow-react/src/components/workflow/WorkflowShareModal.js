@@ -158,7 +158,7 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
         <header className="WorkflowModal-head">
           <div>
             <h3>公开与邀请设置</h3>
-            <p>{project?.name || '未命名画布'} · 控制公开模版展示与访问权限</p>
+            <p>{project?.name || '未命名画布'} · 控制教程模版展示与访问权限</p>
           </div>
           <button type="button" className="WorkflowModal-close" aria-label="关闭" onClick={onClose}>✕</button>
         </header>
@@ -170,7 +170,7 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
               {[
                 { id: 'private', title: '私有', desc: '仅自己可见' },
                 { id: 'public', title: '公开', desc: '登录后可看可复制' },
-                { id: 'semi_public', title: '半公开', desc: '积分或邀请码解锁' },
+                { id: 'semi_public', title: '教程', desc: '积分或邀请码解锁' },
               ].map((item) => (
                 <button
                   key={item.id}
@@ -193,7 +193,7 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
                 rows={1}
                 maxLength={240}
                 value={description}
-                placeholder="简要说明用途或效果（展示在公开模版与解锁弹窗）"
+                placeholder="简要说明用途或效果（展示在教程模版与解锁弹窗）"
                 onChange={(event) => setDescription(event.target.value)}
               />
             </label>
@@ -314,7 +314,7 @@ export function WorkflowShareModal({ project, onClose, onUpdated }) {
                       </div>
                     </div>
                   ) : (
-                    <div className="WorkflowModal-hint">保存半公开设置后自动生成专属邀请码。</div>
+                    <div className="WorkflowModal-hint">保存教程设置后自动生成专属邀请码。</div>
                   )}
                 </>
               ) : null}

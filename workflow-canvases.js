@@ -361,7 +361,7 @@ function validateWorkflowSharingPatch(body = {}, current = {}) {
       allowCreditUnlock = false;
     }
     if (!allowCreditUnlock && !allowCodeUnlock) {
-      const err = new Error("半公开画布至少需要开启「积分解锁」或「邀请码解锁」中的一项。");
+      const err = new Error("教程画布至少需要开启「积分解锁」或「邀请码解锁」中的一项。");
       err.statusCode = 400;
       err.code = "UNLOCK_METHOD_REQUIRED";
       throw err;

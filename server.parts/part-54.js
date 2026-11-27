@@ -124,7 +124,7 @@ async function authorizeWorkflowCanvasRead({ req, auth, canvasId = "" } = {}) {
     body: {
       ok: false,
       code: "WORKFLOW_CANVAS_LOCKED",
-      message: "该画布为半公开模版，请通过积分解锁或输入邀请码后查看结构。",
+      message: "该画布为教程模版，请通过积分解锁或输入邀请码后查看结构。",
       template: publicAssetUrlsForClient(publicWorkflowCanvasLockedView(canvas, { userCredits: auth.user?.credits || 0 })),
     },
   };

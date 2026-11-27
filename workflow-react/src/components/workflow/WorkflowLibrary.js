@@ -32,7 +32,7 @@ function previewNodes(project) {
 
 function templateVisibilityBadge(project) {
   if (project.visibility === 'public') return { text: '公开', cls: 'is-public' };
-  if (project.visibility === 'semi_public') return { text: '半公开', cls: 'is-semi' };
+  if (project.visibility === 'semi_public') return { text: '教程', cls: 'is-semi' };
   return null;
 }
 
@@ -47,7 +47,7 @@ function templatePriceBadge(project) {
 
 function ownerVisibilityBadge(project) {
   if (project.visibility === 'public') return { text: '公开', cls: 'is-public' };
-  if (project.visibility === 'semi_public') return { text: '半公开', cls: 'is-semi' };
+  if (project.visibility === 'semi_public') return { text: '教程', cls: 'is-semi' };
   return null;
 }
 
@@ -242,7 +242,7 @@ export function WorkflowLibrary({
         ) : locked ? (
           <div className="InspirationCanvas-card-locked-placeholder">
             <i className="bi bi-lock-fill" aria-hidden="true" />
-            <strong>半公开模版</strong>
+            <strong>教程模版</strong>
             <small>解锁后可查看结构并复制</small>
           </div>
         ) : miniNodes.length ? (
@@ -311,7 +311,7 @@ export function WorkflowLibrary({
               className={`InspirationCanvas-tab-button${activeTab === 'templates' ? ' is-active' : ''}`}
               onClick={() => onTabChange?.('templates')}
             >
-              公开模版
+              教程模版
             </button>
           </div>
           {activeTab === 'mine' ? (
@@ -325,12 +325,12 @@ export function WorkflowLibrary({
         </div>
 
         {activeTab === 'templates' ? (
-          <div className="InspirationCanvas-template-filters" role="search" aria-label="公开模版筛选">
+          <div className="InspirationCanvas-template-filters" role="search" aria-label="教程模版筛选">
             <div className="InspirationCanvas-filter-group" role="group" aria-label="可见性筛选">
               {[
                 { id: 'all', label: '全部' },
                 { id: 'public', label: '公开' },
-                { id: 'semi_public', label: '半公开' },
+                { id: 'semi_public', label: '教程' },
               ].map((opt) => (
                 <button
                   key={opt.id}
@@ -381,7 +381,7 @@ export function WorkflowLibrary({
               <div className="InspirationCanvas-empty-project is-auth-prompt">
                 <span className="InspirationCanvas-empty-project-mark">✦</span>
                 <strong>登录后管理我的画布项目</strong>
-                <small>你也可以先切换到「公开模版」浏览社区画布</small>
+                <small>你也可以先切换到「教程模版」浏览社区画布</small>
                 <button
                   type="button"
                   className="InspirationCanvas-create-project-button"
@@ -516,7 +516,7 @@ export function WorkflowLibrary({
             ) : null}
 
             {templatesLoading ? (
-              <div className="InspirationCanvas-skeleton-grid is-templates-grid" aria-label="正在加载公开模版">
+              <div className="InspirationCanvas-skeleton-grid is-templates-grid" aria-label="正在加载教程模版">
                 {[0, 1, 2].map((item) => <span key={item} className="InspirationCanvas-project-skeleton" />)}
               </div>
             ) : templates.length ? (
@@ -566,7 +566,7 @@ export function WorkflowLibrary({
               <div className="InspirationCanvas-empty-project is-auth-prompt">
                 <span className="InspirationCanvas-empty-project-mark">✦</span>
                 <strong>暂无公开画布模版</strong>
-                <small>在你的画布右上角点击「公开 / 邀请」即可发布为公开或半公开模版</small>
+                <small>在你的画布右上角点击「公开 / 邀请」即可发布为公开画布或教程模版</small>
               </div>
             )}
           </>

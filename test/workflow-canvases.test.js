@@ -1136,10 +1136,10 @@ test("canvas assets and project previews are explicitly cache-busted", () => {
   const manager = read("platform.workflow-canvases.js");
   const library = read("workflow-react/src/components/workflow/WorkflowLibrary.js");
 
-  assert.match(loader, /const CANVAS_ASSET_VERSION = "canvas-20261126-6"/);
+  assert.match(loader, /const CANVAS_ASSET_VERSION = "canvas-20261127-1"/);
   assert.match(loader, /file === "workflow-react\/dist\/canvas\.js"/);
   assert.match(loader, /url\.searchParams\.set\("canvas", CANVAS_ASSET_VERSION\)/);
-  assert.match(html, /platform\.js\?v=canvas-20261126-6/);
+  assert.match(html, /platform\.js\?v=canvas-20261127-1/);
   assert.match(html, /platform\.css\?v=/);
   assert.match(manager, /function workflowCanvasProjectPreview/);
   assert.ok(manager.indexOf('class="workflow-canvas-project-preview is-image"') < manager.indexOf('class="workflow-canvas-project-preview is-video"'));
@@ -1360,7 +1360,7 @@ test("canvas sharing APIs, unlock gate, fork gate, and UI follow strict no-peek 
 
   // Library adds Public Templates tab and suppresses miniNodes on locked cards
   assert.match(library, /我的项目/);
-  assert.match(library, /公开模版/);
+  assert.match(library, /教程模版/);
   assert.match(library, /if \(project\?\.locked\) return \[\]/);
   assert.match(library, /InspirationCanvas-card-locked-placeholder/);
   assert.match(library, /InspirationCanvas-template-filters/);
