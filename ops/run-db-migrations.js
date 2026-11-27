@@ -77,6 +77,11 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-27-story-background-jobs-v1",
+    description: "Extend the durable story queue to project and episode production jobs",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",
@@ -381,6 +386,13 @@ const STORY_VERSION_EPISODE_OWNERSHIP_DDL = Object.freeze([
   `CREATE UNIQUE INDEX IF NOT EXISTS app_story_episodes_version_episode_uidx
      ON app_story_episodes (project_id, source_script_version_id, episode_no)
      WHERE source_script_version_id <> '';`,
+]);
+
+const STORY_BACKGROUND_JOBS_DDL = Object.freeze([
+  `ALTER TABLE app_story_shot_plan_jobs ALTER COLUMN episode_id DROP NOT NULL;`,
+  `ALTER TABLE app_story_shot_plan_jobs ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'shots';`,
+  `ALTER TABLE app_story_shot_plan_jobs ADD COLUMN IF NOT EXISTS input JSONB NOT NULL DEFAULT '{}'::jsonb;`,
+  `CREATE INDEX IF NOT EXISTS app_story_jobs_project_kind_idx ON app_story_shot_plan_jobs(project_id, kind, created_at DESC);`,
 ]);
 
 const STORY_SHOT_PLAN_JOBS_DDL = Object.freeze([
@@ -772,6 +784,8 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
         await runStatements(schemaLockClient, STORY_VERSION_EPISODE_OWNERSHIP_DDL);
       } else if (migration.version === "2026-11-18-story-shot-plan-jobs-v1") {
         await runStatements(schemaLockClient, STORY_SHOT_PLAN_JOBS_DDL);
+      } else if (migration.version === "2026-11-27-story-background-jobs-v1") {
+        await runStatements(schemaLockClient, STORY_BACKGROUND_JOBS_DDL);
       } else if (migration.version === "2026-11-19-checkin-activity-v1") {
         await runStatements(schemaLockClient, CHECKIN_ACTIVITY_DDL);
       } else if (migration.version === "2026-11-19-cash-coupon-v1") {

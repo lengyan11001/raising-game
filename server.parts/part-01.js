@@ -447,6 +447,8 @@ const {
   deleteStoryShotFromDb,
   replaceStoryShotsInDb,
   enqueueStoryShotPlanJobInDb,
+  enqueueStoryBackgroundJobInDb,
+  listLatestStoryBackgroundJobsInDb,
   getStoryShotPlanJobInDb,
   claimNextStoryShotPlanJobsInDb,
   completeStoryShotPlanJobInDb,

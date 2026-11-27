@@ -178,8 +178,8 @@ test("story P1 uses a script-episode-shot tree with confirmation-gated assets", 
   assert.match(story, /data-story-confirm-shot-assets/);
   assert.match(story, /data-story-generate-shot-assets/);
   assert.match(story, /data-story-plan-shot-prompt/);
-  assert.match(story, /function planStoryEpisodePrompts\(targetShotId = "", revisionFeedback = ""\)/);
-  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: shot\.id, revisionFeedback \}/);
+  assert.match(story, /function planStoryEpisodePrompts\(targetShotId = "", revisionFeedback = "", approvals = \[\]\)/);
+  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: requestedShotId, revisionFeedback, approvals \}/);
   const openLibrary = story.slice(story.indexOf("async function openStoryAssetLibrary("), story.indexOf("function closeStoryAssetLibrary("));
   assert.doesNotMatch(openLibrary, /advanced\/generate|createStoryAssetImageVariant|\/variants/);
   assert.match(story, /data-story-tab="\$\{tab\.id\}"/);
@@ -197,7 +197,7 @@ test("story creation keeps manuscripts and versions independent while retaining 
   const story = read("platform.story.js");
   const css = read("platform.css");
   const db = read("db.js");
-  const handlers = read("server.parts/part-03.js");
+  const handlers = read("server.parts/part-03.js") + "\n" + read("server.parts/part-42.js");
   const routes = read("server.parts/part-42.js");
   assert.match(story, /id="storyScriptCreateForm"/);
   assert.match(story, /id="storyScriptCreateContent"/);
@@ -240,7 +240,7 @@ test("story creation keeps manuscripts and versions independent while retaining 
   assert.match(story, /episodeCreateScriptId: ""/);
   assert.match(story, /targetEpisodeCount,/);
   assert.match(story, /estimatedDurationSeconds,/);
-  assert.match(story, /body: \{ analysis, scriptVersionId \}/);
+  assert.match(story, /analysisJobId: storyState.analysisJobId, scriptVersionId/);
   assert.match(story, /const scriptVersionId = storyState\.analysisScriptId \|\| selectedStoryScript\(\)\?\.id \|\| ""/);
   assert.match(handlerBody(handlers, "handleCreateStoryScript"), /requestedMode === "continue" \|\| requestedMode === "version" \? "continue" : "new"/);
   assert.match(handlerBody(handlers, "handleCreateStoryScript"), /mode === "continue"[\s\S]*sourceScript\.manuscriptId \|\| sourceScript\.id/);
@@ -263,7 +263,7 @@ test("story creation keeps manuscripts and versions independent while retaining 
   assert.match(story, /此段尚未拆解/);
   assert.match(handlers, /function storyStartEpisodeNoForScript\([\s\S]*ownEpisodeNos[\s\S]*manuscriptEpisodeNos/);
   assert.match(handlers, /function storyRenumberAnalysis\(/);
-  assert.match(handlerBody(handlers, "handleAnalyzeStoryProject"), /const startEpisodeNo = storyStartEpisodeNoForScript\(script, existingEpisodes \|\| \[\]\)[\s\S]*startEpisodeNo,/);
+  assert.match(read("server.parts/part-51.js"), /startEpisodeNo: storyStartEpisodeNoForScript\(script, episodes \|\| \[\]\)/);
   assert.match(db, /DROP CONSTRAINT IF EXISTS app_story_script_versions_project_id_version_no_key/);
   assert.match(db, /app_story_script_versions_manuscript_version_uidx/);
   assert.match(db, /async function createStoryEpisodeInDb\(\{[^}]*sourceScriptVersionId[^}]*sourceManuscriptId/);
@@ -290,7 +290,7 @@ test("story creation keeps manuscripts and versions independent while retaining 
 });
 
 test("story analyzer produces concise outlines with source-anchored beat sheets", () => {
-  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}\n${read("server.parts/part-51.js")}`;
   assert.match(handlers, /本集简略大纲，建议120-320个中文字符/);
   assert.match(handlers, /"beatSheet"/);
   assert.match(handlers, /"sourceExcerpts"/);
@@ -303,7 +303,7 @@ test("story analyzer produces concise outlines with source-anchored beat sheets"
 });
 
 test("story episode workbench persists outline edits and AI-planned shots", () => {
-  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}\n${read("server.parts/part-51.js")}`;
   const routes = read("server.parts/part-42.js");
   const db = read("db.js");
   const imports = read("server.parts/part-01.js");
@@ -345,7 +345,7 @@ test("story episode workbench persists outline edits and AI-planned shots", () =
 });
 
 test("story episodes and durations are AI-planned unless the user explicitly overrides them", () => {
-  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}\n${read("server.parts/part-51.js")}`;
   const story = read("platform.story.js");
   const css = read("platform.css");
   const html = read("platform.html");
@@ -422,7 +422,7 @@ test("story episode workbench exposes AI storyboard flow and hook repair", () =>
 });
 
 test("story production pipeline gates approved assets before model-optimized prompts", () => {
-  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-42.js")}\n${read("server.parts/part-49.js")}\n${read("server.parts/part-51.js")}`;
   const routes = read("server.parts/part-42.js");
   const db = read("db.js");
   const imports = read("server.parts/part-01.js");
@@ -481,12 +481,14 @@ test("story production pipeline gates approved assets before model-optimized pro
 test("shot planning binds AI assets to shots and users can add, edit, and delete them", () => {
   const story = read("platform.story.js");
   const css = read("platform.css");
-  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-42.js")}\n${read("server.parts/part-49.js")}\n${read("server.parts/part-51.js")}`;
   const routes = read("server.parts/part-42.js");
   const db = read("db.js");
   assert.match(handlers, /assets: \[\],/);
   const generateShots = story.slice(story.indexOf("async function waitForStoryShotPlanJob("), story.indexOf("async function saveStoryEpisode("));
-  assert.match(generateShots, /\/shots\/plan[\s\S]*\/assets\/plan/);
+  assert.match(generateShots, /\/shots\/plan/);
+  assert.doesNotMatch(generateShots, /\/assets\/plan/);
+  assert.match(handlers, /async function executeStoryShotPlanJob[\s\S]*await saveStoryEpisodeAssetPlan/);
   assert.match(generateShots, /已提取并绑定 \$\{assetCount\} 个分镜资产/);
   assert.match(story, /function openStoryAssetEditor\(/);
   assert.match(story, /function saveStoryAssetEditor\(/);
@@ -511,7 +513,7 @@ test("shot planning binds AI assets to shots and users can add, edit, and delete
 });
 
 test("story shot prompt source never injects the episode hook into every shot", () => {
-  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}\n${read("server.parts/part-51.js")}`;
   const start = handlers.indexOf("function storyShotProductionPrompt(");
   assert.notEqual(start, -1);
   const promptSource = handlers.slice(start, handlers.indexOf("\n}\n", start));
@@ -532,16 +534,16 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /function openStoryRevisionRequest[\s\S]*storyRevisionFeedback/);
   assert.match(story, /storyAssetHasGeneratedImage\(asset\) && !revisionFeedback[\s\S]*openStoryRevisionRequest/);
   assert.match(story, /!storyShotAssetsConfirmed\(shot\) && !storyAssetHasGeneratedImage\(asset\)/);
-  assert.match(story, /本次重新生成的修改要求：\$\{revisionFeedback\}/);
+  assert.match(read("server.parts/part-51.js"), /本次重新生成的修改要求：\$\{input.revisionFeedback\}/);
   assert.match(story, /function storyAssetHasApprovedImage[\s\S]*storyAssetVariantImageUrl\(approved\)/);
   assert.match(story, /function storyAssetVariantImageUrl[\s\S]*\["generating", "failed", "error", "canceled", "cancelled"\]\.includes\(status\)\) return ""/);
   assert.match(story, /function storyAssetVariantThumbnailUrl[\s\S]*const version = String\(variant\.updatedAt \|\| variant\.id \|\| ""\)/);
-  assert.match(story, /function storyGenerationImageUrl[\s\S]*status && !\["succeeded", "success", "completed", "complete"\]\.includes\(status\)\) return ""/);
+  assert.match(read("db.js"), /variantStatus = failed \? "failed" : succeeded && imageUrl \? "ready" : "generating"/);
   assert.match(story, /assets\.every\(\(asset\) => storyAssetHasApprovedImage\(asset\)\)/);
   assert.match(story, /function storyVariantStatusLabel[\s\S]*可审核/);
   assert.match(story, /设计图已齐，待审核/);
   assert.match(story, /历史失败 \$\{failedCount\} 次，已收起/);
-  assert.match(story, /已完成 \$\{index\} \/ \$\{assets\.length\}，剩余/);
+  assert.match(story, /已提交 \$\{queued.jobs.length\} 个设计图任务/);
   assert.match(story, /资产定稿后才会解锁视频提示词/);
   assert.match(story, /AI 提取本集资产/);
   assert.match(story, /下一步：选模型并生成提示词/);
@@ -555,11 +557,11 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /\/assets\/plan/);
   assert.match(story, /\/variants\/\$\{encodeURIComponent\(variantId\)\}\/approve/);
   assert.match(story, /\/prompts\/plan/);
-  assert.match(story, /for \(let index = 0; index < shots\.length; index \+= 1\)/);
-  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: shot\.id, revisionFeedback \}/);
+  assert.match(story, /已提交 \$\{queued.jobs.length\} 个镜头的提示词任务/);
+  assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: requestedShotId, revisionFeedback, approvals \}/);
   assert.match(story, /promptMatchesModel \? "已按当前模型优化"[\s\S]*模型已变，需刷新[\s\S]*待优化/);
-  assert.match(story, /cdnImageUrl/);
-  assert.match(story, /createKind: "story-asset"[\s\S]*storyAssetId: asset\.id/);
+  assert.match(read("db.js"), /record.cdnImageUrl/);
+  assert.match(read("server.parts/part-51.js"), /createKind: "story-asset"[\s\S]*storyAssetId: asset\.id/);
   assert.doesNotMatch(story, /createKind: "story-asset"[\s\S]{0,120}assetId: asset\.id/);
   assert.match(css, /\.story-production-toolbar \{/);
   assert.match(css, /\.story-production-controls \{/);
@@ -603,7 +605,8 @@ test("shot asset finalization can approve every generated design and plan the pr
   assert.match(workspace, /全部定稿并生成视频提示词/);
   assert.match(story, /async function finalizeShotAssetsAndPlanPrompt\(shotId = ""\)/);
   assert.match(finalizer, /const pendingAssets = assets\.filter\(\(asset\) => !storyAssetHasApprovedImage\(asset\)\)/);
-  assert.match(finalizer, /\/assets\/\$\{encodeURIComponent\(asset\.id\)\}\/variants\/\$\{encodeURIComponent\(variant\.id\)\}\/approve/);
+  assert.match(finalizer, /variantId: storyDisplayAssetVariant\(asset\)\?\.id/);
+  assert.match(read("server.parts/part-03.js"), /await approveStoryAssetVariantInDb\(\{ projectId, ownerUserId, \.\.\.approval \}\)/);
   assert.match(finalizer, /await planStoryEpisodePrompts\(shot\.id/);
   assert.match(story, /event\.target\.closest\("\[data-story-finalize-plan-shot-prompt\]"\)\) finalizeShotAssetsAndPlanPrompt/);
   const selectedModelIndex = workspace.indexOf("const selectedVideoModel =");
@@ -615,7 +618,7 @@ test("shot assets generate, regenerate, approve, and reuse materials in place", 
   const story = read("platform.story.js");
   const css = read("platform.css");
   const db = read("db.js");
-  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}\n${read("server.parts/part-51.js")}`;
   const routes = read("server.parts/part-42.js");
 
   const workspace = story.slice(story.indexOf("function renderStoryShotWorkspace("), story.indexOf("function storyShotFilterKey("));
@@ -671,7 +674,7 @@ test("generation record media supports cached image thumbnails", () => {
 });
 
 test("story asset images use refreshed authenticated media URLs instead of persisted signed URLs", () => {
-  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}\n${read("server.parts/part-51.js")}`;
   const generation = read("server.parts/part-41.js");
   const story = read("platform.story.js");
   assert.match(handlers, /function storyAssetVariantClientView[\s\S]*adminGenerationMediaUrl\(generationRecordId\)/);
@@ -691,7 +694,7 @@ test("story asset images use refreshed authenticated media URLs instead of persi
 
 test("story asset replanning removes stale episode scope and invalidates frozen prompts", () => {
   const db = read("db.js");
-  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}\n${read("server.parts/part-51.js")}`;
   const story = read("platform.story.js");
   assert.match(db, /async function invalidateStoryEpisodeProductionPrompts\(/);
   assert.match(db, /UPDATE app_story_prompt_versions[\s\S]*SET status = 'stale'/);
@@ -705,11 +708,9 @@ test("story asset replanning removes stale episode scope and invalidates frozen 
 
 test("story video jobs bind approved asset IDs and sync completed backend records", () => {
   const story = read("platform.story.js");
-  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-42.js")}\n${read("server.parts/part-49.js")}\n${read("server.parts/part-51.js")}`;
   const generation = read("server.parts/part-20.js");
 
-  assert.match(story, /function storyGenerationResultAssetId\(record = \{\}\)/);
-  assert.match(story, /function storyGenerationResultAssetIds\(record = \{\}\)/);
   assert.match(story, /async function storyApprovedAssetReferences\(episode = \{\}, shot = \{\}\)/);
   assert.match(story, /generationRecordId\)\}\/add-asset[\s\S]*materialized\.asset\?\.id/);
   assert.match(story, /function storyVideoMediaParams\(model = \{\}, references = \[\]\)/);
@@ -730,16 +731,14 @@ test("story video jobs bind approved asset IDs and sync completed backend record
   assert.match(story, /if \(!Object\.keys\(mediaParams\)\.length\)[\s\S]*已阻止无素材生成/);
   assert.doesNotMatch(story, /await pollStoryVideoGenerationRecord\(taskId\)[\s\S]*loadStoryDetail\(projectId\)[\s\S]*视频已生成/);
 
-  assert.match(story, /async function syncStoryVideoGenerationRefs\(projectId = ""\)/);
-  assert.match(story, /function storyGenerationStatusSucceeded\(status = ""\)/);
-  assert.match(story, /status: "succeeded"[\s\S]*videoUrl\b/);
-  assert.match(story, /storyGenerationStatusSucceeded\(status\)[\s\S]*status: "succeeded"[\s\S]*mediaSyncPending: true/);
-  assert.match(story, /mediaSyncPending: true[\s\S]*return;[\s\S]*\["failed", "error", "canceled", "cancelled"\]/);
+  const db = read("db.js");
+  assert.match(story, /async function refreshStoryMedia\(projectId\)/);
+  assert.match(db, /async function syncStoryGenerationRecordInDb/);
+  assert.match(db, /mediaSyncPending: succeeded && !videoUrl/);
+  assert.match(db, /INSERT INTO app_story_generation_refs AS r/);
   assert.match(story, /后台已完成，正在同步视频地址/);
-  assert.match(story, /status: "failed"[\s\S]*record\.error \|\| record\.message/);
-  assert.match(story, /syncStoryVideoGenerationRefs\(id\)/);
   assert.match(story, /addEventListener\("visibilitychange"/);
-  assert.match(story, /scheduleStoryVideoGenerationSync\(15000\)/);
+  assert.match(story, /scheduleStoryVideoGenerationSync\(/);
   assert.match(story, /data-story-generation-video data-generation-record-id/);
   assert.match(story, /const failed = \["failed", "error", "canceled", "cancelled"\]\.includes\(status\.toLowerCase\(\)\)/);
   assert.match(story, /const videoUrl = failed \? "" : storyGenerationRefVideoUrl\(ref\)/);
@@ -761,17 +760,17 @@ test("story video jobs bind approved asset IDs and sync completed backend record
 });
 
 test("story shot-plan jobs use durable async storage and a rolling-safe worker", () => {
-  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}`;
+  const handlers = `${read("server.parts/part-03.js")}\n${read("server.parts/part-49.js")}\n${read("server.parts/part-51.js")}`;
   const routes = read("server.parts/part-42.js");
   const db = read("db.js");
   const bootstrap = read("server.parts/part-43.js");
   const story = read("platform.story.js");
   assert.match(handlers, /enqueueStoryShotPlanJobInDb\(\{[\s\S]*return sendJson\(res, 202/);
   assert.match(handlers, /async function planStoryEpisodeShots[\s\S]*Date\.now\(\) \+ 9 \* 60 \* 1000/);
-  assert.match(handlers, /claimNextStoryShotPlanJobsInDb\(\{ limit, leaseMs: 5 \* 60 \* 1000, claimToken \}\)/);
+  assert.match(handlers, /claimNextStoryShotPlanJobsInDb\(\{ limit, leaseMs: STORY_SHOT_PLAN_JOB_LEASE_MS, claimToken \}\)/);
   assert.match(routes, /shots\\\/plan\\\/jobs\\\/\(\[\^\/\]\+\)/);
   assert.match(db, /CREATE TABLE IF NOT EXISTS app_story_shot_plan_jobs/);
-  assert.match(story, /async function waitForStoryShotPlanJob[\s\S]*Date\.now\(\) - startedAt < 10 \* 60 \* 1000[\s\S]*window\.setTimeout\(resolve, 2000\)/);
+  assert.match(story, /async function waitForStoryShotPlanJob[\s\S]*Date\.now\(\) - startedAt < 28 \* 60 \* 1000[\s\S]*window\.setTimeout\(resolve, 2000\)/);
   assert.match(bootstrap, /startChatLiveSettlementScheduler\(\);\n  \}[\s\S]*?startStoryShotPlanWorker\(\);/);
   assert.doesNotMatch(
     bootstrap.match(/if \(BACKGROUND_SCHEDULERS_ENABLED\) \{[\s\S]*?startChatLiveSettlementScheduler\(\);\n  \}/)?.[0] || "",

@@ -1967,6 +1967,10 @@ async function ensureSchemaInner({ client = null } = {}) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await run(`ALTER TABLE app_story_shot_plan_jobs ALTER COLUMN episode_id DROP NOT NULL`);
+  await run(`ALTER TABLE app_story_shot_plan_jobs ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'shots'`);
+  await run(`ALTER TABLE app_story_shot_plan_jobs ADD COLUMN IF NOT EXISTS input JSONB NOT NULL DEFAULT '{}'::jsonb`);
+  await run(`CREATE INDEX IF NOT EXISTS app_story_jobs_project_kind_idx ON app_story_shot_plan_jobs(project_id, kind, created_at DESC)`);
   await run(`CREATE INDEX IF NOT EXISTS app_story_shot_plan_jobs_ready_idx ON app_story_shot_plan_jobs (status, available_at, created_at) WHERE status IN ('queued', 'retry');`);
   await run(`CREATE INDEX IF NOT EXISTS app_story_shot_plan_jobs_owner_idx ON app_story_shot_plan_jobs (owner_user_id, project_id, episode_id, created_at DESC);`);
   await run(`
@@ -8531,6 +8535,8 @@ async function replaceStoryShotsInDb({ projectId = "", episodeId = "", ownerUser
 function storyShotPlanJobFromRow(row = {}) {
   if (!row) return null;
   return {
+    kind: row.kind || "shots",
+    input: row.input || {},
     id: String(row.id || ""),
     projectId: String(row.project_id || ""),
     episodeId: String(row.episode_id || ""),
@@ -8551,7 +8557,7 @@ function storyShotPlanJobFromRow(row = {}) {
   };
 }
 
-async function enqueueStoryShotPlanJobInDb({ projectId = "", episodeId = "", ownerUserId = "", maxAttempts = 2 } = {}) {
+async function enqueueStoryShotPlanJobInDb({ projectId = "", episodeId = "", ownerUserId = "", maxAttempts = 2, outline = null } = {}) {
   if (!dbEnabled()) return null;
   const parentId = String(projectId || "").trim();
   const targetEpisodeId = String(episodeId || "").trim();
@@ -8562,7 +8568,7 @@ async function enqueueStoryShotPlanJobInDb({ projectId = "", episodeId = "", own
   try {
     await client.query("BEGIN");
     const scope = await client.query(
-      `SELECT e.id FROM app_story_episodes e
+      `SELECT e.* FROM app_story_episodes e
        JOIN app_story_projects p ON p.id = e.project_id
        WHERE e.id = $1 AND e.project_id = $2 AND p.owner_user_id = $3
        FOR UPDATE`,
@@ -8575,16 +8581,34 @@ async function enqueueStoryShotPlanJobInDb({ projectId = "", episodeId = "", own
     const existing = await client.query(
       `SELECT * FROM app_story_shot_plan_jobs
        WHERE project_id = $1 AND episode_id = $2 AND owner_user_id = $3
-         AND status IN ('queued', 'retry', 'processing')
+         AND kind = 'shots' AND status IN ('queued', 'retry', 'processing')
          AND (status <> 'processing' OR lease_until IS NULL OR lease_until > NOW())
        ORDER BY created_at DESC
        LIMIT 1
        FOR UPDATE`,
       [parentId, targetEpisodeId, ownerId],
     );
+    let episode = storyEpisodeFromRow(scope.rows[0]);
+    if (outline) {
+      if (existing.rows.length && (episode.title !== outline.title || episode.synopsis !== outline.synopsis
+        || episode.durationSeconds !== outline.durationSeconds)) {
+        throw Object.assign(new Error("当前大纲已有分镜任务在运行。"), { statusCode: 409, code: "STORY_SHOT_PLAN_ACTIVE" });
+      }
+      if (!existing.rows.length) {
+        const updated = await client.query(
+          `UPDATE app_story_episodes
+           SET title = $2, synopsis = $3, status = 'outline_locked', duration_seconds = $4,
+               metadata = $5::jsonb, updated_at = NOW()
+           WHERE id = $1 RETURNING *`,
+          [targetEpisodeId, outline.title, outline.synopsis, outline.durationSeconds, JSON.stringify(outline.metadata)],
+        );
+        episode = storyEpisodeFromRow(updated.rows[0]);
+        await client.query("UPDATE app_story_projects SET updated_at = NOW() WHERE id = $1", [parentId]);
+      }
+    }
     if (existing.rows.length) {
       await client.query("COMMIT");
-      return { reused: true, job: storyShotPlanJobFromRow(existing.rows[0]) };
+      return { episode, reused: true, job: storyShotPlanJobFromRow(existing.rows[0]) };
     }
     const attempts = Math.max(1, Math.min(5, Math.trunc(Number(maxAttempts) || 2)));
     const inserted = await client.query(
@@ -8596,13 +8620,60 @@ async function enqueueStoryShotPlanJobInDb({ projectId = "", episodeId = "", own
       [crypto.randomUUID(), parentId, targetEpisodeId, ownerId, attempts],
     );
     await client.query("COMMIT");
-    return { reused: false, job: storyShotPlanJobFromRow(inserted.rows[0]) };
+    return { episode, reused: false, job: storyShotPlanJobFromRow(inserted.rows[0]) };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {
     client.release();
   }
+}
+
+async function enqueueStoryBackgroundJobInDb({ projectId, ownerUserId, kind, inputs, episodeId = null }) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const scope = await client.query(
+      `SELECT id FROM app_story_projects WHERE id = $1 AND owner_user_id = $2 FOR UPDATE`,
+      [projectId, ownerUserId],
+    );
+    if (!scope.rows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const jobs = [];
+    for (const input of inputs) {
+      const values = [projectId, ownerUserId, kind, JSON.stringify(input), episodeId];
+      const active = await client.query(
+        `SELECT * FROM app_story_shot_plan_jobs
+         WHERE project_id = $1 AND owner_user_id = $2 AND kind = $3 AND input = $4::jsonb
+         AND episode_id IS NOT DISTINCT FROM $5 AND status IN ('queued', 'retry', 'processing')
+         ORDER BY created_at DESC LIMIT 1`, values);
+      const row = active.rows[0] || (await client.query(
+        `INSERT INTO app_story_shot_plan_jobs(project_id, owner_user_id, kind, input, episode_id, id)
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6) RETURNING *`,
+        [...values, crypto.randomUUID()])).rows[0];
+      jobs.push(storyShotPlanJobFromRow(row));
+    }
+    await client.query("COMMIT");
+    return jobs;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function listLatestStoryBackgroundJobsInDb({ projectId, ownerUserId }) {
+  if (!dbEnabled()) return [];
+  const { rows } = await query(
+    `SELECT DISTINCT ON (kind, episode_id, COALESCE(input->>'scriptVersionId', input->>'shotId', input->>'assetId', '')) * FROM app_story_shot_plan_jobs
+     WHERE project_id = $1 AND owner_user_id = $2 AND kind IN ('analysis', 'prompt', 'image', 'shots', 'assets')
+     ORDER BY kind, episode_id, COALESCE(input->>'scriptVersionId', input->>'shotId', input->>'assetId', ''), created_at DESC`, [projectId, ownerUserId]);
+  return rows.map(storyShotPlanJobFromRow);
 }
 
 async function getStoryShotPlanJobInDb({ id = "", ownerUserId = "", projectId = "", episodeId = "" } = {}) {
@@ -8626,7 +8697,7 @@ async function claimNextStoryShotPlanJobsInDb({ limit = 1, leaseMs = 5 * 60 * 10
   if (!dbEnabled()) return { claimToken: "", jobs: [] };
   await ensureSchema();
   const count = Math.max(1, Math.min(5, Math.trunc(Number(limit) || 1)));
-  const lease = Math.max(30_000, Math.min(15 * 60 * 1000, Math.trunc(Number(leaseMs) || 5 * 60 * 1000)));
+  const lease = Math.max(30_000, Math.min(30 * 60 * 1000, Math.trunc(Number(leaseMs) || 5 * 60 * 1000)));
   const token = String(claimToken || crypto.randomUUID()).trim().slice(0, 120);
   const client = await getPool().connect();
   try {
@@ -8896,7 +8967,31 @@ function canonicalStoryAssetName(value = "") {
     .replace(/[\s()（）\[\]【】{}<>《》·:：,，.。_\-—]/g, "");
 }
 
-async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", episodeId = "", assets = [] } = {}) {
+function matchStoryAssetCandidate(candidates = [], { kind = "", name = "", metadata = {} } = {}) {
+  const rows = Array.isArray(candidates) ? candidates : [];
+  const cleanKind = String(kind || "").trim();
+  const cleanName = String(name || "").trim();
+  const incomingCharacterKey = canonicalStoryAssetName(metadata?.characterKey || "");
+  const incomingStateLabel = canonicalStoryAssetName(metadata?.stateLabel || "");
+  if (cleanKind === "character" && (incomingCharacterKey || incomingStateLabel)) {
+    if (!incomingCharacterKey || !incomingStateLabel) return null;
+    return rows.find((item) => {
+      const itemMetadata = item?.metadata && typeof item.metadata === "object" ? item.metadata : {};
+      return canonicalStoryAssetName(itemMetadata.characterKey || "") === incomingCharacterKey
+        && canonicalStoryAssetName(itemMetadata.stateLabel || "") === incomingStateLabel;
+    }) || null;
+  }
+  const exact = rows.find((item) => String(item?.name || "").trim() === cleanName);
+  if (exact) return exact;
+  const canonical = canonicalStoryAssetName(cleanName);
+  if (!canonical) return null;
+  return rows.find((item) => {
+    const candidate = canonicalStoryAssetName(item?.name || "");
+    return candidate === canonical || (canonical.length >= 2 && candidate.length >= 2 && (candidate.includes(canonical) || canonical.includes(candidate)));
+  }) || null;
+}
+
+async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", episodeId = "", assets = [], shots = [] } = {}) {
   if (!dbEnabled()) return null;
   const parentId = String(projectId || "").trim();
   const ownerId = String(ownerUserId || "").trim();
@@ -8920,6 +9015,20 @@ async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", epis
       await client.query("ROLLBACK");
       return null;
     }
+    const currentShots = await client.query(
+      `SELECT id, updated_at FROM app_story_shots WHERE project_id = $1 AND episode_id = $2 ORDER BY shot_no FOR UPDATE`,
+      [parentId, scopedEpisodeId],
+    );
+    if (currentShots.rows.length !== shots.length || currentShots.rows.some((row, index) =>
+      row.id !== shots[index].id || new Date(row.updated_at).getTime() !== new Date(shots[index].updatedAt).getTime())) {
+      throw Object.assign(new Error("分镜已更新，请按最新分镜重新提取资产。"), {
+        statusCode: 409, code: "STORY_ASSET_PLAN_STALE",
+      });
+    }
+    const bindingsForEpisode = (metadata, shotNos) => ({
+      ...(metadata.shotIdsByEpisode || {}),
+      [scopedEpisodeId]: shots.filter((shot) => shotNos.some((shotNo) => Number(shotNo) === shot.shotNo)).map((shot) => shot.id),
+    });
     for (const raw of Array.isArray(assets) ? assets : []) {
       const kind = ["character", "scene", "prop", "style", "audio"].includes(String(raw?.kind || "").trim())
         ? String(raw.kind).trim()
@@ -8928,26 +9037,14 @@ async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", epis
       if (!name) continue;
       const description = String(raw?.description || "").trim().slice(0, 8000);
       const incomingMetadata = raw?.metadata && typeof raw.metadata === "object" && !Array.isArray(raw.metadata) ? raw.metadata : {};
-      let existing = await client.query(
+      const candidates = await client.query(
         `SELECT * FROM app_story_assets
-         WHERE project_id = $1 AND kind = $2 AND name = $3
-         ORDER BY created_at ASC LIMIT 1`,
-        [parentId, kind, name],
+         WHERE project_id = $1 AND kind = $2
+         ORDER BY created_at ASC`,
+        [parentId, kind],
       );
-      if (!existing.rows[0]) {
-        const candidates = await client.query(
-          `SELECT * FROM app_story_assets
-           WHERE project_id = $1 AND kind = $2
-           ORDER BY created_at ASC`,
-          [parentId, kind],
-        );
-        const canonical = canonicalStoryAssetName(name);
-        const matched = canonical ? candidates.rows.find((item) => {
-          const candidate = canonicalStoryAssetName(item.name);
-          return candidate === canonical || (canonical.length >= 2 && candidate.length >= 2 && (candidate.includes(canonical) || canonical.includes(candidate)));
-        }) : null;
-        if (matched) existing = { rows: [matched] };
-      }
+      const matched = matchStoryAssetCandidate(candidates.rows, { kind, name, metadata: incomingMetadata });
+      const existing = { rows: matched ? [matched] : [] };
       let row;
       if (existing.rows[0]) {
         const old = existing.rows[0];
@@ -8956,9 +9053,21 @@ async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", epis
           ...(Array.isArray(oldMetadata.episodeIds) ? oldMetadata.episodeIds : []),
           scopedEpisodeId,
         ].map(String).filter(Boolean))];
-        const metadata = { ...oldMetadata, ...incomingMetadata, episodeIds };
-        const definitionChanged = String(old.description || "") !== description
-          || String(oldMetadata.imagePrompt || "") !== String(incomingMetadata.imagePrompt || "");
+        const shotIdsByEpisode = bindingsForEpisode(oldMetadata, incomingMetadata.shotNos || []);
+        if (saved.some((asset) => asset.id === old.id)) {
+          shotIdsByEpisode[scopedEpisodeId] = [...new Set([
+            ...oldMetadata.shotIdsByEpisode[scopedEpisodeId], ...shotIdsByEpisode[scopedEpisodeId],
+          ])];
+        }
+        const metadata = { ...oldMetadata, ...incomingMetadata, episodeIds, shotNos: oldMetadata.shotNos || [], shotIdsByEpisode };
+        const preserveApproved = kind === "character" && old.status === "approved";
+        const savedDescription = preserveApproved ? old.description : description;
+        if (preserveApproved) {
+          metadata.imagePrompt = oldMetadata.imagePrompt;
+          metadata.continuity = oldMetadata.continuity;
+        }
+        const definitionChanged = String(old.description || "") !== savedDescription
+          || String(oldMetadata.imagePrompt || "") !== String(metadata.imagePrompt || "");
         if (definitionChanged) {
           delete metadata.approvedVariantId;
           delete metadata.approvedSourceAssetId;
@@ -8978,7 +9087,7 @@ async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", epis
            SET description = $3, status = $4, metadata = $5::jsonb, updated_at = NOW()
            WHERE id = $1 AND project_id = $2
            RETURNING *`,
-          [old.id, parentId, description, nextStatus, JSON.stringify(metadata)],
+          [old.id, parentId, savedDescription, nextStatus, JSON.stringify(metadata)],
         );
         row = updated.rows[0];
       } else {
@@ -8986,11 +9095,15 @@ async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", epis
           `INSERT INTO app_story_assets(id, project_id, kind, name, description, status, metadata)
            VALUES ($1, $2, $3, $4, $5, 'planned', $6::jsonb)
            RETURNING *`,
-          [crypto.randomUUID(), parentId, kind, name, description, JSON.stringify({ ...incomingMetadata, episodeIds: [scopedEpisodeId] })],
+          [crypto.randomUUID(), parentId, kind, name, description, JSON.stringify({ ...incomingMetadata, shotNos: [], episodeIds: [scopedEpisodeId], shotIdsByEpisode: bindingsForEpisode({}, incomingMetadata.shotNos || []) })],
         );
         row = inserted.rows[0];
       }
-      if (row) saved.push(storyAssetFromRow(row));
+      if (row) {
+        const index = saved.findIndex((asset) => asset.id === row.id);
+        if (index < 0) saved.push(storyAssetFromRow(row));
+        else saved[index] = storyAssetFromRow(row);
+      }
     }
     const savedIds = new Set(saved.map((asset) => String(asset.id || "")).filter(Boolean));
     const scopedAssets = await client.query(
@@ -9012,14 +9125,28 @@ async function upsertStoryAssetPlanInDb({ projectId = "", ownerUserId = "", epis
     }
     changedEpisodeIds.add(scopedEpisodeId);
     await invalidateStoryEpisodeProductionPrompts(client, { projectId: parentId, episodeIds: [...changedEpisodeIds] });
+    await client.query(
+      `UPDATE app_story_shots
+       SET metadata = metadata - 'assetsConfirmedAt' - 'assetsConfirmedCount'
+       WHERE project_id = $1 AND episode_id = $2`,
+      [parentId, scopedEpisodeId],
+    );
+    const updatedEpisode = await client.query(
+      `UPDATE app_story_episodes
+       SET status = 'assets_planned',
+           metadata = metadata || jsonb_build_object('assetsPlannedAt', $3::text),
+           updated_at = NOW()
+       WHERE id = $1 AND project_id = $2 RETURNING *`,
+      [scopedEpisodeId, parentId, new Date().toISOString()],
+    );
     await client.query("COMMIT");
+    return { assets: saved, episode: storyEpisodeFromRow(updatedEpisode.rows[0]) };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {
     client.release();
   }
-  return saved;
 }
 
 async function createStoryAssetInDb({ id = "", projectId = "", ownerUserId = "", kind = "character", name = "", description = "", metadata = {} } = {}) {
@@ -9445,7 +9572,7 @@ async function updateStoryGenerationRefInDb({ id = "", projectId = "", ownerUser
   return rows[0] ? storyGenerationRefFromRow(rows[0]) : null;
 }
 
-async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", sourceScriptVersionId = "", sourceManuscriptId = "", episodes = [], assets = [], summary = "", totalEpisodeSuggestion = 0 } = {}) {
+async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", sourceScriptVersionId = "", sourceManuscriptId = "", analysisJobId = "", episodes = [], assets = [], summary = "", totalEpisodeSuggestion = 0 } = {}) {
   if (!dbEnabled()) return null;
   const parentId = String(projectId || "").trim();
   const ownerId = String(ownerUserId || "").trim();
@@ -9463,6 +9590,26 @@ async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", sourc
     if (!project.rows.length) {
       await client.query("ROLLBACK");
       return null;
+    }
+    if (analysisJobId) {
+      const draft = await client.query(
+        `SELECT result->>'importedAt' AS imported_at FROM app_story_shot_plan_jobs
+         WHERE id = $1 AND project_id = $2 AND owner_user_id = $3 AND kind = 'analysis'
+         AND status = 'completed' AND input->>'scriptVersionId' = $4`,
+        [analysisJobId, parentId, ownerId, sourceScriptVersionId],
+      );
+      if (!draft.rows.length) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      if (draft.rows[0].imported_at) {
+        const existing = await client.query(
+          `SELECT * FROM app_story_episodes WHERE project_id = $1 AND source_script_version_id = $2 ORDER BY episode_no`,
+          [parentId, sourceScriptVersionId],
+        );
+        await client.query("COMMIT");
+        return { episodes: existing.rows.map(storyEpisodeFromRow), assets: [] };
+      }
     }
     let manuscriptId = String(sourceManuscriptId || "").trim();
     let scriptVersionId = String(sourceScriptVersionId || "").trim();
@@ -9577,6 +9724,13 @@ async function importStoryAnalysisInDb({ projectId = "", ownerUserId = "", sourc
        WHERE id = $1 AND owner_user_id = $2`,
       [parentId, ownerId, Math.max(0, Math.round(suggestedEpisodeTarget)), JSON.stringify(settingsPatch)],
     );
+    if (analysisJobId) {
+      await client.query(
+        `UPDATE app_story_shot_plan_jobs SET result = result || jsonb_build_object('importedAt', NOW())
+         WHERE id = $1 AND project_id = $2 AND owner_user_id = $3`,
+        [analysisJobId, parentId, ownerId],
+      );
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -11456,6 +11610,7 @@ const SCHEMA_MIGRATION_KEYS = Object.freeze([
   "2026-11-18-story-shot-plan-jobs-v1",
   "2026-11-19-checkin-activity-v1",
   "2026-11-19-cash-coupon-v1",
+  "2026-11-27-story-background-jobs-v1",
 ]);
 const SCHEMA_MIGRATION_KEY = SCHEMA_MIGRATION_KEYS[SCHEMA_MIGRATION_KEYS.length - 1];
 const REQUIRED_SCHEMA_TABLES = Object.freeze([
@@ -12189,72 +12344,163 @@ async function getGenerationRecordFromDb(taskId) {
   return rows[0]?.payload || null;
 }
 
+async function syncStoryGenerationRecordInDb(client, record) {
+  const params = record.params || {};
+  const kind = params.createKind;
+  if (!["story-asset", "story-shot-video"].includes(kind)) return;
+  const { projectId, episodeId, storyAssetId, shotId } = params;
+  const { taskId, userId } = record;
+  if (!projectId || !episodeId || !taskId || !userId) return;
+  const status = String(record.status || "").toLowerCase();
+  const failed = ["failed", "error", "canceled", "cancelled"].includes(status);
+  const succeeded = ["succeeded", "success", "completed", "complete"].includes(status);
+  const metadata = {
+    generationRecordId: taskId, episodeId, generationStatus: status,
+    model: params.provider || record.provider, resolution: params.resolution, duration: params.duration,
+    posterUrl: record.cdnPosterUrl || record.posterUrl || record.coverUrl || "",
+    error: failed ? record.error || record.message || "生成失败。" : "",
+  };
+  if (kind === "story-asset") {
+    const imageUrl = record.cdnImageUrl || record.cdnImageUrls?.[0] || record.imageResultUrl || record.imageUrl || record.resultImageUrl
+      || record.publicImageUrl || record.remoteImageUrl || record.localImageUrl || record.resultUrl || record.outputUrl;
+    const variantStatus = failed ? "failed" : succeeded && imageUrl ? "ready" : "generating";
+    Object.assign(metadata, {
+      imageUrl: variantStatus === "ready" ? imageUrl : undefined,
+      resultAssetId: record.resultAssetId || record.userAssetId,
+      resultAssetIds: [...new Set([
+        ...(Array.isArray(record.resultAssetIds) ? record.resultAssetIds : []),
+        ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
+        ...(Array.isArray(record.mediaAssets) ? record.mediaAssets.flatMap((asset) =>
+          [asset?.userAssetId, asset?.assetId, ...(Array.isArray(asset?.userAssetIds) ? asset.userAssetIds : [])]) : []),
+      ].filter(Boolean))],
+      revisionFeedback: params.revisionFeedback,
+      generationError: metadata.error,
+    });
+    await client.query(
+      `INSERT INTO app_story_asset_variants AS v(id, asset_id, name, description, status, metadata)
+       SELECT COALESCE((SELECT id FROM app_story_asset_variants WHERE asset_id = a.id
+         AND metadata->>'generationRecordId' = $1 ORDER BY created_at LIMIT 1), 'story-image-' || $1),
+         a.id, a.name || ' · ' || $6, $7, $8, $9::jsonb
+       FROM app_story_assets a JOIN app_story_projects p ON p.id = a.project_id
+       JOIN app_story_episodes e ON e.id = $5 AND e.project_id = p.id
+       WHERE a.id = $2 AND p.id = $3 AND p.owner_user_id = $4
+       ON CONFLICT(id) DO UPDATE SET
+         status = CASE WHEN v.status IN ('approved', 'rejected') THEN v.status ELSE EXCLUDED.status END,
+         metadata = v.metadata || EXCLUDED.metadata, updated_at = NOW()`,
+      [taskId, storyAssetId, projectId, userId, episodeId, metadata.model || "AI", record.prompt || "", variantStatus, JSON.stringify(metadata)],
+    );
+    return;
+  }
+  const firstVideo = record.resultVideoUrls?.[0] || record.videoUrls?.[0] || record.outputUrls?.[0];
+  const videoUrl = record.cdnVideoUrl || record.remoteVideoUrl || record.providerVideoUrl || record.upstreamVideoUrl
+    || record.localVideoUrl || record.videoUrl || record.resultVideoUrl || record.resultUrl || record.outputUrl
+    || (typeof firstVideo === "string" ? firstVideo : firstVideo?.url || firstVideo?.videoUrl);
+  Object.assign(metadata, {
+    videoUrl: !failed ? videoUrl : undefined,
+    mediaSyncPending: succeeded && !videoUrl,
+    prompt: record.prompt, shotNo: params.shotNo, mediaMode: params.mediaMode,
+    billingStatus: record.billing?.status || record.billingStatus,
+  });
+  await client.query(
+    `INSERT INTO app_story_generation_refs AS r(id, project_id, shot_id, generation_record_id, kind, status, metadata)
+     SELECT COALESCE((SELECT id FROM app_story_generation_refs WHERE shot_id = s.id
+       AND generation_record_id = $1 AND kind = 'video' ORDER BY created_at LIMIT 1), 'story-video-' || $1),
+       p.id, s.id, $1, 'video', $6, $7::jsonb
+     FROM app_story_shots s JOIN app_story_projects p ON p.id = s.project_id
+     WHERE s.id = $2 AND p.id = $3 AND p.owner_user_id = $4 AND s.episode_id = $5
+     ON CONFLICT(id) DO UPDATE SET status = EXCLUDED.status, metadata = r.metadata || EXCLUDED.metadata, updated_at = NOW()`,
+    [taskId, shotId, projectId, userId, episodeId, failed ? "failed" : succeeded ? "succeeded" : "queued", JSON.stringify(metadata)],
+  );
+}
+
 async function upsertGenerationRecordInDb(nextRecord) {
   if (!dbEnabled()) return null;
   const taskId = String(nextRecord?.taskId || "").trim();
   if (!taskId) throw new Error("Generation record taskId is required");
   await ensureSchema();
   const now = new Date().toISOString();
-  const { rows } = await query(
-    `
-      INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
-      VALUES (
-        $1::text,
-        ($2::jsonb || jsonb_build_object('taskId', $1::text, 'createdAt', COALESCE($2::jsonb->>'createdAt', $3::text), 'updatedAt', $3::text)),
-        COALESCE(NULLIF($2::jsonb->>'createdAt', '')::timestamptz, $3::timestamptz),
-        $3::timestamptz
-      )
-      ON CONFLICT (task_id)
-      DO UPDATE SET
-        payload = (
-          SELECT jsonb_set(
-            jsonb_set(
+  const write = async (client) => {
+    const { rows } = await client.query(
+      `
+        INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
+        VALUES (
+          $1::text,
+          ($2::jsonb || jsonb_build_object('taskId', $1::text, 'createdAt', COALESCE($2::jsonb->>'createdAt', $3::text), 'updatedAt', $3::text)),
+          COALESCE(NULLIF($2::jsonb->>'createdAt', '')::timestamptz, $3::timestamptz),
+          $3::timestamptz
+        )
+        ON CONFLICT (task_id)
+        DO UPDATE SET
+          payload = (
+            SELECT jsonb_set(
               jsonb_set(
                 jsonb_set(
                   jsonb_set(
-                    app_generation_records.payload || EXCLUDED.payload || jsonb_build_object(
-                      'taskId', EXCLUDED.task_id,
-                      'createdAt', COALESCE(app_generation_records.payload->>'createdAt', EXCLUDED.payload->>'createdAt', $3::text),
-                      'updatedAt', $3::text,
-                      'deletedAt', COALESCE(EXCLUDED.payload->'deletedAt', app_generation_records.payload->'deletedAt', to_jsonb(''::text))
+                    jsonb_set(
+                      app_generation_records.payload || EXCLUDED.payload || jsonb_build_object(
+                        'taskId', EXCLUDED.task_id,
+                        'createdAt', COALESCE(app_generation_records.payload->>'createdAt', EXCLUDED.payload->>'createdAt', $3::text),
+                        'updatedAt', $3::text,
+                        'deletedAt', COALESCE(EXCLUDED.payload->'deletedAt', app_generation_records.payload->'deletedAt', to_jsonb(''::text))
+                      ),
+                      '{cdnVideoUrl}',
+                      CASE WHEN NULLIF(EXCLUDED.payload->>'cdnVideoUrl', '') IS NOT NULL
+                        THEN EXCLUDED.payload->'cdnVideoUrl'
+                        ELSE COALESCE(app_generation_records.payload->'cdnVideoUrl', to_jsonb(''::text)) END,
+                      true
                     ),
-                    '{cdnVideoUrl}',
-                    CASE WHEN NULLIF(EXCLUDED.payload->>'cdnVideoUrl', '') IS NOT NULL
-                      THEN EXCLUDED.payload->'cdnVideoUrl'
-                      ELSE COALESCE(app_generation_records.payload->'cdnVideoUrl', to_jsonb(''::text)) END,
+                    '{cdnPosterUrl}',
+                    CASE WHEN NULLIF(EXCLUDED.payload->>'cdnPosterUrl', '') IS NOT NULL
+                      THEN EXCLUDED.payload->'cdnPosterUrl'
+                      ELSE COALESCE(app_generation_records.payload->'cdnPosterUrl', to_jsonb(''::text)) END,
                     true
                   ),
-                  '{cdnPosterUrl}',
-                  CASE WHEN NULLIF(EXCLUDED.payload->>'cdnPosterUrl', '') IS NOT NULL
-                    THEN EXCLUDED.payload->'cdnPosterUrl'
-                    ELSE COALESCE(app_generation_records.payload->'cdnPosterUrl', to_jsonb(''::text)) END,
+                  '{cdnImageUrl}',
+                  CASE WHEN NULLIF(EXCLUDED.payload->>'cdnImageUrl', '') IS NOT NULL
+                    THEN EXCLUDED.payload->'cdnImageUrl'
+                    ELSE COALESCE(app_generation_records.payload->'cdnImageUrl', to_jsonb(''::text)) END,
                   true
                 ),
-                '{cdnImageUrl}',
-                CASE WHEN NULLIF(EXCLUDED.payload->>'cdnImageUrl', '') IS NOT NULL
-                  THEN EXCLUDED.payload->'cdnImageUrl'
-                  ELSE COALESCE(app_generation_records.payload->'cdnImageUrl', to_jsonb(''::text)) END,
+                '{cdnImageUrls}',
+                CASE WHEN jsonb_typeof(EXCLUDED.payload->'cdnImageUrls') = 'array' AND jsonb_array_length(EXCLUDED.payload->'cdnImageUrls') > 0
+                  THEN EXCLUDED.payload->'cdnImageUrls'
+                  ELSE COALESCE(app_generation_records.payload->'cdnImageUrls', '[]'::jsonb) END,
                 true
               ),
-              '{cdnImageUrls}',
-              CASE WHEN jsonb_typeof(EXCLUDED.payload->'cdnImageUrls') = 'array' AND jsonb_array_length(EXCLUDED.payload->'cdnImageUrls') > 0
-                THEN EXCLUDED.payload->'cdnImageUrls'
-                ELSE COALESCE(app_generation_records.payload->'cdnImageUrls', '[]'::jsonb) END,
+              '{cdnImageStorageKeys}',
+              CASE WHEN jsonb_typeof(EXCLUDED.payload->'cdnImageStorageKeys') = 'array' AND jsonb_array_length(EXCLUDED.payload->'cdnImageStorageKeys') > 0
+                THEN EXCLUDED.payload->'cdnImageStorageKeys'
+                ELSE COALESCE(app_generation_records.payload->'cdnImageStorageKeys', '[]'::jsonb) END,
               true
-            ),
-            '{cdnImageStorageKeys}',
-            CASE WHEN jsonb_typeof(EXCLUDED.payload->'cdnImageStorageKeys') = 'array' AND jsonb_array_length(EXCLUDED.payload->'cdnImageStorageKeys') > 0
-              THEN EXCLUDED.payload->'cdnImageStorageKeys'
-              ELSE COALESCE(app_generation_records.payload->'cdnImageStorageKeys', '[]'::jsonb) END,
-            true
-          )
-        ),
-        updated_at = $3::timestamptz
-      RETURNING payload
-    `,
-    [taskId, JSON.stringify(nextRecord), now],
-  );
-  return rows[0]?.payload || null;
+            )
+          ),
+          updated_at = $3::timestamptz
+        RETURNING payload
+      `,
+      [taskId, JSON.stringify(nextRecord), now],
+    );
+    return rows[0]?.payload || null;
+  };
+  if (!["story-asset", "story-shot-video"].includes(nextRecord.params?.createKind)) {
+    const record = await write({ query });
+    if (["story-asset", "story-shot-video"].includes(record?.params?.createKind)) {
+      await syncStoryGenerationRecordInDb({ query }, record);
+    }
+    return record;
+  }
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const record = await write(client);
+    if (record) await syncStoryGenerationRecordInDb(client, record);
+    await client.query("COMMIT");
+    return record;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function claimTelegramGenerationNotificationInDb(taskId = "", stage = "", chatId = "", claimToken = "") {
@@ -12806,7 +13052,9 @@ async function backfillGenerationRecordResultAssetMediaFieldsInDb(taskId = "", f
     "RETURNING payload",
   ].join("\n");
   const { rows } = await query(sql, params);
-  return rows[0]?.payload || null;
+  const record = rows[0]?.payload || null;
+  if (record) await syncStoryGenerationRecordInDb({ query }, record);
+  return record;
 }
 
 async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates = {}) {
@@ -12856,7 +13104,9 @@ async function updateGenerationRecordAdvancedDownloadInDb(taskId = "", updates =
     `,
     [id, JSON.stringify(patch)],
   );
-  return rows[0]?.payload || null;
+  const record = rows[0]?.payload || null;
+  if (record) await syncStoryGenerationRecordInDb({ query }, record);
+  return record;
 }
 
 async function replaceGenerationRecordsInDb(records) {
@@ -14138,6 +14388,8 @@ module.exports = {
   deleteStoryShotFromDb,
   replaceStoryShotsInDb,
   enqueueStoryShotPlanJobInDb,
+  enqueueStoryBackgroundJobInDb,
+  listLatestStoryBackgroundJobsInDb,
   getStoryShotPlanJobInDb,
   claimNextStoryShotPlanJobsInDb,
   completeStoryShotPlanJobInDb,

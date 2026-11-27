@@ -1768,7 +1768,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     return sendAdvancedValidationError(res, error, "Seedream 5.0 Image reference input is invalid.");
   }
   const requestFingerprint = seedream5ImageRequestFingerprint({
-    userId: auth.user.id,
+    userId: bodyParams.storyJobId ? `${auth.user.id}:story:${bodyParams.storyJobId}` : auth.user.id,
     model,
     prompt,
     ratio,
