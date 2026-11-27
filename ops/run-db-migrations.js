@@ -72,6 +72,11 @@ const MIGRATIONS = Object.freeze([
     kind: "schema",
   }),
   Object.freeze({
+    version: "2026-11-27-papaya-gateway-v1",
+    description: "Create Papaya gateway request and token-usage accounting",
+    kind: "schema",
+  }),
+  Object.freeze({
     version: "2026-11-11-generation-records-kv-v1",
     description: "Fingerprint-gated generation-record KV import with a durable completion marker",
     kind: "data",
@@ -446,6 +451,21 @@ const CHECKIN_ACTIVITY_DDL = Object.freeze([
    );`,
 ]);
 
+const PAPAYA_GATEWAY_DDL = Object.freeze([
+  `CREATE TABLE IF NOT EXISTS app_papaya_requests (
+    id UUID PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    streamed BOOLEAN NOT NULL,
+    outcome TEXT NOT NULL DEFAULT 'started',
+    prompt_tokens BIGINT,
+    completion_tokens BIGINT,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at TIMESTAMPTZ
+  )`,
+  `CREATE INDEX IF NOT EXISTS app_papaya_requests_user_time_idx
+    ON app_papaya_requests (user_id, started_at DESC)`,
+]);
+
 const WORKFLOW_CANVAS_SHARING_DDL = Object.freeze([
   `CREATE TABLE IF NOT EXISTS app_workflow_canvases (
      id TEXT PRIMARY KEY,
@@ -758,6 +778,8 @@ async function applyMigrations({ databaseUrl, lockTimeoutMs = 5000 } = {}) {
         await runStatements(schemaLockClient, CASH_COUPON_ACTIVITY_DDL);
       } else if (migration.version === "2026-11-26-workflow-canvas-sharing-v1") {
         await runStatements(schemaLockClient, WORKFLOW_CANVAS_SHARING_DDL);
+      } else if (migration.version === "2026-11-27-papaya-gateway-v1") {
+        await runStatements(schemaLockClient, PAPAYA_GATEWAY_DDL);
       } else {
         throw new Error(`Unknown schema migration: ${migration.version}`);
       }

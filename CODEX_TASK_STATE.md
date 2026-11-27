@@ -1,3 +1,11 @@
+## 2026-11-26 Step GF: Public template cards matched to project card size
+
+- Public templates now use the same desktop four-column grid and `24px 18px` gap as “我的项目”; each template card uses a `16:9` thumbnail, compact `76px` information area, and matching title/metadata sizing.
+- Responsive breakpoints now align with mine projects: four columns on wide desktop, three below `1100px`, and two below `768px`. Card stretch and bottom metadata alignment remain intact.
+- Source commit `21ceec6e`; cache version bumped to `canvas-20261126-6`. Platform release `903bd2b51b89a9a79badb8419b424f792664ff2c` deployed to Old only.
+- Verification: workflow canvas tests `44/44`, `npm run check:undef`, and `git diff --check` passed. Production readiness reports release `903bd2b5`; `platform.js` serves `canvas-20261126-6`, and the production canvas bundle contains the four-column grid, `16:9` thumbnail, and compact card info styles.
+- Rolling deployment completed: `OLD_ROLLING_DEPLOY_OK active_port=4174 release=903bd2b51b89a9a79badb8419b424f792664ff2c` and `ROLLING_DEPLOY_ENTRYPOINT_OK commit=903bd2b51b89a9a79badb8419b424f792664ff2c`.
+
 ## 2026-11-26 Step GE: Stable workflow-library tabs/cards and cache rollout
 
 - Public-template and my-project tabs now share the same `min(100%, 1580px)` content width and title alignment, preventing horizontal/vertical jumps when switching. Desktop filters stay on one row and cards use a three-column grid.

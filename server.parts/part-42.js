@@ -276,6 +276,9 @@ async function handlePosterImage(req, res, url) {
   }
 }
 
+const { PREFIX: PAPAYA_GATEWAY_PREFIX, createPapayaGateway } = require("./lib-papaya-gateway");
+const handlePapayaGateway = createPapayaGateway({ db: require("./db") });
+
 async function handleRequest(req, res) {
   let url = null;
   try {
@@ -289,6 +292,10 @@ async function handleRequest(req, res) {
     }
     applyPublicSecurityHeaders(req, res);
     if (sendHttpsRedirect(req, res, url)) return;
+    if (requestHostname(req) === "llm.123vip.fans" &&
+        url.pathname.startsWith(`${PAPAYA_GATEWAY_PREFIX}/`)) {
+      return await handlePapayaGateway(req, res, url.pathname);
+    }
     if (sendCanonicalRedirect(req, res, url)) return;
     // Analytics must never sit in the request critical path. Record it in the
     // background so HTML, static assets, and API calls are not delayed by DB IO.
