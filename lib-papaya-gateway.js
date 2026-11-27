@@ -100,7 +100,7 @@ async function forwardStream(upstream, res, signal, record) {
   throw failure(502, "incomplete_upstream_stream");
 }
 
-function createPapayaGateway({ db, env = process.env, fetchUpstream = fetch }) {
+function createPapayaGateway({ db, loadPricing, env = process.env, fetchUpstream = fetch }) {
   let active = 0;
   return async function papayaGateway(req, res, pathname) {
     const requestId = randomUUID();
@@ -114,6 +114,7 @@ function createPapayaGateway({ db, env = process.env, fetchUpstream = fetch }) {
     let outcome = "failed";
     let held = false;
     let timer;
+    const tokenCount = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null;
     try {
       const models = req.method === "GET" && pathname === `${PREFIX}/models`;
       const chat = req.method === "POST" && pathname === `${PREFIX}/chat/completions`;
@@ -135,6 +136,11 @@ function createPapayaGateway({ db, env = process.env, fetchUpstream = fetch }) {
       if (active >= 2) throw failure(429, "gateway_busy");
       active += 1;
       held = true;
+      const price = await loadPricing(user).catch(() => { throw failure(503, "billing_unavailable"); });
+      const inputEstimate = Math.ceil(Buffer.byteLength(JSON.stringify(payload), "utf8") / 2);
+      if (Number(user.credits) <= 0 || Number(user.credits) < price(inputEstimate, payload.max_tokens)) {
+        throw failure(402, "insufficient_credits", "Top up your 123vips credits and try again.");
+      }
       await db.query(
         "INSERT INTO app_papaya_requests (id, user_id, streamed) VALUES ($1, $2, $3)",
         [requestId, user.id, payload.stream],
@@ -172,11 +178,35 @@ function createPapayaGateway({ db, env = process.env, fetchUpstream = fetch }) {
         if (timeout.aborted) throw failure(504, "upstream_timeout");
         throw error.status ? error : failure(502, "upstream_unavailable");
       }
-      await finish("completed").catch(() => { throw failure(503, "database_unavailable"); });
+      const promptTokens = tokenCount(record.usage?.prompt_tokens);
+      const completionTokens = tokenCount(record.usage?.completion_tokens);
+      if (promptTokens === null || completionTokens === null || promptTokens === 0) {
+        throw failure(502, "upstream_usage_missing");
+      }
+      const cost = price(promptTokens, completionTokens);
+      if (cost > 0) {
+        try {
+          const charge = await db.applyCreditDeltaInDb({
+            id: `papaya-gateway:${requestId}`,
+            userId: user.id,
+            delta: -cost,
+            type: "papaya_gateway_usage",
+            meta: { taskId: requestId, model: MODEL, promptTokens, completionTokens },
+          });
+          if (!charge?.ledger) throw failure(503, "billing_unavailable");
+        } catch (error) {
+          if (error.statusCode === 402) {
+            throw failure(402, "insufficient_credits", "Top up your 123vips credits and try again.");
+          }
+          throw failure(503, "billing_unavailable");
+        }
+      }
+      outcome = "completed";
+      await finish(outcome).catch(() => { throw failure(503, "database_unavailable"); });
       if (payload.stream) res.end("data: [DONE]\n\n");
       else json(res, 200, { ...result, model: MODEL });
     } catch (error) {
-      outcome = controller.signal.aborted ? "disconnected" : "failed";
+      if (outcome !== "completed") outcome = controller.signal.aborted ? "disconnected" : "failed";
       if (!res.destroyed) {
         const code = error.code && error.status ? error.code : "internal_error";
         const payload = { error: { message: error.status ? error.message : code, type: code, code } };
@@ -193,7 +223,6 @@ function createPapayaGateway({ db, env = process.env, fetchUpstream = fetch }) {
     }
 
     async function finish(status) {
-      const tokenCount = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null;
       await db.query(
         `UPDATE app_papaya_requests
          SET outcome = $2, prompt_tokens = $3, completion_tokens = $4, finished_at = NOW()
