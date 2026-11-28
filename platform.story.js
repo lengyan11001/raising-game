@@ -1424,6 +1424,161 @@
     </form>`;
   }
 
+  const storyWorkflowSteps = ["剧本拆集", "分镜", "资产清单", "设计图", "视频提示词", "视频"];
+  const storyJobStages = {
+    analysis: "剧本拆集", shots: "分镜", assets: "资产清单", image: "设计图", prompt: "视频提示词",
+  };
+  const storyJobPhases = {
+    coverage: "AI 正在梳理剧情覆盖",
+    storyboard: "AI 正在规划镜头",
+    "review-shots": "AI 正在复核分镜",
+    "save-shots": "正在保存分镜",
+    assets: "AI 正在生成资产清单并绑定镜头",
+    analysis: "AI 正在拆解剧本",
+    image: "正在提交设计图生成任务",
+    prompt: "AI 正在优化视频提示词",
+  };
+  const storyActionStages = {
+    save: 0, analyze: 0, import: 0, "save-episode": 1, "plan-shots": 1, "plan-assets": 2,
+    "confirm-shot-assets": 2, "generate-shot-assets": 3, "generate-asset": 3, "generate-assets": 3,
+    "approve-asset": 3, "reuse-asset": 3, "plan-prompts": 4, "generate-video": 5,
+  };
+
+  function storyJobPending(job = {}) {
+    return ["queued", "retry", "processing"].includes(job.status);
+  }
+
+  function storyWorkflowSnapshot(episode, shot) {
+    const detail = storyState.detail || {};
+    const scriptView = storyState.detailTab === "script" || !episode;
+    const analysis = (detail.analysisJobs || []).find((job) => job.scriptVersionId === storyState.selectedScriptId);
+    const hasDraft = Boolean(storyState.analysis || analysis?.result?.analysis);
+    const shots = episode ? storyState.shots : [];
+    const shotCount = Math.max(Number(episode?.shotCount || 0), shots.length);
+    const assets = episode ? (shot ? storyShotAssets(episode, shot) : storyEpisodeAssets(episode)) : [];
+    const generated = assets.filter(storyAssetHasGeneratedImage).length;
+    const approved = assets.filter(storyAssetHasApprovedImage).length;
+    const confirmed = shot ? storyShotAssetsConfirmed(shot) : shots.length > 0 && shots.every(storyShotAssetsConfirmed);
+    const relevantShots = shot ? [shot] : shots;
+    const prompts = relevantShots.filter((item) => storyShotPromptMatchesModel(item, storyState.videoModel, storyState.promptResolution)).length;
+    const jobs = scriptView ? (analysis ? [{ ...analysis, kind: "analysis" }] : []) : (detail.backgroundJobs || [])
+      .filter((job) => job.episodeId === episode.id && (!shot || (!job.shotId || job.shotId === shot.id))
+        && (!shot || !job.assetId || assets.some((asset) => asset.id === job.assetId)));
+    const shotIds = new Set(relevantShots.map((item) => item.id));
+    const refs = scriptView ? [] : (detail.generationRefs || []).filter((ref) => ref.kind === "video" && shotIds.has(ref.shotId));
+    const videos = new Set(refs.filter((ref) => storyGenerationRefVideoUrl(ref)
+      && !["failed", "error", "canceled", "cancelled"].includes(ref.status)).map((ref) => ref.shotId)).size;
+    const imageVariants = assets.flatMap((asset) => storyAssetVariants(asset.id));
+    const runningImage = !scriptView && imageVariants.some((variant) => variant.status === "generating");
+    const runningVideo = refs.some(storyVideoRefPending);
+    const complete = [
+      scriptView ? Boolean(detail.episodes?.some((item) => item.sourceScriptVersionId === storyState.selectedScriptId)) : true,
+      Boolean(shotCount), confirmed, assets.length > 0 && approved === assets.length,
+      relevantShots.length > 0 && prompts === relevantShots.length, relevantShots.length > 0 && videos === relevantShots.length,
+    ];
+    return { scriptView, hasDraft, shotCount, assets, generated, approved, confirmed, prompts, jobs, refs, videos,
+      runningImage, runningVideo, complete, relevantShots };
+  }
+
+  function storyWorkflowIdle(snapshot, episode, shot) {
+    const { scriptView, hasDraft, shotCount, assets, generated, approved, confirmed, prompts, videos, relevantShots } = snapshot;
+    if (scriptView) {
+      if (hasDraft) return { step: 0, title: "拆集草稿已就绪", next: "核对各集大纲和时长，然后确认写入剧集。" };
+      if (snapshot.complete[0]) return { step: 1, title: "分集已写入", next: "打开分集分镜树，选择一集核对大纲。" };
+      return { step: 0, title: storyState.selectedScriptId ? "文稿已保存，待拆集" : "待录入剧本",
+        next: storyState.selectedScriptId ? "点击 AI 拆解，生成待确认的分集草稿。" : "创建文稿并保存剧本正文。" };
+    }
+    if (!shotCount) return { step: 1, title: "待生成分镜", next: "核对本集大纲，点击锁定大纲并生成分镜。" };
+    if (!assets.length) return { step: 2, title: "资产清单待生成", next: "分镜已保存。若清单任务失败，可单独重试 AI 资产清单。", count: episode?.shotCount ? `${shotCount} 个分镜已保存` : "" };
+    if (!confirmed) return { step: 2, title: "AI 资产清单待确认", count: `${assets.length} 项资产`, next: shot ? "核对本镜角色造型、场景和道具，点击确认资产清单。" : "从左侧逐镜打开并确认资产清单。" };
+    if (generated < assets.length && approved < assets.length) return { step: 3, title: "待生成设计图", count: `${generated} / ${assets.length} 项已有设计图`, next: "点击生成剩余设计图，完成后选择要定稿的图片。" };
+    if (approved < assets.length) return { step: 3, title: "设计图待定稿", count: `${approved} / ${assets.length} 项已定稿`, next: "审核候选图片并定稿，或一键定稿并生成视频提示词。" };
+    if (prompts < relevantShots.length) return { step: 4, title: "待生成视频提示词", count: `${prompts} / ${relevantShots.length} 镜已就绪`, next: "选择视频模型与分辨率，再生成或刷新对应的提示词。" };
+    if (videos < relevantShots.length) return { step: 5, title: "提示词已就绪，待生成视频", count: `${videos} / ${relevantShots.length} 镜已有视频`, next: "核对提示词与参考图，然后点击生成视频。" };
+    return { step: 5, title: "视频已就绪", count: `${videos} / ${relevantShots.length} 镜已有视频`, next: "播放视频，核对画面和镜头衔接。" };
+  }
+
+  function storyWorkflowStatus(snapshot, episode, shot) {
+    const idle = storyWorkflowIdle(snapshot, episode, shot);
+    const pending = snapshot.jobs.filter(storyJobPending);
+    const job = pending.find((item) => item.kind === "shots")
+      || pending.find((item) => item.status === "processing") || pending[0];
+    if (job) {
+      const phase = job.progress?.phase;
+      const step = phase === "assets" ? 2 : storyWorkflowSteps.indexOf(storyJobStages[job.kind]);
+      const queued = job.status !== "processing";
+      let count = job.progress?.shots ? `${job.progress.shots} 个分镜` : "";
+      if (job.kind === "image") count = `${snapshot.generated} / ${snapshot.assets.length} 项已有设计图`;
+      if (job.kind === "prompt") count = `${snapshot.prompts} / ${snapshot.relevantShots.length} 镜提示词就绪`;
+      const next = {
+        analysis: "拆集完成后，核对草稿并确认写入。",
+        shots: "分镜保存后会自动生成资产清单，完成后由你确认。",
+        assets: "清单生成后，核对角色造型、场景和道具。",
+        image: "全部设计图就绪后，审核并选定参考图。",
+        prompt: "提示词完成后，核对素材并启动视频生成。",
+      }[job.kind];
+      const measured = job.kind === "image" ? [snapshot.generated, snapshot.assets.length]
+        : job.kind === "prompt" ? [snapshot.prompts, snapshot.relevantShots.length] : null;
+      return { step, count, measured, next, state: queued ? "queued" : "running", background: true,
+        title: queued ? `${storyJobStages[job.kind]}已排队` : storyJobPhases[phase] || `后台正在处理${storyJobStages[job.kind]}` };
+    }
+    if (snapshot.runningImage) return { step: 3, state: "running", background: true, title: "模型正在生成设计图",
+      count: `${snapshot.generated} / ${snapshot.assets.length} 项已有设计图`, measured: [snapshot.generated, snapshot.assets.length], next: "设计图就绪后，审核并选定参考图。" };
+    if (snapshot.runningVideo) return { step: 5, state: "running", background: true, title: "模型正在生成视频",
+      count: snapshot.relevantShots.length > 1 ? `${snapshot.videos} / ${snapshot.relevantShots.length} 镜已有视频` : "",
+      next: "视频回填后，点击播放核对画面和镜头衔接。" };
+    if (storyState.action) {
+      const step = storyActionStages[storyState.action] ?? idle.step;
+      return { ...idle, step, state: "running", title: storyState.actionMessage || "正在提交操作", count: "" };
+    }
+    const failed = snapshot.jobs.find((item) => item.errorMessage &&
+      (storyWorkflowSteps[idle.step] === storyJobStages[item.kind] || (idle.step === 2 && item.kind === "shots"))
+      && !(item.kind === "shots" && snapshot.assets.length));
+    if (failed) {
+      const label = idle.step === 2 ? "资产清单" : storyJobStages[failed.kind];
+      return { ...idle, state: "failed", title: `${label}生成失败`, detail: failed.errorMessage, next: idle.next };
+    }
+    const latestVideo = snapshot.refs[0];
+    if (idle.step === 5 && shot && ["failed", "error", "canceled", "cancelled"].includes(latestVideo?.status)) {
+      return { ...idle, state: "failed", title: "视频生成失败", detail: latestVideo.metadata?.error || "",
+        next: "检查失败原因后，重新生成本镜视频。" };
+    }
+    if (idle.step === 3 && snapshot.assets.some((asset) => !storyAssetHasGeneratedImage(asset)
+      && storyAssetVariants(asset.id).some((variant) => variant.status === "failed"))) {
+      return { ...idle, state: "failed", title: "部分设计图生成失败", next: "重试缺少的设计图，已经生成的图片可继续审核。" };
+    }
+    return { ...idle, state: snapshot.complete[5] ? "done" : "waiting" };
+  }
+
+  function renderStoryWorkflowProgress(episode) {
+    const shot = storyState.shots.find((item) => item.id === storyState.selectedShotId);
+    const snapshot = storyWorkflowSnapshot(episode, shot);
+    const status = storyWorkflowStatus(snapshot, episode, shot);
+    const busy = status.state === "queued" || status.state === "running";
+    const scope = snapshot.scriptView ? "文稿" : shot ? `S${String(shot.shotNo).padStart(2, "0")} · ${shot.title}`
+      : `E${String(episode.episodeNo).padStart(2, "0")} · ${episode.title}`;
+    const measured = status.measured?.[1] > 0 ? status.measured : null;
+    const steps = storyWorkflowSteps.map((label, index) => {
+      const current = index === status.step;
+      const complete = !current && snapshot.complete[index] && (!snapshot.scriptView || index === 0);
+      return `<li class="${current ? "is-current" : complete ? "is-done" : ""}" ${current ? 'aria-current="step"' : ""}>
+        <span class="story-progress-step-mark" aria-hidden="true">${complete ? "✓" : index + 1}</span><span>${label}</span>
+      </li>`;
+    }).join("");
+    return `<section class="story-production-progress is-${status.state}" aria-label="制作进度">
+      <div class="story-progress-heading"><strong>制作进度</strong><span>${storyEscape(scope)}</span></div>
+      <ol class="story-progress-steps" aria-label="制作阶段">${steps}</ol>
+      <div class="story-progress-status" role="status" aria-live="polite">
+        <span class="story-progress-indicator ${busy ? "is-spinning" : ""}" aria-hidden="true">${busy ? "" : status.state === "failed" ? "!" : status.state === "done" ? "✓" : "·"}</span>
+        <div><strong>${storyEscape(status.title)}</strong>${status.detail ? `<p>${storyEscape(status.detail)}</p>` : ""}</div>
+        ${status.count ? `<span class="story-progress-count">${storyEscape(status.count)}</span>` : ""}
+      </div>
+      ${measured ? `<progress class="story-progress-meter" value="${measured[0]}" max="${measured[1]}" aria-label="${storyEscape(status.count)}"></progress>` : ""}
+      <p class="story-progress-next"><strong>下一步</strong> ${storyEscape(status.next || "")}
+        ${status.background ? '<span class="story-progress-background">后台继续运行，可以离开页面。</span>' : ""}</p>
+    </section>`;
+  }
+
   function renderStoryDetail() {
     const host = storyEl("storyProjectDetail");
     if (!host) return;
@@ -1496,6 +1651,7 @@
     host.innerHTML = `
       <div class="story-detail-panel">
         ${renderStoryDetailTabs()}
+        <div id="storyWorkflowProgress">${renderStoryWorkflowProgress(selectedEpisode)}</div>
         <div class="story-tab-panel" data-story-tab-panel="script" ${storyState.detailTab === "script" ? "" : "hidden"}>
           ${renderStoryScriptSection()}
           ${renderStoryAnalysisSection()}
@@ -1977,10 +2133,29 @@
     renderStoryDetail();
   }
 
+  function updateStoryProgressJob(projectId, job) {
+    if (!job?.id || !job.kind || storyState.selectedId !== projectId || !storyState.detail) return;
+    const listKey = job.kind === "analysis" ? "analysisJobs" : "backgroundJobs";
+    const list = storyState.detail[listKey] || [];
+    const previous = list.find((item) => item.id === job.id);
+    storyState.detail[listKey] = [{ ...previous, ...job }, ...list.filter((item) => item.id !== job.id)];
+    renderStoryWorkflowProgressInPlace();
+  }
+
+  function renderStoryWorkflowProgressInPlace() {
+    const host = storyEl("storyWorkflowProgress");
+    if (!host) return;
+    const markup = renderStoryWorkflowProgress(selectedStoryEpisode());
+    if (host.dataset.progressMarkup === markup) return;
+    host.dataset.progressMarkup = markup;
+    host.innerHTML = markup;
+  }
+
   async function waitForStoryBackgroundJob(projectId, jobId) {
     const deadline = Date.now() + 28 * 60 * 1000;
     while (storyState.selectedId === projectId && Date.now() < deadline) {
       const { job } = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}`);
+      updateStoryProgressJob(projectId, job);
       if (job.status === "completed") return job.result;
       if (job.status === "failed") throw new Error(job.errorMessage || "后台任务失败，请重试。");
       await new Promise((resolve) => window.setTimeout(resolve, 2500));
@@ -2001,20 +2176,16 @@
     const jobId = created.job?.id || "";
     if (!jobId) throw new Error("AI 分镜任务没有返回任务编号，请重试。");
     const startedAt = Date.now();
-    let lastStatus = created.job?.status || "queued";
-    while (Date.now() - startedAt < 28 * 60 * 1000) {
-      storyState.actionMessage = lastStatus === "processing"
-        ? "后台正在生成分镜并提取资产，可离开页面，稍后回到本集查看。"
-        : "AI 分镜已排队，正在等待后台开始处理…";
-      renderStoryDetail();
+    updateStoryProgressJob(projectId, { ...created.job, kind: "shots", episodeId });
+    while (storyState.selectedId === projectId && Date.now() - startedAt < 28 * 60 * 1000) {
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
       const payload = await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episodeId)}/shots/plan/jobs/${encodeURIComponent(jobId)}`);
       const job = payload.job || {};
-      lastStatus = job.status || lastStatus;
-      if (lastStatus === "completed") {
+      updateStoryProgressJob(projectId, { kind: "shots", episodeId, ...job });
+      if (job.status === "completed") {
         return job.result || {};
       }
-      if (lastStatus === "failed") {
+      if (job.status === "failed") {
         const error = new Error(job.errorMessage || "AI 分镜失败，请重试。");
         error.code = job.errorCode || "STORY_SHOT_PLAN_FAILED";
         throw error;

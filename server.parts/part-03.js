@@ -854,6 +854,7 @@ async function handleGetStoryProject(req, res, projectId = "") {
     generationRefs: (generationRefs || []).map(storyGenerationRefClientView),
     backgroundJobs: backgroundJobs.filter((job) => job.kind !== "analysis").map((job) => ({
       id: job.id, kind: job.kind, episodeId: job.episodeId, status: job.status,
+      progress: job.result?.progress,
       shotId: job.input.shotId, assetId: job.input.assetId, errorMessage: job.errorMessage || job.result?.assetPlan?.errorMessage,
     })),
     analysisJobs: backgroundJobs.filter((job) => job.kind === "analysis").filter((job) => (scripts || []).some((script) => script.id === job.input.scriptVersionId))
@@ -1477,6 +1478,9 @@ async function handleGetStoryShotPlanJob(req, res, projectId = "", episodeId = "
     ok: true,
     job: {
       id: job.id,
+      kind: job.kind,
+      episodeId: job.episodeId,
+      scriptVersionId: job.input.scriptVersionId,
       status: job.status,
       attempts: job.attempts,
       maxAttempts: job.maxAttempts,
@@ -1485,6 +1489,7 @@ async function handleGetStoryShotPlanJob(req, res, projectId = "", episodeId = "
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
       completedAt: job.completedAt,
+      progress: job.result?.progress,
       result: job.status === "completed" ? job.result : null,
     },
   });
