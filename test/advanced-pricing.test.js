@@ -12,6 +12,19 @@ const platformUi = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 const platformCreateUi = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
 const adminUi = fs.readFileSync(path.join(root, "admin.js"), "utf8");
 
+test("Papaya and BytePlus Language add a 1.5× markup without raising Qwen text pricing", () => {
+  const usage = { inputTokens: 20000, outputTokens: 4000 };
+  const papaya = application.advancedModelPricing("papaya", usage);
+  const byteplus = application.advancedModelPricing("byteplus-language", usage);
+  const qwen = application.advancedModelPricing("qwen37-flash", usage);
+  assert.equal(papaya.markup, 1.5);
+  assert.equal(byteplus.markup, 1.5);
+  assert.equal(qwen.markup, 1);
+  assert.equal(papaya.credits, Math.round(papaya.baseCredits * 15000) / 10000);
+  assert.equal(byteplus.baseCredits, qwen.baseCredits);
+  assert.equal(byteplus.credits, Math.round(qwen.baseCredits * 15000) / 10000);
+});
+
 test("admin pricing rows use their server definition when saving", () => {
   assert.match(server, /ADVANCED_PRICING_ROWS_BY_KEY\.get\(key\)/);
 });

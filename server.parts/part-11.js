@@ -747,7 +747,9 @@ function advancedDurationBounds(provider = "seedance") {
     : { fallback: 5, min: 5, max: 15 };
 }
 
-function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, options = {}) {
+const PUBLIC_LANGUAGE_PRICE_MARKUP = 1.5;
+
+function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, options = {}, markup = 1) {
   const pricing = normalizeAdvancedPricing(advancedPricing);
   const configured = pricing.qwen37Flash || DEFAULT_ADVANCED_PRICING.qwen37Flash;
   const inputTokens = Math.max(1, Math.min(1000000, Math.floor(Number(options.inputTokens || options.promptTokens || 1) || 1)));
@@ -763,7 +765,7 @@ function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, 
   const inputCny = (inputTokens * inputCnyPerMillionTokens) / 1000000;
   const outputCny = (outputTokens * outputCnyPerMillionTokens) / 1000000;
   const totalCny = inputCny + outputCny;
-  const baseCredits = creditsAmount(totalCny * Number(pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY));
+  const costCredits = totalCny * Number(pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY);
   return {
     provider: "qwen37-flash",
     providerLabel: "Qwen3.7 Flash",
@@ -775,9 +777,9 @@ function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, 
     inputCny: pricingNumber(inputCny, 0, 0, 8),
     outputCny: pricingNumber(outputCny, 0, 0, 8),
     totalCny: pricingNumber(totalCny, 0, 0, 8),
-    baseCredits,
-    credits: baseCredits,
-    markup: 1,
+    baseCredits: creditsAmount(costCredits),
+    credits: creditsAmount(costCredits * markup),
+    markup,
     source: "aliyun_singapore_official_token_pricing",
   };
 }
@@ -967,7 +969,8 @@ function advancedModelPricingRaw(provider = "seedance", options = {}) {
   }
   if (normalizedProvider === "papaya") return papayaPricingEstimate(advancedPricing, options);
   if (["qwen37-flash", "byteplus-language"].includes(normalizedProvider)) {
-    const estimate = qwen37FlashPricingEstimate(advancedPricing, options);
+    const markup = normalizedProvider === "byteplus-language" ? PUBLIC_LANGUAGE_PRICE_MARKUP : 1;
+    const estimate = qwen37FlashPricingEstimate(advancedPricing, options, markup);
     return normalizedProvider === "byteplus-language"
       ? { ...estimate, provider: normalizedProvider, providerLabel: "BytePlus Language", model: BYTEPLUS_LANGUAGE_MODEL, source: "byteplus_token_pricing_fallback" }
       : estimate;

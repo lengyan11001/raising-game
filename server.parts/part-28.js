@@ -334,9 +334,8 @@ async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
   );
   const papayaImages = provider === "papaya" ? await papayaImageDataUrls(auth, body) : [];
   const estimatedInputTokens = Math.max(1, Math.min(256000, Math.ceil(Buffer.byteLength(prompt, "utf8") / 2) + 32 + papayaImages.length * 800));
-  const rawPricing = provider === "papaya"
-    ? papayaPricingEstimate(config.platform?.advancedPricing, { inputTokens: estimatedInputTokens, outputTokens: maxTokens })
-    : qwen37FlashPricingEstimate(config.platform?.advancedPricing, {
+  const rawPricing = advancedModelPricing(provider, {
+    advancedPricing: config.platform?.advancedPricing,
     inputTokens: estimatedInputTokens,
     outputTokens: maxTokens,
   });
