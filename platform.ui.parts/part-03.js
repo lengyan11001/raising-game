@@ -89,7 +89,8 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     const inputTokens = Math.max(1, Math.min(256000, Math.floor(Number(options.inputTokens || 1) || 1)));
     const outputTokens = Math.max(0, Math.min(8192, Math.floor(Number(options.outputTokens ?? options.maxTokens ?? els.advancedQwen37MaxTokens?.value ?? 8192) || 0)));
     const usd = (inputTokens * 0.15 + outputTokens * 0.45) / 1000000;
-    const originalCredits = creditsAmount(usd * creditsPerUsd);
+    const markup = 1.5;
+    const originalCredits = creditsAmount(usd * creditsPerUsd * markup);
     const multiplier = userPricingMultiplier();
     return {
       provider: "papaya",
@@ -99,11 +100,12 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       inputUsdPerMillionTokens: 0.15,
       outputUsdPerMillionTokens: 0.45,
       originalCredits,
+      markup,
       credits: creditsAmount(originalCredits * multiplier),
       source: "mulerouter_papaya_token_pricing",
     };
   }
-  if (["qwen37-flash", "byteplus-language", "papaya"].includes(normalizedProvider)) {
+  if (["qwen37-flash", "byteplus-language"].includes(normalizedProvider)) {
     const configPricing = state.config?.platform?.advancedPricing || {};
     const qwenPricing = configPricing.qwen37Flash || {};
     const inputTokens = Math.max(1, Math.min(1000000, Math.floor(Number(options.inputTokens || 1) || 1)));
@@ -111,7 +113,9 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     const inputRate = Number(qwenPricing.inputCnyPerMillionTokens ?? 0.225);
     const outputRate = Number(qwenPricing.outputCnyPerMillionTokens ?? 0.974);
     const creditsPerCny = Number(configPricing.creditsPerCny || 20) || 20;
-    const originalCredits = creditsAmount(((inputTokens * inputRate + outputTokens * outputRate) / 1000000) * creditsPerCny);
+    const markup = normalizedProvider === "byteplus-language" ? 1.5 : 1;
+    const costCredits = ((inputTokens * inputRate + outputTokens * outputRate) / 1000000) * creditsPerCny;
+    const originalCredits = creditsAmount(costCredits * markup);
     const multiplier = userPricingMultiplier();
     return {
       provider: normalizedProvider,
@@ -120,10 +124,10 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       outputTokens,
       inputCnyPerMillionTokens: inputRate,
       outputCnyPerMillionTokens: outputRate,
-      baseCredits: originalCredits,
+      baseCredits: creditsAmount(costCredits),
       originalCredits,
       credits: creditsAmount(originalCredits * multiplier),
-      markup: 1,
+      markup,
       userPricingMultiplier: multiplier,
       source: "aliyun_singapore_official_token_pricing",
     };

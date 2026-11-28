@@ -308,7 +308,7 @@ function papayaPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, optio
   const outputUsd = (outputTokens * 0.45) / 1000000;
   const totalUsd = inputUsd + outputUsd;
   const totalCny = totalUsd * Number(INTERNAL_CNY_PER_USD || 5);
-  const baseCredits = creditsAmount(totalCny * Number(pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY));
+  const costCredits = totalCny * Number(pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY);
   return {
     provider: "papaya",
     providerLabel: "Papaya 1.0",
@@ -319,9 +319,9 @@ function papayaPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, optio
     outputUsdPerMillionTokens: 0.45,
     totalUsd: pricingNumber(totalUsd, 0, 0, 8),
     totalCny: pricingNumber(totalCny, 0, 0, 8),
-    baseCredits,
-    credits: baseCredits,
-    markup: 1,
+    baseCredits: creditsAmount(costCredits),
+    credits: creditsAmount(costCredits * PUBLIC_LANGUAGE_PRICE_MARKUP),
+    markup: PUBLIC_LANGUAGE_PRICE_MARKUP,
     source: "mulerouter_papaya_token_pricing",
   };
 }

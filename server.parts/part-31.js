@@ -341,7 +341,7 @@ function languageApiMarkdown() {
       "Authorization: Bearer <user-token>",
     ].join("\n")),
     "",
-    "When `record.status` is `succeeded`, read `record.textResult`. When it is `failed`, read `record.error`. The platform estimates credits at submission and settles against model usage.",
+    `When \`record.status\` is \`succeeded\`, read \`record.textResult\`. When it is \`failed\`, read \`record.error\`. The platform estimates credits at submission and settles against model usage. Both models use a ${PUBLIC_LANGUAGE_PRICE_MARKUP}× base price multiplier before account-level API pricing adjustments.`,
     "",
   ].join("\n");
 }
