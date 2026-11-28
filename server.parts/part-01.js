@@ -500,6 +500,7 @@ const {
   getAdminDashboardStatsFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
+  failUnsubmittedStoryImageInDb,
   prepareGenerationSubmitInDb,
   getGenerationSubmitResumeStateInDb,
   claimNextGenerationSubmitJobsInDb,

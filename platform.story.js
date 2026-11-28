@@ -1448,6 +1448,13 @@
     return ["queued", "retry", "processing"].includes(job.status);
   }
 
+  function storyImageVariantPending(variant = {}) {
+    if (variant.status !== "generating") return false;
+    const jobId = variant.metadata?.storyJobId;
+    return !jobId || !(storyState.detail?.backgroundJobs || [])
+      .some((job) => job.id === jobId && job.status === "failed");
+  }
+
   function storyWorkflowSnapshot(episode, shot) {
     const detail = storyState.detail || {};
     const scriptView = storyState.detailTab === "script" || !episode;
@@ -1469,7 +1476,7 @@
     const videos = new Set(refs.filter((ref) => storyGenerationRefVideoUrl(ref)
       && !["failed", "error", "canceled", "cancelled"].includes(ref.status)).map((ref) => ref.shotId)).size;
     const imageVariants = assets.flatMap((asset) => storyAssetVariants(asset.id));
-    const runningImage = !scriptView && imageVariants.some((variant) => variant.status === "generating");
+    const runningImage = !scriptView && imageVariants.some(storyImageVariantPending);
     const runningVideo = refs.some(storyVideoRefPending);
     const complete = [
       scriptView ? Boolean(detail.episodes?.some((item) => item.sourceScriptVersionId === storyState.selectedScriptId)) : true,
@@ -1532,11 +1539,13 @@
       return { ...idle, step, state: "running", title: storyState.actionMessage || "正在提交操作", count: "" };
     }
     const failed = snapshot.jobs.find((item) => item.errorMessage &&
-      (storyWorkflowSteps[idle.step] === storyJobStages[item.kind] || (idle.step === 2 && item.kind === "shots"))
+      (item.kind === "image" || storyWorkflowSteps[idle.step] === storyJobStages[item.kind] || (idle.step === 2 && item.kind === "shots"))
       && !(item.kind === "shots" && snapshot.assets.length));
     if (failed) {
-      const label = idle.step === 2 ? "资产清单" : storyJobStages[failed.kind];
-      return { ...idle, state: "failed", title: `${label}生成失败`, detail: failed.errorMessage, next: idle.next };
+      const step = failed.kind === "image" ? 3 : idle.step;
+      const label = step === 2 ? "资产清单" : storyJobStages[failed.kind];
+      return { ...idle, step, state: "failed", title: `${label}生成失败`, detail: failed.errorMessage,
+        next: failed.kind === "image" ? "重试失败的设计图，已生成的图片仍可使用。" : idle.next };
     }
     const latestVideo = snapshot.refs[0];
     if (idle.step === 5 && shot && ["failed", "error", "canceled", "cancelled"].includes(latestVideo?.status)) {
@@ -2569,7 +2578,7 @@
     storyState.videoSyncTimer = null;
     const projectId = storyState.selectedId;
     const pending = storyState.detail?.generationRefs?.some(storyVideoRefPending)
-      || storyState.assetVariants.some((variant) => variant.status === "generating")
+      || storyState.assetVariants.some(storyImageVariantPending)
       || [...(storyState.detail?.backgroundJobs || []), ...(storyState.detail?.analysisJobs || [])]
         .some((job) => ["queued", "retry", "processing"].includes(job.status));
     if (!projectId || document.hidden || !pending) return;
