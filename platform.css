@@ -17101,3 +17101,20 @@ body.app-keyboard-open {
   .story-progress-indicator.is-spinning { animation: none; }
 }
 .story-progress-meter { width: 100%; height: 6px; accent-color: #d6a5ee; }
+
+.story-character-reference-label { color: #dac3e8; font-size: 11px; }
+.story-frame-workspace .story-frame-candidate {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.story-frame-candidate img {
+  display: block;
+  width: clamp(72px, 16vw, 148px);
+  max-height: 175px;
+  object-fit: contain;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .04);
+}
+.story-frame-workspace .story-frame-candidate > div { display: grid; gap: 6px; min-width: 0; }

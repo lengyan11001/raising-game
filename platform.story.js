@@ -863,11 +863,18 @@
       .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0] || null;
   }
 
+  function storyCharacterIdentity(asset) {
+    return String(asset?.metadata?.characterKey || String(asset?.name || "").split(/[·｜|_/—\-]/)[0]).trim().toLowerCase();
+  }
+
   function storyReusableAssetVariants(asset = {}) {
     return storyState.assetVariants.filter((variant) => {
       if (variant.status !== "approved" || variant.assetId === asset.id) return false;
       const sourceAsset = storyState.assets.find((item) => item.id === variant.assetId);
-      return sourceAsset && sourceAsset.kind === asset.kind;
+      if (!sourceAsset || sourceAsset.kind !== asset.kind) return false;
+      if (asset.kind !== "character") return true;
+      return storyCharacterIdentity(asset) === storyCharacterIdentity(sourceAsset)
+        && String(asset.metadata?.stateLabel || "") === String(sourceAsset.metadata?.stateLabel || "");
     }).sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
   }
 
@@ -1030,6 +1037,74 @@
       </section>`;
   }
 
+  function storyFrameRefs(shotId) {
+    return (storyState.detail?.generationRefs || []).filter((ref) => ref.kind === "frame" && ref.shotId === shotId);
+  }
+
+  function storyFrameRefPending(ref) {
+    if (ref.kind !== "frame" || !["queued", "processing", "running"].includes(ref.status)) return false;
+    return !(storyState.detail?.backgroundJobs || []).some((job) => job.id === ref.metadata?.storyJobId && job.status === "failed");
+  }
+
+  function storyFrameMatchesAssets(frame, assets) {
+    const sourceIds = assets.filter((asset) => ["character", "scene", "prop"].includes(asset.kind))
+      .map((asset) => storyApprovedAssetVariant(asset)?.id).filter(Boolean).sort();
+    return sourceIds.length > 0 && JSON.stringify(sourceIds) === JSON.stringify(frame?.metadata?.sourceVariantIds);
+  }
+
+  function renderStoryFrameWorkspace(shot, assets, assetsApproved) {
+    const refs = storyFrameRefs(shot.id);
+    const approved = refs.find((ref) => ref.id === shot.metadata?.approvedFrameRefId);
+    const latest = refs[0];
+    const failedJob = (storyState.detail?.backgroundJobs || []).find((job) => job.kind === "frame" && job.shotId === shot.id && job.status === "failed");
+    const pending = (storyState.detail?.backgroundJobs || []).some((job) => job.kind === "frame" && job.shotId === shot.id && storyJobPending(job))
+      || refs.some(storyFrameRefPending);
+    const renderCandidate = (ref) => {
+      if (!ref?.metadata?.imageUrl) return "";
+      const selected = ref.id === approved?.id;
+      const ready = storyFrameMatchesAssets(ref, assets);
+      return `<div class="story-frame-candidate">
+        <a href="${storyEscape(ref.metadata.imageUrl)}" target="_blank" rel="noopener"><img src="${storyEscape(ref.metadata.imageUrl)}" loading="lazy" alt="${selected ? "已定稿首帧" : "候选首帧"}" /></a>
+        <div><strong>${selected ? "已定稿首帧" : "候选首帧"}</strong>
+        ${ready && !selected ? `<button type="button" data-story-approve-frame="${storyEscape(ref.id)}" ${storyState.action ? "disabled" : ""}>定稿为视频首帧</button>` : ""}
+        ${selected ? `<button type="button" data-story-clear-frame ${storyState.action ? "disabled" : ""}>取消首帧定稿</button>` : ""}
+        ${ready ? "" : "<small>参考资产已更新，请重新生成首帧。</small>"}</div>
+      </div>`;
+    };
+    return `<div class="story-shot-prompt-block story-frame-workspace">
+      <div><strong>镜头首帧</strong><small>可选</small></div>
+      <p>用本镜定稿的角色造型、空景和道具合成一张开场画面。定稿后用于视频生成。</p>
+      ${renderCandidate(approved)}${latest?.id !== approved?.id ? renderCandidate(latest) : ""}
+      ${!pending && (failedJob || latest?.status === "failed") ? `<p>${storyEscape(failedJob?.errorMessage || latest?.metadata?.error || "首帧生成失败，可以重试。")}</p>` : ""}
+      <button type="button" data-story-generate-frame="${storyEscape(shot.id)}" ${assetsApproved && !pending && !storyState.action ? "" : "disabled"}>${pending ? "首帧正在后台生成" : refs.length ? "重新生成首帧" : "AI 生成首帧"}</button>
+    </div>`;
+  }
+
+  async function submitStoryShotFrame({ shotId, frameId = null }) {
+    const projectId = storyState.selectedId;
+    const episode = selectedStoryEpisode();
+    if (!projectId || !episode || !shotId || storyState.action) return;
+    const review = frameId !== null;
+    storyState.action = "generate-frame";
+    storyState.actionMessage = frameId ? "正在定稿首帧…" : "正在提交首帧生成任务…";
+    renderStoryDetail();
+    try {
+      await requestJson(`/api/story/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(episode.id)}/shots/${encodeURIComponent(shotId)}/frame`, {
+        method: review ? "PUT" : "POST",
+        body: review ? { frameId } : { model: storyState.imageModel || storyState.productionModels?.image?.[0]?.id || "qwen-image3" },
+      });
+      if (review) await loadStoryEpisodeShots(episode.id);
+      else await refreshStoryMedia(projectId);
+      storyState.actionMessage = review ? (frameId ? "首帧已定稿，下次生成视频会使用这张图。" : "首帧定稿已取消。") : "首帧任务已提交，出图后可预览并定稿。";
+      scheduleStoryVideoGenerationSync(1200);
+    } catch (error) {
+      storyState.actionMessage = error.message || String(error);
+    } finally {
+      storyState.action = "";
+      renderStoryDetail();
+    }
+  }
+
   function renderStoryShotWorkspace(episode = {}) {
     const shot = storyState.shots.find((item) => item.id === storyState.selectedShotId);
     if (!shot) return "";
@@ -1066,6 +1141,14 @@
       const imageUrl = storyAssetVariantThumbnailUrl(displayVariant || {});
       const reusableVariants = storyReusableAssetVariants(asset);
       const prompt = asset.metadata?.imagePrompt || asset.description || "AI 尚未补写图片提示词。";
+      const identity = asset.kind === "character" ? storyCharacterIdentity(asset) : "";
+      const identityAssets = identity ? storyState.assets.filter((item) => item.kind === "character"
+        && storyCharacterIdentity(item) === identity) : [];
+      const identityBase = identityAssets.find((item) => item.metadata?.characterBaseVariantId)
+        || identityAssets.filter(storyAssetHasApprovedImage)
+          .sort((a, b) => String(a.metadata?.approvedAt || a.createdAt).localeCompare(String(b.metadata?.approvedAt || b.createdAt)))[0];
+      const identityLabel = !identity ? "" : identityBase?.id === asset.id ? "角色基准形象"
+        : identityBase ? `出图参考：${identityBase.name}` : "该角色的第一张定稿图将作为基准";
       const canGenerateAsset = generated || confirmed;
       const generateAssetLabel = storyState.generatingAssetId === asset.id
         ? "生成中…"
@@ -1083,6 +1166,7 @@
           <div class="story-shot-workspace-asset-visual">
             ${imageUrl ? `<img src="${storyEscape(imageUrl)}" alt="${storyEscape(asset.name)} 已生成设计图缩略图" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-story-media-image /><span class="story-media-fallback" data-story-media-fallback hidden>图片加载失败，可重新生成</span>` : `<span class="story-shot-workspace-asset-empty-image">${generated ? "图片地址刷新中" : "尚未生成设计图"}</span>`}
           </div>
+          ${identityLabel ? `<small class="story-character-reference-label">${storyEscape(identityLabel)}</small>` : ""}
           <label class="story-shot-asset-prompt"><span>AI 建议图片提示词</span><p>${storyEscape(prompt)}</p></label>
           <div class="story-shot-workspace-asset-actions">
             <button type="button" data-story-generate-asset="${storyEscape(asset.id)}" data-story-generate-asset-shot="${storyEscape(shot.id)}" title="${canGenerateAsset ? "" : "先确认此镜资产清单，再生成第一版设计图"}" ${storyState.action || !canGenerateAsset ? "disabled" : ""}>${generateAssetLabel}</button>
@@ -1163,6 +1247,7 @@
               <button type="button" data-story-plan-shot-prompt="${storyEscape(shot.id)}" ${assetsApproved && selectedVideoModel.promptOptimizer && optimizerModel && !storyState.action ? "" : "disabled"}><i data-lucide="wand-sparkles"></i><span>${shot.videoPrompt ? "按当前模型刷新此镜提示词" : "AI 生成本镜视频提示词"}</span></button>
               ${canFinalizeAndPlan ? `<button class="story-secondary-button" type="button" data-story-finalize-plan-shot-prompt="${storyEscape(shot.id)}"><i data-lucide="badge-check"></i><span>${storyState.action === "finalize-assets-and-plan" ? "正在定稿并生成…" : "全部定稿并生成视频提示词"}</span></button>` : ""}
             </div>
+            ${renderStoryFrameWorkspace(shot, assets, assetsApproved)}
             <div class="story-shot-generation-gate ${canGenerateVideo ? "is-ready" : ""}">
               <strong>${canGenerateVideo ? "可以生成视频" : "生成门禁未通过"}</strong>
               <span>${!assets.length ? "请先让 AI 提取本镜资产。" : !confirmed ? "请先确认本镜资产清单。" : generatedAssets.length < assets.length ? `请先生成剩余 ${assets.length - generatedAssets.length} 张资产设计图。` : !assetsApproved ? `剩余 ${assets.length - approvedAssets.length} 张设计图可一键定稿，并继续生成视频提示词。` : !promptReady ? "请按当前视频模型和分辨率优化提示词。" : "资产、提示词和模型均已就绪。"}</span>
@@ -1426,7 +1511,7 @@
 
   const storyWorkflowSteps = ["剧本拆集", "分镜", "资产清单", "设计图", "视频提示词", "视频"];
   const storyJobStages = {
-    analysis: "剧本拆集", shots: "分镜", assets: "资产清单", image: "设计图", prompt: "视频提示词",
+    analysis: "剧本拆集", shots: "分镜", assets: "资产清单", image: "设计图", frame: "镜头首帧", prompt: "视频提示词",
   };
   const storyJobPhases = {
     coverage: "AI 正在梳理剧情覆盖",
@@ -1436,12 +1521,13 @@
     assets: "AI 正在生成资产清单并绑定镜头",
     analysis: "AI 正在拆解剧本",
     image: "正在提交设计图生成任务",
+    frame: "正在提交镜头首帧生成任务",
     prompt: "AI 正在优化视频提示词",
   };
   const storyActionStages = {
     save: 0, analyze: 0, import: 0, "save-episode": 1, "plan-shots": 1, "plan-assets": 2,
     "confirm-shot-assets": 2, "generate-shot-assets": 3, "generate-asset": 3, "generate-assets": 3,
-    "approve-asset": 3, "reuse-asset": 3, "plan-prompts": 4, "generate-video": 5,
+    "approve-asset": 3, "reuse-asset": 3, "generate-frame": 3, "plan-prompts": 4, "generate-video": 5,
   };
 
   function storyJobPending(job = {}) {
@@ -1512,7 +1598,7 @@
       || pending.find((item) => item.status === "processing") || pending[0];
     if (job) {
       const phase = job.progress?.phase;
-      const step = phase === "assets" ? 2 : storyWorkflowSteps.indexOf(storyJobStages[job.kind]);
+      const step = phase === "assets" ? 2 : job.kind === "frame" ? 3 : storyWorkflowSteps.indexOf(storyJobStages[job.kind]);
       const queued = job.status !== "processing";
       let count = job.progress?.shots ? `${job.progress.shots} 个分镜` : "";
       if (job.kind === "image") count = `${snapshot.generated} / ${snapshot.assets.length} 项已有设计图`;
@@ -1522,12 +1608,16 @@
         shots: "分镜保存后会自动生成资产清单，完成后由你确认。",
         assets: "清单生成后，核对角色造型、场景和道具。",
         image: "全部设计图就绪后，审核并选定参考图。",
+        frame: "首帧就绪后，核对角色和场景，再定稿。",
         prompt: "提示词完成后，核对素材并启动视频生成。",
       }[job.kind];
       const measured = job.kind === "image" ? [snapshot.generated, snapshot.assets.length]
         : job.kind === "prompt" ? [snapshot.prompts, snapshot.relevantShots.length] : null;
       return { step, count, measured, next, state: queued ? "queued" : "running", background: true,
         title: queued ? `${storyJobStages[job.kind]}已排队` : storyJobPhases[phase] || `后台正在处理${storyJobStages[job.kind]}` };
+    }
+    if (!snapshot.scriptView && shot && storyFrameRefs(shot.id).some(storyFrameRefPending)) {
+      return { step: 3, state: "running", background: true, title: "模型正在合成镜头首帧", next: "首帧就绪后，核对角色和场景，再定稿。" };
     }
     if (snapshot.runningImage) return { step: 3, state: "running", background: true, title: "模型正在生成设计图",
       count: `${snapshot.generated} / ${snapshot.assets.length} 项已有设计图`, measured: [snapshot.generated, snapshot.assets.length], next: "设计图就绪后，审核并选定参考图。" };
@@ -1539,13 +1629,14 @@
       return { ...idle, step, state: "running", title: storyState.actionMessage || "正在提交操作", count: "" };
     }
     const failed = snapshot.jobs.find((item) => item.errorMessage &&
-      (item.kind === "image" || storyWorkflowSteps[idle.step] === storyJobStages[item.kind] || (idle.step === 2 && item.kind === "shots"))
+      (["image", "frame"].includes(item.kind) || storyWorkflowSteps[idle.step] === storyJobStages[item.kind] || (idle.step === 2 && item.kind === "shots"))
       && !(item.kind === "shots" && snapshot.assets.length));
     if (failed) {
-      const step = failed.kind === "image" ? 3 : idle.step;
+      const step = ["image", "frame"].includes(failed.kind) ? 3 : idle.step;
       const label = step === 2 ? "资产清单" : storyJobStages[failed.kind];
       return { ...idle, step, state: "failed", title: `${label}生成失败`, detail: failed.errorMessage,
-        next: failed.kind === "image" ? "重试失败的设计图，已生成的图片仍可使用。" : idle.next };
+        next: failed.kind === "image" ? "重试失败的设计图，已生成的图片仍可使用。"
+          : failed.kind === "frame" ? "核对参考图后，可重试生成首帧。" : idle.next };
     }
     const latestVideo = snapshot.refs[0];
     if (idle.step === 5 && shot && ["failed", "error", "canceled", "cancelled"].includes(latestVideo?.status)) {
@@ -2578,6 +2669,7 @@
     storyState.videoSyncTimer = null;
     const projectId = storyState.selectedId;
     const pending = storyState.detail?.generationRefs?.some(storyVideoRefPending)
+      || storyState.detail?.generationRefs?.some(storyFrameRefPending)
       || storyState.assetVariants.some(storyImageVariantPending)
       || [...(storyState.detail?.backgroundJobs || []), ...(storyState.detail?.analysisJobs || [])]
         .some((job) => ["queued", "retry", "processing"].includes(job.status));
@@ -2870,7 +2962,9 @@
       const queued = await queueStoryAssetImages(assets);
       await loadStoryDetail(storyState.selectedId);
       storyState.episodeTab = "production";
-      storyState.actionMessage = `已提交 ${queued.jobs.length} 个设计图任务，后台生成完成后可定稿。`;
+      storyState.actionMessage = queued.awaitingCharacterBases?.length
+        ? `已提交 ${queued.jobs.length} 个设计图任务。请先定稿 ${queued.awaitingCharacterBases.join("、")} 的基准形象，再生成其他造型。`
+        : `已提交 ${queued.jobs.length} 个设计图任务，后台生成完成后可定稿。`;
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -2917,6 +3011,29 @@
     }
   }
 
+  async function storyApprovedFrameVideoParams(model, episode, shot) {
+    const refId = shot.metadata?.approvedFrameRefId;
+    if (!refId) return null;
+    const frame = storyFrameRefs(shot.id).find((ref) => ref.id === refId);
+    if (frame?.status !== "succeeded" || !storyFrameMatchesAssets(frame, storyShotAssets(episode, shot))) {
+      throw new Error("首帧引用的定稿资产已变化。请重新定稿首帧，或取消首帧定稿后生成视频。");
+    }
+    let [assetId] = storyAssetVariantReferenceIds(frame);
+    if (!assetId && frame.generationRecordId) {
+      const result = await requestJson(`/api/generation-records/${encodeURIComponent(frame.generationRecordId)}/add-asset`, { method: "POST" });
+      assetId = result.asset?.id;
+    }
+    if (!assetId) throw new Error("没有找到首帧对应的素材 ID，请重新生成首帧。");
+    if (storyIsWanVideoModel(model)) {
+      const defaults = storyVideoMediaParams(model, [{ assetId }]);
+      return { provider: defaults.provider, videoCapability: defaults.provider === "wan27" ? "wan27-i2v" : defaults.videoCapability,
+        mediaMode: "first_frame", firstFrameAssetId: assetId };
+    }
+    if (storyIsVegaVideoModel(model)) return { provider: model.id, mediaMode: "first_frame", firstFrameAssetId: assetId };
+    if (storyIsSeedanceVideoModel(model)) return { seedanceMode: "first_frame", functionMode: "first_frame", firstFrameAssetId: assetId };
+    return { firstFrameAssetId: assetId };
+  }
+
   async function generateStoryShotVideo(shotId = "") {
     const projectId = storyState.selectedId;
     const episode = selectedStoryEpisode();
@@ -2943,8 +3060,9 @@
     storyState.actionMessage = `正在绑定 S${String(shot.shotNo).padStart(2, "0")} 的定稿素材并提交视频任务…`;
     renderStoryDetail();
     try {
-      const mediaReferences = await storyApprovedAssetReferences(episode, shot);
-      const mediaParams = storyVideoMediaParams(model, mediaReferences);
+      const frameParams = await storyApprovedFrameVideoParams(model, episode, shot);
+      const mediaReferences = frameParams ? [] : await storyApprovedAssetReferences(episode, shot);
+      const mediaParams = frameParams || storyVideoMediaParams(model, mediaReferences);
       if (!Object.keys(mediaParams).length) {
         throw new Error("没有解析到可用的定稿素材 ID 或图片地址，已阻止无素材生成。请重新定稿此镜资产后再试。");
       }
@@ -2963,13 +3081,14 @@
             episodeId: episode.id,
             shotId: shot.id,
             shotNo: shot.shotNo,
+            firstFrameRefId: frameParams ? shot.metadata.approvedFrameRefId : "",
           },
         },
       });
       const taskId = payload.taskId || payload.task?.taskId || payload.task?.id || payload.record?.taskId || payload.record?.id || "";
       if (!taskId) throw new Error("视频任务没有返回 taskId。");
       await refreshStoryMedia(projectId);
-      storyState.actionMessage = `S${String(shot.shotNo).padStart(2, "0")} 视频任务已提交后台，已绑定 ${mediaReferences.length} 张定稿素材，可继续操作；完成后会自动回填。`;
+      storyState.actionMessage = `S${String(shot.shotNo).padStart(2, "0")} 视频任务已提交后台，${frameParams ? "使用已定稿首帧" : `已绑定 ${mediaReferences.length} 张定稿素材`}，完成后会自动回填。`;
       scheduleStoryVideoGenerationSync(1200);
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
@@ -2990,7 +3109,9 @@
       const queued = await queueStoryAssetImages(assets);
       await loadStoryDetail(storyState.selectedId);
       storyState.episodeTab = "production";
-      storyState.actionMessage = `已提交 ${queued.jobs.length} 个设计图任务，后台生成完成后可定稿。`;
+      storyState.actionMessage = queued.awaitingCharacterBases?.length
+        ? `已提交 ${queued.jobs.length} 个设计图任务。请先定稿 ${queued.awaitingCharacterBases.join("、")} 的基准形象，再生成其他造型。`
+        : `已提交 ${queued.jobs.length} 个设计图任务，后台生成完成后可定稿。`;
     } catch (error) {
       storyState.actionMessage = error.message || String(error);
     } finally {
@@ -3405,6 +3526,9 @@
       else if (event.target.closest("[data-story-finalize-plan-shot-prompt]")) finalizeShotAssetsAndPlanPrompt(event.target.closest("[data-story-finalize-plan-shot-prompt]")?.dataset.storyFinalizePlanShotPrompt || "");
       else if (event.target.closest("[data-story-plan-shot-prompt]")) planStoryEpisodePrompts(event.target.closest("[data-story-plan-shot-prompt]")?.dataset.storyPlanShotPrompt || "");
       else if (event.target.closest("[data-story-plan-prompts]")) planStoryEpisodePrompts();
+      else if (event.target.closest("[data-story-generate-frame]")) submitStoryShotFrame({ shotId: event.target.closest("[data-story-generate-frame]").dataset.storyGenerateFrame });
+      else if (event.target.closest("[data-story-clear-frame]")) submitStoryShotFrame({ shotId: storyState.selectedShotId, frameId: "" });
+      else if (event.target.closest("[data-story-approve-frame]")) submitStoryShotFrame({ shotId: storyState.selectedShotId, frameId: event.target.closest("[data-story-approve-frame]").dataset.storyApproveFrame });
       else if (event.target.closest("[data-story-generate-shot-video]")) generateStoryShotVideo(event.target.closest("[data-story-generate-shot-video]")?.dataset.storyGenerateShotVideo || "");
       else if (event.target.closest("[data-story-save-script]")) saveStoryScriptDraft();
       else if (event.target.closest("[data-story-analyze]")) analyzeStoryDraft();

@@ -27,13 +27,61 @@ async function executeStoryAssetPlanJob({ projectId, episodeId, ownerUserId }) {
   return saveStoryEpisodeAssetPlan({ project, episode, shots, ownerUserId });
 }
 
-async function executeStoryImageJob({ id, projectId, episodeId, ownerUserId, input }) {
-  const [existing, user, episodes, assets] = await Promise.all([
+function storyCharacterBase(asset, assets, variants) {
+  if (asset?.kind !== "character") return null;
+  const key = storyAssetCharacterName(asset);
+  if (!key) return null;
+  const group = assets.filter((item) => item.kind === "character" && storyAssetCharacterName(item) === key);
+  const pinned = group.find((item) => item.metadata?.characterBaseVariantId);
+  if (pinned) {
+    const variant = variants.find((item) => item.id === pinned.metadata.characterBaseVariantId && [pinned.id, pinned.metadata.approvedSourceAssetId].includes(item.assetId));
+    if (variant) return { asset: pinned, variant };
+  }
+  const approved = group
+    .filter((item) => storyAssetDesignReady(item, variants))
+    .sort((a, b) => String(a.metadata?.approvedAt || a.createdAt).localeCompare(String(b.metadata?.approvedAt || b.createdAt)));
+  return approved.length ? { asset: approved[0], variant: storyApprovedVariantForAsset(approved[0], variants) } : null;
+}
+
+async function storyVariantImageInput(variant, ownerUserId) {
+  const metadata = variant?.metadata || {};
+  const ids = [metadata.resultAssetId, ...(Array.isArray(metadata.resultAssetIds) ? metadata.resultAssetIds : []),
+    metadata.userAssetId, metadata.assetId].filter(Boolean);
+  for (const id of new Set(ids)) {
+    const asset = await getUserAssetFromDb(id);
+    if (asset?.userId === ownerUserId && !isSoftDeleted(asset)) return { assetId: asset.id };
+  }
+  const record = metadata.generationRecordId ? await getGenerationRecordFromDb(metadata.generationRecordId) : null;
+  const url = record?.userId === ownerUserId
+    ? record.cdnImageUrl || record.imageResultUrl || record.imageUrl || record.resultImageUrl || metadata.imageUrl
+    : metadata.imageUrl;
+  if (isPublicHttpUrl(url)) return { url };
+  throw Object.assign(new Error("定稿图片暂时没有可用的参考素材，请重新加入资产库。"), { code: "STORY_IMAGE_REFERENCE_MISSING" });
+}
+
+function storyFrameReferenceLimit(model) {
+  if (model.id === "qwen-image3") return QWEN_IMAGE3_REFERENCE_LIMIT;
+  if (model.id === "seedream55-image") return SEEDREAM55_REFERENCE_LIMIT;
+  return ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+}
+
+function storyFrameAssetSelection(episode, shot, assets, variants) {
+  const relevant = assets.filter((asset) => ["character", "scene", "prop"].includes(asset.kind)
+    && storyAssetBelongsToEpisode(asset, episode) && storyShotUsesAsset(asset, shot));
+  if (!relevant.length || relevant.some((asset) => !storyAssetDesignReady(asset, variants))) {
+    throw Object.assign(new Error("请先定稿本镜的角色、场景和关键道具图片。"), { statusCode: 409, code: "STORY_FRAME_ASSETS_NOT_READY" });
+  }
+  return relevant.map((asset) => ({ asset, variant: storyApprovedVariantForAsset(asset, variants) }));
+}
+
+async function executeStoryImageJob({ id, projectId, episodeId, ownerUserId, kind, input }) {
+  const [existing, user, episodes, assets, variants] = await Promise.all([
     getPool().query(`SELECT task_id, payload FROM app_generation_records
       WHERE payload->>'userId' = $1 AND payload->'params'->>'storyJobId' = $2 LIMIT 1`, [ownerUserId, id]),
     getUserByIdInDb(ownerUserId),
     listStoryEpisodesFromDb({ projectId, ownerUserId }),
     listStoryAssetsFromDb({ projectId, ownerUserId }),
+    listStoryAssetVariantsFromDb({ projectId, ownerUserId }),
   ]);
   const existingRecord = existing.rows[0];
   if (existingRecord) {
@@ -46,10 +94,50 @@ async function executeStoryImageJob({ id, projectId, episodeId, ownerUserId, inp
   const episode = episodes?.find((item) => item.id === episodeId);
   const asset = assets?.find((item) => item.id === input.assetId);
   const model = STORY_IMAGE_MODELS.find((item) => item.id === input.model);
-  const basePrompt = String(asset?.metadata?.imagePrompt || asset?.description || "").trim();
-  if (!user || !episode || !asset || !storyAssetBelongsToEpisode(asset, episode) || !basePrompt || !model) {
+  const frame = kind === "frame";
+  if (!user || !episode || !model || (!frame && (!asset || !storyAssetBelongsToEpisode(asset, episode)))) {
     throw Object.assign(new Error("资产、分集或出图模型已变化，请重新提交。"), { code: "STORY_IMAGE_JOB_INVALID" });
   }
+  let basePrompt = String(asset?.metadata?.imagePrompt || asset?.description || "").trim();
+  let references = [];
+  let sourceVariantIds = [];
+  if (frame) {
+    const [shots, project] = await Promise.all([
+      listStoryShotsFromDb({ projectId, ownerUserId, episodeId }), getStoryProjectFromDb({ id: projectId, ownerUserId }),
+    ]);
+    const shot = shots?.find((item) => item.id === input.shotId);
+    if (!shot || !project) throw Object.assign(new Error("分镜已变化，请刷新后重试。"), { code: "STORY_FRAME_SHOT_MISSING" });
+    const selected = storyFrameAssetSelection(episode, shot, assets || [], variants || []);
+    if (selected.length > storyFrameReferenceLimit(model)) throw Object.assign(new Error("本镜参考图超出当前出图模型上限，请切换出图模型。"), { code: "STORY_FRAME_REFERENCE_LIMIT" });
+    sourceVariantIds = selected.map(({ variant }) => variant.id).sort();
+    references = await Promise.all(selected.map(({ variant }) => storyVariantImageInput(variant, ownerUserId)));
+    basePrompt = [
+      "生成一张写实影视镜头的首帧。按参考图保留角色身份、当前造型、场景布局和关键道具。",
+      "画面是动作开始时的单帧。保持角色外貌与服装一致，不拼贴，不出现字幕或设计稿标注。",
+      `画幅：${project.aspectRatio || "9:16"}。地点：${shot.metadata?.location || ""}。`,
+      `构图：${shot.metadata?.shotSize || ""}。${shot.metadata?.camera || ""}。`,
+      `镜头描述：${shot.description || shot.title}。`,
+      ...selected.map(({ asset }, index) => `参考图 ${index + 1}：${asset.name}。`),
+    ].join("\n");
+    input = { ...input, ratio: project.aspectRatio || "9:16" };
+  } else {
+    const base = storyCharacterBase(asset, assets || [], variants || []);
+    if (!base && asset.kind === "character") {
+      const related = (assets || []).filter((item) => item.kind === "character" && item.id !== asset.id
+        && storyAssetCharacterName(item) === storyAssetCharacterName(asset));
+      if ((variants || []).some((variant) => related.some((item) => item.id === variant.assetId)
+        && ["generating", "ready"].includes(variant.status))) {
+        throw Object.assign(new Error("先确认该角色已生成的基准形象，再生成其他造型。"), { code: "STORY_CHARACTER_BASE_PENDING" });
+      }
+    }
+    if (base) {
+      references = [await storyVariantImageInput(base.variant, ownerUserId)];
+      sourceVariantIds = [base.variant.id];
+      basePrompt = `图 1 是角色的定稿身份参考。保留五官、肤色、年龄感、体型和人物辨识度；按以下要求改变本镜造型。\n${basePrompt}`;
+    }
+    if (asset.kind === "scene") basePrompt = `${basePrompt}\n输出可复用的空场景设计图。画面不出现人物。`;
+  }
+  if (!basePrompt) throw Object.assign(new Error("资产缺少出图描述。"), { code: "STORY_IMAGE_JOB_INVALID" });
   const handlers = {
     "qwen-image3": handleAdvancedQwenImage3Generate,
     "seedream55-image": handleAdvancedSeedream55ImageGenerate,
@@ -58,8 +146,10 @@ async function executeStoryImageJob({ id, projectId, episodeId, ownerUserId, inp
   const prompt = [basePrompt, input.revisionFeedback ? `本次重新生成的修改要求：${input.revisionFeedback}` : ""]
     .filter(Boolean).join("\n\n");
   const body = {
-    provider: model.id, prompt, resolution: model.resolution, ratio: model.ratio, duration: 1,
-    params: { createKind: "story-asset", projectId, episodeId, storyAssetId: asset.id,
+    provider: model.id, prompt, resolution: model.resolution, ratio: input.ratio || model.ratio, duration: 1,
+    ...(references.length ? { referenceImages: references } : {}),
+    params: { createKind: frame ? "story-frame" : "story-asset", projectId, episodeId, storyAssetId: asset?.id,
+      shotId: input.shotId, sourceVariantIds,
       storyImageModel: model.id, storyJobId: id, revisionFeedback: input.revisionFeedback },
   };
   // Reuse the provider's billing, validation and durable submission path.
@@ -102,10 +192,91 @@ async function handleQueueStoryAssetImages(req, res, projectId, episodeId) {
   if (assetIds.some((assetId) => !assets?.some((asset) => asset.id === assetId && storyAssetBelongsToEpisode(asset, episode)))) {
     return sendJson(res, 409, { ok: false, message: "本集资产已变化，请刷新。" });
   }
-  const inputs = assetIds.map((assetId) => ({ assetId, model: model.id, revisionFeedback: storyInputText(body.revisionFeedback, 4000) }));
+  const variants = await listStoryAssetVariantsFromDb({ projectId, ownerUserId: auth.user.id });
+  const waitingForBase = new Set();
+  const anchors = new Set();
+  const inputs = [];
+  for (const assetId of assetIds) {
+    const asset = assets.find((item) => item.id === assetId);
+    const key = asset.kind === "character" ? storyAssetCharacterName(asset) : "";
+    if (key && !storyCharacterBase(asset, assets, variants || [])) {
+      const relatedInProgress = (variants || []).some((variant) => ["generating", "ready"].includes(variant.status)
+        && variant.assetId !== assetId && assets.some((item) => item.id === variant.assetId && item.kind === "character"
+          && storyAssetCharacterName(item) === key));
+      if (anchors.has(key) || relatedInProgress) {
+        waitingForBase.add(key);
+        continue;
+      }
+      anchors.add(key);
+    }
+    inputs.push({ assetId, model: model.id, revisionFeedback: storyInputText(body.revisionFeedback, 4000) });
+  }
+  if (!inputs.length && waitingForBase.size) {
+    return sendJson(res, 409, { ok: false, code: "STORY_CHARACTER_BASE_PENDING",
+      message: `请先定稿 ${[...waitingForBase].join("、")} 已生成的基准形象，再生成其他造型。` });
+  }
   const jobs = await enqueueStoryBackgroundJobInDb({ projectId, episodeId, ownerUserId: auth.user.id, kind: "image", inputs });
   if (!jobs?.length) return sendJson(res, 503, { ok: false, message: "设计图任务未保存，请重试。" });
-  return sendJson(res, 202, { ok: true, jobs: jobs.map((job) => ({ id: job.id, status: job.status })) });
+  return sendJson(res, 202, { ok: true, awaitingCharacterBases: [...waitingForBase], jobs: jobs.map((job) => ({ id: job.id, status: job.status })) });
+
+}
+
+async function handleStoryShotFrame(req, res, projectId, episodeId, shotId) {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireAdmin(req, res, { loadDb: false });
+  if (!auth) return;
+  const ownerUserId = auth.user.id;
+  const body = await readJson(req, 128 * 1024);
+  const [episodes, shots, assets, variants] = await Promise.all([
+    listStoryEpisodesFromDb({ projectId, ownerUserId }),
+    listStoryShotsFromDb({ projectId, episodeId, ownerUserId }),
+    listStoryAssetsFromDb({ projectId, ownerUserId }),
+    listStoryAssetVariantsFromDb({ projectId, ownerUserId }),
+  ]);
+  const episode = episodes?.find((item) => item.id === episodeId);
+  const shot = shots?.find((item) => item.id === shotId);
+  if (!episode || !shot) return sendJson(res, 404, { ok: false, message: "分镜不存在。" });
+  if (req.method === "PUT" && body.frameId === "") {
+    await getPool().query(
+      `UPDATE app_story_shots s SET metadata = s.metadata - 'approvedFrameRefId', updated_at = NOW()
+       FROM app_story_projects p WHERE s.id=$1 AND s.episode_id=$2 AND s.project_id=$3
+       AND p.id=s.project_id AND p.owner_user_id=$4`, [shotId, episodeId, projectId, ownerUserId],
+    );
+    return sendJson(res, 200, { ok: true, approvedFrameRefId: "" });
+  }
+  try {
+    const selected = storyFrameAssetSelection(episode, shot, assets || [], variants || []);
+    if (req.method === "POST") {
+      if (!await enforceBusinessRateLimit(req, res, auth, { action: "story_asset_image_batch", limit: 10, windowMs: 10 * 60_000 })) return;
+      const model = STORY_IMAGE_MODELS.find((item) => item.id === body.model);
+      if (!model) return sendJson(res, 400, { ok: false, message: "请选择出图模型。" });
+      if (selected.length > storyFrameReferenceLimit(model)) return sendJson(res, 409, { ok: false, message: "本镜参考图超出当前出图模型上限，请切换出图模型。" });
+      const jobs = await enqueueStoryBackgroundJobInDb({
+        projectId, episodeId, ownerUserId, kind: "frame",
+        inputs: [{ shotId, model: model.id, revisionFeedback: storyInputText(body.revisionFeedback, 4000) }],
+      });
+      if (!jobs?.length) return sendJson(res, 503, { ok: false, message: "首帧任务未保存，请重试。" });
+      return sendJson(res, 202, { ok: true, job: { id: jobs[0].id, status: jobs[0].status } });
+    }
+    const refs = await listStoryGenerationRefsFromDb({ projectId, ownerUserId });
+    const ref = refs?.find((item) => item.id === body.frameId && item.shotId === shotId && item.kind === "frame"
+      && item.status === "succeeded" && item.metadata?.imageUrl);
+    const sourceIds = selected.map(({ variant }) => variant.id).sort();
+    if (!ref || JSON.stringify(ref.metadata.sourceVariantIds) !== JSON.stringify(sourceIds)) {
+      return sendJson(res, 409, { ok: false, message: "首帧尚未就绪，或定稿参考图已变化。请重新生成首帧。" });
+    }
+    const { rows } = await getPool().query(
+      `UPDATE app_story_shots s SET metadata = s.metadata || jsonb_build_object('approvedFrameRefId', $5::text), updated_at = NOW()
+       FROM app_story_projects p WHERE s.id=$1 AND s.episode_id=$2 AND s.project_id=$3
+       AND p.id=s.project_id AND p.owner_user_id=$4 RETURNING s.id`,
+      [shotId, episodeId, projectId, ownerUserId, ref.id],
+    );
+    if (!rows.length) return sendJson(res, 404, { ok: false, message: "分镜不存在。" });
+    return sendJson(res, 200, { ok: true, approvedFrameRefId: ref.id });
+  } catch (error) {
+    if (!error.statusCode) throw error;
+    return sendJson(res, error.statusCode, { ok: false, code: error.code, message: error.message });
+  }
 }
 
 async function reportStoryJobPhase(job, phase, counts = {}) {
@@ -113,7 +284,7 @@ async function reportStoryJobPhase(job, phase, counts = {}) {
     await getPool().query(
       `UPDATE app_story_shot_plan_jobs
        SET result = COALESCE(result, '{}'::jsonb) || jsonb_build_object('progress', $3::jsonb), updated_at = NOW()
-       WHERE id = $1 AND claim_token = $2 AND status = 'billing_processing'`,
+       WHERE id = $1 AND claim_token = $2 AND status = 'reference_processing'`,
       [job.id, job.claimToken, JSON.stringify({ phase, ...counts })],
     );
   } catch (error) {
@@ -206,7 +377,7 @@ async function processStoryShotPlanQueue(limit = 1) {
   for (const job of claimed.jobs || []) {
     const startedAt = Date.now();
     try {
-      const execute = { analysis: executeStoryAnalysisJob, assets: executeStoryAssetPlanJob, image: executeStoryImageJob, prompt: executeStoryPromptJob, shots: executeStoryShotPlanJob }[job.kind];
+      const execute = { analysis: executeStoryAnalysisJob, assets: executeStoryAssetPlanJob, image: executeStoryImageJob, frame: executeStoryImageJob, prompt: executeStoryPromptJob, shots: executeStoryShotPlanJob }[job.kind];
       if (job.kind !== "shots") await reportStoryJobPhase(job, job.kind);
       const result = await execute(job);
       const completed = await completeStoryShotPlanJobInDb({ id: job.id, claimToken, result });

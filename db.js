@@ -8541,7 +8541,7 @@ function storyShotPlanJobFromRow(row = {}) {
     projectId: String(row.project_id || ""),
     episodeId: String(row.episode_id || ""),
     ownerUserId: String(row.owner_user_id || ""),
-    status: String(row.status || "queued").replace(/^(?:production|progress|billing)_/, ""),
+    status: String(row.status || "queued").replace(/^(?:production|progress|billing|reference)_/, ""),
     claimToken: String(row.claim_token || ""),
     leaseUntil: row.lease_until || null,
     attempts: Number(row.attempts || 0),
@@ -8581,8 +8581,8 @@ async function enqueueStoryShotPlanJobInDb({ projectId = "", episodeId = "", own
     const existing = await client.query(
       `SELECT * FROM app_story_shot_plan_jobs
        WHERE project_id = $1 AND episode_id = $2 AND owner_user_id = $3
-         AND kind = 'shots' AND status IN ('queued', 'retry', 'processing', 'production_queued', 'production_retry', 'production_processing', 'progress_queued', 'progress_retry', 'progress_processing', 'billing_queued', 'billing_retry', 'billing_processing')
-         AND (status NOT IN ('processing', 'production_processing', 'progress_processing', 'billing_processing') OR lease_until IS NULL OR lease_until > NOW())
+         AND kind = 'shots' AND status IN ('queued', 'retry', 'processing', 'production_queued', 'production_retry', 'production_processing', 'progress_queued', 'progress_retry', 'progress_processing', 'billing_queued', 'billing_retry', 'billing_processing', 'reference_queued', 'reference_retry', 'reference_processing')
+         AND (status NOT IN ('processing', 'production_processing', 'progress_processing', 'billing_processing', 'reference_processing') OR lease_until IS NULL OR lease_until > NOW())
        ORDER BY created_at DESC
        LIMIT 1
        FOR UPDATE`,
@@ -8615,7 +8615,7 @@ async function enqueueStoryShotPlanJobInDb({ projectId = "", episodeId = "", own
       `INSERT INTO app_story_shot_plan_jobs(
          id, project_id, episode_id, owner_user_id, status, attempts, max_attempts, available_at, created_at, updated_at
        )
-       VALUES ($1, $2, $3, $4, 'billing_queued', 0, $5, NOW(), NOW(), NOW())
+       VALUES ($1, $2, $3, $4, 'reference_queued', 0, $5, NOW(), NOW(), NOW())
        RETURNING *`,
       [crypto.randomUUID(), parentId, targetEpisodeId, ownerId, attempts],
     );
@@ -8649,11 +8649,11 @@ async function enqueueStoryBackgroundJobInDb({ projectId, ownerUserId, kind, inp
       const active = await client.query(
         `SELECT * FROM app_story_shot_plan_jobs
          WHERE project_id = $1 AND owner_user_id = $2 AND kind = $3 AND input = $4::jsonb
-         AND episode_id IS NOT DISTINCT FROM $5 AND status IN ('queued', 'retry', 'processing', 'production_queued', 'production_retry', 'production_processing', 'progress_queued', 'progress_retry', 'progress_processing', 'billing_queued', 'billing_retry', 'billing_processing')
+         AND episode_id IS NOT DISTINCT FROM $5 AND status IN ('queued', 'retry', 'processing', 'production_queued', 'production_retry', 'production_processing', 'progress_queued', 'progress_retry', 'progress_processing', 'billing_queued', 'billing_retry', 'billing_processing', 'reference_queued', 'reference_retry', 'reference_processing')
          ORDER BY created_at DESC LIMIT 1`, values);
       const row = active.rows[0] || (await client.query(
         `INSERT INTO app_story_shot_plan_jobs(project_id, owner_user_id, kind, input, episode_id, id, status)
-         VALUES ($1, $2, $3, $4::jsonb, $5, $6, 'billing_queued') RETURNING *`,
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6, 'reference_queued') RETURNING *`,
         [...values, crypto.randomUUID()])).rows[0];
       jobs.push(storyShotPlanJobFromRow(row));
     }
@@ -8671,7 +8671,7 @@ async function listLatestStoryBackgroundJobsInDb({ projectId, ownerUserId }) {
   if (!dbEnabled()) return [];
   const { rows } = await query(
     `SELECT DISTINCT ON (kind, episode_id, COALESCE(input->>'scriptVersionId', input->>'shotId', input->>'assetId', '')) * FROM app_story_shot_plan_jobs
-     WHERE project_id = $1 AND owner_user_id = $2 AND kind IN ('analysis', 'prompt', 'image', 'shots', 'assets')
+     WHERE project_id = $1 AND owner_user_id = $2 AND kind IN ('analysis', 'prompt', 'image', 'frame', 'shots', 'assets')
      ORDER BY kind, episode_id, COALESCE(input->>'scriptVersionId', input->>'shotId', input->>'assetId', ''), created_at DESC`, [projectId, ownerUserId]);
   return rows.map(storyShotPlanJobFromRow);
 }
@@ -8704,7 +8704,7 @@ async function claimNextStoryShotPlanJobsInDb({ limit = 1, leaseMs = 5 * 60 * 10
     await client.query("BEGIN");
     await client.query(
       `UPDATE app_story_shot_plan_jobs
-       SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'billing_retry' END,
+       SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'reference_retry' END,
            claim_token = '',
            lease_until = NULL,
            error_code = CASE WHEN attempts >= max_attempts THEN 'STORY_SHOT_PLAN_LEASE_EXPIRED' ELSE error_code END,
@@ -8712,11 +8712,11 @@ async function claimNextStoryShotPlanJobsInDb({ limit = 1, leaseMs = 5 * 60 * 10
            available_at = CASE WHEN attempts >= max_attempts THEN 'infinity'::timestamptz ELSE NOW() END,
            completed_at = CASE WHEN attempts >= max_attempts THEN NOW() ELSE NULL END,
            updated_at = NOW()
-       WHERE status IN ('processing', 'production_processing', 'progress_processing', 'billing_processing') AND lease_until IS NOT NULL AND lease_until < NOW()`,
+       WHERE status IN ('processing', 'production_processing', 'progress_processing', 'billing_processing', 'reference_processing') AND lease_until IS NOT NULL AND lease_until < NOW()`,
     );
     const selected = await client.query(
       `SELECT * FROM app_story_shot_plan_jobs
-       WHERE status IN ('queued', 'retry', 'production_queued', 'production_retry', 'progress_queued', 'progress_retry', 'billing_queued', 'billing_retry') AND available_at <= NOW()
+       WHERE status IN ('queued', 'retry', 'production_queued', 'production_retry', 'progress_queued', 'progress_retry', 'billing_queued', 'billing_retry', 'reference_queued', 'reference_retry') AND available_at <= NOW()
        ORDER BY created_at ASC
        LIMIT $1
        FOR UPDATE SKIP LOCKED`,
@@ -8726,7 +8726,7 @@ async function claimNextStoryShotPlanJobsInDb({ limit = 1, leaseMs = 5 * 60 * 10
     for (const row of selected.rows) {
       const updated = await client.query(
         `UPDATE app_story_shot_plan_jobs
-         SET status = 'billing_processing', claim_token = $2, lease_until = NOW() + ($3::int * INTERVAL '1 millisecond'),
+         SET status = 'reference_processing', claim_token = $2, lease_until = NOW() + ($3::int * INTERVAL '1 millisecond'),
              attempts = attempts + 1, started_at = COALESCE(started_at, NOW()), updated_at = NOW()
          WHERE id = $1
          RETURNING *`,
@@ -8751,7 +8751,7 @@ async function completeStoryShotPlanJobInDb({ id = "", claimToken = "", result =
     `UPDATE app_story_shot_plan_jobs
      SET status = 'completed', claim_token = '', lease_until = NULL, result = $3::jsonb,
          error_code = '', error_message = '', completed_at = NOW(), updated_at = NOW()
-     WHERE id = $1 AND status = 'billing_processing' AND claim_token = $2
+     WHERE id = $1 AND status = 'reference_processing' AND claim_token = $2
      RETURNING *`,
     [String(id || ""), String(claimToken || ""), JSON.stringify(result && typeof result === "object" ? result : {})],
   );
@@ -8765,7 +8765,7 @@ async function failStoryShotPlanJobInDb({ id = "", claimToken = "", code = "", m
     `UPDATE app_story_shot_plan_jobs
      SET status = 'failed', claim_token = '', lease_until = NULL, error_code = $3, error_message = $4,
          available_at = 'infinity'::timestamptz, completed_at = NOW(), updated_at = NOW()
-     WHERE id = $1 AND status = 'billing_processing' AND claim_token = $2
+     WHERE id = $1 AND status = 'reference_processing' AND claim_token = $2
      RETURNING *`,
     [String(id || ""), String(claimToken || ""), String(code || "STORY_SHOT_PLAN_FAILED").slice(0, 120), String(message || "").slice(0, 2000)],
   );
@@ -9298,11 +9298,14 @@ async function approveStoryAssetVariantInDb({ projectId = "", ownerUserId = "", 
   try {
     await client.query("BEGIN");
     const selected = await client.query(
-      `SELECT av.*, a.project_id, a.name AS asset_name
+      `SELECT av.*, a.project_id, a.name AS asset_name, a.kind AS asset_kind, a.metadata AS asset_metadata
        FROM app_story_asset_variants av
        JOIN app_story_assets a ON a.id = av.asset_id
        JOIN app_story_projects p ON p.id = a.project_id
        WHERE av.id = $1 AND av.asset_id = $2 AND a.project_id = $3 AND p.owner_user_id = $4
+         AND av.status IN ('ready', 'approved', 'rejected')
+         AND COALESCE(NULLIF(av.metadata->>'imageUrl', ''), NULLIF(av.metadata->>'mediaUrl', ''),
+           NULLIF(av.metadata->>'generationRecordId', '')) IS NOT NULL
        FOR UPDATE`,
       [String(variantId || ""), String(assetId || ""), String(projectId || ""), String(ownerUserId || "")],
     );
@@ -9323,6 +9326,24 @@ async function approveStoryAssetVariantInDb({ projectId = "", ownerUserId = "", 
        RETURNING *`,
       [String(assetId || ""), String(projectId || ""), JSON.stringify({ approvedVariantId: String(variantId || ""), approvedAt: new Date().toISOString() })],
     );
+    const selectedRow = selected.rows[0];
+    if (selectedRow.asset_kind === "character") {
+      const groupKey = (entry) => canonicalStoryAssetName(entry.metadata?.characterKey || String(entry.name || "").split(/[·｜|]/)[0]);
+      const key = groupKey({ name: selectedRow.asset_name, metadata: selectedRow.asset_metadata });
+      const candidates = await client.query(
+        `SELECT id, name, metadata FROM app_story_assets WHERE project_id = $1 AND kind = 'character'
+         ORDER BY NULLIF(metadata->>'approvedAt', '') ASC NULLS LAST, created_at ASC`, [projectId]);
+      const group = candidates.rows.filter((entry) => groupKey(entry) === key);
+      if (!group.some((entry) => entry.metadata?.characterBaseVariantId)) {
+        const base = group.find((entry) => entry.metadata?.approvedVariantId);
+        if (base) {
+          const pinned = await client.query(
+            `UPDATE app_story_assets SET metadata = metadata || jsonb_build_object('characterBaseVariantId', $2::text)
+             WHERE id = $1 RETURNING *`, [base.id, base.metadata.approvedVariantId]);
+          if (base.id === assetId) assetResult.rows[0] = pinned.rows[0];
+        }
+      }
+    }
     const variantResult = await client.query(`SELECT * FROM app_story_asset_variants WHERE id = $1`, [String(variantId || "")]);
     await client.query("COMMIT");
     return {
@@ -9356,7 +9377,7 @@ async function useStoryAssetVariantInDb({ projectId = "", ownerUserId = "", asse
       return null;
     }
     const source = await client.query(
-      `SELECT av.*, a.kind AS source_kind, a.name AS source_name
+      `SELECT av.*, a.kind AS source_kind, a.name AS source_name, a.metadata AS source_metadata
        FROM app_story_asset_variants av
        JOIN app_story_assets a ON a.id = av.asset_id
        JOIN app_story_projects p ON p.id = a.project_id
@@ -9368,6 +9389,16 @@ async function useStoryAssetVariantInDb({ projectId = "", ownerUserId = "", asse
     if (!source.rows.length || String(source.rows[0].source_kind || "") !== String(target.rows[0].kind || "")) {
       await client.query("ROLLBACK");
       return null;
+    }
+    if (target.rows[0].kind === "character") {
+      const sameCharacter = (metadata, name) => canonicalStoryAssetName(metadata?.characterKey || String(name || "").split(/[·｜|_/—-]/)[0]);
+      const current = target.rows[0];
+      const reference = source.rows[0];
+      if (sameCharacter(current.metadata, current.name) !== sameCharacter(reference.source_metadata, reference.source_name)
+          || canonicalStoryAssetName(current.metadata?.stateLabel) !== canonicalStoryAssetName(reference.source_metadata?.stateLabel)) {
+        await client.query("ROLLBACK");
+        return null;
+      }
     }
     await client.query(
       `UPDATE app_story_asset_variants
@@ -12347,7 +12378,7 @@ async function getGenerationRecordFromDb(taskId) {
 async function syncStoryGenerationRecordInDb(client, record) {
   const params = record.params || {};
   const kind = params.createKind;
-  if (!["story-asset", "story-shot-video"].includes(kind)) return;
+  if (!["story-asset", "story-frame", "story-shot-video"].includes(kind)) return;
   const { projectId, episodeId, storyAssetId, shotId } = params;
   const { taskId, userId } = record;
   if (!projectId || !episodeId || !taskId || !userId) return;
@@ -12360,7 +12391,7 @@ async function syncStoryGenerationRecordInDb(client, record) {
     posterUrl: record.cdnPosterUrl || record.posterUrl || record.coverUrl || "",
     error: failed ? record.error || record.message || "生成失败。" : "",
   };
-  if (kind === "story-asset") {
+  if (kind === "story-asset" || kind === "story-frame") {
     const imageUrl = record.cdnImageUrl || record.cdnImageUrls?.[0] || record.imageResultUrl || record.imageUrl || record.resultImageUrl
       || record.publicImageUrl || record.remoteImageUrl || record.localImageUrl || record.resultUrl || record.outputUrl;
     const variantStatus = failed ? "failed" : succeeded && imageUrl ? "ready" : "generating";
@@ -12377,6 +12408,18 @@ async function syncStoryGenerationRecordInDb(client, record) {
       revisionFeedback: params.revisionFeedback,
       generationError: metadata.error,
     });
+    if (kind === "story-frame") {
+      metadata.sourceVariantIds = params.sourceVariantIds;
+      await client.query(
+        `INSERT INTO app_story_generation_refs AS r(id, project_id, shot_id, generation_record_id, kind, status, metadata)
+         SELECT 'story-frame-' || $1, p.id, s.id, $1, 'frame', $6, $7::jsonb
+         FROM app_story_shots s JOIN app_story_projects p ON p.id = s.project_id
+         WHERE s.id = $2 AND p.id = $3 AND p.owner_user_id = $4 AND s.episode_id = $5
+         ON CONFLICT(id) DO UPDATE SET status = EXCLUDED.status, metadata = r.metadata || EXCLUDED.metadata, updated_at = NOW()`,
+        [taskId, shotId, projectId, userId, episodeId, failed ? "failed" : variantStatus === "ready" ? "succeeded" : "queued", JSON.stringify(metadata)],
+      );
+      return;
+    }
     await client.query(
       `INSERT INTO app_story_asset_variants AS v(id, asset_id, name, description, status, metadata)
        SELECT COALESCE((SELECT id FROM app_story_asset_variants WHERE asset_id = a.id
@@ -12399,7 +12442,7 @@ async function syncStoryGenerationRecordInDb(client, record) {
   Object.assign(metadata, {
     videoUrl: !failed ? videoUrl : undefined,
     mediaSyncPending: succeeded && !videoUrl,
-    prompt: record.prompt, shotNo: params.shotNo, mediaMode: params.mediaMode,
+    prompt: record.prompt, shotNo: params.shotNo, mediaMode: params.mediaMode, firstFrameRefId: params.firstFrameRefId,
     billingStatus: record.billing?.status || record.billingStatus,
   });
   await client.query(
@@ -12425,7 +12468,7 @@ async function failUnsubmittedStoryImageInDb({ jobId, userId, message }) {
            'billingStatus', 'free', 'preDeductedCredits', 0, 'originalPreDeductedCredits', 0,
            'finalCredits', 0, 'originalFinalCredits', 0, 'updatedAt', NOW())
        WHERE r.payload->>'userId' = $1 AND r.payload->'params'->>'storyJobId' = $2
-         AND r.payload->'params'->>'createKind' = 'story-asset'
+         AND r.payload->'params'->>'createKind' IN ('story-asset', 'story-frame')
          AND r.payload->>'status' = 'submitting' AND r.payload->>'awaitingUpstreamTask' = 'true'
          AND COALESCE(r.payload->>'upstreamTaskId', '') = ''
          AND NOT EXISTS (SELECT 1 FROM app_credit_ledger l
@@ -12511,9 +12554,9 @@ async function upsertGenerationRecordInDb(nextRecord) {
     );
     return rows[0]?.payload || null;
   };
-  if (!["story-asset", "story-shot-video"].includes(nextRecord.params?.createKind)) {
+  if (!["story-asset", "story-frame", "story-shot-video"].includes(nextRecord.params?.createKind)) {
     const record = await write({ query });
-    if (["story-asset", "story-shot-video"].includes(record?.params?.createKind)) {
+    if (["story-asset", "story-frame", "story-shot-video"].includes(record?.params?.createKind)) {
       await syncStoryGenerationRecordInDb({ query }, record);
     }
     return record;
