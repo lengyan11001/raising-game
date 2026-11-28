@@ -561,7 +561,7 @@ test("story production UI selects image and video models and writes only optimiz
   assert.match(story, /body: \{ provider: videoModel, optimizerModel, resolution, shotId: requestedShotId, revisionFeedback, approvals \}/);
   assert.match(story, /promptMatchesModel \? "已按当前模型优化"[\s\S]*模型已变，需刷新[\s\S]*待优化/);
   assert.match(read("db.js"), /record.cdnImageUrl/);
-  assert.match(read("server.parts/part-51.js"), /createKind: "story-asset"[\s\S]*storyAssetId: asset\.id/);
+  assert.match(read("server.parts/part-51.js"), /createKind: frame \? "story-frame" : "story-asset"[\s\S]*storyAssetId: asset\?\.id/);
   assert.doesNotMatch(story, /createKind: "story-asset"[\s\S]{0,120}assetId: asset\.id/);
   assert.match(css, /\.story-production-toolbar \{/);
   assert.match(css, /\.story-production-controls \{/);
@@ -644,7 +644,7 @@ test("shot assets generate, regenerate, approve, and reuse materials in place", 
   assert.match(library, /story-library-preview/);
   assert.match(library, /data-story-media-fallback/);
   assert.match(library, /assetLibraryMessage/);
-  assert.match(story, /function storyReusableAssetVariants[\s\S]*variant\.status !== "approved"[\s\S]*sourceAsset\.kind === asset\.kind/);
+  assert.match(story, /function storyReusableAssetVariants[\s\S]*variant\.status !== "approved"[\s\S]*sourceAsset\.kind !== asset\.kind[\s\S]*storyCharacterIdentity/);
   assert.match(story, /addEventListener\("error"[\s\S]*img\[data-story-media-image\]/);
 
   assert.match(db, /function canonicalStoryAssetName\(/);
@@ -802,6 +802,8 @@ test("production progress distinguishes queue, storyboard stages, approval, and 
     storyAssetVariants: (id) => id === "b" && state.imageGenerating ? [{ status: "generating", metadata: { storyJobId: "image" } }] : [],
     storyGenerationRefVideoUrl: (video) => video.metadata?.videoUrl,
     storyVideoRefPending: (video) => video.status === "queued",
+    storyFrameRefs: () => [],
+    storyFrameRefPending: () => false,
     storyEscape: (value) => String(value).replaceAll("<", "&lt;"),
   };
   vm.runInNewContext(source.slice(start, end), context);
@@ -836,7 +838,11 @@ test("story image submission gives billing the authenticated user and reconciles
   const user = { id: "u", credits: 10 };
   const cleans = [];
   let fail = false;
-  const provider = async (_req, res, { auth }) => {
+  let asset = { id: "a", description: "fixture" };
+  let base = null;
+  let submittedBody;
+  const provider = async (_req, res, { auth, body }) => {
+    submittedBody = body;
     assert.equal(auth.db.users[0], auth.user);
     assert.equal(auth.user, user);
     if (fail) throw new Error("User not found for billing.");
@@ -847,7 +853,15 @@ test("story image submission gives billing the authenticated user and reconciles
     getPool: () => ({ query: async () => ({ rows: [] }) }),
     getUserByIdInDb: async () => user,
     listStoryEpisodesFromDb: async () => [{ id: "e" }],
-    listStoryAssetsFromDb: async () => [{ id: "a", description: "fixture" }],
+    listStoryAssetsFromDb: async () => [asset],
+    listStoryAssetVariantsFromDb: async () => [],
+    storyCharacterBase: () => base,
+    storyVariantImageInput: async () => ({ assetId: "approved-character-image" }),
+    storyAssetCharacterName: () => "角色甲",
+    listStoryShotsFromDb: async () => [{ id: "shot", description: "开门", metadata: {} }],
+    getStoryProjectFromDb: async () => ({ aspectRatio: "9:16" }),
+    storyFrameAssetSelection: () => [{ asset: { name: "角色甲" }, variant: { id: "look" } }, { asset: { name: "客厅" }, variant: { id: "room" } }],
+    storyFrameReferenceLimit: () => 3,
     storyAssetBelongsToEpisode: () => true,
     STORY_IMAGE_MODELS: [{ id: "qwen-image3" }],
     lightweightAuthDb: () => ({ users: [], userAssets: [] }),
@@ -859,6 +873,22 @@ test("story image submission gives billing the authenticated user and reconciles
   vm.runInNewContext(source.slice(start, end), context);
   const job = { id: "j", projectId: "p", episodeId: "e", ownerUserId: user.id, input: { assetId: "a", model: "qwen-image3" } };
   assert.equal((await context.executeStoryImageJob(job)).taskId, "image-task");
+  asset = { ...asset, kind: "character" };
+  base = { asset: { id: "base" }, variant: { id: "base-image" } };
+  await context.executeStoryImageJob(job);
+  assert.equal(submittedBody.referenceImages[0].assetId, "approved-character-image");
+  assert.match(submittedBody.prompt, /保留五官/);
+  asset = { ...asset, kind: "scene" };
+  base = null;
+  await context.executeStoryImageJob(job);
+  assert.match(submittedBody.prompt, /画面不出现人物/);
+  assert.equal(submittedBody.referenceImages, undefined);
+  await context.executeStoryImageJob({ ...job, kind: "frame", input: { ...job.input, shotId: "shot" } });
+  assert.equal(submittedBody.referenceImages.length, 2);
+  assert.equal(submittedBody.params.createKind, "story-frame");
+  assert.equal(submittedBody.params.shotId, "shot");
+  assert.deepEqual(Array.from(submittedBody.params.sourceVariantIds), ["look", "room"]);
+  assert.match(submittedBody.prompt, /动作开始时的单帧/);
   fail = true;
   await assert.rejects(context.executeStoryImageJob(job), /计费初始化失败，图片任务未提交/);
   assert.equal(cleans[0].jobId, job.id);

@@ -773,6 +773,9 @@ function storyGenerationRefClientView(ref = {}) {
   const completed = ["succeeded", "success", "completed", "complete"].includes(status);
   const mediaUrl = generationRecordId && ref.kind === "video" && completed ? adminGenerationMediaUrl(generationRecordId) : "";
   if (mediaUrl) metadata.videoUrl = mediaUrl;
+  if (generationRecordId && ref.kind === "frame" && completed && metadata.imageUrl) {
+    metadata.imageUrl = adminGenerationMediaUrl(generationRecordId);
+  }
   return { ...ref, metadata };
 }
 

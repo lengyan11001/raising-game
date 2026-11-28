@@ -865,6 +865,11 @@ async function handleRequest(req, res) {
       );
     }
 
+    const storyShotFrameMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/shots\/([^/]+)\/frame\/?$/);
+    if (storyShotFrameMatch && ["POST", "PUT"].includes(req.method)) {
+      return await handleStoryShotFrame(req, res, ...storyShotFrameMatch.slice(1).map(decodeURIComponent));
+    }
+
     const storyShotMatch = url.pathname.match(/^\/api\/story\/projects\/([^/]+)\/episodes\/([^/]+)\/shots\/([^/]+)\/?$/);
     if (req.method === "PUT" && storyShotMatch) {
       return await handleUpdateStoryShot(req, res, decodeURIComponent(storyShotMatch[1]), decodeURIComponent(storyShotMatch[2]), decodeURIComponent(storyShotMatch[3]));
