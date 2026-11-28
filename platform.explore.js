@@ -4286,10 +4286,14 @@ function openHistoryDetail(index) {
   els.historyDetailTitle.textContent = title || t("history.detailTitle");
   stopModalMedia(els.historyDetailBody);
   els.historyDetailBody.innerHTML = `
+    <dl class="history-detail-meta">
+      <div><dt>${escapeHtml(t("ledger.taskId"))}</dt><dd>${escapeHtml(record.taskId || "—")}</dd></div>
+      <div><dt>${escapeHtml(t("ledger.createdAt"))}</dt><dd>${escapeHtml(formatDateTime(record.createdAt) || "—")}</dd></div>
+      <div><dt>${escapeHtml(t("history.completedAt"))}</dt><dd>${escapeHtml(formatDateTime(record.completedAt) || "—")}</dd></div>
+    </dl>
     <section class="history-detail-section">
       <header>
         <strong>${escapeHtml(t("history.result"))}</strong>
-        <span>${escapeHtml(record.taskId || "")}</span>
         ${generationRefundBadgeHtml(record, "history-detail-refund-badge")}
         ${advancedDownloadStatusPill(record, { detail: true })}
         ${canDownload ? `

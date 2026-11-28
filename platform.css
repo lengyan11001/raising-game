@@ -10119,6 +10119,24 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   display: grid;
   gap: 14px;
 }
+.history-detail-meta {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  font-size: .85rem;
+}
+.history-detail-meta > div {
+  display: grid;
+  grid-template-columns: minmax(5em, max-content) minmax(0, 1fr);
+  gap: 10px;
+}
+.history-detail-meta dt {
+  color: var(--muted);
+}
+.history-detail-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .history-detail-section {
   display: grid;
   gap: 10px;
