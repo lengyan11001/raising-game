@@ -799,7 +799,7 @@ test("production progress distinguishes queue, storyboard stages, approval, and 
     storyAssetHasApprovedImage: (asset) => Boolean(asset.approved),
     storyShotAssetsConfirmed: (item) => Boolean(item.confirmed),
     storyShotPromptMatchesModel: (item) => Boolean(item.promptReady),
-    storyAssetVariants: (id) => id === "b" && state.imageGenerating ? [{ status: "generating" }] : [],
+    storyAssetVariants: (id) => id === "b" && state.imageGenerating ? [{ status: "generating", metadata: { storyJobId: "image" } }] : [],
     storyGenerationRefVideoUrl: (video) => video.metadata?.videoUrl,
     storyVideoRefPending: (video) => video.status === "queued",
     storyEscape: (value) => String(value).replaceAll("<", "&lt;"),
@@ -819,7 +819,6 @@ test("production progress distinguishes queue, storyboard stages, approval, and 
   state.imageGenerating = true;
   assert.match(render(), /模型正在生成设计图/);
   assert.match(render(), /<progress[^>]+value="1" max="2"/);
-  state.imageGenerating = false;
   state.detail.backgroundJobs = [{ id: "image", episodeId: episode.id, assetId: "b", status: "failed", kind: "image", errorMessage: "<error>" }];
   assert.match(render(), /设计图生成失败/);
   assert.match(render(), /&lt;error>/);
@@ -828,4 +827,40 @@ test("production progress distinguishes queue, storyboard stages, approval, and 
   const css = read("platform.css");
   assert.match(css, /animation: story-progress-spin .75s linear infinite/);
   assert.match(css, /prefers-reduced-motion: reduce/);
+});
+
+test("story image submission gives billing the authenticated user and reconciles a pre-submit error", async () => {
+  const source = read("server.parts/part-51.js");
+  const start = source.indexOf("async function executeStoryImageJob(");
+  const end = source.indexOf("async function handleQueueStoryAssetImages(", start);
+  const user = { id: "u", credits: 10 };
+  const cleans = [];
+  let fail = false;
+  const provider = async (_req, res, { auth }) => {
+    assert.equal(auth.db.users[0], auth.user);
+    assert.equal(auth.user, user);
+    if (fail) throw new Error("User not found for billing.");
+    res.writeHead(200);
+    res.end('{"taskId":"image-task"}');
+  };
+  const context = {
+    getPool: () => ({ query: async () => ({ rows: [] }) }),
+    getUserByIdInDb: async () => user,
+    listStoryEpisodesFromDb: async () => [{ id: "e" }],
+    listStoryAssetsFromDb: async () => [{ id: "a", description: "fixture" }],
+    storyAssetBelongsToEpisode: () => true,
+    STORY_IMAGE_MODELS: [{ id: "qwen-image3" }],
+    lightweightAuthDb: () => ({ users: [], userAssets: [] }),
+    handleAdvancedQwenImage3Generate: provider,
+    handleAdvancedSeedream55ImageGenerate: provider,
+    handleAdvancedSeedream5ImageGenerate: provider,
+    failUnsubmittedStoryImageInDb: async (input) => cleans.push(input),
+  };
+  vm.runInNewContext(source.slice(start, end), context);
+  const job = { id: "j", projectId: "p", episodeId: "e", ownerUserId: user.id, input: { assetId: "a", model: "qwen-image3" } };
+  assert.equal((await context.executeStoryImageJob(job)).taskId, "image-task");
+  fail = true;
+  await assert.rejects(context.executeStoryImageJob(job), /计费初始化失败，图片任务未提交/);
+  assert.equal(cleans[0].jobId, job.id);
+  assert.equal(cleans[0].userId, user.id);
 });

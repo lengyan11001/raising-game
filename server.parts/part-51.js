@@ -29,13 +29,20 @@ async function executeStoryAssetPlanJob({ projectId, episodeId, ownerUserId }) {
 
 async function executeStoryImageJob({ id, projectId, episodeId, ownerUserId, input }) {
   const [existing, user, episodes, assets] = await Promise.all([
-    getPool().query(`SELECT task_id FROM app_generation_records
+    getPool().query(`SELECT task_id, payload FROM app_generation_records
       WHERE payload->>'userId' = $1 AND payload->'params'->>'storyJobId' = $2 LIMIT 1`, [ownerUserId, id]),
     getUserByIdInDb(ownerUserId),
     listStoryEpisodesFromDb({ projectId, ownerUserId }),
     listStoryAssetsFromDb({ projectId, ownerUserId }),
   ]);
-  if (existing.rows[0]) return { taskId: existing.rows[0].task_id };
+  const existingRecord = existing.rows[0];
+  if (existingRecord) {
+    const record = existingRecord.payload;
+    if (record.status === "failed") {
+      throw Object.assign(new Error(record.error || "设计图任务提交失败，请重试。"), { code: "STORY_IMAGE_SUBMIT_FAILED" });
+    }
+    return { taskId: existingRecord.task_id };
+  }
   const episode = episodes?.find((item) => item.id === episodeId);
   const asset = assets?.find((item) => item.id === input.assetId);
   const model = STORY_IMAGE_MODELS.find((item) => item.id === input.model);
@@ -62,9 +69,18 @@ async function executeStoryImageJob({ id, projectId, episodeId, ownerUserId, inp
     writeHead(code) { statusCode = code; },
     end(json) { result = JSON.parse(json); },
   };
-  await handlers[model.id]({ method: "POST", url: "/api/advanced/generate", headers: {}, socket: {} }, response, {
-    auth: { user, db: { userAssets: [] } }, body, bodyParams: body.params, prompt,
-  });
+  try {
+    await handlers[model.id]({ method: "POST", url: "/api/advanced/generate", headers: {}, socket: {} }, response, {
+      auth: { user, db: { ...lightweightAuthDb(), users: [user] } }, body, bodyParams: body.params, prompt,
+    });
+  } catch (error) {
+    const message = error.message === "User not found for billing."
+      ? "计费初始化失败，图片任务未提交。请重试。" : error.message || "设计图任务提交失败。";
+    await failUnsubmittedStoryImageInDb({ jobId: id, userId: ownerUserId, message }).catch((failure) => {
+      console.error("[story-image-submit-cleanup-failed]", id, failure.message);
+    });
+    throw Object.assign(new Error(message), { code: error.code || "STORY_IMAGE_SUBMIT_FAILED" });
+  }
   if (statusCode >= 400 || !result?.taskId) {
     throw Object.assign(new Error(result?.message || "设计图任务提交失败。"), { code: result?.code || "STORY_IMAGE_SUBMIT_FAILED" });
   }
@@ -97,7 +113,7 @@ async function reportStoryJobPhase(job, phase, counts = {}) {
     await getPool().query(
       `UPDATE app_story_shot_plan_jobs
        SET result = COALESCE(result, '{}'::jsonb) || jsonb_build_object('progress', $3::jsonb), updated_at = NOW()
-       WHERE id = $1 AND claim_token = $2 AND status = 'progress_processing'`,
+       WHERE id = $1 AND claim_token = $2 AND status = 'billing_processing'`,
       [job.id, job.claimToken, JSON.stringify({ phase, ...counts })],
     );
   } catch (error) {
