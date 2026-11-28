@@ -336,7 +336,7 @@ test("story episode workbench persists outline edits and AI-planned shots", () =
   assert.match(handlers, /recommendedDurationSeconds/);
   assert.match(handlers, /覆盖计划是结构契约/);
   assert.match(handlers, /本集对应原文开始/);
-  assert.match(handlers, /planStoryEpisodeShots\(\{ project, episode, sourceScript \}\)/);
+  assert.match(handlers, /planStoryEpisodeShots\(\{ project, episode, sourceScript, onPhase:/);
   assert.match(handlers, /criticPlan\.shots\.length \? criticPlan : candidatePlan/);
   assert.match(handlers, /metadata\.shotPlanAudit = result\.audit/);
   assert.match(handlers, /不得默认输出 90 秒/);
@@ -776,4 +776,56 @@ test("story shot-plan jobs use durable async storage and a rolling-safe worker",
     bootstrap.match(/if \(BACKGROUND_SCHEDULERS_ENABLED\) \{[\s\S]*?startChatLiveSettlementScheduler\(\);\n  \}/)?.[0] || "",
     /startStoryShotPlanWorker\(\);/,
   );
+});
+
+test("production progress distinguishes queue, storyboard stages, approval, and measurable image work", () => {
+  const source = read("platform.story.js");
+  const start = source.indexOf("  const storyWorkflowSteps");
+  const end = source.indexOf("  function renderStoryDetail()", start);
+  const episode = { id: "episode", episodeNo: 1, title: "<b>剧集</b>", shotCount: 1 };
+  const shot = { id: "shot", shotNo: 1, title: "开场", confirmed: false };
+  const assets = [{ id: "a", generated: true }, { id: "b" }];
+  const state = {
+    detail: { episodes: [episode], backgroundJobs: [] },
+    detailTab: "episodes",
+    selectedShotId: shot.id,
+    shots: [shot],
+  };
+  const context = {
+    storyState: state,
+    storyShotAssets: () => assets,
+    storyEpisodeAssets: () => assets,
+    storyAssetHasGeneratedImage: (asset) => Boolean(asset.generated),
+    storyAssetHasApprovedImage: (asset) => Boolean(asset.approved),
+    storyShotAssetsConfirmed: (item) => Boolean(item.confirmed),
+    storyShotPromptMatchesModel: (item) => Boolean(item.promptReady),
+    storyAssetVariants: (id) => id === "b" && state.imageGenerating ? [{ status: "generating" }] : [],
+    storyGenerationRefVideoUrl: (video) => video.metadata?.videoUrl,
+    storyVideoRefPending: (video) => video.status === "queued",
+    storyEscape: (value) => String(value).replaceAll("<", "&lt;"),
+  };
+  vm.runInNewContext(source.slice(start, end), context);
+  const render = () => context.renderStoryWorkflowProgress(episode);
+  state.detail.backgroundJobs = [{ id: "j", episodeId: episode.id, kind: "shots", status: "queued" }];
+  assert.match(render(), /分镜已排队/);
+  assert.match(render(), /story-progress-indicator is-spinning/);
+  state.detail.backgroundJobs[0] = { ...state.detail.backgroundJobs[0], status: "processing", progress: { phase: "assets", shots: 36 } };
+  assert.match(render(), /AI 正在生成资产清单并绑定镜头/);
+  assert.match(render(), /36 个分镜/);
+  state.detail.backgroundJobs = [];
+  assert.match(render(), /AI 资产清单待确认/);
+  assert.match(render(), /核对本镜角色造型、场景和道具/);
+  shot.confirmed = true;
+  state.imageGenerating = true;
+  assert.match(render(), /模型正在生成设计图/);
+  assert.match(render(), /<progress[^>]+value="1" max="2"/);
+  state.imageGenerating = false;
+  state.detail.backgroundJobs = [{ id: "image", episodeId: episode.id, assetId: "b", status: "failed", kind: "image", errorMessage: "<error>" }];
+  assert.match(render(), /设计图生成失败/);
+  assert.match(render(), /&lt;error>/);
+  assert.doesNotMatch(render(), /is-spinning/);
+
+  const css = read("platform.css");
+  assert.match(css, /animation: story-progress-spin .75s linear infinite/);
+  assert.match(css, /prefers-reduced-motion: reduce/);
 });

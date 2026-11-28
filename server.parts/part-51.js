@@ -92,6 +92,19 @@ async function handleQueueStoryAssetImages(req, res, projectId, episodeId) {
   return sendJson(res, 202, { ok: true, jobs: jobs.map((job) => ({ id: job.id, status: job.status })) });
 }
 
+async function reportStoryJobPhase(job, phase, counts = {}) {
+  try {
+    await getPool().query(
+      `UPDATE app_story_shot_plan_jobs
+       SET result = COALESCE(result, '{}'::jsonb) || jsonb_build_object('progress', $3::jsonb), updated_at = NOW()
+       WHERE id = $1 AND claim_token = $2 AND status = 'progress_processing'`,
+      [job.id, job.claimToken, JSON.stringify({ phase, ...counts })],
+    );
+  } catch (error) {
+    console.warn("[story-job-progress]", job.id, error.message);
+  }
+}
+
 async function executeStoryShotPlanJob(job = {}) {
   const projectId = String(job.projectId || "").trim();
   const episodeId = String(job.episodeId || "").trim();
@@ -124,7 +137,8 @@ async function executeStoryShotPlanJob(job = {}) {
     }
     const scripts = await listStoryScriptVersionsFromDb({ projectId, ownerUserId });
     const sourceScript = (scripts || []).find((script) => script.id === episode.sourceScriptVersionId || (!episode.sourceScriptVersionId && script.manuscriptId === episode.sourceManuscriptId)) || {};
-    result = await planStoryEpisodeShots({ project, episode, sourceScript });
+    result = await planStoryEpisodeShots({ project, episode, sourceScript, onPhase: (phase) => reportStoryJobPhase(job, phase) });
+    await reportStoryJobPhase(job, "save-shots", { shots: result.shots.length });
     const metadata = { ...(episode.metadata || {}), assetsPlannedAt: null, shotPlanJobId: job.id };
     if (result.hook) metadata.hook = result.hook;
     if (result.audit) metadata.shotPlanAudit = result.audit;
@@ -145,6 +159,7 @@ async function executeStoryShotPlanJob(job = {}) {
     }
   }
   let assetPlan;
+  await reportStoryJobPhase(job, "assets", { shots: saved.shots.length });
   try {
     const planned = await saveStoryEpisodeAssetPlan({ project, episode: saved.episode, shots: saved.shots, ownerUserId });
     saved.episode = planned.episode;
@@ -176,6 +191,7 @@ async function processStoryShotPlanQueue(limit = 1) {
     const startedAt = Date.now();
     try {
       const execute = { analysis: executeStoryAnalysisJob, assets: executeStoryAssetPlanJob, image: executeStoryImageJob, prompt: executeStoryPromptJob, shots: executeStoryShotPlanJob }[job.kind];
+      if (job.kind !== "shots") await reportStoryJobPhase(job, job.kind);
       const result = await execute(job);
       const completed = await completeStoryShotPlanJobInDb({ id: job.id, claimToken, result });
       results.push({ id: job.id, status: completed?.status || "completed", elapsedMs: Date.now() - startedAt });

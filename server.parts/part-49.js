@@ -415,7 +415,7 @@ function storyShotsFromModel(payload = {}, episode = {}) {
   };
 }
 
-async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript = {} } = {}) {
+async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript = {}, onPhase = async () => {} } = {}) {
   const model = storyAnalyzerModel();
   if (!model) {
     throw Object.assign(new Error("AI 分镜模型尚未配置。"), { statusCode: 503, code: "MISSING_STORY_SHOT_MODEL" });
@@ -491,6 +491,7 @@ async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript 
       throw error;
     }
   };
+  await onPhase("coverage");
   const coverageResult = await request(STORY_COVERAGE_PLANNER_SYSTEM_PROMPT, `${context}\n\n请先完成覆盖策划，严格输出约定 JSON。`, 5000, { storyShotCoverage: true });
   const coverageParsed = storyParseJsonObject(coverageResult.text);
   let coverage = storyCoverageFromModel(coverageParsed || {});
@@ -512,6 +513,7 @@ async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript 
       : { beats: [{ beatNo: 1, summary: synopsis, sourceBasis: sourceText.slice(0, 2000), characters: [], location: "", actionNodes: [synopsis], dialogueNodes: [], emotionNodes: [], minimumShots: 1, estimatedShotCount: 1 }], estimatedShotCount: 1, coverageNotes: "覆盖模型未返回有效 JSON，按简略大纲降级规划。" };
   }
   const plannerPrompt = `${context}\n\n覆盖计划 JSON\n${JSON.stringify(coverage)}\n\n请严格按覆盖计划生成完整分镜，输出约定 JSON。`;
+  await onPhase("storyboard");
   const plannerResult = await request(STORY_SHOT_PLANNER_SYSTEM_PROMPT, plannerPrompt, 7000, { storyShotPlanner: true });
   const parsed = storyParseJsonObject(plannerResult.text);
   if (!parsed) {
@@ -526,6 +528,7 @@ async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript 
     throw Object.assign(new Error("AI 分镜结果为空，请重试。"), { statusCode: 502, code: "STORY_SHOT_PLAN_EMPTY" });
   }
   const criticPrompt = `${context}\n\n覆盖计划 JSON\n${JSON.stringify(coverage)}\n\n候选分镜 JSON\n${JSON.stringify({ hook: candidatePlan.hook, recommendedDurationSeconds: candidatePlan.recommendedDurationSeconds, shots: candidatePlan.shots })}\n\n请逐项审稿并返回完整最终分镜 JSON。`;
+  await onPhase("review-shots");
   const criticResult = await request(STORY_SHOT_CRITIC_SYSTEM_PROMPT, criticPrompt, 7500, { storyShotCritic: true });
   const criticParsed = storyParseJsonObject(criticResult.text);
   const criticPlan = criticParsed ? storyShotsFromModel(criticParsed, episode) : { shots: [] };
