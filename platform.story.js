@@ -1105,6 +1105,43 @@
     }
   }
 
+  function openStoryAssetImagePreview(trigger) {
+    const variant = storyAssetVariantById(trigger.dataset.storyPreviewAssetImage);
+    const source = storyAssetVariantImageUrl(variant || {});
+    if (!source) return;
+    let url;
+    try { url = new URL(source, window.location.href); } catch { return; }
+    if (!["http:", "https:"].includes(url.protocol)) return;
+    let dialog = storyEl("storyAssetImagePreview");
+    if (!dialog) {
+      dialog = document.createElement("dialog");
+      dialog.id = "storyAssetImagePreview";
+      dialog.className = "story-asset-image-preview";
+      dialog.setAttribute("aria-labelledby", "storyAssetImagePreviewTitle");
+      dialog.innerHTML = `<section>
+        <header><strong id="storyAssetImagePreviewTitle"></strong><form method="dialog"><button type="submit" autofocus>关闭</button></form></header>
+        <div class="story-asset-image-preview-media"><img referrerpolicy="no-referrer" /><p hidden>原图加载失败，请关闭后重试。</p></div>
+      </section>`;
+      dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+      const image = dialog.querySelector("img");
+      image.addEventListener("error", () => {
+        if (!dialog.open) return;
+        image.hidden = true;
+        dialog.querySelector("p").hidden = false;
+      });
+      dialog.addEventListener("close", () => { if (!dialog.open) image.removeAttribute("src"); });
+      document.body.append(dialog);
+    }
+    const name = trigger.dataset.storyPreviewAssetName || "资产设计图";
+    const image = dialog.querySelector("img");
+    dialog.querySelector("strong").textContent = name;
+    image.alt = name;
+    image.hidden = false;
+    dialog.querySelector("p").hidden = true;
+    if (!dialog.open) dialog.showModal();
+    image.src = url.href;
+  }
+
   function renderStoryShotWorkspace(episode = {}) {
     const shot = storyState.shots.find((item) => item.id === storyState.selectedShotId);
     if (!shot) return "";
@@ -1164,7 +1201,7 @@
             <em>${approved ? "已定稿" : displayVariant ? storyEscape(storyVariantStatusLabel(displayVariant.status)) : "未出图"}</em>
           </div>
           <div class="story-shot-workspace-asset-visual">
-            ${imageUrl ? `<img src="${storyEscape(imageUrl)}" alt="${storyEscape(asset.name)} 已生成设计图缩略图" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-story-media-image /><span class="story-media-fallback" data-story-media-fallback hidden>图片加载失败，可重新生成</span>` : `<span class="story-shot-workspace-asset-empty-image">${generated ? "图片地址刷新中" : "尚未生成设计图"}</span>`}
+            ${imageUrl ? `<button class="story-asset-image-zoom" type="button" data-story-preview-asset-image="${storyEscape(displayVariant.id)}" data-story-preview-asset-name="${storyEscape(asset.name)}" aria-label="放大预览 ${storyEscape(asset.name)}"><img src="${storyEscape(imageUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-story-media-image /><span class="story-media-fallback" data-story-media-fallback hidden>点击查看原图</span><span class="story-asset-image-zoom-label" aria-hidden="true">放大</span></button>` : `<span class="story-shot-workspace-asset-empty-image">${generated ? "图片地址刷新中" : "尚未生成设计图"}</span>`}
           </div>
           ${identityLabel ? `<small class="story-character-reference-label">${storyEscape(identityLabel)}</small>` : ""}
           <label class="story-shot-asset-prompt"><span>AI 建议图片提示词</span><p>${storyEscape(prompt)}</p></label>
@@ -3437,6 +3474,11 @@
       if (button) loadStoryDetail(button.dataset.storyProjectId || "");
     });
     storyEl("storyProjectDetail")?.addEventListener("click", (event) => {
+      const imagePreview = event.target.closest("[data-story-preview-asset-image]");
+      if (imagePreview) {
+        openStoryAssetImagePreview(imagePreview);
+        return;
+      }
       if (event.target.classList?.contains("story-script-modal-backdrop") || event.target.closest("button[data-story-close-script-modal]")) closeStoryScriptCreate();
       else if ((event.target.classList?.contains("story-revision-backdrop") && event.target.dataset.storyCloseAssetEditor !== undefined) || event.target.closest("button[data-story-close-asset-editor]")) closeStoryAssetEditor();
       else if (event.target.closest("[data-story-add-shot-asset]")) openStoryAssetEditor({ mode: "create", shotId: event.target.closest("[data-story-add-shot-asset]")?.dataset.storyAddShotAsset || "" });
