@@ -298,6 +298,54 @@ function gptImage2ApiMarkdown(example) {
   ].join("\n");
 }
 
+function languageApiMarkdown() {
+  const request = (body) => markdownCodeBlock("http", [
+    "POST /api/advanced/generate",
+    "Authorization: Bearer <user-token>",
+    "Content-Type: application/json",
+    "",
+    JSON.stringify(body, null, 2),
+  ].join("\n"));
+  return [
+    "## Language Models",
+    "",
+    "Send a `provider` and a non-empty `prompt`. Optional fields: `maxTokens` caps the generated output; `temperature` accepts values from 0 to 2.",
+    "",
+    "### Papaya 1.0",
+    "",
+    "For text only, omit `referenceImages`. For image understanding, send up to four Base64 image data URLs in `referenceImages`. For video understanding, extract frames on the client and submit them as images.",
+    "",
+    request({
+      provider: "papaya",
+      prompt: "Describe the reference image in one sentence.",
+      referenceImages: ["data:image/png;base64,<BASE64_IMAGE>"],
+      maxTokens: 256,
+    }),
+    "",
+    "### BytePlus Language",
+    "",
+    "Send a text prompt.",
+    "",
+    request({
+      provider: "byteplus-language",
+      prompt: "Write a one-sentence product description.",
+      maxTokens: 256,
+    }),
+    "",
+    "### Read the result",
+    "",
+    "The create response returns `async: true` and `taskId`. Poll with the same Bearer token:",
+    "",
+    markdownCodeBlock("http", [
+      "GET /api/generation-records/<taskId>",
+      "Authorization: Bearer <user-token>",
+    ].join("\n")),
+    "",
+    "When `record.status` is `succeeded`, read `record.textResult`. When it is `failed`, read `record.error`. The platform estimates credits at submission and settles against model usage.",
+    "",
+  ].join("\n");
+}
+
 function buildRestrictedModelDocsMarkdown(docs = {}) {
   const external = docs.advancedExternalApi || {};
   const route = (url, fallback = "") => String(url || fallback || "").replace(String(external.baseUrl || docs.baseUrl || ""), "");
@@ -460,6 +508,8 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
       "",
     );
   }
+
+  lines.push(languageApiMarkdown());
 
   if (external.gptImage2Example) lines.push(gptImage2ApiMarkdown(external.gptImage2Example));
 
@@ -940,6 +990,7 @@ function buildModelDocsMarkdown(docs) {
     "",
     mulerouterRoutingMarkdown(),
     externalAdvancedApiMarkdown(docs.advancedExternalApi),
+    languageApiMarkdown(),
     gptImage2ApiMarkdown(docs.advancedExternalApi?.gptImage2Example),
     "",
     "## Quick Start",
@@ -1017,6 +1068,7 @@ function apiDocSlug(value = "") {
 
 function apiDocGroup(title = "") {
   const value = String(title || "").toLowerCase();
+  if (/^language models$/.test(value)) return "language";
   if (/embedded live|embed live|实时/.test(value)) return "live";
   if (/reusable media|asset|upload|素材/.test(value)) return "assets";
   if (/seedance|wan|w3\.0|video|task polling/.test(value)) return "video";
@@ -1058,7 +1110,7 @@ function quickStartApiDocMarkdown(docs = {}) {
     "2. Query the model catalog with `GET /api/models` when you need machine-readable model metadata.",
     "3. Query the account balance with `GET /api/v3/account/balance`; when using a sub token, read `token.remaining` for that token's quota.",
     "4. Upload reusable media first when your model supports asset references, then use the returned asset id in generation requests.",
-    "5. Create a video or image task with one of the documented endpoints and keep the returned task id.",
+    "5. Create a generation task with one of the documented endpoints and keep the returned task id.",
     "6. Poll the matching task endpoint until the status is `succeeded` or `failed`.",
     "7. Download successful output promptly; temporary upstream media links may expire.",
     "",
@@ -1092,6 +1144,7 @@ function buildStructuredApiDocs(docs = {}) {
       { id: "basics", title: "基础与接入" },
       { id: "video", title: "视频生成" },
       { id: "image", title: "图片生成" },
+      { id: "language", title: "语言模型" },
       { id: "assets", title: "素材管理" },
     ],
     sections: sections.map((section) => {

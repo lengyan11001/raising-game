@@ -868,6 +868,8 @@ function externalAdvancedApiDoc(origin) {
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     supportedModels: [
+      { name: "Papaya 1.0", provider: "papaya", capability: "text / Base64 images", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "BytePlus Language", provider: "byteplus-language", capability: "text", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedance 2.0 Standard", model: "dreamina-seedance-2-0-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Seedance 2.0 Fast", model: "dreamina-seedance-2-0-fast-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "W3.0", provider: "wan30", capability: "w3.0-video", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
