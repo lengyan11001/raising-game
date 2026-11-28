@@ -415,6 +415,33 @@ function storyShotsFromModel(payload = {}, episode = {}) {
   };
 }
 
+async function requestStoryStoryboardPlan({ request, prompt, episode, onPhase }) {
+  await onPhase("storyboard");
+  const system = STORY_SHOT_PLANNER_SYSTEM_PROMPT;
+  const context = { storyShotPlanner: true };
+  let result = await request(system, prompt, 7000, context);
+  let parsed = storyParseJsonObject(result.text);
+  let plan = parsed ? storyShotsFromModel(parsed, episode) : null;
+  if (!plan?.shots.length) {
+    await onPhase("storyboard-retry");
+    const retryPrompt = `${prompt}\n\n上一轮分镜无法解析或没有镜头。请重新生成完整结果。只输出一个合法 JSON 对象，检查所有引号和括号闭合、没有尾随逗号，不输出代码围栏或解释。镜头字段保持简洁，确保完整输出。`;
+    result = await request(system, retryPrompt, 7000, { ...context, storyShotPlannerRetry: true });
+    parsed = storyParseJsonObject(result.text);
+    plan = parsed ? storyShotsFromModel(parsed, episode) : null;
+  }
+  if (!parsed) {
+    throw Object.assign(new Error("AI 分镜自动重试后仍未返回有效 JSON，请重试。"), {
+      statusCode: 502, code: "STORY_SHOT_PLAN_INVALID_JSON",
+    });
+  }
+  if (!plan?.shots.length) {
+    throw Object.assign(new Error("AI 分镜自动重试后仍没有返回镜头，请重试。"), {
+      statusCode: 502, code: "STORY_SHOT_PLAN_EMPTY",
+    });
+  }
+  return { plan, rawShotCount: Array.isArray(parsed.shots) ? parsed.shots.length : (Array.isArray(parsed.storyboard) ? parsed.storyboard.length : 0) };
+}
+
 async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript = {}, onPhase = async () => {} } = {}) {
   const model = storyAnalyzerModel();
   if (!model) {
@@ -513,20 +540,7 @@ async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript 
       : { beats: [{ beatNo: 1, summary: synopsis, sourceBasis: sourceText.slice(0, 2000), characters: [], location: "", actionNodes: [synopsis], dialogueNodes: [], emotionNodes: [], minimumShots: 1, estimatedShotCount: 1 }], estimatedShotCount: 1, coverageNotes: "覆盖模型未返回有效 JSON，按简略大纲降级规划。" };
   }
   const plannerPrompt = `${context}\n\n覆盖计划 JSON\n${JSON.stringify(coverage)}\n\n请严格按覆盖计划生成完整分镜，输出约定 JSON。`;
-  await onPhase("storyboard");
-  const plannerResult = await request(STORY_SHOT_PLANNER_SYSTEM_PROMPT, plannerPrompt, 7000, { storyShotPlanner: true });
-  const parsed = storyParseJsonObject(plannerResult.text);
-  if (!parsed) {
-    throw Object.assign(new Error("AI 分镜没有返回有效 JSON，请重试。"), {
-      statusCode: 502,
-      code: "STORY_SHOT_PLAN_INVALID_JSON",
-      responsePreview: String(plannerResult.text || "").slice(0, 600),
-    });
-  }
-  const candidatePlan = storyShotsFromModel(parsed, episode);
-  if (!candidatePlan.shots.length) {
-    throw Object.assign(new Error("AI 分镜结果为空，请重试。"), { statusCode: 502, code: "STORY_SHOT_PLAN_EMPTY" });
-  }
+  const { plan: candidatePlan, rawShotCount } = await requestStoryStoryboardPlan({ request, prompt: plannerPrompt, episode, onPhase });
   const criticPrompt = `${context}\n\n覆盖计划 JSON\n${JSON.stringify(coverage)}\n\n候选分镜 JSON\n${JSON.stringify({ hook: candidatePlan.hook, recommendedDurationSeconds: candidatePlan.recommendedDurationSeconds, shots: candidatePlan.shots })}\n\n请逐项审稿并返回完整最终分镜 JSON。`;
   await onPhase("review-shots");
   const criticResult = await request(STORY_SHOT_CRITIC_SYSTEM_PROMPT, criticPrompt, 7500, { storyShotCritic: true });
@@ -555,7 +569,7 @@ async function planStoryEpisodeShots({ project = {}, episode = {}, sourceScript 
     coverageBeatCount: coverage.beats.length,
     estimatedShotCount: coverage.estimatedShotCount,
     targetDurationSeconds: episodeDuration,
-    rawShotCount: Array.isArray(parsed?.shots) ? parsed.shots.length : (Array.isArray(parsed?.storyboard) ? parsed.storyboard.length : 0),
+    rawShotCount,
     normalizedShotCount: plan.shots.length,
     exactlyTen: plan.shots.length === 10,
     criticApplied: audit.criticApplied,

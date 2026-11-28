@@ -934,3 +934,42 @@ test("asset-plan repair replaces only flagged character and shot bindings", asyn
   accept = false;
   assert.equal(await context.tryRepairStoryAssetCharacterBindings(inputs), plan);
 });
+
+test("storyboard retries malformed or empty model output once", async () => {
+  const source = read("server.parts/part-49.js");
+  const start = source.indexOf("async function requestStoryStoryboardPlan");
+  const end = source.indexOf("async function planStoryEpisodeShots", start);
+  const context = {
+    STORY_SHOT_PLANNER_SYSTEM_PROMPT: "test",
+    storyParseJsonObject: (value) => { try { return JSON.parse(value); } catch { return null; } },
+    storyShotsFromModel: (value) => ({ shots: Array.isArray(value.shots) ? value.shots : [] }),
+  };
+  vm.runInNewContext(source.slice(start, end), context);
+  const run = (replies) => {
+    const phases = [];
+    const calls = [];
+    const result = context.requestStoryStoryboardPlan({
+      prompt: "原始分镜上下文",
+      episode: {},
+      onPhase: async (phase) => phases.push(phase),
+      request: async (_system, prompt, _tokens, tags) => {
+        calls.push({ prompt, tags });
+        return { text: replies.shift() };
+      },
+    });
+    return { result, phases, calls };
+  };
+  const recovered = run(['{"shots": [', '{"shots":[{"title":"开场"}]}']);
+  assert.equal((await recovered.result).plan.shots[0].title, "开场");
+  assert.deepEqual(recovered.phases, ["storyboard", "storyboard-retry"]);
+  assert.match(recovered.calls[1].prompt, /原始分镜上下文/);
+  assert.equal(recovered.calls[1].tags.storyShotPlannerRetry, true);
+
+  const failed = run(['{"shots":[]}', 'not JSON']);
+  await assert.rejects(failed.result, { code: "STORY_SHOT_PLAN_INVALID_JSON" });
+  assert.equal(failed.calls.length, 2);
+
+  const valid = run(['{"shots":[{"title":"开场"}]}']);
+  await valid.result;
+  assert.equal(valid.calls.length, 1);
+});
