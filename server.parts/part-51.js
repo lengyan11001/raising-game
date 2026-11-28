@@ -285,7 +285,7 @@ async function reportStoryJobPhase(job, phase, counts = {}) {
     await getPool().query(
       `UPDATE app_story_shot_plan_jobs
        SET result = COALESCE(result, '{}'::jsonb) || jsonb_build_object('progress', $3::jsonb), updated_at = NOW()
-       WHERE id = $1 AND claim_token = $2 AND status = 'repair_processing'`,
+       WHERE id = $1 AND claim_token = $2 AND status = 'storyboard_processing'`,
       [job.id, job.claimToken, JSON.stringify({ phase, ...counts })],
     );
   } catch (error) {

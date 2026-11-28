@@ -1516,6 +1516,7 @@
   const storyJobPhases = {
     coverage: "AI 正在梳理剧情覆盖",
     storyboard: "AI 正在规划镜头",
+    "storyboard-retry": "分镜结果无法读取，AI 正在自动重试",
     "review-shots": "AI 正在复核分镜",
     "save-shots": "正在保存分镜",
     assets: "AI 正在生成资产清单并绑定镜头",
