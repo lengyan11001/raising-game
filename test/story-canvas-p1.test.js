@@ -784,7 +784,7 @@ test("production progress distinguishes queue, storyboard stages, approval, and 
   const end = source.indexOf("  function renderStoryDetail()", start);
   const episode = { id: "episode", episodeNo: 1, title: "<b>剧集</b>", shotCount: 1 };
   const shot = { id: "shot", shotNo: 1, title: "开场", confirmed: false };
-  const assets = [{ id: "a", generated: true }, { id: "b" }];
+  let assets = [{ id: "a", generated: true }, { id: "b" }];
   const state = {
     detail: { episodes: [episode], backgroundJobs: [] },
     detailTab: "episodes",
@@ -825,6 +825,9 @@ test("production progress distinguishes queue, storyboard stages, approval, and 
   assert.match(render(), /设计图生成失败/);
   assert.match(render(), /&lt;error>/);
   assert.doesNotMatch(render(), /is-spinning/);
+  assets = [];
+  state.detail.backgroundJobs = [{ id: "failed-assets", episodeId: episode.id, status: "completed", kind: "shots", errorMessage: "资产校验失败" }];
+  assert.match(render(), /data-story-plan-assets>重试 AI 资产清单/);
 
   const css = read("platform.css");
   assert.match(css, /animation: story-progress-spin .75s linear infinite/);
