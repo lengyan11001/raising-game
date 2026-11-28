@@ -12415,7 +12415,7 @@ async function syncStoryGenerationRecordInDb(client, record) {
          SELECT 'story-frame-' || $1, p.id, s.id, $1, 'frame', $6, $7::jsonb
          FROM app_story_shots s JOIN app_story_projects p ON p.id = s.project_id
          WHERE s.id = $2 AND p.id = $3 AND p.owner_user_id = $4 AND s.episode_id = $5
-         ON CONFLICT(id) DO UPDATE SET status = EXCLUDED.status, metadata = r.metadata || EXCLUDED.metadata, updated_at = NOW()`,
+         ON CONFLICT(id) DO UPDATE SET status = EXCLUDED.status, metadata = r.metadata || EXCLUDED.metadata`,
         [taskId, shotId, projectId, userId, episodeId, failed ? "failed" : variantStatus === "ready" ? "succeeded" : "queued", JSON.stringify(metadata)],
       );
       return;
@@ -12452,7 +12452,7 @@ async function syncStoryGenerationRecordInDb(client, record) {
        p.id, s.id, $1, 'video', $6, $7::jsonb
      FROM app_story_shots s JOIN app_story_projects p ON p.id = s.project_id
      WHERE s.id = $2 AND p.id = $3 AND p.owner_user_id = $4 AND s.episode_id = $5
-     ON CONFLICT(id) DO UPDATE SET status = EXCLUDED.status, metadata = r.metadata || EXCLUDED.metadata, updated_at = NOW()`,
+     ON CONFLICT(id) DO UPDATE SET status = EXCLUDED.status, metadata = r.metadata || EXCLUDED.metadata`,
     [taskId, shotId, projectId, userId, episodeId, failed ? "failed" : succeeded ? "succeeded" : "queued", JSON.stringify(metadata)],
   );
 }

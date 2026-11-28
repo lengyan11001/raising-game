@@ -1020,6 +1020,7 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       ...(firstFrameUrl ? [{ type: "image_url", key: "image_url", userAssetId: firstFrameAsset?.id || "", imageUrl: firstFrameUrl }] : []),
       ...(lastFrameUrl ? [{ type: "end_image_url", key: "end_image_url", userAssetId: lastFrameAsset?.id || "", imageUrl: lastFrameUrl }] : []),
     ];
+    const createKind = firstPresent(bodyParams.createKind, body.params?.createKind, "custom");
     const requestParams = {
       provider,
       model: providerLabel,
@@ -1038,7 +1039,14 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       preprocessReference,
       generateAudio,
       generate_audio: generateAudio,
-      createKind: firstPresent(bodyParams.createKind, body.params?.createKind, "custom"),
+      createKind,
+      ...(createKind === "story-shot-video" ? {
+        projectId: storyInputText(bodyParams.projectId, 120),
+        episodeId: storyInputText(bodyParams.episodeId, 120),
+        shotId: storyInputText(bodyParams.shotId, 120),
+        shotNo: Math.max(0, Math.trunc(Number(bodyParams.shotNo) || 0)),
+        firstFrameRefId: storyInputText(bodyParams.firstFrameRefId, 160),
+      } : {}),
       createMode: firstPresent(bodyParams.createMode, body.params?.createMode, "custom"),
       preserveUserPrompt: true,
     };

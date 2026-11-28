@@ -973,3 +973,24 @@ test("storyboard retries malformed or empty model output once", async () => {
   await valid.result;
   assert.equal(valid.calls.length, 1);
 });
+
+test("Seedance 2.5 preserves story linkage for backend video writeback", () => {
+  const source = read("server.parts/part-48.js");
+  const start = source.indexOf('    const createKind =', source.indexOf("async function handleAdvancedSeedance25Generate("));
+  const end = source.indexOf("\n    const chargeMeta", start);
+  const context = {
+    bodyParams: { createKind: "story-shot-video", projectId: "project", episodeId: "episode", shotId: "shot", shotNo: 1, firstFrameRefId: "frame" },
+    body: {}, firstPresent: (...values) => values.find(Boolean), storyInputText: (value) => String(value || "").trim(),
+    provider: "seedance-nsfw", providerLabel: "Seedance 2.5", mode: "omini", prompt: "fixture", resolution: "720p",
+    ratio: "9:16", duration: 8, seed: "", imageAssets: [], videoAssets: [], audioAssets: [],
+    firstFrameAsset: null, lastFrameAsset: null, preprocessReference: false, generateAudio: true,
+  };
+  vm.runInNewContext(source.slice(start, end) + "\nthis.params = requestParams;", context);
+  for (const key of ["createKind", "projectId", "episodeId", "shotId", "shotNo", "firstFrameRefId"]) {
+    assert.equal(context.params[key], context.bodyParams[key]);
+  }
+  context.bodyParams = { ...context.bodyParams, createKind: "custom" };
+  const generalParams = vm.runInNewContext("(function(){" + source.slice(start, end) + "\nreturn requestParams;})()", context);
+  assert.equal(generalParams.shotId, undefined);
+  assert.match(source.slice(end), /params: requestParams/);
+});
