@@ -1658,6 +1658,7 @@
     const busy = status.state === "queued" || status.state === "running";
     const scope = snapshot.scriptView ? "文稿" : shot ? `S${String(shot.shotNo).padStart(2, "0")} · ${shot.title}`
       : `E${String(episode.episodeNo).padStart(2, "0")} · ${episode.title}`;
+    const canRetryAssets = !busy && status.step === 2 && !snapshot.scriptView && snapshot.shotCount > 0 && !snapshot.assets.length;
     const measured = status.measured?.[1] > 0 ? status.measured : null;
     const steps = storyWorkflowSteps.map((label, index) => {
       const current = index === status.step;
@@ -1677,6 +1678,7 @@
       ${measured ? `<progress class="story-progress-meter" value="${measured[0]}" max="${measured[1]}" aria-label="${storyEscape(status.count)}"></progress>` : ""}
       <p class="story-progress-next"><strong>下一步</strong> ${storyEscape(status.next || "")}
         ${status.background ? '<span class="story-progress-background">后台继续运行，可以离开页面。</span>' : ""}</p>
+      ${canRetryAssets ? '<div><button class="story-secondary-button" type="button" data-story-plan-assets>重试 AI 资产清单</button></div>' : ""}
     </section>`;
   }
 
