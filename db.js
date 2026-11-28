@@ -8541,7 +8541,7 @@ function storyShotPlanJobFromRow(row = {}) {
     projectId: String(row.project_id || ""),
     episodeId: String(row.episode_id || ""),
     ownerUserId: String(row.owner_user_id || ""),
-    status: String(row.status || "queued").replace(/^(?:production|progress|billing|reference)_/, ""),
+    status: String(row.status || "queued").replace(/^(?:production|progress|billing|reference|repair)_/, ""),
     claimToken: String(row.claim_token || ""),
     leaseUntil: row.lease_until || null,
     attempts: Number(row.attempts || 0),
@@ -8581,8 +8581,8 @@ async function enqueueStoryShotPlanJobInDb({ projectId = "", episodeId = "", own
     const existing = await client.query(
       `SELECT * FROM app_story_shot_plan_jobs
        WHERE project_id = $1 AND episode_id = $2 AND owner_user_id = $3
-         AND kind = 'shots' AND status IN ('queued', 'retry', 'processing', 'production_queued', 'production_retry', 'production_processing', 'progress_queued', 'progress_retry', 'progress_processing', 'billing_queued', 'billing_retry', 'billing_processing', 'reference_queued', 'reference_retry', 'reference_processing')
-         AND (status NOT IN ('processing', 'production_processing', 'progress_processing', 'billing_processing', 'reference_processing') OR lease_until IS NULL OR lease_until > NOW())
+         AND kind = 'shots' AND status IN ('queued', 'retry', 'processing', 'production_queued', 'production_retry', 'production_processing', 'progress_queued', 'progress_retry', 'progress_processing', 'billing_queued', 'billing_retry', 'billing_processing', 'reference_queued', 'reference_retry', 'reference_processing', 'repair_queued', 'repair_retry', 'repair_processing')
+         AND (status NOT IN ('processing', 'production_processing', 'progress_processing', 'billing_processing', 'reference_processing', 'repair_processing') OR lease_until IS NULL OR lease_until > NOW())
        ORDER BY created_at DESC
        LIMIT 1
        FOR UPDATE`,
@@ -8615,7 +8615,7 @@ async function enqueueStoryShotPlanJobInDb({ projectId = "", episodeId = "", own
       `INSERT INTO app_story_shot_plan_jobs(
          id, project_id, episode_id, owner_user_id, status, attempts, max_attempts, available_at, created_at, updated_at
        )
-       VALUES ($1, $2, $3, $4, 'reference_queued', 0, $5, NOW(), NOW(), NOW())
+       VALUES ($1, $2, $3, $4, 'repair_queued', 0, $5, NOW(), NOW(), NOW())
        RETURNING *`,
       [crypto.randomUUID(), parentId, targetEpisodeId, ownerId, attempts],
     );
@@ -8649,11 +8649,11 @@ async function enqueueStoryBackgroundJobInDb({ projectId, ownerUserId, kind, inp
       const active = await client.query(
         `SELECT * FROM app_story_shot_plan_jobs
          WHERE project_id = $1 AND owner_user_id = $2 AND kind = $3 AND input = $4::jsonb
-         AND episode_id IS NOT DISTINCT FROM $5 AND status IN ('queued', 'retry', 'processing', 'production_queued', 'production_retry', 'production_processing', 'progress_queued', 'progress_retry', 'progress_processing', 'billing_queued', 'billing_retry', 'billing_processing', 'reference_queued', 'reference_retry', 'reference_processing')
+         AND episode_id IS NOT DISTINCT FROM $5 AND status IN ('queued', 'retry', 'processing', 'production_queued', 'production_retry', 'production_processing', 'progress_queued', 'progress_retry', 'progress_processing', 'billing_queued', 'billing_retry', 'billing_processing', 'reference_queued', 'reference_retry', 'reference_processing', 'repair_queued', 'repair_retry', 'repair_processing')
          ORDER BY created_at DESC LIMIT 1`, values);
       const row = active.rows[0] || (await client.query(
         `INSERT INTO app_story_shot_plan_jobs(project_id, owner_user_id, kind, input, episode_id, id, status)
-         VALUES ($1, $2, $3, $4::jsonb, $5, $6, 'reference_queued') RETURNING *`,
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6, 'repair_queued') RETURNING *`,
         [...values, crypto.randomUUID()])).rows[0];
       jobs.push(storyShotPlanJobFromRow(row));
     }
@@ -8704,7 +8704,7 @@ async function claimNextStoryShotPlanJobsInDb({ limit = 1, leaseMs = 5 * 60 * 10
     await client.query("BEGIN");
     await client.query(
       `UPDATE app_story_shot_plan_jobs
-       SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'reference_retry' END,
+       SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'repair_retry' END,
            claim_token = '',
            lease_until = NULL,
            error_code = CASE WHEN attempts >= max_attempts THEN 'STORY_SHOT_PLAN_LEASE_EXPIRED' ELSE error_code END,
@@ -8712,11 +8712,11 @@ async function claimNextStoryShotPlanJobsInDb({ limit = 1, leaseMs = 5 * 60 * 10
            available_at = CASE WHEN attempts >= max_attempts THEN 'infinity'::timestamptz ELSE NOW() END,
            completed_at = CASE WHEN attempts >= max_attempts THEN NOW() ELSE NULL END,
            updated_at = NOW()
-       WHERE status IN ('processing', 'production_processing', 'progress_processing', 'billing_processing', 'reference_processing') AND lease_until IS NOT NULL AND lease_until < NOW()`,
+       WHERE status IN ('processing', 'production_processing', 'progress_processing', 'billing_processing', 'reference_processing', 'repair_processing') AND lease_until IS NOT NULL AND lease_until < NOW()`,
     );
     const selected = await client.query(
       `SELECT * FROM app_story_shot_plan_jobs
-       WHERE status IN ('queued', 'retry', 'production_queued', 'production_retry', 'progress_queued', 'progress_retry', 'billing_queued', 'billing_retry', 'reference_queued', 'reference_retry') AND available_at <= NOW()
+       WHERE status IN ('queued', 'retry', 'production_queued', 'production_retry', 'progress_queued', 'progress_retry', 'billing_queued', 'billing_retry', 'reference_queued', 'reference_retry', 'repair_queued', 'repair_retry') AND available_at <= NOW()
        ORDER BY created_at ASC
        LIMIT $1
        FOR UPDATE SKIP LOCKED`,
@@ -8726,7 +8726,7 @@ async function claimNextStoryShotPlanJobsInDb({ limit = 1, leaseMs = 5 * 60 * 10
     for (const row of selected.rows) {
       const updated = await client.query(
         `UPDATE app_story_shot_plan_jobs
-         SET status = 'reference_processing', claim_token = $2, lease_until = NOW() + ($3::int * INTERVAL '1 millisecond'),
+         SET status = 'repair_processing', claim_token = $2, lease_until = NOW() + ($3::int * INTERVAL '1 millisecond'),
              attempts = attempts + 1, started_at = COALESCE(started_at, NOW()), updated_at = NOW()
          WHERE id = $1
          RETURNING *`,
@@ -8751,7 +8751,7 @@ async function completeStoryShotPlanJobInDb({ id = "", claimToken = "", result =
     `UPDATE app_story_shot_plan_jobs
      SET status = 'completed', claim_token = '', lease_until = NULL, result = $3::jsonb,
          error_code = '', error_message = '', completed_at = NOW(), updated_at = NOW()
-     WHERE id = $1 AND status = 'reference_processing' AND claim_token = $2
+     WHERE id = $1 AND status = 'repair_processing' AND claim_token = $2
      RETURNING *`,
     [String(id || ""), String(claimToken || ""), JSON.stringify(result && typeof result === "object" ? result : {})],
   );
@@ -8765,7 +8765,7 @@ async function failStoryShotPlanJobInDb({ id = "", claimToken = "", code = "", m
     `UPDATE app_story_shot_plan_jobs
      SET status = 'failed', claim_token = '', lease_until = NULL, error_code = $3, error_message = $4,
          available_at = 'infinity'::timestamptz, completed_at = NOW(), updated_at = NOW()
-     WHERE id = $1 AND status = 'reference_processing' AND claim_token = $2
+     WHERE id = $1 AND status = 'repair_processing' AND claim_token = $2
      RETURNING *`,
     [String(id || ""), String(claimToken || ""), String(code || "STORY_SHOT_PLAN_FAILED").slice(0, 120), String(message || "").slice(0, 2000)],
   );

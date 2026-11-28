@@ -894,3 +894,40 @@ test("story image submission gives billing the authenticated user and reconciles
   assert.equal(cleans[0].jobId, job.id);
   assert.equal(cleans[0].userId, user.id);
 });
+
+test("asset-plan repair replaces only flagged character and shot bindings", async () => {
+  const source = read("server.parts/part-51.js");
+  const start = source.indexOf("function mergeStoryCharacterBindingRepairs");
+  const end = source.indexOf("async function planStoryEpisodeAssets", start);
+  const costume = (characterKey, stateLabel, shotNos) => ({ kind: "character", metadata: { characterKey, stateLabel, shotNos } });
+  const set = { kind: "scene", metadata: { shotNos: [11, 12, 13] } };
+  const assets = [set, costume("甲", "外套", [11, 12]), costume("甲", "便服", [12, 13]), costume("乙", "制服", [13])];
+  const missing = [{ shotNo: 12, characterName: "乙" }];
+  const conflicts = [{ shotNo: 12, characterName: "甲" }];
+  const repaired = [costume("甲", "便服", ["12", "11"]), costume("乙", "制服", ["12"]), costume("丙", "外套", ["12"])];
+  const plan = { assets, coverage: { characters: { missing, conflicts } } };
+  let accept = true;
+  let request;
+  const context = {
+    STORY_ASSET_PLANNER_SYSTEM_PROMPT: "fixture",
+    PROMPT_OPTIMIZER_TOTAL_BUDGET_MS: 1000,
+    promptOptimizerUpstreamRequest: async (body) => { request = body; return repaired; },
+    qwen37FlashResponseText: (data) => data,
+    storyParseJsonObject: (data) => data,
+    storyAssetsFromModel: (data) => data,
+    auditStoryAssetPlan: (_shots, merged) => ({ assets: merged, coverage: { complete: accept } }),
+    console,
+  };
+  vm.runInNewContext(source.slice(start, end), context);
+  const inputs = { plan, shots: [], knownLooks: [], requestContext: {}, usage: {},
+    shotContext: [{ shotNo: 11, title: "不应传给修复模型的标题" }, { shotNo: 12, title: "冲突镜头" }],
+    model: { upstreamModel: "test" } };
+  const result = await context.tryRepairStoryAssetCharacterBindings(inputs);
+  assert.equal(result.assets[0], set);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.assets.slice(1).map((asset) => asset.metadata.shotNos))), [[11], [13, 12], [13, 12]]);
+  assert.match(request.messages[1].content, /冲突镜头/);
+  assert.doesNotMatch(request.messages[1].content, /不应传给修复模型的标题/);
+  assert.deepEqual(assets[1].metadata.shotNos, [11, 12]);
+  accept = false;
+  assert.equal(await context.tryRepairStoryAssetCharacterBindings(inputs), plan);
+});

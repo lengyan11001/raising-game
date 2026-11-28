@@ -1519,6 +1519,7 @@
     "review-shots": "AI 正在复核分镜",
     "save-shots": "正在保存分镜",
     assets: "AI 正在生成资产清单并绑定镜头",
+    "asset-repair": "AI 正在修正部分镜头的角色造型绑定",
     analysis: "AI 正在拆解剧本",
     image: "正在提交设计图生成任务",
     frame: "正在提交镜头首帧生成任务",
@@ -1598,7 +1599,7 @@
       || pending.find((item) => item.status === "processing") || pending[0];
     if (job) {
       const phase = job.progress?.phase;
-      const step = phase === "assets" ? 2 : job.kind === "frame" ? 3 : storyWorkflowSteps.indexOf(storyJobStages[job.kind]);
+      const step = ["assets", "asset-repair"].includes(phase) ? 2 : job.kind === "frame" ? 3 : storyWorkflowSteps.indexOf(storyJobStages[job.kind]);
       const queued = job.status !== "processing";
       let count = job.progress?.shots ? `${job.progress.shots} 个分镜` : "";
       if (job.kind === "image") count = `${snapshot.generated} / ${snapshot.assets.length} 项已有设计图`;
