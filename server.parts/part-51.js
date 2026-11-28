@@ -14,7 +14,8 @@ async function executeStoryAnalysisJob({ projectId, ownerUserId, input }) {
   return { scriptVersionId: script.id, ...result };
 }
 
-async function executeStoryAssetPlanJob({ projectId, episodeId, ownerUserId }) {
+async function executeStoryAssetPlanJob(job) {
+  const { projectId, episodeId, ownerUserId } = job;
   const [project, episodes, shots] = await Promise.all([
     getStoryProjectFromDb({ id: projectId, ownerUserId }),
     listStoryEpisodesFromDb({ projectId, ownerUserId }),
@@ -24,7 +25,7 @@ async function executeStoryAssetPlanJob({ projectId, episodeId, ownerUserId }) {
   if (!project || !episode || !shots?.length) {
     throw Object.assign(new Error("本集分镜不存在，请先生成分镜。"), { code: "STORY_ASSETS_REQUIRE_SHOTS" });
   }
-  return saveStoryEpisodeAssetPlan({ project, episode, shots, ownerUserId });
+  return saveStoryEpisodeAssetPlan({ project, episode, shots, ownerUserId, onRepair: () => reportStoryJobPhase(job, "asset-repair", { shots: shots.length }) });
 }
 
 function storyCharacterBase(asset, assets, variants) {
@@ -284,7 +285,7 @@ async function reportStoryJobPhase(job, phase, counts = {}) {
     await getPool().query(
       `UPDATE app_story_shot_plan_jobs
        SET result = COALESCE(result, '{}'::jsonb) || jsonb_build_object('progress', $3::jsonb), updated_at = NOW()
-       WHERE id = $1 AND claim_token = $2 AND status = 'reference_processing'`,
+       WHERE id = $1 AND claim_token = $2 AND status = 'repair_processing'`,
       [job.id, job.claimToken, JSON.stringify({ phase, ...counts })],
     );
   } catch (error) {
@@ -348,7 +349,8 @@ async function executeStoryShotPlanJob(job = {}) {
   let assetPlan;
   await reportStoryJobPhase(job, "assets", { shots: saved.shots.length });
   try {
-    const planned = await saveStoryEpisodeAssetPlan({ project, episode: saved.episode, shots: saved.shots, ownerUserId });
+    const planned = await saveStoryEpisodeAssetPlan({ project, episode: saved.episode, shots: saved.shots, ownerUserId,
+      onRepair: () => reportStoryJobPhase(job, "asset-repair", { shots: saved.shots.length }) });
     saved.episode = planned.episode;
     assetPlan = { count: planned.assets.length };
   } catch (error) {
@@ -617,7 +619,92 @@ function repairStoryAssetSceneCoverage({ shots = [], assets = [] } = {}) {
   return { assets, audit: { repaired, missing, complete: missing.length === 0 } };
 }
 
-async function planStoryEpisodeAssets({ project = {}, episode = {}, shots = [], existingAssets = [] } = {}) {
+function auditStoryAssetPlan(shots, plannedAssets) {
+  const characterBindings = normalizeStoryAssetCharacterBindings({ shots, assets: plannedAssets });
+  const characterCoverage = auditStoryAssetCharacterCoverage({ shots, assets: characterBindings.assets });
+  const sceneCoverage = repairStoryAssetSceneCoverage({ shots, assets: characterBindings.assets });
+  return {
+    assets: sceneCoverage.assets,
+    coverage: {
+      characters: characterCoverage,
+      characterBindings: characterBindings.audit,
+      scenes: sceneCoverage.audit,
+      complete: characterBindings.audit.complete && characterCoverage.complete && sceneCoverage.audit.complete,
+    },
+  };
+}
+
+function mergeStoryCharacterBindingRepairs(assets, repairedAssets, issues) {
+  const needsRepair = (characterKey, shotNo) => issues.some((issue) =>
+    issue.characterName === characterKey && issue.shotNo === Number(shotNo));
+  const merged = assets.flatMap((asset) => {
+    if (asset.kind !== "character") return [asset];
+    const { characterKey, shotNos = [] } = asset.metadata || {};
+    const unaffected = shotNos.filter((shotNo) => !needsRepair(characterKey, shotNo));
+    return characterKey && unaffected.length ? [{ ...asset, metadata: { ...asset.metadata, shotNos: unaffected } }] : [];
+  });
+  for (const asset of repairedAssets) {
+    const { characterKey, stateLabel, shotNos = [] } = asset.metadata || {};
+    if (asset.kind !== "character" || !characterKey || !stateLabel) continue;
+    const repairedShotNos = shotNos.map(Number).filter((shotNo) => needsRepair(characterKey, shotNo));
+    if (!repairedShotNos.length) continue;
+    const sameLook = merged.find((item) => item.kind === "character"
+      && item.metadata?.characterKey === characterKey && item.metadata?.stateLabel === stateLabel)
+      || assets.find((item) => item.kind === "character"
+        && item.metadata?.characterKey === characterKey && item.metadata?.stateLabel === stateLabel);
+    if (sameLook && merged.includes(sameLook)) {
+      sameLook.metadata.shotNos = [...new Set([...sameLook.metadata.shotNos, ...repairedShotNos])];
+    } else {
+      const definition = sameLook || asset;
+      merged.push({ ...definition, metadata: { ...definition.metadata, shotNos: [...new Set(repairedShotNos)] } });
+    }
+  }
+  return merged;
+}
+
+async function tryRepairStoryAssetCharacterBindings({ plan, shots, shotContext, knownLooks, model, requestContext, usage }) {
+  const { missing, conflicts } = plan.coverage.characters;
+  const issues = [...missing, ...conflicts];
+  if (!issues.length || issues.length > 24) return plan;
+  const shotNos = new Set(issues.map((issue) => issue.shotNo));
+  const characterNames = new Set(issues.map((issue) => issue.characterName));
+  const existingLooks = plan.assets.filter((asset) => asset.kind === "character" && characterNames.has(asset.metadata?.characterKey))
+    .map(({ name, description, metadata }) => ({ name, description: String(description || "").slice(0, 500),
+      characterKey: metadata.characterKey, stateLabel: metadata.stateLabel, shotNos: metadata.shotNos }));
+  try {
+    const raw = await promptOptimizerUpstreamRequest({
+      model: model.upstreamModel,
+      messages: [
+        { role: "system", content: STORY_ASSET_PLANNER_SYSTEM_PROMPT },
+        { role: "user", content: [
+          "你正在修复一个已有资产清单。只输出需要修复的角色资产，不输出场景、道具或其他镜头。",
+          "每个待修复的角色和镜号必须有且只有一个明确造型。冲突时根据本镜画面选中唯一造型；换装过程用一个明确起止状态的造型。不得凭相邻镜头盲选。",
+          "同一造型沿用已有 stateLabel；不同造型保留角色身份并给出明确描述。",
+          `缺失绑定：${JSON.stringify(missing)}`,
+          `冲突绑定：${JSON.stringify(conflicts)}`,
+          `待修复镜头：${JSON.stringify(shotContext.filter((shot) => shotNos.has(Number(shot.shotNo))))}`,
+          `现有造型：${JSON.stringify(existingLooks)}`,
+          `项目已知造型：${JSON.stringify(knownLooks.filter((look) => characterNames.has(look.characterKey)))}`,
+        ].join("\n") },
+      ],
+      temperature: 0.1,
+      max_tokens: 5000,
+    }, {
+      deadline: Date.now() + PROMPT_OPTIMIZER_TOTAL_BUDGET_MS,
+      requestContext: { ...requestContext, storyAssetBindingRepair: true }, usage, optimizerModel: model,
+    });
+    const parsed = storyParseJsonObject(qwen37FlashResponseText(raw));
+    if (!parsed) return plan;
+    const repaired = mergeStoryCharacterBindingRepairs(plan.assets, storyAssetsFromModel(parsed), issues);
+    const checked = auditStoryAssetPlan(shots, repaired);
+    return checked.coverage.complete ? checked : plan;
+  } catch (error) {
+    console.warn("[story-asset-binding-repair-failed]", JSON.stringify({ ...requestContext, code: error.code || "", shotNos: [...shotNos] }));
+    return plan;
+  }
+}
+
+async function planStoryEpisodeAssets({ project = {}, episode = {}, shots = [], existingAssets = [], onRepair = async () => {} } = {}) {
   const model = storyAnalyzerModel();
   if (!model) {
     throw Object.assign(new Error("AI 资产设计模型尚未配置。"), { statusCode: 503, code: "MISSING_STORY_ASSET_MODEL" });
@@ -687,36 +774,40 @@ async function planStoryEpisodeAssets({ project = {}, episode = {}, shots = [], 
     });
   }
   const plannedAssets = storyAssetsFromModel(parsed);
-  const characterBindings = normalizeStoryAssetCharacterBindings({ shots, assets: plannedAssets });
-  const characterCoverage = auditStoryAssetCharacterCoverage({ shots, assets: characterBindings.assets });
-  const sceneCoverage = repairStoryAssetSceneCoverage({ shots, assets: characterBindings.assets });
-  const assets = sceneCoverage.assets;
-  if (!assets.length) {
+  if (!plannedAssets.length) {
     throw Object.assign(new Error("AI 资产规划结果为空，请重试。"), { statusCode: 502, code: "STORY_ASSET_PLAN_EMPTY" });
   }
-  return {
-    assets,
-    coverage: {
-      characters: characterCoverage,
-      characterBindings: characterBindings.audit,
-      scenes: sceneCoverage.audit,
-      complete: characterBindings.audit.complete && characterCoverage.complete && sceneCoverage.audit.complete,
-    },
-    model: model.id,
-    attempts: usage.attempts,
-  };
+  let plan = auditStoryAssetPlan(shots, plannedAssets);
+  if (!plan.coverage.complete && !plan.coverage.characters.complete) {
+    await onRepair();
+    plan = await tryRepairStoryAssetCharacterBindings({
+      plan, shots, shotContext, knownLooks, model, usage,
+      requestContext: { storyAssetPlanner: true, projectId: project.id, episodeId: episode.id },
+    });
+  }
+  return { ...plan, model: model.id, attempts: usage.attempts };
 }
 
-async function saveStoryEpisodeAssetPlan({ project, episode, shots, ownerUserId }) {
+async function saveStoryEpisodeAssetPlan({ project, episode, shots, ownerUserId, onRepair }) {
   const existingAssets = await listStoryAssetsFromDb({ projectId: project.id, ownerUserId });
   if (!existingAssets) {
     throw Object.assign(new Error("无法读取项目资产。"), { statusCode: 503, code: "DATABASE_UNAVAILABLE" });
   }
-  const result = await planStoryEpisodeAssets({ project, episode, shots, existingAssets });
+  const result = await planStoryEpisodeAssets({ project, episode, shots, existingAssets, onRepair });
   if (!result.coverage.complete) {
     const { missing, conflicts } = result.coverage.characters;
-    const labels = [...missing, ...conflicts].slice(0, 8).map(({ shotNo, characterName }) => `S${shotNo} ${characterName}`);
-    const detail = labels.length ? `需核对：${labels.join("、")}。` : "";
+    const issueGroups = [
+      [missing, "缺少造型"], [conflicts, "造型冲突"],
+      [result.coverage.scenes.missing, "缺少场景"],
+    ];
+    const labels = issueGroups.flatMap(([items, label]) => items
+      .map(({ shotNo, characterName, location }) => `S${shotNo} ${characterName || location}（${label}）`)).slice(0, 8);
+    const detail = labels.length ? `需核对：${labels.join("、")}。` : "部分角色无法确认身份。";
+    console.warn("[story-asset-binding-unresolved]", JSON.stringify({
+      projectId: project.id, episodeId: episode.id,
+      missing: missing.map((issue) => issue.shotNo), conflicts: conflicts.map((issue) => issue.shotNo),
+      unbound: result.coverage.characterBindings.unbound.length, scenes: result.coverage.scenes.missing.map((issue) => issue.shotNo),
+    }));
     throw Object.assign(new Error(`资产与分镜的绑定不完整。${detail}请重新提取本集资产。`), {
       statusCode: 422, code: "STORY_ASSET_BINDINGS_INCOMPLETE",
     });
